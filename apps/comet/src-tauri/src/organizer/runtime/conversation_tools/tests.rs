@@ -982,7 +982,9 @@ fn a_local_planner_grammar_only_admits_the_values_the_host_knows() {
     let selected = vec![capability(&catalog, "task_add").unwrap().clone()];
     let contexts = json!({"task_add": actions::entities_for(&db, "task_add", request).unwrap()});
     let schema = local_plan_schema(&turn, &selected, &contexts);
-    let act = &schema["anyOf"][0]["properties"];
+    // The request gives the title, so there is nothing to ask.
+    assert!(schema.get("anyOf").is_none());
+    let act = &schema["properties"];
     assert_eq!(act["question"]["enum"], json!([""]));
     let variants = act["operations"]["items"]["anyOf"].as_array().unwrap();
     assert_eq!(variants.len(), 1, "a new task is never a statement");
@@ -1112,4 +1114,204 @@ fn planner_instruction_carries_only_the_selected_features_rules() {
     let local = plan_instruction(&task, true);
     assert!(local.contains("input은 해당 inputSchema에 맞는 객체다"));
     assert!(!local.contains("inputJson"));
+}
+
+/// Plans `request` from the rules alone, runs it and stores the results like `direct` does.
+fn run_host_turn(db: &Connection, id: &str, request: &str) -> Turn {
+    let user = store::active_user_id(db).unwrap();
+    let catalog = catalog(db).unwrap();
+    let mut turn = read_turn(db, id, request);
+    let selected: Vec<Value> = turn
+        .selected
+        .iter()
+        .map(|kind| capability(&catalog, kind).unwrap().clone())
+        .collect();
+    let kind = turn.selected[0].clone();
+    let contexts = json!({ kind.clone(): actions::entities_for(db, &kind, request).unwrap() });
+    let plan = host_plan(&turn, &selected, &contexts).expect(request);
+    prepare_plan(plan, &mut turn, &catalog, &contexts).unwrap();
+    let planned = turn.operations[0].proposal.clone();
+    let input: Value = serde_json::from_str(&planned.input_json).unwrap();
+    let result = if turn.operations[0].effect == "read" {
+        actions::query_registry(db, &planned.kind, &input).unwrap()
+    } else {
+        let action = actions::Action {
+            kind: planned.kind.clone(),
+            target_id: planned.target_id.clone(),
+            expected_revision: planned.expected_revision,
+            input,
+        };
+        let receipt = actions::execute_registry(db, &user, id, 0, request, &action).unwrap();
+        serde_json::to_value(receipt).unwrap()
+    };
+    accept_result(&mut turn, 0, result);
+    save_turn(db, &user, id, &turn).unwrap();
+    turn
+}
+
+#[test]
+fn a_named_clock_time_becomes_that_deadline_and_a_guessed_one_is_not_saved() {
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let user = store::active_user_id(&db).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
+    let catalog = catalog(&db).unwrap();
+    let request = "내일 오후 3시에 치과 가기 할 일 추가해줘.";
+    let turn = read_turn(&db, "clock", request);
+    let intent = &turn.analysis.as_ref().unwrap().intents[0];
+    let at = requested_due_at(&intent.slots).unwrap();
+    assert_eq!(local_day(at), intent.slots.date);
+    let selected = vec![capability(&catalog, "task_add").unwrap().clone()];
+    let contexts = json!({"task_add": actions::entities_for(&db, "task_add", request).unwrap()});
+    // The local grammar fixes the deadline and leaves out fields the request never mentions.
+    let schema = local_plan_schema(&turn, &selected, &contexts);
+    let input = &schema["properties"]["operations"]["items"]["anyOf"][0]["properties"]["input"]
+        ["properties"];
+    assert_eq!(input["dueAt"]["enum"], json!([at]));
+    for absent in [
+        "dueDate",
+        "plannedDate",
+        "planPeriod",
+        "planAnchor",
+        "repeat",
+        "memo",
+    ] {
+        assert!(input.get(absent).is_none(), "{absent}");
+    }
+    // 할 일 is also the default list's name, so only that list can be chosen.
+    assert_eq!(input["listId"]["enum"], json!(["default"]));
+    let guessed = Plan {
+        question: String::new(),
+        operations: vec![Proposal {
+            kind: "task_add".into(),
+            target_id: String::new(),
+            expected_revision: contexts["task_add"]["revision"].as_i64().unwrap(),
+            input_json: json!({"title":"치과 가기","dueAt":0}).to_string(),
+            mode: "explicit".into(),
+            evidence: intent.evidence.clone(),
+        }],
+    };
+    assert_eq!(
+        prepare_plan(guessed, &mut turn.clone(), &catalog, &contexts).unwrap_err(),
+        "요청한 시각과 저장할 값이 달라서 저장하지 않았어요. 한 번 더 말해 주세요."
+    );
+    run_host_turn(&db, "clock", request);
+    let tasks = actions::entities_for(&db, "task_add", "").unwrap();
+    assert_eq!(tasks["items"][0]["title"], "치과 가기");
+    assert_eq!(tasks["items"][0]["dueAt"], at);
+    assert_eq!(
+        actions::result_reply(&db, &user, "clock")
+            .unwrap()
+            .as_deref(),
+        Some("'치과 가기' 할 일을 추가했어요.")
+    );
+    // A repetition needs a rule value, so the model plans it within the known values.
+    let request = "매주 월요일 분리수거 할 일 추가해 줘";
+    let turn = read_turn(&db, "repeat", request);
+    let contexts = json!({"task_add": actions::entities_for(&db, "task_add", request).unwrap()});
+    assert!(host_plan(&turn, &selected, &contexts).is_none());
+    let schema = local_plan_schema(&turn, &selected, &contexts);
+    let input = &schema["properties"]["operations"]["items"]["anyOf"][0]["properties"]["input"]
+        ["properties"];
+    assert_eq!(
+        input["repeat"]["enum"],
+        json!(["none", "daily", "weekly", "monthly", "yearly"])
+    );
+}
+
+#[test]
+fn the_apps_own_reply_names_the_saved_change_the_found_items_or_the_question() {
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let user = store::active_user_id(&db).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
+    run_host_turn(&db, "add", "마감일 2026-11-06인 QA-T1 할 일을 추가해줘.");
+    assert_eq!(
+        actions::result_reply(&db, &user, "add").unwrap().as_deref(),
+        Some("'QA-T1' 할 일을 추가했어요.")
+    );
+    run_host_turn(&db, "move", "QA-T1 할 일의 마감일만 2026-11-07로 바꿔줘.");
+    let moved = actions::result_reply(&db, &user, "move").unwrap().unwrap();
+    assert!(moved.starts_with("'QA-T1' 할 일의 마감을 "), "{moved}");
+    assert!(moved.ends_with("11월 7일로 바꿨어요."), "{moved}");
+    run_host_turn(&db, "show", "QA-T1 할 일을 보여줘.");
+    let found = actions::result_reply(&db, &user, "show").unwrap().unwrap();
+    assert!(found.starts_with("'QA-T1' 할 일: "), "{found}");
+    assert!(found.ends_with("11월 7일 마감."), "{found}");
+    // A removed item keeps its own name in the receipt.
+    run_host_turn(&db, "drop", "QA-T1 할 일 지워");
+    assert_eq!(
+        actions::result_reply(&db, &user, "drop")
+            .unwrap()
+            .as_deref(),
+        Some("'QA-T1' 할 일을 지웠어요.")
+    );
+    // A month's expenses come from the app's own totals for the period the request names.
+    let revision = actions::entities_for(&db, "ledger_create", "").unwrap()["revision"]
+        .as_i64()
+        .unwrap();
+    actions::execute_registry(
+        &db,
+        &user,
+        "coffee",
+        0,
+        "커피 4천 원 썼어",
+        &actions::Action {
+            kind: "ledger_create".into(),
+            target_id: String::new(),
+            expected_revision: revision,
+            input: json!({"date":"2026-10-18","kind":"expense","amount":4000,"category":"food","title":"커피"}),
+        },
+    )
+    .unwrap();
+    let turn = run_host_turn(&db, "month", "이번 달 지출 얼마야?");
+    let input: Value = serde_json::from_str(&turn.operations[0].proposal.input_json).unwrap();
+    assert_eq!(input["kind"], "expense");
+    assert!(input["from"].as_str().unwrap().ends_with("-01"));
+    assert_eq!(
+        actions::result_reply(&db, &user, "month")
+            .unwrap()
+            .as_deref(),
+        Some("지출 1건, 모두 4,000원이에요.")
+    );
+    // A plan that waits on an answer replies with its question, and plain chat keeps the model.
+    let mut waiting = new_turn(&message("ask", "할 일 추가해줘")).unwrap();
+    waiting.state = "awaiting_input".into();
+    waiting.question = "어떤 할 일을 추가할까요?".into();
+    save_turn(&db, &user, "ask", &waiting).unwrap();
+    assert_eq!(
+        actions::result_reply(&db, &user, "ask").unwrap().as_deref(),
+        Some("어떤 할 일을 추가할까요?")
+    );
+    let mut chat = new_turn(&message("chat", "안녕")).unwrap();
+    chat.state = "none".into();
+    save_turn(&db, &user, "chat", &chat).unwrap();
+    assert_eq!(actions::result_reply(&db, &user, "chat").unwrap(), None);
+}
+
+#[test]
+fn a_planner_question_that_only_repeats_the_request_is_not_asked() {
+    let mut turn = new_turn(&message("echo", "커피 4천 원 썼어")).unwrap();
+    let echo = Plan {
+        question: "커피 4천 원 썼어.".into(),
+        operations: vec![],
+    };
+    assert_eq!(
+        prepare_plan(echo, &mut turn, &[], &json!({})).unwrap_err(),
+        "요청을 작업으로 정리하지 못했어요. 한 번 더 말해 주세요."
+    );
+    // A short question that happens to reuse a word of the request is still asked.
+    let mut short = new_turn(&message("short", "회의 날짜 정해서 일정 추가해줘")).unwrap();
+    let date = Plan {
+        question: "날짜?".into(),
+        operations: vec![],
+    };
+    prepare_plan(date, &mut short, &[], &json!({})).unwrap();
+    assert_eq!(short.state, "awaiting_input");
+    let asked = Plan {
+        question: "어느 날 쓴 돈인가요?".into(),
+        operations: vec![],
+    };
+    prepare_plan(asked, &mut turn, &[], &json!({})).unwrap();
+    assert_eq!(turn.state, "awaiting_input");
 }

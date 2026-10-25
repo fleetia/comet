@@ -1534,6 +1534,33 @@ pub(crate) async fn generate_turn_with_memories(
         }
         let db = lock(&state.db)?;
         ensure_current_user_message(&db, message_id)?;
+        // A small model's reply to app actions describes other results than the stored ones, so
+        // the app states what it saved or found itself.
+        if let ([target], false, "local" | "apple") = (
+            targets,
+            store::single_bundle_selected(&db, message_id)?,
+            store::settings(&db)?.mode.as_str(),
+        ) {
+            let user = store::active_user_id(&db)?;
+            if let Some(text) = crate::organizer::actions::result_reply(&db, &user, message_id)? {
+                let definition = characters::guests::actor(state, &db, target)?.definition;
+                let expressions = domain::generated_expressions([&definition]);
+                let saved =
+                    !crate::organizer::actions::receipts(&db, &user, Some(message_id))?.is_empty();
+                let expression = [if saved { "기쁨" } else { "평온" }, "평온"]
+                    .into_iter()
+                    .chain(expressions.iter().copied())
+                    .find(|expression| expressions.contains(expression))
+                    .ok_or("캐릭터에 쓸 수 있는 표정이 없어요.")?;
+                let line = SceneLine {
+                    persona: target.clone(),
+                    expression: expression.into(),
+                    text,
+                    motion: Default::default(),
+                };
+                return Ok((vec![line], store::revision(&db)?));
+            }
+        }
         let context = turn_context(state, &db, targets, message_id)?;
         let memories = turn_memory_context(&db, message_id, &context, memories)?;
         let recalled = with_note_memories(&db, message_id, &context, &memories)?;

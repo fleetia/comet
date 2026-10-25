@@ -39,9 +39,20 @@ pub(super) struct Slots {
     /// The date is a deadline (마감·기한·까지·due).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub due: bool,
+    /// A lookup period the sentence names (이번 달, 지난주), both ends included.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub through: Option<String>,
     /// The sentence names a clock time.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub time: bool,
+    /// That clock time as HH:MM on a 24-hour clock, when the hour is unambiguous.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clock: Option<String>,
+    /// The sentence asks for a repetition (매일·매주·반복).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub repeat: bool,
     /// The sentence mentions any date, deadline or time word at all.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub temporal: bool,
@@ -152,7 +163,21 @@ pub(super) fn judge(
                 .iter()
                 .any(|range| range.start <= token.start && token.end <= range.end)
         })
-        .map(|(index, token)| Morph::new(token, analysis.typo_corrected.contains(&(index as u32))))
+        .map(|(index, token)| {
+            let corrected = analysis.typo_corrected.contains(&(index as u32));
+            let surface = request.get(token.start..token.end).unwrap_or_default();
+            // Typo correction can turn a correct day word into another noun (모레 → 모래).
+            if corrected && (TIME_WORDS.contains(&surface) || WEEKDAYS.contains(&surface)) {
+                return Morph {
+                    form: surface,
+                    tag: "NNG",
+                    start: token.start,
+                    end: token.end,
+                    corrected: false,
+                };
+            }
+            Morph::new(token, corrected)
+        })
         .collect();
     let generated: Vec<&str> = available
         .iter()
@@ -251,7 +276,8 @@ impl<'a> Morph<'a> {
 
     /// Dates, weekdays, parts of the day and their units never belong to an item title.
     fn temporal(&self) -> bool {
-        TIME_WORDS.contains(&self.form)
+        // 주 is also the auxiliary of 해 주세요.
+        TIME_WORDS.contains(&self.form) && matches!(self.tag, "NNG" | "NNB" | "NNP" | "MAG")
             || WEEKDAYS.contains(&self.form)
             || self.one_of(&["년", "월", "일", "시", "분", "초", "주"], "NNB")
             || self.tag == "W_SERIAL"
@@ -436,6 +462,17 @@ const TIME_WORDS: &[&str] = &[
     "밤",
     "새벽",
     "주말",
+    "저번",
+    "달",
+    "이달",
+    "이번달",
+    "다음달",
+    "지난달",
+    "저번달",
+    "이번주",
+    "다음주",
+    "지난주",
+    "저번주",
 ];
 const WEEKDAYS: &[&str] = &[
     "월요일",
@@ -468,6 +505,27 @@ const CONNECTIVES: &[&str] = &[
 const CONDITIONALS: &[&str] = &["면", "으면", "다면", "라면", "ᆫ다면", "는다면", "거든"];
 const SOFTENERS: &[&str] = &["좀", "좀만", "한번", "빨리", "꼭", "바로", "얼른", "다시"];
 const REMINDER: &[&str] = &["잊", "까먹", "리마인드", "리마인더"];
+const FEATURE_WORDS: &[&str] = &[
+    "할일",
+    "투두",
+    "메모",
+    "다이어리",
+    "노트",
+    "일정",
+    "약속",
+    "캘린더",
+    "스케줄",
+    "지출",
+    "수입",
+    "가계부",
+    "바탕화면",
+    "화면",
+    "데스크톱",
+    "데스크탑",
+];
+const REPEAT_WORDS: &[&str] = &[
+    "매일", "매주", "매달", "매월", "매년", "반복", "마다", "격주",
+];
 
 fn operation(lemma: &str) -> Option<Op> {
     OPERATIONS
@@ -484,7 +542,7 @@ fn app_word(morph: &Morph) -> bool {
 fn task_word(morphs: &[Morph]) -> bool {
     morphs.len() >= 3
         && morphs[0].form == "하"
-        && matches!(morphs[0].tag, "VV" | "VX")
+        && matches!(morphs[0].tag, "VV" | "VX" | "XSV")
         && morphs[1].is("ᆯ", "ETM")
         && morphs[2].form == "일"
         && matches!(morphs[2].tag, "NNG" | "NNB")
@@ -868,10 +926,9 @@ fn labels(sentence: &[Morph]) -> Vec<(Label, Range<usize>)> {
                 && morph.tag == "NNG"
                 && matches!(morph.form, "인" | "이고" | "이며");
             if glued
-                || matches!(
-                    morph.tag,
-                    "VCP" | "ETM" | "JKS" | "JKO" | "JX" | "EC" | "EF" | "SF"
-                )
+                || matches!(morph.tag, "VCP" | "JKS" | "JKO" | "EC" | "EF" | "SF")
+                // A body can hold 까지 or 볼 영화; a title stops there.
+                || matches!(morph.tag, "JX" | "ETM") && label != Label::Body
                 || morph.one_of(&["로", "으로"], "JKB")
                 || morph.is(",", "SP")
             {
@@ -950,6 +1007,64 @@ fn dates(sentence: &[Morph], anchor: NaiveDate) -> Vec<(NaiveDate, Range<usize>)
     found
 }
 
+/// The month or week a lookup names: 이번 달, 지난달, 이번 주, 저번 주. A week day after 주 names a
+/// date instead (다음 주 금요일).
+fn period(sentence: &[Morph], anchor: NaiveDate) -> Option<(NaiveDate, NaiveDate)> {
+    for (index, morph) in sentence.iter().enumerate() {
+        if morph.tag != "NNG" {
+            continue;
+        }
+        let (shift, unit, after) = match morph.form {
+            "이달" | "이번달" => (0, "달", index + 1),
+            "다음달" => (1, "달", index + 1),
+            "지난달" | "저번달" => (-1, "달", index + 1),
+            "이번주" => (0, "주", index + 1),
+            "다음주" => (1, "주", index + 1),
+            "지난주" | "저번주" => (-1, "주", index + 1),
+            "이번" | "다음" | "지난" | "저번" => {
+                let Some(unit) = sentence
+                    .get(index + 1)
+                    .filter(|next| next.one_of(&["달", "주"], "NNG"))
+                else {
+                    continue;
+                };
+                let shift = match morph.form {
+                    "이번" => 0,
+                    "다음" => 1,
+                    _ => -1,
+                };
+                (shift, unit.form, index + 2)
+            }
+            _ => continue,
+        };
+        if unit == "주" {
+            if sentence
+                .get(after)
+                .is_some_and(|next| WEEKDAYS.contains(&next.form))
+            {
+                continue;
+            }
+            let monday = anchor - Duration::days(anchor.weekday().num_days_from_monday() as i64)
+                + Duration::days(7 * shift);
+            // On a Sunday 이번 주 is the week ending today or the one starting tomorrow; a lookup
+            // covers both.
+            let days = if shift == 0 && anchor.weekday() == chrono::Weekday::Sun {
+                13
+            } else {
+                6
+            };
+            return Some((monday, monday + Duration::days(days)));
+        }
+        let month = anchor.year() * 12 + anchor.month0() as i32 + shift as i32;
+        let first =
+            NaiveDate::from_ymd_opt(month.div_euclid(12), month.rem_euclid(12) as u32 + 1, 1)?;
+        let next = month + 1;
+        let next = NaiveDate::from_ymd_opt(next.div_euclid(12), next.rem_euclid(12) as u32 + 1, 1)?;
+        return Some((first, next - Duration::days(1)));
+    }
+    None
+}
+
 fn names_time(request: &str, sentence: &[Morph]) -> bool {
     sentence
         .windows(2)
@@ -962,9 +1077,88 @@ fn names_time(request: &str, sentence: &[Morph]) -> bool {
         })
 }
 
+/// HH:MM for `오후 3시`, `15시 30분`, `저녁 7시 반` or `15:00`. An hour from 1 to 12 without 오전·오후
+/// or a part of the day could be either half of the day, so it gives no clock.
+fn clock(request: &str, sentence: &[Morph]) -> Option<String> {
+    let written = text(request, sentence);
+    for (colon, _) in written.match_indices(':') {
+        let start = written[..colon]
+            .char_indices()
+            .rev()
+            .find(|(_, c)| !c.is_ascii_digit())
+            .map_or(0, |(index, c)| index + c.len_utf8());
+        let hour = &written[start..colon];
+        let minute = written[colon + 1..]
+            .get(..2)
+            .filter(|minute| minute.bytes().all(|byte| byte.is_ascii_digit()));
+        let longer = written[colon + 1..]
+            .chars()
+            .nth(2)
+            .is_some_and(|c| c.is_ascii_digit());
+        if let (1..=2, Ok(hour @ 0..=23), Some(Ok(minute @ 0..=59)), false) = (
+            hour.len(),
+            hour.parse::<u32>(),
+            minute.map(str::parse::<u32>),
+            longer,
+        ) {
+            return Some(format!("{hour:02}:{minute:02}"));
+        }
+    }
+    let index = sentence
+        .windows(2)
+        .position(|pair| pair[0].tag == "SN" && pair[1].is("시", "NNB"))?;
+    let hour: u32 = sentence[index].form.parse().ok()?;
+    let minute = match sentence.get(index + 2) {
+        Some(next) if next.tag == "SN" && sentence.get(index + 3)?.is("분", "NNB") => {
+            next.form.parse().ok()?
+        }
+        Some(next) if next.form == "반" => 30,
+        _ => 0,
+    };
+    let afternoon = sentence[..index]
+        .iter()
+        .rev()
+        .take(2)
+        .find_map(|morph| match morph.form {
+            "오전" | "아침" | "새벽" => Some(false),
+            "오후" | "저녁" | "밤" => Some(true),
+            _ => None,
+        });
+    let hour = match (afternoon, hour) {
+        (Some(true), 1..=11) => hour + 12,
+        (Some(false), 12) => 0,
+        (Some(_), 0..=12) | (None, 13..=23) => hour,
+        _ => return None,
+    };
+    (minute < 60).then(|| format!("{hour:02}:{minute:02}"))
+}
+
+/// Whether `sentence[index]` can name a place inside a title: a noun that is not a time word, a
+/// feature's own name or the rest of a time (7시 반에).
+fn place(sentence: &[Morph], index: usize) -> bool {
+    let morph = &sentence[index];
+    morph.nominal()
+        && !morph.temporal()
+        && !(morph.tag == "NNG" && FEATURE_WORDS.contains(&morph.form))
+        && !index.checked_sub(1).is_some_and(|before| {
+            let unit = &sentence[before];
+            unit.tag == "SN" || unit.one_of(&["년", "월", "일", "시", "분", "초", "주"], "NNB")
+        })
+}
+
+/// A numeral written with digits, Korean numerals or both: 12000, 4천, 300만, 만오천, 1만5천.
 fn korean_number(word: &str) -> Option<u64> {
     let (mut total, mut section, mut number) = (0u64, 0u64, 0u64);
-    for c in word.chars() {
+    let mut chars = word.chars().peekable();
+    while let Some(c) = chars.next() {
+        if let Some(digit) = c.to_digit(10) {
+            number = digit as u64;
+            while let Some(next) = chars.peek().and_then(|c| c.to_digit(10)) {
+                number = number.checked_mul(10)?.checked_add(next as u64)?;
+                chars.next();
+            }
+            continue;
+        }
         if let Some(digit) = "영일이삼사오육칠팔구".chars().position(|d| d == c) {
             number = digit as u64;
             continue;
@@ -978,10 +1172,10 @@ fn korean_number(word: &str) -> Option<u64> {
             _ => return None,
         };
         if unit >= 10_000 {
-            total += (section + number).max(1) * unit;
+            total = total.checked_add((section + number).max(1).checked_mul(unit)?)?;
             section = 0;
         } else {
-            section += number.max(1) * unit;
+            section = section.checked_add(number.max(1).checked_mul(unit)?)?;
         }
         number = 0;
     }
@@ -990,30 +1184,20 @@ fn korean_number(word: &str) -> Option<u64> {
 
 /// A won amount and its morph range: `4천 원`, `만 이천 원`, `12,000원`, `300만 원`.
 fn amount(sentence: &[Morph]) -> Option<(u64, Range<usize>)> {
-    let won = sentence.iter().position(|morph| morph.is("원", "NNB"))?;
+    let won = (1..sentence.len()).find(|&index| {
+        sentence[index].form == "원"
+            && matches!(sentence[index].tag, "NNB" | "NNG")
+            && matches!(sentence[index - 1].tag, "SN" | "NR")
+    })?;
     let mut start = won;
     while start > 0 && matches!(sentence[start - 1].tag, "SN" | "NR") {
         start -= 1;
     }
-    let mut total = 0u64;
-    let mut pending: Option<u64> = None;
-    for morph in &sentence[start..won] {
-        if morph.tag == "SN" {
-            total += pending
-                .replace(morph.form.replace(',', "").parse().ok()?)
-                .unwrap_or(0);
-            continue;
-        }
-        let value = korean_number(morph.form)?;
-        match pending.take() {
-            Some(number) if matches!(morph.form, "십" | "백" | "천" | "만" | "억") => {
-                total += number * value;
-            }
-            Some(number) => total += number + value,
-            None => total += value,
-        }
-    }
-    total += pending.unwrap_or(0);
+    let written: String = sentence[start..won]
+        .iter()
+        .map(|morph| morph.form.replace(',', ""))
+        .collect();
+    let total = korean_number(&written)?;
     (total > 0).then_some((total, start..won + 1))
 }
 
@@ -1022,8 +1206,24 @@ fn phrase_before(sentence: &[Morph], before: usize, head: Option<Domain>) -> Opt
     let mut start = before;
     while start > 0 {
         let morph = sentence[start - 1];
-        if morph.is("기", "ETN") && start >= 2 && matches!(sentence[start - 2].tag, "VV" | "VA") {
+        if morph.is("기", "ETN")
+            && start >= 2
+            && matches!(sentence[start - 2].tag, "VV" | "VA" | "XSV")
+        {
             start -= 2;
+            continue;
+        }
+        // 화분에 물 주기: a place inside the title stays in it.
+        if morph.is("에", "JKB") && start >= 2 && start < before && place(sentence, start - 2) {
+            start -= 1;
+            continue;
+        }
+        // 엄마한테 전화하기: the person an action is for stays in the title.
+        if morph.one_of(&["한테", "에게", "께"], "JKB")
+            && start >= 2
+            && sentence[start - 2].nominal()
+        {
+            start -= 1;
             continue;
         }
         // 다이어리 메모: a qualifier of the same feature is not part of the title.
@@ -1047,10 +1247,15 @@ fn phrase_after(sentence: &[Morph], after: usize, predicate: usize) -> Option<Ra
     let mut end = after;
     while end < predicate {
         let morph = sentence[end];
-        let nominalized = morph.tag == "VV"
+        let nominalized = matches!(morph.tag, "VV" | "VA" | "XSV")
             && sentence
                 .get(end + 1)
                 .is_some_and(|next| next.is("기", "ETN"));
+        let inner_place = morph.is("에", "JKB")
+            && end > start
+            && place(sentence, end - 1)
+            && end + 1 < predicate
+            && sentence[end + 1].nominal();
         let compound = sentence
             .get(end + 1)
             .is_some_and(|next| morph.end == next.start && next.nominal());
@@ -1061,7 +1266,8 @@ fn phrase_after(sentence: &[Morph], after: usize, predicate: usize) -> Option<Ra
         } else if !(morph.nominal()
             || matches!(morph.tag, "SO" | "SW")
             || morph.is("기", "ETN")
-            || nominalized)
+            || nominalized
+            || inner_place)
         {
             break;
         }
@@ -1142,7 +1348,13 @@ impl Reader<'_> {
             // 완료로 표시해 줘 / 완료로 바꿔 줘: the state names the action, whatever the verb.
             let marks_done = clause
                 .windows(2)
-                .any(|pair| pair[0].is("완료", "NNG") && pair[1].one_of(&["로", "으로"], "JKB"));
+                .any(|pair| pair[0].is("완료", "NNG") && pair[1].one_of(&["로", "으로"], "JKB"))
+                || clause.windows(4).any(|words| {
+                    words[0].one_of(&["끝내", "끝나"], "VV")
+                        && words[1].is("ᆫ", "ETM")
+                        && matches!(words[2].form, "걸" | "것")
+                        && words[3].is("로", "JKB")
+                });
             // 오늘 할 일 뭐 있어?: a question about a feature asks to look it up.
             let op = marks_done
                 .then_some(Op::Complete)
@@ -1154,6 +1366,8 @@ impl Reader<'_> {
                             morph.is("있", "VA")
                                 || morph.one_of(&["뭐", "무엇", "어디"], "NP")
                                 || morph.is("몇", "MM")
+                                || morph.is("얼마", "NNG")
+                                || morph.is("얼마나", "MAG")
                         }))
                     .then_some(Op::Query)
                 });
@@ -1284,10 +1498,23 @@ impl Reader<'_> {
                 return;
             }
         };
-        let phrase = head.and_then(|word| match word.locative {
-            Some(particle) => phrase_after(sentence, particle + 1, first),
-            None => phrase_before(sentence, word.range.start, Some(word.domain)),
-        });
+        let phrase = head
+            .and_then(|word| match word.locative {
+                // 전화하기 할 일로 넣어 둬: before 로 the item can come first.
+                Some(particle) => phrase_after(sentence, particle + 1, first).or_else(|| {
+                    sentence[particle]
+                        .one_of(&["로", "으로"], "JKB")
+                        .then(|| phrase_before(sentence, word.range.start, Some(word.domain)))
+                        .flatten()
+                }),
+                None => phrase_before(sentence, word.range.start, Some(word.domain)),
+            })
+            // 다이어리에 '…' 메모 남겨 줘: the feature's own name is not a title.
+            .filter(|range| {
+                range
+                    .clone()
+                    .any(|index| !words.iter().any(|word| word.range.contains(&index)))
+            });
         // A locative names the destination; other features then only describe the content
         // (메모를 할 일로 추가해줘). Without one, another feature must sit inside the title.
         let conflict = head.is_some_and(|word| word.locative.is_none())
@@ -1306,16 +1533,21 @@ impl Reader<'_> {
             self.unclear = true;
             return;
         };
-        if domain == Domain::Note
+        // 메모 alone can mean the diary or the desktop memo once both exist; a lookup reads both.
+        let kinds = if domain == Domain::Note
             && !sentence.iter().any(|morph| morph.is("다이어리", "NNG"))
             && self.ids.iter().any(|id| id.starts_with("memo_"))
         {
-            // 메모 alone can mean the diary or the desktop memo once both exist.
-            self.judgment.reason("memo_destination");
-            self.unclear = true;
-            return;
-        }
-        if !self.ids.contains(&kind) {
+            if op != Op::Query {
+                self.judgment.reason("memo_destination");
+                self.unclear = true;
+                return;
+            }
+            vec![kind, "memo_query"]
+        } else {
+            vec![kind]
+        };
+        if kinds.iter().any(|kind| !self.ids.contains(kind)) {
             self.judgment.reason("kind_unavailable");
             self.unclear = true;
             return;
@@ -1360,19 +1592,41 @@ impl Reader<'_> {
             if slots.title.is_none() {
                 slots.title = named;
             }
+            // A note given only its body takes the body's first line as its title.
+            if note && slots.title.is_none() {
+                slots.title = slots.body.as_deref().and_then(|body| {
+                    let line: String = body.lines().next()?.trim().chars().take(30).collect();
+                    let line = line.trim_end().to_owned();
+                    (!line.is_empty()).then_some(line)
+                });
+            }
         } else {
             slots.target = named;
         }
         let mut distinct: Vec<NaiveDate> = vec![];
-        for (date, _) in dates {
-            if !distinct.contains(date) {
-                distinct.push(*date);
+        for (date, range) in dates {
+            // 이번 주 금요일까지 on a Sunday has passed in a Monday-start week; a new or moved item
+            // means the coming one.
+            let date = if matches!(op, Op::Create | Op::Update)
+                && sentence[range.start].form == "이번"
+                && *date < self.anchor
+            {
+                *date + Duration::days(7)
+            } else {
+                *date
+            };
+            if !distinct.contains(&date) {
+                distinct.push(date);
             }
         }
         match distinct.as_slice() {
             [date] => slots.date = Some(date.format("%Y-%m-%d").to_string()),
             [] => {}
             _ => self.judgment.reason("several_dates"),
+        }
+        if let Some((from, through)) = period(sentence, self.anchor) {
+            slots.from = Some(from.format("%Y-%m-%d").to_string());
+            slots.through = Some(through.format("%Y-%m-%d").to_string());
         }
         slots.due |= sentence
             .iter()
@@ -1383,6 +1637,10 @@ impl Reader<'_> {
                     .is_some_and(|morph| morph.form == "까지" && matches!(morph.tag, "JX" | "JKB"))
             });
         slots.time = names_time(self.request, sentence);
+        slots.clock = clock(self.request, sentence);
+        slots.repeat = REPEAT_WORDS
+            .iter()
+            .any(|word| text(self.request, sentence).contains(word));
         slots.temporal = slots.due
             || !dates.is_empty()
             || sentence.iter().enumerate().any(|(index, morph)| {
@@ -1407,12 +1665,14 @@ impl Reader<'_> {
             [sentence[first].start..sentence[first + read.last - read.first].end]
             .trim()
             .to_owned();
-        self.judgment.intents.push(Intent {
-            kind: kind.into(),
-            mode: "explicit".into(),
-            evidence,
-            slots,
-        });
+        for kind in kinds {
+            self.judgment.intents.push(Intent {
+                kind: kind.into(),
+                mode: "explicit".into(),
+                evidence: evidence.clone(),
+                slots: slots.clone(),
+            });
+        }
     }
 
     fn statement(
@@ -1430,7 +1690,8 @@ impl Reader<'_> {
             self.unclear = true;
             return;
         }
-        // The item is named before the amount (커피 4천 원) or right after it (3000원 컵라면).
+        // The item is named before the amount (커피 4천 원), right after it (3000원 컵라면), with
+        // 로 before it (택시비로 12,000원) or as what was bought (김밥 사 먹고 4500원).
         let title = phrase_before(sentence, range.start, None)
             .or_else(|| {
                 let end = range.end
@@ -1440,9 +1701,24 @@ impl Reader<'_> {
                         .count();
                 (end > range.end).then_some(range.end..end)
             })
+            .or_else(|| {
+                let particle = range.start.checked_sub(1)?;
+                sentence[particle]
+                    .one_of(&["로", "으로"], "JKB")
+                    .then(|| phrase_before(sentence, particle, None))
+                    .flatten()
+            })
+            .or_else(|| {
+                let bought = sentence
+                    .iter()
+                    .position(|morph| morph.tag == "VV" && SPEND.contains(&morph.form))?;
+                phrase_before(sentence, bought, None)
+            })
             .map(|range| text(self.request, &sentence[range]).to_owned());
+        // 커피 4천 원 썼어: a spending told without a day happened on the day it is told.
         let date = match dates {
             [(date, _)] => Some(date.format("%Y-%m-%d").to_string()),
+            [] => Some(self.anchor.format("%Y-%m-%d").to_string()),
             _ => None,
         };
         if corrected {
@@ -1483,7 +1759,7 @@ fn english(request: &str, ids: &[&str]) -> Judgment {
     let lower = request.to_ascii_lowercase();
     let instruction = crate::organizer::actions::instruction_text(&lower);
     let mut judgment = Judgment::new(Route::Ambiguous);
-    let negated = ["do not", "don't", "never "]
+    let negated = ["do not", "don't", "never ", "without record", "without sav"]
         .iter()
         .any(|word| instruction.contains(word));
     let unrealized = ["might ", "maybe ", "if i ", "will ", "going to "]
@@ -1582,5 +1858,7 @@ fn english(request: &str, ids: &[&str]) -> Judgment {
     judgment
 }
 
+#[cfg(test)]
+mod evaluation;
 #[cfg(test)]
 mod tests;

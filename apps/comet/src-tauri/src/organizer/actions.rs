@@ -2,6 +2,7 @@ use crate::{
     diary, store,
     widgets::{storage, WidgetRequest},
 };
+use chrono::{Datelike, Timelike};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -171,6 +172,224 @@ fn receipt_sentence(receipt: &Receipt) -> Option<String> {
         _ => return None,
     };
     Some(format!("'{}' {object} {done}.", receipt.title))
+}
+
+/// The app's own reply to an input whose organizer turn ran app actions: what each operation
+/// saved or found, or the question the plan waits on. Small models describe other results than the
+/// stored ones, so their replies to such turns come from here. `None` when the turn ran nothing or
+/// an operation has no sentence; the model then replies.
+pub(crate) fn result_reply(db: &Connection, user: &str, input: &str) -> Result<Option<String>> {
+    let Some(raw) = turn_context(db, user, input)? else {
+        return Ok(None);
+    };
+    let turn: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
+    if turn["state"] == "awaiting_input" {
+        return Ok(turn["question"]
+            .as_str()
+            .map(str::trim)
+            .filter(|question| !question.is_empty())
+            .map(str::to_owned));
+    }
+    let Some(operations) = turn["operations"]
+        .as_array()
+        .filter(|operations| !operations.is_empty())
+    else {
+        return Ok(None);
+    };
+    let mut sentences = vec![];
+    for operation in operations {
+        let kind = operation["proposal"]["kind"].as_str().unwrap_or_default();
+        let read = operation["effect"] == "read";
+        let sentence = if read {
+            let input = operation["proposal"]["inputJson"]
+                .as_str()
+                .and_then(|input| serde_json::from_str(input).ok())
+                .unwrap_or(Value::Null);
+            lookup_sentence(kind, &operation["result"], &input)
+        } else {
+            serde_json::from_value::<Receipt>(operation["result"].clone())
+                .ok()
+                .filter(|receipt| !receipt.undone)
+                .and_then(|receipt| {
+                    let input = operation["proposal"]["inputJson"].as_str()?;
+                    change_sentence(&receipt, &serde_json::from_str(input).ok()?)
+                })
+        };
+        let Some(sentence) = sentence else {
+            return Ok(None);
+        };
+        let empty = read && operation["result"]["totalCount"].as_u64() == Some(0);
+        sentences.push((sentence, read, empty));
+    }
+    // Looking in several places, a place that had nothing goes unmentioned.
+    if sentences.iter().any(|(_, read, empty)| *read && !*empty) {
+        sentences.retain(|(_, read, empty)| !(*read && *empty));
+    }
+    let sentences: Vec<String> = sentences
+        .into_iter()
+        .map(|(sentence, _, _)| sentence)
+        .collect();
+    Ok(Some(sentences.join(" ")))
+}
+
+/// [`receipt_sentence`], naming the new date of a rescheduled task.
+fn change_sentence(receipt: &Receipt, input: &Value) -> Option<String> {
+    let sentence = receipt_sentence(receipt)?;
+    if receipt.kind != "task_update" {
+        return Some(sentence);
+    }
+    let (label, value) = if let Some(at) = input["dueAt"].as_i64() {
+        ("마감", spoken_time(at)?)
+    } else if let Some(date) = input["dueDate"].as_str() {
+        ("마감", spoken_date(date)?)
+    } else if let Some(date) = input["plannedDate"].as_str() {
+        ("계획 날짜", spoken_date(date)?)
+    } else {
+        return Some(sentence);
+    };
+    Some(format!(
+        "'{}' 할 일의 {label}{} {value}{} 바꿨어요.",
+        receipt.title,
+        particle(label, "을", "를"),
+        particle(&value, "으로", "로"),
+    ))
+}
+
+/// What a lookup found, from the app's own query result for `input`.
+fn lookup_sentence(kind: &str, result: &Value, input: &Value) -> Option<String> {
+    if kind == "ledger_query" {
+        let count = result["totalCount"].as_u64()?;
+        let expense = grouped(result["expenseTotal"].as_u64()?);
+        let income = grouped(result["incomeTotal"].as_u64()?);
+        return Some(match input["kind"].as_str() {
+            Some("expense") => format!("지출 {count}건, 모두 {expense}원이에요."),
+            Some("income") => format!("수입 {count}건, 모두 {income}원이에요."),
+            _ => format!("가계부 기록 {count}건, 지출 {expense}원, 수입 {income}원이에요."),
+        });
+    }
+    let (field, noun) = match kind {
+        "task_query" => ("items", "할 일"),
+        "note_query" => ("notes", "메모"),
+        "memo_query" => ("notes", "바탕화면 메모"),
+        "event_query" => ("events", "일정"),
+        _ => return None,
+    };
+    let rows = result[field].as_array()?;
+    let count = result["totalCount"].as_u64().unwrap_or(rows.len() as u64);
+    let detail = |row: &Value| -> Option<String> {
+        if kind == "task_query" {
+            if row["completedAt"].is_i64() {
+                return Some("완료".into());
+            }
+            if let Some(at) = row["dueAt"].as_i64() {
+                return Some(format!("{} 마감", spoken_time(at)?));
+            }
+            if let Some(date) = row["dueDate"].as_str() {
+                return Some(format!("{} 마감", spoken_date(date)?));
+            }
+            return row["plannedDate"].as_str().and_then(spoken_date);
+        }
+        if kind == "event_query" {
+            if let Some(at) = row["startAt"].as_i64() {
+                return spoken_time(at);
+            }
+            return row["startDate"].as_str().and_then(spoken_date);
+        }
+        let body: String = row["body"]
+            .as_str()?
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let preview: String = body.chars().take(40).collect();
+        (!preview.is_empty()).then(|| {
+            if preview.chars().count() < body.chars().count() {
+                format!("{preview}…")
+            } else {
+                preview
+            }
+        })
+    };
+    let title = |row: &Value| row["title"].as_str().unwrap_or_default().trim().to_owned();
+    Some(match rows.as_slice() {
+        [] => format!("찾는 {noun}{} 없어요.", particle(noun, "이", "가")),
+        [row] if count == 1 => match detail(row) {
+            Some(detail) if field == "notes" => format!("'{}' {noun}: {detail}", title(row)),
+            Some(detail) => format!("'{}' {noun}: {detail}.", title(row)),
+            None => format!(
+                "'{}' {noun}{} 있어요.",
+                title(row),
+                particle(noun, "이", "가")
+            ),
+        },
+        rows => {
+            let shown: Vec<String> = rows
+                .iter()
+                .take(3)
+                .map(|row| match detail(row).filter(|_| field != "notes") {
+                    Some(detail) => format!("'{}'({detail})", title(row)),
+                    None => format!("'{}'", title(row)),
+                })
+                .collect();
+            let rest = count.saturating_sub(shown.len() as u64);
+            let rest = if rest > 0 {
+                format!(" 외 {rest}개")
+            } else {
+                String::new()
+            };
+            format!("{noun} {count}개를 찾았어요: {}{rest}.", shown.join(", "))
+        }
+    })
+}
+
+fn spoken_date(date: &str) -> Option<String> {
+    let date = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()?;
+    let year = if date.year() == chrono::Local::now().year() {
+        String::new()
+    } else {
+        format!("{}년 ", date.year())
+    };
+    Some(format!("{year}{}월 {}일", date.month(), date.day()))
+}
+
+fn spoken_time(at: i64) -> Option<String> {
+    let at = chrono::DateTime::from_timestamp_millis(at)?.with_timezone(&chrono::Local);
+    let date = spoken_date(&at.format("%Y-%m-%d").to_string())?;
+    let (half, hour) = match at.hour() {
+        0 => ("오전", 12),
+        hour @ 1..=11 => ("오전", hour),
+        12 => ("오후", 12),
+        hour => ("오후", hour - 12),
+    };
+    let minute = match at.minute() {
+        0 => String::new(),
+        minute => format!(" {minute}분"),
+    };
+    Some(format!("{date} {half} {hour}시{minute}"))
+}
+
+fn grouped(amount: u64) -> String {
+    let digits = amount.to_string();
+    let mut grouped = String::new();
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index) % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    grouped
+}
+
+/// The particle form for `word`: `with_final` after a final consonant. 로 also follows ㄹ.
+fn particle(word: &str, with_final: &'static str, without_final: &'static str) -> &'static str {
+    let last = word.chars().rev().find(|c| !c.is_whitespace());
+    let final_consonant = last
+        .filter(|c| ('가'..='힣').contains(c))
+        .map(|c| (c as u32 - '가' as u32) % 28);
+    match final_consonant {
+        Some(0) | None => without_final,
+        Some(8) if without_final == "로" => without_final,
+        Some(_) => with_final,
+    }
 }
 
 pub(crate) fn link_summary(

@@ -957,9 +957,19 @@ pub(crate) fn execute_registry(
         });
         json!({"ownerId":owner_id,"targetId":target,"revision":revision+1,"item":item,"deleted":definition.id.ends_with("_delete")})
     };
+    // A removed item is only in the state before the change.
+    let removed = before[definition.collection]
+        .as_array()
+        .and_then(|items| {
+            items
+                .iter()
+                .find(|item| item["id"].as_str() == Some(&target))
+        })
+        .and_then(|item| item["title"].as_str());
     let mut title: String = action.input["title"]
         .as_str()
         .or(result["item"]["title"].as_str())
+        .or(removed)
         .unwrap_or(definition.description)
         .chars()
         .take(200)
