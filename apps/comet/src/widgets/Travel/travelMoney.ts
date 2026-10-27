@@ -59,10 +59,11 @@ export function toWon(amount: number, currency: string, rate: number): number {
   return Number(wonUnits(amount, currency, rate));
 }
 
-/** The rate typed last for this currency, to prefill a new record. */
+/** The rate typed last for this currency, to prefill a new record. Bookings without a price keep a placeholder rate. */
 export function lastRate(trip: Pick<TripData, "expenses" | "bookings">, currency: string): number | null {
   if (currency === "KRW") return 10_000;
-  const records = [...trip.bookings, ...trip.expenses].filter((value) => value.currency === currency);
+  const bookings = trip.bookings.filter((value) => value.amount > 0);
+  const records = [...bookings, ...trip.expenses].filter((value) => value.currency === currency);
   return records.at(-1)?.rate ?? null;
 }
 

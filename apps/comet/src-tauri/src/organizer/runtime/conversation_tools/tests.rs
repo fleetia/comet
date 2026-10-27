@@ -826,3 +826,68 @@ fn an_unreadable_query_input_keeps_its_raw_value_locally_but_not_in_replay() {
     assert!(turn.rejected_input.is_none());
     assert_eq!(turn.operations.len(), 1);
 }
+
+#[test]
+fn deleting_a_trip_waits_for_a_plain_yes_to_the_apps_own_question() {
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let user = store::active_user_id(&db).unwrap();
+    let travel = actions::execute_registry(
+        &db,
+        &user,
+        "trip",
+        0,
+        "제주 여행 만들어줘",
+        &actions::Action {
+            kind: "travel_create".into(),
+            target_id: String::new(),
+            expected_revision: 0,
+            input: json!({"title":"제주","startDate":"2026-11-01","endDate":"2026-11-02",
+                          "timeZone":"Asia/Seoul","currency":"KRW"}),
+        },
+    )
+    .unwrap()
+    .target_id;
+    let catalog = catalog(&db).unwrap();
+    let contexts = json!({"travel_delete":actions::entities_for(&db,"travel_delete","").unwrap()});
+    let plan = || Plan {
+        question: String::new(),
+        operations: vec![Proposal {
+            kind: "travel_delete".into(),
+            target_id: travel.clone(),
+            expected_revision: 1,
+            input_json: "{}".into(),
+            mode: "explicit".into(),
+            evidence: "지워줘".into(),
+        }],
+    };
+    let mut turn = new_turn(&message("delete", "제주 여행 지워줘")).unwrap();
+    turn.selected = vec!["travel_delete".into()];
+    prepare_plan(plan(), &mut turn, &catalog, &contexts).unwrap();
+    assert_eq!(turn.state, "awaiting_input");
+    assert!(turn.operations.is_empty());
+    assert!(turn.question.starts_with("‘제주’을 지우면 일정 0·예약 0"));
+    assert_eq!(turn.confirm_delete.as_deref(), Some(travel.as_str()));
+    assert!(!confirms_delete("아니 지우지 마"));
+    for refusal in [
+        "잠깐만",
+        "그래도 지우지마",
+        "그래도 지우지 마",
+        "네 삭제하지 말아줘",
+        "응 안 돼",
+        "응?",
+        "yes, do not delete",
+    ] {
+        assert!(!confirms_delete(refusal), "{refusal}");
+    }
+    assert!(confirms_delete("응 지워줘"));
+    assert!(confirms_delete("그래 정말 지워"));
+    let mut answer = new_turn(&message("yes", "제주 여행 지워줘\n응")).unwrap();
+    answer.selected = vec!["travel_delete".into()];
+    answer.confirmed_delete = turn
+        .confirm_delete
+        .clone()
+        .filter(|_| confirms_delete("응"));
+    prepare_plan(plan(), &mut answer, &catalog, &contexts).unwrap();
+    assert_eq!(answer.state, "planned");
+    assert_eq!(answer.operations.len(), 1);
+}

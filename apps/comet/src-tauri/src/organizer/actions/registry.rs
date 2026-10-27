@@ -100,7 +100,31 @@ fn bounded_value(value: &Value, depth: usize) -> Value {
     }
 }
 
+/// Same limits as other widgets; `totalCounts` keeps the full size of each list.
+fn bound_travel_rows(value: &mut Value, query: &str) {
+    for field in ["travels"]
+        .into_iter()
+        .chain(diary::travel_conversation::COLLECTIONS)
+    {
+        if let Some(rows) = value[field].as_array() {
+            let (total, rows) = (rows.len(), visible_rows(rows, query, 30));
+            value["totalCounts"][field] = json!(total);
+            value[field] = json!(rows);
+        }
+    }
+}
+
 fn context(definition: &Definition, id: &str, revision: i64, data: &Value, query: &str) -> Value {
+    if definition.id.starts_with("travel_") {
+        if let Ok(state) = serde_json::from_value::<diary::DiaryState>(data.clone()) {
+            let mut value = diary::travel_conversation::context(&state, query);
+            bound_travel_rows(&mut value, query);
+            value["ownerId"] = json!(id);
+            value["revision"] = json!(revision);
+            value["kind"] = json!(definition.id);
+            return value;
+        }
+    }
     let mut value = json!({"ownerId":id,"revision":revision,"kind":definition.id});
     if let Some(rows) = data[definition.collection].as_array() {
         value[definition.collection] = json!(visible_rows(rows, query, 30));
@@ -264,6 +288,15 @@ pub(crate) fn query_registry(db: &Connection, kind: &str, input: &Value) -> Resu
     if from.zip(through).is_some_and(|(a, b)| a > b) {
         return Err("조회할 날짜 범위를 확인해 주세요.".into());
     }
+    if definition.id == "travel_query" {
+        let state: diary::DiaryState = serde_json::from_value(data).map_err(err)?;
+        let mut result = diary::travel_conversation::query(&state, input, from, through)?;
+        bound_travel_rows(&mut result, query);
+        result["ownerId"] = json!(id);
+        result["revision"] = json!(revision);
+        result["kind"] = json!(definition.id);
+        return Ok(result);
+    }
     let field = definition.collection;
     if let Some(rows) = data[field].as_array_mut() {
         rows.retain(|item| {
@@ -364,9 +397,18 @@ pub(crate) fn authorize_registry(
             "match_coin" => &["던져", "던지", "flip"],
             "fortune_draw" => &["뽑아", "뽑아줘", "draw"],
             "bubbles_make" => &["만들", "make", "create"],
+            "travel_finish" => &[
+                "마치",
+                "마쳐",
+                "끝내",
+                "끝냈",
+                "다시 정리",
+                "finish",
+                "reopen",
+            ],
             _ => &[
-                "추가", "등록", "저장", "기록", "메모", "적어", "만들", "기억", "add", "create",
-                "save", "record",
+                "추가", "등록", "저장", "기록", "메모", "적어", "만들", "기억", "넣어", "잡아",
+                "예약", "add", "create", "save", "record",
             ],
         }
     };
@@ -521,6 +563,12 @@ pub(crate) fn has_explicit_request(query: &str) -> bool {
                     "기록해",
                     "메모해",
                     "적어",
+                    "넣어",
+                    "잡아",
+                    "예약해",
+                    "마쳐",
+                    "끝내",
+                    "다시 정리해",
                     "만들어",
                     "수정해",
                     "바꿔",
@@ -557,7 +605,8 @@ pub(crate) fn has_explicit_request(query: &str) -> bool {
                 &[
                     "add", "create", "save", "record", "update", "edit", "change", "delete",
                     "remove", "complete", "mark", "undo", "start", "stop", "pause", "resume",
-                    "cancel", "roll", "flip", "draw", "open", "show", "archive",
+                    "cancel", "roll", "flip", "draw", "open", "show", "archive", "finish",
+                    "reopen",
                 ],
             )
         })
@@ -578,6 +627,7 @@ fn payload(
     definition: &Definition,
     action: &Action,
     data: &Value,
+    query: &str,
 ) -> Result<Value> {
     let mut payload = action.input.clone();
     if definition.target != !action.target_id.is_empty()
@@ -689,6 +739,17 @@ fn payload(
             .filter(|item| item["date"] == payload["date"])
             .collect::<Vec<_>>());
     }
+    if definition.id.starts_with("travel_") {
+        let state: diary::DiaryState = serde_json::from_value(data.clone()).map_err(err)?;
+        diary::travel_conversation::prepare(
+            &state,
+            definition.id,
+            &action.input,
+            &mut payload,
+            original,
+            query,
+        )?;
+    }
     Ok(payload)
 }
 
@@ -797,7 +858,7 @@ pub(crate) fn execute_registry(
             "원본이 바뀌었어요. 최신 revision {revision}의 내용을 확인하고 다시 요청해 주세요."
         ));
     }
-    let payload = payload(&tx, definition, action, &before)?;
+    let payload = payload(&tx, definition, action, &before, query)?;
     let timestamp = chrono::Utc::now().timestamp_millis();
     let after = if definition.owner == "diary" {
         serde_json::to_value(diary::update_in_transaction(
@@ -851,7 +912,7 @@ pub(crate) fn execute_registry(
     } else {
         action.target_id.clone()
     };
-    let result = if definition.effect == "control" {
+    let mut result = if definition.effect == "control" {
         context(definition, &owner_id, revision + 1, &after, "")
     } else {
         let collection = after[definition.collection]
@@ -876,6 +937,25 @@ pub(crate) fn execute_registry(
     if definition.collection == "ledgerEntries" {
         if let Some(amount) = result["item"]["amount"].as_u64() {
             title = format!("{title} · {amount}원");
+        }
+    }
+    if definition.id.starts_with("travel_") {
+        let state: diary::DiaryState = serde_json::from_value(before.clone()).map_err(err)?;
+        let item = if result["item"].is_null() {
+            before[definition.collection]
+                .as_array()
+                .and_then(|items| items.iter().find(|item| item["id"] == json!(target)))
+                .cloned()
+                .unwrap_or(Value::Null)
+        } else {
+            result["item"].clone()
+        };
+        title = diary::travel_conversation::receipt_title(&state, &item, &title)
+            .chars()
+            .take(200)
+            .collect();
+        if !result["item"].is_null() {
+            result["item"] = diary::travel_conversation::mask(definition.collection, item);
         }
     }
     let receipt = Receipt {id:id.clone(),input_id:input_id.into(),title,kind:action.kind.clone(),target_id:target,created_at:timestamp,undone:false,source_id:None,undo_supported:Some(definition.undo),undo_reason:(!definition.undo).then(||"시간의 흐름이나 놀이 실행은 되돌릴 수 없어요. 해당 기능에서 다음 동작을 선택해 주세요.".into()),result:Some(result.clone())};

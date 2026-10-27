@@ -652,6 +652,169 @@ pub(crate) fn my_share(expense: &Expense) -> u64 {
         .map_or(0, |(_, amount)| amount)
 }
 
+/// "1,234.5" → minor units, or None when the text is not a plain amount for the currency.
+/// Keep this identical to travelMoney.ts parseAmount.
+pub(crate) fn parse_amount(text: &str, currency: &str) -> Option<u64> {
+    let raw = text.trim().replace(',', "");
+    let digits = exponent(currency) as usize;
+    let (whole, fraction) = raw.split_once('.').unwrap_or((&raw, ""));
+    let numeric = |part: &str| part.chars().all(|c| c.is_ascii_digit());
+    if whole.is_empty()
+        || !numeric(whole)
+        || !numeric(fraction)
+        || (raw.contains('.') && (fraction.is_empty() || fraction.len() > digits))
+    {
+        return None;
+    }
+    let fraction = format!("{fraction:0<digits$}").parse::<u64>().unwrap_or(0);
+    whole
+        .parse::<u64>()
+        .ok()?
+        .checked_mul(10u64.pow(digits as u32))?
+        .checked_add(fraction)
+        .filter(|value| *value <= MAX_MINOR)
+}
+
+/// Won per one unit as written ("9.12") → scaled by 10,000. Keep identical to travelMoney.ts parseRate.
+pub(crate) fn parse_rate(text: &str) -> Option<u64> {
+    let raw = text.trim().replace(',', "");
+    let (whole, fraction) = raw.split_once('.').unwrap_or((&raw, ""));
+    if whole.is_empty()
+        || !whole.chars().all(|c| c.is_ascii_digit())
+        || !fraction.chars().all(|c| c.is_ascii_digit())
+        || (raw.contains('.') && (fraction.is_empty() || fraction.len() > 4))
+    {
+        return None;
+    }
+    whole
+        .parse::<u64>()
+        .ok()?
+        .checked_mul(10_000)?
+        .checked_add(format!("{fraction:0<4}").parse::<u64>().ok()?)
+        .filter(|value| (1..=MAX_RATE).contains(value))
+}
+
+/// The rate last written for this currency in the trip, as the travel window prefills it.
+/// Bookings without a price keep a placeholder rate, so they do not count.
+pub(crate) fn last_rate(state: &DiaryState, travel_id: &str, currency: &str) -> Option<u64> {
+    if currency == "KRW" {
+        return Some(10_000);
+    }
+    let bookings = state
+        .travel_bookings
+        .iter()
+        .filter(|v| v.travel_id == travel_id && v.currency == currency && v.amount > 0)
+        .map(|v| v.rate);
+    let expenses = state
+        .travel_expenses
+        .iter()
+        .filter(|v| v.travel_id == travel_id && v.currency == currency)
+        .map(|v| v.rate);
+    bookings.chain(expenses).last()
+}
+
+/// Positive: others owe this person. Only paid bills and recorded transfers count.
+/// Keep this identical to travelMoney.ts balances; entries keep me-then-people order.
+pub(crate) fn balances(state: &DiaryState, travel_id: &str) -> Vec<(String, i64)> {
+    let mut result = vec![(ME.to_string(), 0_i64)];
+    for person in state
+        .travel_people
+        .iter()
+        .filter(|v| v.travel_id == travel_id)
+    {
+        result.push((person.id.clone(), 0));
+    }
+    let mut add = |id: &str, value: i64| match result.iter_mut().find(|(known, _)| known == id) {
+        Some((_, total)) => *total += value,
+        None => result.push((id.to_string(), value)),
+    };
+    for expense in state
+        .travel_expenses
+        .iter()
+        .filter(|v| v.travel_id == travel_id && v.paid)
+    {
+        add(
+            &expense.payer,
+            won(expense.amount, &expense.currency, expense.rate) as i64,
+        );
+        for (share, amount) in expense.shares.iter().zip(split_shares(expense)) {
+            add(&share.person, -(amount as i64));
+        }
+    }
+    for transfer in state
+        .travel_transfers
+        .iter()
+        .filter(|v| v.travel_id == travel_id)
+    {
+        add(&transfer.from, transfer.amount as i64);
+        add(&transfer.to, -(transfer.amount as i64));
+    }
+    result
+}
+
+/// Fewest transfers: the largest debtor pays the largest creditor. Keep identical to travelMoney.ts settle.
+pub(crate) fn settle(state: &DiaryState, travel_id: &str) -> Vec<(String, String, i64)> {
+    let entries = balances(state, travel_id);
+    let mut debtors: Vec<_> = entries.iter().filter(|(_, v)| *v < 0).cloned().collect();
+    let mut creditors: Vec<_> = entries.iter().filter(|(_, v)| *v > 0).cloned().collect();
+    debtors.sort_by_key(|(_, v)| *v);
+    creditors.sort_by_key(|(_, v)| std::cmp::Reverse(*v));
+    let (mut i, mut j, mut result) = (0, 0, vec![]);
+    while i < debtors.len() && j < creditors.len() {
+        let amount = (-debtors[i].1).min(creditors[j].1);
+        // Rounding leftovers under 10 won are not worth a transfer.
+        if amount >= 10 {
+            result.push((debtors[i].0.clone(), creditors[j].0.clone(), amount));
+        }
+        debtors[i].1 += amount;
+        creditors[j].1 -= amount;
+        if debtors[i].1 > -1 {
+            i += 1;
+        }
+        if creditors[j].1 < 1 {
+            j += 1;
+        }
+    }
+    result
+}
+
+/// Keep identical to travelMoney.ts costSummary.
+pub(crate) fn cost_summary(state: &DiaryState, travel: &Travel) -> Value {
+    let expenses: Vec<_> = state
+        .travel_expenses
+        .iter()
+        .filter(|v| v.travel_id == travel.id)
+        .collect();
+    let value = |e: &&Expense| won(e.amount, &e.currency, e.rate);
+    let paid: u64 = expenses.iter().filter(|e| e.paid).map(value).sum();
+    let unpaid: Vec<_> = expenses.iter().filter(|e| !e.paid).collect();
+    let people = state
+        .travel_people
+        .iter()
+        .filter(|v| v.travel_id == travel.id)
+        .count() as f64
+        + 1.0;
+    let budget = travel.budget;
+    serde_json::json!({
+        "paid": paid,
+        "onsite": unpaid.iter().map(|e| value(e)).sum::<u64>(),
+        "onsiteCount": unpaid.len(),
+        "perPerson": (paid as f64 / people).round() as u64,
+        "budgetPercent": (budget > 0).then(|| (paid as f64 / budget as f64 * 100.0).round() as u64),
+        "remaining": (budget > 0).then(|| budget as i64 - paid as i64),
+    })
+}
+
+/// Screens and model context only ever see the last four characters. Keep identical to travelMoney.ts.
+pub(crate) fn mask_confirmation(value: &str) -> String {
+    let visible: Vec<char> = value.chars().filter(|c| !c.is_whitespace()).collect();
+    if visible.is_empty() {
+        return String::new();
+    }
+    let tail: String = visible[visible.len().saturating_sub(4)..].iter().collect();
+    format!("•••• {tail}")
+}
+
 /// Upgrade only amounts that still match the old derived rounding. Do not recreate deleted links,
 /// overwrite manual amounts or metadata, or delete a historical entry whose new share is zero.
 pub(super) fn reconcile_split_rounding(state: &mut DiaryState) -> bool {
@@ -1242,6 +1405,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::collections::BTreeMap;
 
     fn jeju() -> Value {
         json!({
@@ -1398,7 +1562,10 @@ mod tests {
         let before = state.clone();
         assert_eq!(
             super::super::ledger::mutate(&mut state, "ledger-entry-update", &edit),
-            Err("여행에서 자동으로 기록한 내 몫이에요. 여행의 비용이나 예약에서 고쳐 주세요.".into())
+            Err(
+                "여행에서 자동으로 기록한 내 몫이에요. 여행의 비용이나 예약에서 고쳐 주세요."
+                    .into()
+            )
         );
         assert_eq!(state, before);
         let booking = state.travel_bookings[0].clone();
@@ -1435,7 +1602,10 @@ mod tests {
             edit[key] = value;
             assert_eq!(
                 super::super::ledger::mutate(&mut state, "ledger-entry-update", &edit),
-                Err("여행에서 자동으로 기록한 내 몫이에요. 여행의 비용이나 예약에서 고쳐 주세요.".into()),
+                Err(
+                    "여행에서 자동으로 기록한 내 몫이에요. 여행의 비용이나 예약에서 고쳐 주세요."
+                        .into()
+                ),
                 "{key}"
             );
             assert_eq!(state, before, "{key}");
@@ -1474,8 +1644,7 @@ mod tests {
 
         // Identical user-written titles and memos do not make an ordinary entry
         // travel-owned. Only the expense's ledger_entry_id does.
-        super::super::ledger::mutate(&mut state, "ledger-entry-create", &json!(linked))
-            .unwrap();
+        super::super::ledger::mutate(&mut state, "ledger-entry-create", &json!(linked)).unwrap();
         let manual = state.ledger_entries[1].clone();
         let mut edit = with_expected(json!(manual), &manual.id, &manual);
         edit["amount"] = json!(202);
@@ -1714,5 +1883,90 @@ mod tests {
         assert_eq!(state.travel_photos[0].path, "/p/a.jpg");
         let bad = json!({"travelId": travel_id, "photos": [{"path": "/p/c.jpg", "thumb": "../x"}]});
         assert!(mutate(&mut state, "travel-photo-add", &bad).is_err());
+    }
+
+    #[test]
+    fn conversation_money_matches_the_travel_window_fixtures() {
+        // travelMoney.test.ts "amounts and rates"와 같은 값이어야 대화와 여행 창이 같은 금액을 저장한다.
+        assert_eq!(parse_amount("388,000", "KRW"), Some(388_000));
+        assert_eq!(parse_amount("12.5", "KRW"), None);
+        assert_eq!(parse_amount("123.45", "USD"), Some(12_345));
+        assert_eq!(parse_amount("123.4", "USD"), Some(12_340));
+        assert_eq!(parse_amount("1.234", "USD"), None);
+        assert_eq!(parse_amount("10000", "JPY"), Some(10_000));
+        assert_eq!(parse_amount("1.", "USD"), None);
+        assert_eq!(parse_rate("9.12"), Some(91_200));
+        assert_eq!(parse_rate("0"), None);
+        assert_eq!(parse_rate("1380.12345"), None);
+        assert_eq!(mask_confirmation("AB12 4821"), "•••• 4821");
+        assert_eq!(mask_confirmation(""), "");
+    }
+
+    #[test]
+    fn settlement_matches_the_travel_window_fixture() {
+        let mut state = created();
+        let travel = state.travels[0].clone();
+        for id in ["mom", "sis"] {
+            state.travel_people.push(Person {
+                id: id.into(),
+                travel_id: travel.id.clone(),
+                name: id.into(),
+                color: "blue".into(),
+            });
+        }
+        let bill = |id: &str, amount: u64, payer: &str, paid: bool, people: &[&str]| Expense {
+            id: id.into(),
+            travel_id: travel.id.clone(),
+            title: id.into(),
+            date: "2026-10-24".into(),
+            amount,
+            currency: "KRW".into(),
+            rate: 10_000,
+            category: "food".into(),
+            paid,
+            payer: payer.into(),
+            shares: people
+                .iter()
+                .map(|person| Share {
+                    person: (*person).into(),
+                    weight: 1,
+                })
+                .collect(),
+            memo: String::new(),
+            booking_id: None,
+            ledger_entry_id: None,
+        };
+        state.travel_expenses = vec![
+            bill("dinner", 90_000, ME, true, &[ME, "mom", "sis"]),
+            bill("taxi", 30_000, "mom", true, &["sis"]),
+            bill("car", 160_000, "sis", false, &[ME]),
+        ];
+        let totals: BTreeMap<_, _> = balances(&state, &travel.id).into_iter().collect();
+        assert_eq!(
+            totals,
+            BTreeMap::from([
+                (ME.into(), 60_000),
+                ("mom".into(), 0),
+                ("sis".into(), -60_000)
+            ])
+        );
+        assert_eq!(
+            settle(&state, &travel.id),
+            vec![("sis".into(), ME.into(), 60_000)]
+        );
+        assert_eq!(
+            cost_summary(&state, &travel),
+            json!({"paid":120_000,"onsite":160_000,"onsiteCount":1,"perPerson":40_000,
+                   "budgetPercent":6,"remaining":1_880_000})
+        );
+        state.travel_transfers.push(Transfer {
+            id: "t".into(),
+            travel_id: travel.id.clone(),
+            from: "sis".into(),
+            to: ME.into(),
+            amount: 60_000,
+            date: "2026-10-26".into(),
+        });
+        assert!(settle(&state, &travel.id).is_empty());
     }
 }
