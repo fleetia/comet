@@ -270,6 +270,8 @@ pub struct Inference {
     sidecar_path: PathBuf,
     runtime_dir: PathBuf,
     local: Mutex<Option<LocalServer>>,
+    /// Models whose Metal run came out garbled; they run on the CPU for the rest of the session.
+    cpu_only: std::sync::Mutex<std::collections::HashSet<PathBuf>>,
     request_observer: OnceLock<Arc<RequestObserver>>,
 }
 impl Inference {
@@ -280,6 +282,7 @@ impl Inference {
             sidecar_path,
             runtime_dir,
             local: Mutex::new(None),
+            cpu_only: Default::default(),
             request_observer: OnceLock::new(),
         }
     }
@@ -520,55 +523,98 @@ async fn local_endpoint(
     if !inference.sidecar_path.is_file() {
         return Err("로컬 실행기가 없습니다. prepare-sidecar 후 앱을 다시 빌드해 주세요.".into());
     }
-    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
-        .map_err(|_| "로컬 포트를 할당할 수 없습니다.")?;
-    let port = listener
-        .local_addr()
-        .map_err(|_| "로컬 포트 확인 실패")?
-        .port();
-    drop(listener);
-    let key = uuid::Uuid::new_v4().to_string();
-    let url = format!("http://127.0.0.1:{port}");
-    let mut command = Command::new(&inference.sidecar_path);
-    command
-        .args(["--model"])
-        .arg(&path)
-        .args([
-            "--host",
-            "127.0.0.1",
-            "--port",
-            &port.to_string(),
-            "--ctx-size",
-            &context_tokens.to_string(),
-            "--parallel",
-            "1",
-            "--sleep-idle-seconds",
-            "120",
-            "--jinja",
-            "--reasoning-format",
-            "deepseek",
-            "--reasoning-budget",
-            "-1",
-            "--cache-ram",
-            "0",
-            "--no-webui",
-            "--log-disable",
-        ])
-        .env("LLAMA_API_KEY", &key)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    crate::sidecar::configure_llama_runtime(command.as_std_mut(), &inference.runtime_dir)?;
-    if cfg!(target_os = "macos") {
-        command.args(["--n-gpu-layers", "auto"]);
+    // Metal goes first on macOS. Some models come out of it garbled (Granite 4.0 1B on an M1 emits
+    // only `@` once its early layers are offloaded), and those run on the CPU instead.
+    let mut gpu = cfg!(target_os = "macos")
+        && !inference
+            .cpu_only
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .contains(&path);
+    loop {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .map_err(|_| "로컬 포트를 할당할 수 없습니다.")?;
+        let port = listener
+            .local_addr()
+            .map_err(|_| "로컬 포트 확인 실패")?
+            .port();
+        drop(listener);
+        let key = uuid::Uuid::new_v4().to_string();
+        let url = format!("http://127.0.0.1:{port}");
+        let mut command = Command::new(&inference.sidecar_path);
+        command
+            .args(["--model"])
+            .arg(&path)
+            .args([
+                "--host",
+                "127.0.0.1",
+                "--port",
+                &port.to_string(),
+                "--ctx-size",
+                &context_tokens.to_string(),
+                "--parallel",
+                "1",
+                "--sleep-idle-seconds",
+                "120",
+                "--jinja",
+                "--reasoning-format",
+                "deepseek",
+                "--reasoning-budget",
+                "-1",
+                "--cache-ram",
+                "0",
+                "--no-webui",
+                "--log-disable",
+            ])
+            .env("LLAMA_API_KEY", &key)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        crate::sidecar::configure_llama_runtime(command.as_std_mut(), &inference.runtime_dir)?;
+        if cfg!(target_os = "macos") {
+            command.args(["--n-gpu-layers", if gpu { "auto" } else { "0" }]);
+        }
+        #[cfg(target_os = "windows")]
+        command.creation_flags(0x08000000);
+        let mut child = command.spawn().map_err(|_| {
+            "로컬 실행기를 시작하지 못했습니다. 실행 파일과 라이브러리를 확인해 주세요."
+        })?;
+        let http = client(&url)?;
+        if !wait_ready(&mut child, &http, &url, &key, &cancel).await? {
+            let _ = child.kill().await;
+            return Err("로컬 모델 준비 시간이 초과되었습니다.".into());
+        }
+        if gpu && garbled(&http, &url, &key).await {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            inference
+                .cpu_only
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(path.clone());
+            gpu = false;
+            continue;
+        }
+        *state = Some(LocalServer {
+            path,
+            context_tokens,
+            child,
+            url: url.clone(),
+            key: key.clone(),
+        });
+        return Ok((url, key));
     }
-    #[cfg(target_os = "windows")]
-    command.creation_flags(0x08000000);
-    let mut child = command.spawn().map_err(|_| {
-        "로컬 실행기를 시작하지 못했습니다. 실행 파일과 라이브러리를 확인해 주세요."
-    })?;
-    let http = client(&url)?;
+}
+
+/// Waits until a started server answers `/health`: `false` when it never did in time.
+async fn wait_ready(
+    child: &mut Child,
+    http: &reqwest::Client,
+    url: &str,
+    key: &str,
+    cancel: &Arc<AtomicBool>,
+) -> Result<bool, String> {
     for _ in 0..240 {
         if cancel.load(Ordering::Acquire) {
             let _ = child.kill().await;
@@ -586,22 +632,42 @@ async fn local_endpoint(
         }
         let ready = tokio::select! {
             _ = models::cancelled(cancel.clone()) => { let _ = child.kill().await; return Err("취소됨".into()); },
-            response = http.get(format!("{url}/health")).bearer_auth(&key).timeout(Duration::from_secs(1)).send() => response.map(|r| r.status().is_success()).unwrap_or(false),
+            response = http.get(format!("{url}/health")).bearer_auth(key).timeout(Duration::from_secs(1)).send() => response.map(|r| r.status().is_success()).unwrap_or(false),
         };
         if ready {
-            *state = Some(LocalServer {
-                path,
-                context_tokens,
-                child,
-                url: url.clone(),
-                key: key.clone(),
-            });
-            return Ok((url, key));
+            return Ok(true);
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
-    let _ = child.kill().await;
-    Err("로컬 모델 준비 시간이 초과되었습니다.".into())
+    Ok(false)
+}
+
+/// A short greedy completion that is one symbol over and over (`@@@@@@`) means the backend
+/// produced NaN logits for this model. The prompt is long enough for batched prompt processing,
+/// where the Granite 4.0 1B fault appears (one token still comes out right). A failed probe
+/// counts as healthy.
+async fn garbled(http: &reqwest::Client, url: &str, key: &str) -> bool {
+    const PROMPT: &str = "The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog.";
+    let Ok(response) = http
+        .post(format!("{url}/completion"))
+        .bearer_auth(key)
+        .timeout(Duration::from_secs(30))
+        .json(&json!({"prompt":PROMPT,"n_predict":8,"temperature":0,"cache_prompt":false}))
+        .send()
+        .await
+    else {
+        return false;
+    };
+    response_body(response)
+        .await
+        .is_ok_and(|body| body["content"].as_str().is_some_and(repeats_one_symbol))
+}
+
+fn repeats_one_symbol(text: &str) -> bool {
+    let symbols: Vec<char> = text.chars().filter(|c| !c.is_whitespace()).collect();
+    symbols.len() >= 4
+        && !symbols[0].is_alphanumeric()
+        && symbols.iter().all(|symbol| *symbol == symbols[0])
 }
 
 pub async fn is_local_running(inference: &Inference, settings: &Settings) -> bool {
@@ -2422,6 +2488,33 @@ mod tests {
             finished.send(()).unwrap();
             server.await.unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn a_completion_of_one_repeated_symbol_marks_the_backend_output_garbled() {
+        use tokio::{io::AsyncWriteExt, net::TcpListener};
+        assert!(repeats_one_symbol("@@@@@@@@"));
+        assert!(repeats_one_symbol(" !!! ! "));
+        for healthy in ["Hello, world", "@@@", "ㅋㅋㅋㅋ", "", "!!!?"] {
+            assert!(!repeats_one_symbol(healthy), "{healthy:?}");
+        }
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            for content in ["@@@@@@@@", ", I am fine"] {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                read_completion_request(&mut socket).await;
+                let body = json!({ "content": content }).to_string();
+                let _ = socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await;
+            }
+        });
+        let url = format!("http://{address}");
+        let http = client(&url).unwrap();
+        assert!(garbled(&http, &url, "key").await);
+        assert!(!garbled(&http, &url, "key").await);
+        server.await.unwrap();
+        // A probe that cannot reach the server keeps the GPU.
+        assert!(!garbled(&http, "http://127.0.0.1:9", "key").await);
     }
 
     #[tokio::test]

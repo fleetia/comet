@@ -222,6 +222,50 @@ fn addon_keeps_public_profiles_and_greeting_alternatives_after_import() {
 }
 
 #[test]
+fn a_stored_character_keeps_fields_this_build_does_not_know() {
+    let conn = crate::store::open(std::path::Path::new(":memory:")).unwrap();
+    let mut stored = serde_json::to_value(&nadir_pack().characters[0]).unwrap();
+    stored["visualMode"] = serde_json::json!("parts");
+    stored["facing"] = serde_json::json!({"policy":"auto","base":"front"});
+    conn.execute(
+        "UPDATE characters SET data=?1 WHERE id='builtin-a'",
+        params![stored.to_string()],
+    )
+    .unwrap();
+    let loaded = get(&conn, "builtin-a").unwrap();
+    assert_eq!(loaded.definition.unknown["visualMode"], "parts");
+    let mut edited = loaded.definition.clone();
+    edited.name = "새 이름".into();
+    edited.unknown.clear();
+    save(&conn, "builtin-a", &edited).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(
+        &conn
+            .query_row(
+                "SELECT data FROM characters WHERE id='builtin-a'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(saved["name"], "새 이름");
+    assert_eq!(saved["visualMode"], "parts");
+    assert_eq!(saved["facing"], stored["facing"]);
+    let mut pack: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../examples/character-packs/nadir-and-star-tail.comet-character.json"
+    ))
+    .unwrap();
+    pack["characters"][0]["visualMode"] = serde_json::json!("parts");
+    assert_eq!(
+        parse_pack(&pack.to_string()).unwrap_err(),
+        "캐릭터팩 필드 형식이 올바르지 않습니다."
+    );
+    let mut fresh = nadir_pack().characters[0].clone();
+    fresh.unknown.insert("visualMode".into(), "parts".into());
+    assert!(create(&conn, &fresh).is_err());
+}
+
+#[test]
 fn initialization_preserves_existing_addon_characters_and_personal_data() {
     let conn = crate::store::open(std::path::Path::new(":memory:")).unwrap();
     let pack = nadir_pack();

@@ -151,6 +151,23 @@ pub(crate) fn cancel_nlp_download(state: tauri::State<'_, Arc<AppState>>, model:
     state.nlp.cancel_download(model);
 }
 
+/// Downloads the required Korean analyzer in the background when it is missing.
+pub(crate) fn install_required_models(state: &Arc<AppState>) {
+    if unavailable(state) || !state.nlp.claim_required_install() {
+        return;
+    }
+    let state = state.clone();
+    tauri::async_runtime::spawn(async move {
+        let result = state.nlp.download(ModelKind::Kiwi).await;
+        state.nlp.finish_required_install(&result);
+        if result.is_ok() && !unavailable(&state) {
+            if let (Ok(_action), Ok(db)) = (lock(&state.action), lock(&state.db)) {
+                let _ = sync_profiles(&db, &state.nlp.status());
+            }
+        }
+    });
+}
+
 #[tauri::command]
 pub(crate) async fn remove_nlp_model(
     app: tauri::AppHandle,

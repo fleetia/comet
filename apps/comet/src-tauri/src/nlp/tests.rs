@@ -72,6 +72,24 @@ async fn cold_search_returns_fallback_and_shutdown_interrupts_initialization() {
 }
 #[cfg(unix)]
 #[tokio::test]
+async fn request_analysis_waits_for_a_cold_helper_that_search_skips() {
+    let script = r#"echo '{"version":1,"ready":true,"kiwi":true,"semantic":false,"errors":[]}'
+read request
+echo '{"version":1,"id":1,"result":{"tokens":[{"form":"하","tag":"VV","start":0,"end":3}],"embeddings":[],"typo_corrected":[0]},"error":null}'
+read next"#;
+    let (_directory, service) = fake_service(script);
+    // Memory search falls back at once while the helper starts.
+    assert!(service.query("할 일").await.is_none());
+    let analysis = service
+        .analyze("할 일", Duration::from_secs(4))
+        .await
+        .unwrap();
+    assert_eq!(analysis.tokens[0].form, "하");
+    assert_eq!(analysis.typo_corrected, [0]);
+    service.shutdown().await;
+}
+#[cfg(unix)]
+#[tokio::test]
 async fn warm_timeout_kills_helper_and_cooldown_prevents_restart() {
     let script = r#"echo '{"version":1,"ready":true,"kiwi":true,"semantic":false,"errors":[]}'
 read request
@@ -120,7 +138,8 @@ async fn previous_model_is_recovered_before_settings_and_profiles_are_loaded() {
     .unwrap();
     assert!(service.status().kiwi.installed);
     assert!(service.status().kiwi.profile.is_some());
-    assert!(!service.status().kiwi.enabled);
+    // Kiwi reads chat requests, so it is enabled even without a saved search setting.
+    assert!(service.status().kiwi.enabled);
     assert!(!root.join(".kiwi-previous").exists());
     service.shutdown().await;
 }
@@ -289,4 +308,43 @@ fn changing_search_policy_preserves_installation_and_invalidates_only_cache() {
         models::artifact_fingerprint(&original),
         models::artifact_fingerprint(&changed)
     );
+}
+#[tokio::test]
+async fn missing_kiwi_installs_itself_after_a_delay_and_backs_off_after_failures() {
+    let directory = tempfile::tempdir().unwrap();
+    let service = NlpService::new(directory.path().into(), PathBuf::new(), PathBuf::new()).unwrap();
+    assert!(!service.status().kiwi.installed);
+    // The first download waits until the app has settled.
+    assert!(!service.claim_required_install());
+    let due = |service: &NlpService| {
+        locked(&service.shared.required_install).next = Some(Instant::now());
+    };
+    due(&service);
+    assert!(service.claim_required_install());
+    // One download at a time until its outcome is reported.
+    assert!(!service.claim_required_install());
+    for minutes in [5, 30, 120, 120] {
+        service.finish_required_install(&Err("offline".into()));
+        let next = locked(&service.shared.required_install).next.unwrap();
+        let wait = next.duration_since(Instant::now()).as_secs();
+        assert!(
+            (minutes * 60 - 5..=minutes * 60).contains(&wait),
+            "{minutes}: {wait}"
+        );
+        assert!(!service.claim_required_install());
+        due(&service);
+        assert!(service.claim_required_install());
+    }
+    service.finish_required_install(&Ok(()));
+    {
+        let schedule = locked(&service.shared.required_install);
+        assert_eq!(schedule.failures, 0);
+        assert!(schedule.next.is_none());
+    }
+    // Kiwi reads chat requests, so it cannot be removed.
+    assert_eq!(
+        service.remove(ModelKind::Kiwi).await.unwrap_err(),
+        "한국어 분석은 대화 요청을 읽는 데 필요해서 제거할 수 없어요."
+    );
+    service.shutdown().await;
 }

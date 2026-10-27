@@ -25,6 +25,11 @@ fn run(db: &Connection, kind: &str, target: &str, input: Value) -> Receipt {
     .unwrap()
 }
 
+/// String-rule authorization, as when a turn has no stored request analysis.
+fn authorize(query: &str, kind: &str, mode: &str, evidence: &str) -> Result<()> {
+    authorize_registry(query, kind, mode, evidence, has_explicit_request(query))
+}
+
 fn expense(title: &str, amount: u64) -> Value {
     json!({"date":"2026-10-18","kind":"expense","amount":amount,"category":"food","title":title})
 }
@@ -39,7 +44,7 @@ fn ledger_statement_is_saved_once_and_undo_preserves_independent_entries() {
         expected_revision: 0,
         input: expense("컵라면", 3000),
     };
-    authorize_registry(
+    authorize(
         "오늘 3000원 컵라면 사먹음",
         "ledger_create",
         "statement",
@@ -251,52 +256,48 @@ fn statement_authorization_rejects_negation_hypotheticals_quotes_and_controls() 
         "오늘 3000원 썼다고 말했어",
     ] {
         assert!(
-            authorize_registry(query, "ledger_create", "statement", query).is_err(),
+            authorize(query, "ledger_create", "statement", query).is_err(),
             "{query}"
         );
     }
-    assert!(
-        authorize_registry("집중 시작했어", "focus_start", "statement", "집중 시작했어").is_err()
-    );
-    assert!(authorize_registry(
+    assert!(authorize("집중 시작했어", "focus_start", "statement", "집중 시작했어").is_err());
+    assert!(authorize(
         "오늘 컵라면 먹음",
         "ledger_create",
         "statement",
         "없는 문장"
     )
     .is_err());
-    authorize_registry(
+    authorize(
         "컵라면 3000원 지출을 등록해줘",
         "ledger_create",
         "explicit",
         "등록해줘",
     )
     .unwrap();
-    assert!(authorize_registry(
+    assert!(authorize(
         "오늘 컵라면 샀어",
         "ledger_delete",
         "explicit",
         "오늘 컵라면 샀어"
     )
     .is_err());
-    assert!(
-        authorize_registry("컵라면을 메모해줘", "ledger_delete", "explicit", "메모해줘").is_err()
-    );
-    assert!(authorize_registry(
+    assert!(authorize("컵라면을 메모해줘", "ledger_delete", "explicit", "메모해줘").is_err());
+    assert!(authorize(
         "그는 ‘삭제해줘’라고 했어",
         "ledger_delete",
         "explicit",
         "삭제해줘"
     )
     .is_err());
-    assert!(authorize_registry(
+    assert!(authorize(
         "메모해: 가계부를 삭제해줘",
         "ledger_delete",
         "explicit",
         "삭제해줘"
     )
     .is_err());
-    authorize_registry(
+    authorize(
         "메모해: 다음에는 컵라면을 사먹지 마",
         "note_create",
         "explicit",
@@ -307,7 +308,7 @@ fn statement_authorization_rejects_negation_hypotheticals_quotes_and_controls() 
 
 #[test]
 fn statement_evidence_keeps_its_sentence_context_and_global_prohibitions() {
-    authorize_registry(
+    authorize(
         "오늘 3000원 컵라면 사먹음. 친구가 내일 발표 준비한대",
         "ledger_create",
         "statement",
@@ -323,7 +324,7 @@ fn statement_evidence_keeps_its_sentence_context_and_global_prohibitions() {
         ("오늘 컵라면 사먹음. 만약 내일도 먹는다면", "컵라면 사먹음"),
     ] {
         assert!(
-            authorize_registry(query, "ledger_create", "statement", evidence).is_err(),
+            authorize(query, "ledger_create", "statement", evidence).is_err(),
             "{query}"
         );
     }
@@ -335,9 +336,9 @@ fn time_colons_preserve_requests_without_opening_quoted_instructions() {
         "내일 14:00부터 15:00까지 회의 등록해줘",
         "내일 14：00부터 15：00까지 회의 등록해줘",
     ] {
-        authorize_registry(query, "event_add", "explicit", "등록해줘").unwrap();
+        authorize(query, "event_add", "explicit", "등록해줘").unwrap();
     }
-    assert!(authorize_registry(
+    assert!(authorize(
         "메모해: 내일 14:00부터 15:00까지 회의 등록해줘",
         "event_add",
         "explicit",

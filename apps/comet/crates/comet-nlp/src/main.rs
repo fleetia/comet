@@ -92,8 +92,12 @@ fn main() {
                 Operation::Query | Operation::Index | Operation::Analyze
             ) {
                 if let Some(model) = &kiwi {
-                    match model.analyze(&request.text) {
-                        Ok(tokens) => result.tokens = tokens,
+                    // Search and indexing keep their typo-free profile; only request analysis corrects typos.
+                    match model.analyze(&request.text, operation == Operation::Analyze) {
+                        Ok((tokens, corrected)) => {
+                            result.tokens = tokens;
+                            result.typo_corrected = corrected;
+                        }
                         Err(error) => result.kiwi_error = Some(error),
                     }
                 }

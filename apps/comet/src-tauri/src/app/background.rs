@@ -52,6 +52,7 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         let maintenance_state = state.clone();
         let _ = tasks::spawn_maintenance(&state, async move {
             maintenance_state.nlp.maintain();
+            crate::memory_commands::install_required_models(&maintenance_state);
             let _ = behavior::tick(&maintenance_app, &maintenance_state).await;
             if let Ok(_gate) = maintenance_state.gate.try_lock() {
                 let idle = lock(&maintenance_state.runtime)

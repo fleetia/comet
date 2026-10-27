@@ -87,6 +87,10 @@ fn valid_result(text: &str, result: &Analysis) -> bool {
     };
     result.tokens.len() <= 65536
         && result.tokens.iter().all(|t| span(t.start, t.end))
+        && result
+            .typo_corrected
+            .iter()
+            .all(|index| (*index as usize) < result.tokens.len())
         && result.embeddings.len() <= 512
         && result.embeddings.iter().all(|e| {
             span(e.start, e.end)
