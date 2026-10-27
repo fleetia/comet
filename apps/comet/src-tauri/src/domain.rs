@@ -713,6 +713,29 @@ pub fn reply_schema_for(targets: &[String], expressions: &[&str]) -> Value {
     schema["properties"]["expression"]["enum"] = json!(expressions);
     schema
 }
+/// A small model's reply stops at 200 characters: past that it rambles over the balloon and runs
+/// into the token limit before closing the JSON.
+pub fn small_reply_schema_for(targets: &[String], expressions: &[&str]) -> Value {
+    let mut schema = reply_schema_for(targets, expressions);
+    schema["properties"]["text"]["maxLength"] = json!(200);
+    schema
+}
+/// Keeps a small model's reply to its first paragraph. The rest rambles, and once saved as
+/// history the next replies ramble the same way.
+pub fn keep_first_paragraph(reply: &mut Value) {
+    let Some(text) = reply["text"].as_str() else {
+        return;
+    };
+    if let Some(first) = text
+        .split('\n')
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+    {
+        if first != text {
+            reply["text"] = json!(first);
+        }
+    }
+}
 pub fn scene_schema_for(
     targets: &[String],
     minimum: usize,
@@ -2433,6 +2456,32 @@ mod tests {
         };
         drop_expression_list(&mut input);
         assert_eq!(input.content, "평온한 하루였어");
+    }
+
+    #[test]
+    fn a_small_reply_keeps_its_first_paragraph_within_200_characters() {
+        let schema = small_reply_schema_for(&["star".into()], &["평온", "기쁨"]);
+        assert_eq!(schema["properties"]["text"]["maxLength"], 200);
+        assert_eq!(schema["properties"]["persona"]["enum"], json!(["star"]));
+        assert_eq!(
+            schema["properties"]["expression"]["enum"],
+            json!(["평온", "기쁨"])
+        );
+        for (text, expected) in [
+            (
+                "네, 정말 기뻤어! 😍✨\n\n오늘도 좋은 하루 보내!",
+                "네, 정말 기뻤어! 😍✨",
+            ),
+            ("\n  푹 쉬자.  \n내일 또 보자.", "푹 쉬자."),
+            ("한 줄 답이야.", "한 줄 답이야."),
+        ] {
+            let mut reply = json!({"persona":"star","expression":"평온","text":text});
+            keep_first_paragraph(&mut reply);
+            assert_eq!(reply["text"], expected);
+        }
+        let mut scene = json!({"lines":[{"text":"첫 줄\n둘째 줄"}]});
+        keep_first_paragraph(&mut scene);
+        assert_eq!(scene["lines"][0]["text"], "첫 줄\n둘째 줄");
     }
 
     #[test]

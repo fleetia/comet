@@ -1706,8 +1706,12 @@ pub(crate) async fn generate_turn_with_memories(
         )
     };
     let paired = targets.len() == 2;
+    // Only a small model's single reply has earlier lines to compare.
+    let small = !earlier.is_empty();
     let schema = if bundle || paired {
         domain::scene_schema_for(targets, targets.len(), targets.len(), &expressions)
+    } else if small {
+        domain::small_reply_schema_for(targets, &expressions)
     } else {
         domain::reply_schema_for(targets, &expressions)
     };
@@ -1720,6 +1724,9 @@ pub(crate) async fn generate_turn_with_memories(
         cancel.clone(),
     )
     .await?;
+    if small {
+        domain::keep_first_paragraph(&mut value);
+    }
     // A small model can hand back the user's words or its own earlier line. It is told so and
     // asked once more without its own lines, which it otherwise keeps copying.
     if value["text"]
@@ -1744,6 +1751,7 @@ pub(crate) async fn generate_turn_with_memories(
             cancel.clone(),
         )
         .await?;
+        domain::keep_first_paragraph(&mut value);
     }
     let mut lines = if bundle || paired {
         domain::parse_lines_for(value, targets, targets.len(), targets.len(), true)?
