@@ -15,6 +15,7 @@ export function WidgetWorkshop(): ReactElement {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
+  const [confirming, setConfirming] = useState<string | null>(null);
   const pending = useRef(false);
   const mounted = useRef(true);
   const generation = useRef(0);
@@ -78,8 +79,8 @@ export function WidgetWorkshop(): ReactElement {
       }
     }
   }
-  async function generate(): Promise<void> {
-    const submitted = request;
+  async function generate(submitted: string): Promise<void> {
+    setConfirming(null);
     await run(async () => {
       const version = generation.current;
       await command("generate_widget", {
@@ -127,7 +128,7 @@ export function WidgetWorkshop(): ReactElement {
             disabled={
               busy || !request.trim() || !isDesktop() || !workshop.generationEligibility.allowed
             }
-            onClick={() => void generate()}
+            onClick={() => setConfirming(request)}
           >
             만들기
           </Button>
@@ -194,6 +195,33 @@ export function WidgetWorkshop(): ReactElement {
             action, now)를 정의해요.
           </p>
         </details>
+        <Dialog
+          isOpen={confirming !== null}
+          title="위젯을 만들까요?"
+          onOpenChange={(open) => {
+            if (!open) setConfirming(null);
+          }}
+          variant="confirm"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setConfirming(null)}>
+                취소
+              </Button>
+              <Button
+                variant="primary"
+                disabled={busy || !workshop.generationEligibility.allowed}
+                onClick={() => confirming !== null && void generate(confirming)}
+              >
+                만들기
+              </Button>
+            </>
+          }
+        >
+          <p className={s.request}>{confirming}</p>
+          <p className={s.status}>
+            사용할 AI: {workshop.generationEligibility.model}. 제작에 몇 분 걸릴 수 있어요.
+          </p>
+        </Dialog>
         <Dialog
           isOpen={closeGuard.confirmClose}
           title="작성 중인 내용이 있어요"
