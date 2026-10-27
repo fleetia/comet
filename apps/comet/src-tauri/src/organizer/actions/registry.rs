@@ -100,19 +100,25 @@ fn bounded_value(value: &Value, depth: usize) -> Value {
     }
 }
 
+/// Same limits as other widgets; `totalCounts` keeps the full size of each list.
+fn bound_travel_rows(value: &mut Value, query: &str) {
+    for field in ["travels"]
+        .into_iter()
+        .chain(diary::travel_conversation::COLLECTIONS)
+    {
+        if let Some(rows) = value[field].as_array() {
+            let (total, rows) = (rows.len(), visible_rows(rows, query, 30));
+            value["totalCounts"][field] = json!(total);
+            value[field] = json!(rows);
+        }
+    }
+}
+
 fn context(definition: &Definition, id: &str, revision: i64, data: &Value, query: &str) -> Value {
     if definition.id.starts_with("travel_") {
         if let Ok(state) = serde_json::from_value::<diary::DiaryState>(data.clone()) {
             let mut value = diary::travel_conversation::context(&state, query);
-            // `linked` and `totalCount` keep the full counts for whatever is left out here.
-            for field in ["travels"]
-                .into_iter()
-                .chain(diary::travel_conversation::COLLECTIONS)
-            {
-                if let Some(rows) = value[field].as_array() {
-                    value[field] = json!(visible_rows(rows, query, 30));
-                }
-            }
+            bound_travel_rows(&mut value, query);
             value["ownerId"] = json!(id);
             value["revision"] = json!(revision);
             value["kind"] = json!(definition.id);
@@ -285,6 +291,7 @@ pub(crate) fn query_registry(db: &Connection, kind: &str, input: &Value) -> Resu
     if definition.id == "travel_query" {
         let state: diary::DiaryState = serde_json::from_value(data).map_err(err)?;
         let mut result = diary::travel_conversation::query(&state, input, from, through)?;
+        bound_travel_rows(&mut result, query);
         result["ownerId"] = json!(id);
         result["revision"] = json!(revision);
         result["kind"] = json!(definition.id);

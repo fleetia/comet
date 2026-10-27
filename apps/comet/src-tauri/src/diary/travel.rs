@@ -695,6 +695,7 @@ pub(crate) fn parse_rate(text: &str) -> Option<u64> {
 }
 
 /// The rate last written for this currency in the trip, as the travel window prefills it.
+/// Bookings without a price keep a placeholder rate, so they do not count.
 pub(crate) fn last_rate(state: &DiaryState, travel_id: &str, currency: &str) -> Option<u64> {
     if currency == "KRW" {
         return Some(10_000);
@@ -702,7 +703,7 @@ pub(crate) fn last_rate(state: &DiaryState, travel_id: &str, currency: &str) -> 
     let bookings = state
         .travel_bookings
         .iter()
-        .filter(|v| v.travel_id == travel_id && v.currency == currency)
+        .filter(|v| v.travel_id == travel_id && v.currency == currency && v.amount > 0)
         .map(|v| v.rate);
     let expenses = state
         .travel_expenses

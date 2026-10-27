@@ -965,6 +965,63 @@ fn travel_booking_from_conversation_follows_the_ledger_and_undoes_together() {
 }
 
 #[test]
+fn travel_defaults_skip_unpriced_rates_and_deleted_categories() {
+    let db = database();
+    let travel = ask(
+        &db,
+        "travel_create",
+        "",
+        json!({"title":"오사카","startDate":"2026-11-01","endDate":"2026-11-03",
+               "timeZone":"Asia/Tokyo","currency":"JPY"}),
+        "오사카 여행 만들어줘",
+    )
+    .unwrap()
+    .target_id;
+    ask(
+        &db,
+        "travel_booking_add",
+        "",
+        json!({"travelId":travel,"kind":"stay","title":"료칸","status":"unpaid",
+               "startDate":"2026-11-01"}),
+        "료칸 예약 추가해줘",
+    )
+    .unwrap();
+    assert_eq!(saved_diary(&db)["travelBookings"][0]["rate"], 10_000);
+    // The unpriced booking's placeholder is not a JPY rate the user gave.
+    let snack =
+        json!({"travelId":travel,"title":"간식","date":"2026-11-01","amount":"500","paid":true});
+    assert!(ask(
+        &db,
+        "travel_expense_add",
+        "",
+        snack.clone(),
+        "간식 500엔 추가해줘"
+    )
+    .unwrap_err()
+    .contains("JPY 환율"));
+    let mut saved = saved_diary(&db);
+    let categories = saved["ledgerSettings"]["categories"]
+        .as_array_mut()
+        .unwrap();
+    categories.retain(|category| category["id"] != "other");
+    let first = categories[0]["id"].clone();
+    let state: diary::DiaryState = serde_json::from_value(saved).unwrap();
+    let mut model = snack;
+    model["rate"] = json!("9.12");
+    let mut payload = model.clone();
+    diary::travel_conversation::prepare(
+        &state,
+        "travel_expense_add",
+        &model,
+        &mut payload,
+        None,
+        "",
+    )
+    .unwrap();
+    assert_eq!(payload["category"], first);
+}
+
+#[test]
 fn travel_context_is_bounded_and_finish_phrasings_are_explicit() {
     let db = database();
     let travel = ask(
@@ -994,6 +1051,9 @@ fn travel_context_is_bounded_and_finish_phrasings_are_explicit() {
     assert!(context["travelPlans"][0]["truncatedFields"]
         .to_string()
         .contains("memo"));
+    let trip = query_registry(&db, "travel_query", &json!({"travelId":travel})).unwrap();
+    assert_eq!(trip["travelPlans"].as_array().unwrap().len(), 30);
+    assert_eq!(trip["totalCounts"]["travelPlans"], 35);
     for request in ["제주 여행 끝내줘", "여행 다시 정리해줘", "finish my trip"] {
         assert!(has_explicit_request(request), "{request}");
     }

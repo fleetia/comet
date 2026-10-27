@@ -89,6 +89,8 @@ describe("amounts and rates", () => {
     expect(lastRate(records, "JPY")).toBe(91_200);
     expect(lastRate(records, "USD")).toBeNull();
     expect(lastRate(records, "KRW")).toBe(10_000);
+    const unpriced = { currency: "USD", amount: 0, rate: 10_000 } as TripData["bookings"][number];
+    expect(lastRate({ ...records, bookings: [unpriced] }, "USD")).toBeNull();
   });
 
   it("shows only the last four characters of a booking number", () => {

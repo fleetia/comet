@@ -261,6 +261,8 @@ fn money(payload: &mut Value, travel_id: &str, state: &DiaryState) -> Result<()>
             payload["rate"] = json!(parse_rate(&text)
                 .ok_or("환율을 다시 알려 주세요. 1단위가 몇 원인지 적어 주면 돼요.")?);
         }
+        // A booking without a price needs no rate; store the travel window's placeholder.
+        None | Some(Value::Null) if payload["amount"] == 0 => payload["rate"] = json!(10_000),
         None | Some(Value::Null) if currency != "KRW" => {
             payload["rate"] = json!(last_rate(state, travel_id, &currency).ok_or_else(
                 || format!(
@@ -337,19 +339,26 @@ pub(crate) fn prepare(
             if payload.get("currency").is_none() {
                 payload["currency"] = json!(travel.currency);
             }
+            if payload.get("category").is_none() {
+                let preferred = match kind {
+                    "travel_booking_add" => {
+                        booking_category(payload["kind"].as_str().unwrap_or_default())
+                    }
+                    _ => "other",
+                };
+                // Users can delete built-in ledger categories; the ledger falls back to its first one.
+                let ledger = &state.ledger_settings;
+                payload["category"] = json!(if ledger.has_category(preferred) {
+                    preferred
+                } else {
+                    ledger.first_category().unwrap_or(preferred)
+                });
+            }
             if kind == "travel_booking_add" {
                 if payload.get("amount").is_none() {
                     payload["amount"] = json!(0);
                 }
-                if payload.get("category").is_none() {
-                    payload["category"] = json!(booking_category(
-                        payload["kind"].as_str().unwrap_or_default()
-                    ));
-                }
             } else {
-                if payload.get("category").is_none() {
-                    payload["category"] = json!("other");
-                }
                 if payload.get("payer").is_none() {
                     payload["payer"] = json!(ME);
                 }
