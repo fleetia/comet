@@ -224,9 +224,18 @@ fn local_plan_schema(turn: &Turn, selected: &[Value], contexts: &Value) -> Value
     if variants.is_empty() {
         return ask;
     }
+    // One operation per request the rules read: a small model otherwise repeats one expense with
+    // every category it can choose.
+    let limit = turn
+        .analysis
+        .as_ref()
+        .filter(|analysis| analysis.route == utterance::Route::Tools)
+        .map_or(MAX_OPERATIONS, |analysis| {
+            analysis.intents.len().clamp(1, MAX_OPERATIONS)
+        });
     let act = json!({"type":"object","additionalProperties":false,"required":["question","operations"],
         "properties":{"question":{"type":"string","enum":[""]},
-            "operations":{"type":"array","minItems":1,"maxItems":MAX_OPERATIONS,"items":{"anyOf":variants}}}});
+            "operations":{"type":"array","minItems":1,"maxItems":limit,"items":{"anyOf":variants}}}});
     // When the rules read every value the user has to give, there is nothing left to ask.
     let settled = turn.analysis.as_ref().is_some_and(|analysis| {
         analysis.route == utterance::Route::Tools

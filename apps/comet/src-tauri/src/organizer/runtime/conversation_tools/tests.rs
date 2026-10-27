@@ -986,6 +986,8 @@ fn a_local_planner_grammar_only_admits_the_values_the_host_knows() {
     assert!(schema.get("anyOf").is_none());
     let act = &schema["properties"];
     assert_eq!(act["question"]["enum"], json!([""]));
+    // One request was read, so one operation; a repeat of it cannot be saved twice.
+    assert_eq!(act["operations"]["maxItems"], 1);
     let variants = act["operations"]["items"]["anyOf"].as_array().unwrap();
     assert_eq!(variants.len(), 1, "a new task is never a statement");
     let variant = &variants[0]["properties"];
