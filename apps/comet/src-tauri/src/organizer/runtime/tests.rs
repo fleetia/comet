@@ -200,7 +200,10 @@ fn summary_request_keeps_state_and_actor_rules_apart_from_untouched_source() {
     assert_eq!(
         serde_json::from_str::<Value>(&prompt[1].content).unwrap(),
         json!({"source":source,"part":2,"totalParts":3,
-            "sourceUnits":[{"id":"u1","headings":[],"text":text}],
+            "sourceUnits":[
+                {"id":"u1","headings":[],"text":"민지가 금요일에 리뷰할 예정이다."},
+                {"id":"u2","headings":[],"text":"\n  배포 여부는 미정."}
+            ],
             "previousValidationError":"결과 JSON 형식 오류: missing field"})
     );
 }

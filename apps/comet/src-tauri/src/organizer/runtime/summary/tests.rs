@@ -173,7 +173,7 @@ fn long_cases_give_unregistered_work_a_separate_required_id() {
             .unwrap();
         assert_eq!(
             registration.text.trim(),
-            "로그 검토를 실행하지 않았고, 할 일이나 일정으로 등록하지도 않았다.",
+            "로그 검토를 실행하지 않았고 할 일이나 일정으로 등록하지도 않았다.",
             "{name}"
         );
         let facts: Vec<_> = units
