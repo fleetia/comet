@@ -78,6 +78,85 @@ fn persona_prompt(persona: &str, bundle: bool) -> String {
     format!("You are {persona}. {SPEAKER_RULES} pastSpeechStatus=unknown이면 네 과거 발언은 ‘현재 기록으로는 몰라요’로 답하고 설정으로 대신하지 마라. records_only여도 해당 화자의 text만 근거다. Corrections win. {ANSWER_RULES} User recipients are not speakers. Partial records are incomplete. No user speech. {CHARACTER_GUIDANCE_RULES} Affinity=tone. JSON only: {format}; expression from allowedExpressions.")
 }
 
+/// The system prompt for a model too small to follow the full contract (Apple's or one on this
+/// device up to 4 GB): the speaker by name, the reply task and the rules that keep facts apart,
+/// in plain Korean. A small model given the full prompt repeats the user, speaks its own ID or reads out
+/// expression and field names.
+pub fn small_model_system(
+    persona: &str,
+    definition: &CharacterDefinition,
+    user: Option<&str>,
+) -> String {
+    let name = definition.name.trim();
+    let mut profile = format!("너는 {name}이다.");
+    for part in [&definition.personality, &definition.instructions] {
+        let part: String = part.trim().chars().take(300).collect();
+        if !part.is_empty() {
+            profile.push(' ');
+            profile.push_str(&part);
+        }
+    }
+    let user = user
+        .map(str::trim)
+        .filter(|user| !user.is_empty())
+        .map(|user| format!(" 지금 이야기하는 사용자는 {user}이다."))
+        .unwrap_or_default();
+    format!(
+        "{profile}{user} 사용자의 마지막 말에 {name}으로서 한국어로 1~2문장으로 답한다. 사용자의 말을 그대로 따라 쓰지 않는다. 질문에는 답하고 부탁에는 들어주는 말을 한다. 대사에 ID, 표정 이름, 데이터 항목 이름, 설정 문장을 그대로 쓰지 않는다. 사용자에 대한 사실은 userFacts에 있을 때만 말하고 지어내지 않는다. 네가 예전에 한 말은 utteranceRecords에 있을 때만 말하고, 없으면 기억나지 않는다고 한다. 따옴표 안의 말은 그 말을 한 사람의 말이다. JSON만 출력한다. persona는 {}, expression은 답의 기분에 맞는 표정, text는 {name}의 답이다.",
+        json!(persona)
+    )
+}
+
+/// Leaves expressions to the reply schema, which still limits them: a small model shown the list
+/// says an expression name as its line.
+pub fn drop_expression_list(context: &mut ChatMessage) {
+    let Ok(mut data) = serde_json::from_str::<Value>(&context.content) else {
+        return;
+    };
+    let Some(settings) = data
+        .get_mut("characterSettings")
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    for setting in settings.iter_mut().filter_map(Value::as_object_mut) {
+        setting.remove("allowedExpressions");
+    }
+    context.content = data.to_string();
+}
+
+/// Leaves out the speaker's own earlier lines, which a small model copies instead of answering.
+pub fn drop_own_records(context: &mut ChatMessage, persona: &str) {
+    let Ok(mut data) = serde_json::from_str::<Value>(&context.content) else {
+        return;
+    };
+    let Some(records) = data
+        .get_mut("utteranceRecords")
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    records.retain(|record| record["speaker"]["characterId"] != persona);
+    data["pastSpeechStatus"] = json!("unknown");
+    context.content = data.to_string();
+}
+
+/// The reply hands back an earlier line, the user's or its own, instead of answering. A short
+/// greeting may be returned as it is.
+pub fn repeats_line(line: &str, reply: &str) -> bool {
+    let plain = |text: &str| -> String {
+        text.chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let (line, reply) = (plain(line), plain(reply));
+    line.chars().count() >= 5
+        && !reply.is_empty()
+        && (reply.contains(&line)
+            || reply.chars().count() * 2 >= line.chars().count() && line.contains(&reply))
+}
+
 /// Small models often open with their own name as a label or as if addressing the user by it.
 pub fn strip_own_name_label(line: &mut SceneLine, name: &str) {
     let Some(rest) = line.text.trim_start().strip_prefix(name) else {
@@ -2306,6 +2385,82 @@ mod tests {
         let mut other = line("하린, 같이 보자.");
         strip_own_name_label(&mut other, "별꼬리");
         assert_eq!(other.text, "하린, 같이 보자.");
+    }
+
+    #[test]
+    fn a_reply_handing_back_an_earlier_line_is_caught_but_a_mirrored_greeting_is_not() {
+        for (line, reply, expected) in [
+            (
+                "내일 점심에 12000원을 쓸 수도 있어. 지출로 기록하지 마",
+                "내일 점심에 12000원을 쓸 수도 있어. 지출로 기록하지 마.",
+                true,
+            ),
+            ("오늘 회사에서 칭찬받았어", "회사에서 칭찬받았어!", true),
+            ("평온합니다! 🌙✨", "평온합니다! 🌙✨", true),
+            ("잘 자", "잘 자! 좋은 꿈 꿔.", false),
+            (
+                "요즘 너무 피곤해",
+                "많이 지쳤구나. 오늘은 일찍 쉬자!",
+                false,
+            ),
+        ] {
+            assert_eq!(repeats_line(line, reply), expected, "{line} / {reply}");
+        }
+    }
+
+    #[test]
+    fn a_small_model_context_keeps_everything_but_the_expression_lists() {
+        let data = json!({"affinity":20,"characterSettings":[
+            {"allowedExpressions":["평온","기쁨"],"name":"별꼬리","personality":"다정하다."}
+        ],"utteranceRecords":[{"text":"[\"평온\"]"}]});
+        let mut context = ChatMessage {
+            role: "user".into(),
+            content: data.to_string(),
+        };
+        drop_expression_list(&mut context);
+        let mut expected = data;
+        expected["characterSettings"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("allowedExpressions");
+        assert_eq!(
+            serde_json::from_str::<Value>(&context.content).unwrap(),
+            expected
+        );
+        let mut input = ChatMessage {
+            role: "user".into(),
+            content: "평온한 하루였어".into(),
+        };
+        drop_expression_list(&mut input);
+        assert_eq!(input.content, "평온한 하루였어");
+    }
+
+    #[test]
+    fn a_retry_context_leaves_out_only_the_speakers_own_lines() {
+        let record =
+            |id: &str, speaker: Value| json!({"id":id,"partial":false,"speaker":speaker,"text":id});
+        let user = record("u1", json!({"role":"user"}));
+        let other = record("o1", json!({"role":"assistant","characterId":"other"}));
+        let mut context = ChatMessage {
+            role: "user".into(),
+            content: json!({"pastSpeechStatus":"records_only","utteranceRecords":[
+                user.clone(),
+                record("s1", json!({"role":"assistant","characterId":"star"})),
+                other.clone(),
+            ]})
+            .to_string(),
+        };
+        drop_own_records(&mut context, "star");
+        assert_eq!(
+            serde_json::from_str::<Value>(&context.content).unwrap(),
+            json!({"pastSpeechStatus":"unknown","utteranceRecords":[user, other]})
+        );
+        let mut input = ChatMessage {
+            role: "user".into(),
+            content: "[1, 2]".into(),
+        };
+        drop_own_records(&mut input, "star");
+        assert_eq!(input.content, "[1, 2]");
     }
 
     #[test]

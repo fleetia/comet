@@ -1520,6 +1520,57 @@ pub(crate) async fn generate_turn(
     generate_turn_with_memories(state, targets, message_id, cancel, &memories).await
 }
 
+/// The Apple model or a model on this device up to 4 GB; larger and API models follow the full
+/// contract.
+fn small_reply_model(db: &Connection) -> Result<bool, String> {
+    let settings = store::settings(db)?;
+    Ok(match settings.mode.as_str() {
+        "apple" => true,
+        "local" => models::selected_small(&settings),
+        _ => false,
+    })
+}
+
+/// A single reply from a small model follows a short prompt better.
+fn use_small_model_prompt(
+    state: &AppState,
+    db: &Connection,
+    targets: &[String],
+    bundle: bool,
+    prompt: &mut [ChatMessage],
+) -> Result<bool, String> {
+    if bundle || targets.len() != 1 || !small_reply_model(db)? {
+        return Ok(false);
+    }
+    if let Some(system) = prompt
+        .first_mut()
+        .filter(|message| message.role == "system")
+    {
+        let definition = characters::guests::actor(state, db, &targets[0])?.definition;
+        let user = store::current_user(db)?.map(|user| user.name);
+        system.content = domain::small_model_system(&targets[0], &definition, user.as_deref());
+    }
+    // The character data follows the system message; the user's input comes after it.
+    if let Some(context) = prompt.get_mut(1).filter(|message| message.role == "user") {
+        domain::drop_expression_list(context);
+    }
+    Ok(true)
+}
+
+/// The prompt a single plain reply sends, small-model system included.
+#[cfg(test)]
+pub(crate) fn single_reply_prompt(
+    state: &AppState,
+    db: &Connection,
+    target: &str,
+    message_id: &str,
+) -> Result<Vec<ChatMessage>, String> {
+    let targets = [target.to_owned()];
+    let mut prompt = turn_prompt_with_memories(db, &targets, message_id, &[])?;
+    use_small_model_prompt(state, db, &targets, false, &mut prompt)?;
+    Ok(prompt)
+}
+
 pub(crate) async fn generate_turn_with_memories(
     state: &AppState,
     targets: &[String],
@@ -1527,7 +1578,7 @@ pub(crate) async fn generate_turn_with_memories(
     cancel: Arc<AtomicBool>,
     memories: &[store::MemorySearchHit],
 ) -> Result<(Vec<SceneLine>, i64), String> {
-    let (settings, prompt, revision, bundle, ticket, expressions, names) = {
+    let (settings, prompt, revision, bundle, ticket, expressions, names, earlier) = {
         let _action = lock(&state.action)?;
         if cancel.load(Ordering::SeqCst) {
             return Err("이전 생성 요청은 취소됐어요.".into());
@@ -1536,10 +1587,10 @@ pub(crate) async fn generate_turn_with_memories(
         ensure_current_user_message(&db, message_id)?;
         // A small model's reply to app actions describes other results than the stored ones, so
         // the app states what it saved or found itself.
-        if let ([target], false, "local" | "apple") = (
+        if let ([target], false, true) = (
             targets,
             store::single_bundle_selected(&db, message_id)?,
-            store::settings(&db)?.mode.as_str(),
+            small_reply_model(&db)?,
         ) {
             let user = store::active_user_id(&db)?;
             if let Some(text) = crate::organizer::actions::result_reply(&db, &user, message_id)? {
@@ -1570,6 +1621,7 @@ pub(crate) async fn generate_turn_with_memories(
         } else {
             prompt_with_history(&db, targets, message_id, &recalled)?
         };
+        let small = use_small_model_prompt(state, &db, targets, bundle, &mut prompt)?;
         #[cfg(debug_assertions)]
         if !context.selected_knowledge_ids.is_empty() {
             eprintln!(
@@ -1607,6 +1659,21 @@ pub(crate) async fn generate_turn_with_memories(
             |row| row.get(0),
         ).map_err(|error| error.to_string())?;
         domain::require_complete_input(&prompt, &input)?;
+        // Lines a small model tends to hand back: the input and its own earlier replies.
+        let earlier = if small {
+            let persona = Some(targets[0].as_str());
+            let mut said = conversation_history(&db, &targets[0], message_id)?
+                .into_iter()
+                .filter(|message| {
+                    message.role == "assistant" && message.persona.as_deref() == persona
+                })
+                .map(|message| message.content)
+                .collect::<Vec<_>>();
+            said.insert(0, input);
+            said
+        } else {
+            Vec::new()
+        };
         for target in targets {
             store::record_recall(
                 &db,
@@ -1635,22 +1702,49 @@ pub(crate) async fn generate_turn_with_memories(
             ticket,
             expressions,
             names,
+            earlier,
         )
     };
     let paired = targets.len() == 2;
-    let value = inference::generate(
+    let schema = if bundle || paired {
+        domain::scene_schema_for(targets, targets.len(), targets.len(), &expressions)
+    } else {
+        domain::reply_schema_for(targets, &expressions)
+    };
+    let mut value = inference::generate(
         &state.inference,
         &settings,
         &prompt,
-        if bundle || paired {
-            domain::scene_schema_for(targets, targets.len(), targets.len(), &expressions)
-        } else {
-            domain::reply_schema_for(targets, &expressions)
-        },
+        schema.clone(),
         512,
         cancel.clone(),
     )
     .await?;
+    // A small model can hand back the user's words or its own earlier line. It is told so and
+    // asked once more without its own lines, which it otherwise keeps copying.
+    if value["text"]
+        .as_str()
+        .is_some_and(|text| earlier.iter().any(|line| domain::repeats_line(line, text)))
+    {
+        let mut retry = prompt.clone();
+        if let Some(system) = retry.first_mut().filter(|message| message.role == "system") {
+            system.content.push_str(
+                " 방금 쓴 답은 사용자의 말이나 네가 이미 한 말을 되풀이했다. 이번에는 사용자의 마지막 말에 대한 답을 새로 쓴다.",
+            );
+        }
+        if let Some(context) = retry.get_mut(1).filter(|message| message.role == "user") {
+            domain::drop_own_records(context, &targets[0]);
+        }
+        value = inference::generate(
+            &state.inference,
+            &settings,
+            &retry,
+            schema,
+            512,
+            cancel.clone(),
+        )
+        .await?;
+    }
     let mut lines = if bundle || paired {
         domain::parse_lines_for(value, targets, targets.len(), targets.len(), true)?
     } else {

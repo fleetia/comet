@@ -181,6 +181,21 @@ pub fn selected_ready(app_data: &Path, settings: &Settings) -> bool {
 
 const GB: u64 = 1_000_000_000;
 
+/// Weights up to this size, a 4B model at Q4_K_M or smaller, answer better with a short prompt.
+const SMALL_MODEL_BYTES: u64 = 4 * GB;
+
+/// The selected model is small: measured with 0.8B to 4B models, larger ones were not.
+pub fn selected_small(settings: &Settings) -> bool {
+    spec(settings.local_model)
+        .map(|spec| spec.size)
+        .or_else(|| {
+            custom_model_path(settings)
+                .and_then(|path| path.metadata().ok())
+                .map(|metadata| metadata.len())
+        })
+        .is_some_and(|size| size <= SMALL_MODEL_BYTES)
+}
+
 /// Leaves 4 GB for the OS and other apps, then compares the model's estimated working set:
 /// its weights, a quarter more for the 4K chat context and runtime buffers, and 0.5 GB.
 fn fit(model_bytes: u64, total_memory: Option<u64>) -> ModelFit {
@@ -776,6 +791,46 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn only_models_up_to_four_gigabytes_count_as_small() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("small.gguf");
+        std::fs::write(&file, b"gguf").unwrap();
+        let custom = |path: &Path| Settings {
+            local_model: LocalModel::Custom,
+            local_model_path: path.display().to_string(),
+            ..Settings::default()
+        };
+        for (settings, small) in [
+            (Settings::default(), true),
+            (
+                Settings {
+                    local_model: LocalModel::Qwen38_2B,
+                    ..Settings::default()
+                },
+                true,
+            ),
+            (
+                Settings {
+                    local_model: LocalModel::Qwen35_9B,
+                    ..Settings::default()
+                },
+                false,
+            ),
+            (
+                Settings {
+                    local_model: LocalModel::Gemma4E4B,
+                    ..Settings::default()
+                },
+                false,
+            ),
+            (custom(&file), true),
+            (custom(&directory.path().join("gone.gguf")), false),
+        ] {
+            assert_eq!(selected_small(&settings), small, "{settings:?}");
+        }
+    }
+
     #[tokio::test]
     async fn custom_model_uses_an_existing_absolute_gguf_file_only() {
         let directory = tempfile::tempdir().unwrap();

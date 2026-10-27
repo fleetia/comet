@@ -1,7 +1,7 @@
 use super::background::{begin_background, expire_idle_recall, reserve_api_idle};
 use super::conversation::{
     ensure_retry_characters, generate_turn, remaining_retry, reply_id, resolve_targets,
-    route_message, turn_prompt,
+    route_message, single_reply_prompt, turn_prompt,
 };
 use super::lifecycle::{flush_positions, prepare_exit};
 use super::scene::{
@@ -3260,6 +3260,51 @@ fn partial_retry_references_only_current_characters_completed_same_turn_reply() 
             "{scenario}"
         );
         assert_eq!(store::messages(&db, 24).unwrap().len(), 2);
+    }
+}
+
+#[test]
+fn a_single_reply_from_a_small_model_gets_the_short_prompt_without_expression_lists() {
+    for (mode, local_model, small) in [
+        ("local", crate::types::LocalModel::Qwen35_4B, true),
+        ("local", crate::types::LocalModel::Qwen35_9B, false),
+        ("apple", crate::types::LocalModel::Qwen35_9B, true),
+        ("api", crate::types::LocalModel::Qwen35_4B, false),
+    ] {
+        let state = state();
+        let db = lock(&state.db).unwrap();
+        let settings = Settings {
+            mode: mode.into(),
+            local_model,
+            ..store::settings(&db).unwrap()
+        };
+        store::save_settings(&db, &settings).unwrap();
+        let target = characters::active_character(&db, "a").unwrap();
+        let user = Message {
+            id: "small-prompt".into(),
+            role: "user".into(),
+            persona: Some(target.id.clone()),
+            content: "오늘 하늘이 정말 예쁘다".into(),
+            expression: None,
+            created_at: 1_800_000_000_000,
+            status: "complete".into(),
+        };
+        store::insert_message(&db, &user).unwrap();
+        let prompt = single_reply_prompt(&state, &db, &target.id, &user.id).unwrap();
+        let name = format!("너는 {}이다.", target.definition.name.trim());
+        assert_eq!(
+            prompt[0].content.starts_with(&name),
+            small,
+            "{mode} {small}"
+        );
+        let data: serde_json::Value = serde_json::from_str(&prompt[1].content).unwrap();
+        assert_eq!(data["characterSettings"][0]["name"], target.definition.name);
+        assert_eq!(
+            data["characterSettings"][0]["allowedExpressions"].is_null(),
+            small,
+            "{mode} {small}"
+        );
+        assert_eq!(prompt.last().unwrap().content, user.content);
     }
 }
 
