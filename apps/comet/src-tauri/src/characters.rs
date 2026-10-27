@@ -109,7 +109,7 @@ impl Default for BalloonStyle {
     }
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct CharacterDefinition {
     #[serde(
         default,
@@ -155,6 +155,10 @@ pub struct CharacterDefinition {
     pub departure_lines: Vec<CharacterLine>,
     #[serde(default = "default_return_lines")]
     pub return_lines: Vec<CharacterLine>,
+    /// Fields another build stored that this one does not know. A stored character still loads
+    /// and keeps them when saved; pack files and new definitions may not carry any.
+    #[serde(flatten)]
+    pub unknown: serde_json::Map<String, serde_json::Value>,
 }
 fn discard_legacy_version<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
@@ -847,12 +851,16 @@ pub fn save_with_assets(
     definition: &CharacterDefinition,
     assets: &[PreparedAsset],
 ) -> Result<()> {
-    validate_definition(definition)?;
+    // Fields another build stored stay with the character: an edit neither drops nor adds them.
+    let mut known = definition.clone();
+    known.unknown.clear();
+    validate_definition(&known)?;
     let old = get(conn, id)?;
     story_definitions::validate_profile(conn, id, definition)?;
     validate_local_relationships(conn, id, definition, &old.definition.relationships)?;
-    let mut edited = definition.clone();
+    let mut edited = known;
     edited.source_id = old.definition.source_id;
+    edited.unknown = old.definition.unknown;
     if old.definition.animation.as_ref().is_some_and(|previous| {
         previous.clips.iter().any(|clip| {
             !edited

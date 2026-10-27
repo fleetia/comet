@@ -22,6 +22,9 @@ fn validate_line(expression: &str, text: &str) -> Result<()> {
     Ok(())
 }
 pub(crate) fn validate_definition(definition: &CharacterDefinition) -> Result<()> {
+    if !definition.unknown.is_empty() {
+        return Err("이 버전에서 쓰지 않는 캐릭터 항목이 있습니다.".into());
+    }
     if !bounded(&definition.source_id, 128, true)
         || !bounded(&definition.name, 40, true)
         || !bounded(&definition.description, 500, false)
@@ -308,6 +311,13 @@ pub fn parse_pack(json: &str) -> Result<CharacterPack> {
     }
     let pack: CharacterPack =
         serde_json::from_value(value).map_err(|_| "캐릭터팩 필드 형식이 올바르지 않습니다.")?;
+    if pack
+        .characters
+        .iter()
+        .any(|definition| !definition.unknown.is_empty())
+    {
+        return Err("캐릭터팩 필드 형식이 올바르지 않습니다.".into());
+    }
     validate_pack(&pack)?;
     Ok(pack)
 }
