@@ -8,7 +8,7 @@ use crate::{
     app::conversation,
     characters, inference,
     nlp::{ModelKind, NlpService},
-    types::{LocalModel, Settings},
+    types::{LocalModel, SceneLine, Settings},
 };
 use std::{
     path::{Path, PathBuf},
@@ -195,6 +195,28 @@ const CHAINS: &[(&str, &[(&str, Expect)])] = &[
             ("이번 주 할 일 뭐 있어?", Expect::NoWrite),
         ],
     ),
+    // Plain conversation a small model has to answer by itself; judged for repeating the input.
+    (
+        "ko-chat-quality",
+        &[
+            ("안녕! 오늘 기분 어때?", Expect::NoWrite),
+            ("너는 뭘 좋아해?", Expect::NoWrite),
+            ("요즘 너무 피곤해", Expect::NoWrite),
+            ("저녁 메뉴 추천해 줘", Expect::NoWrite),
+            ("오늘 회사에서 칭찬받았어", Expect::NoWrite),
+            ("비 오는 날 좋아해?", Expect::NoWrite),
+            ("재밌는 얘기 하나 해 줘", Expect::NoWrite),
+            ("나 내일 시험이야. 떨린다", Expect::NoWrite),
+            ("고마워, 덕분에 힘이 났어", Expect::NoWrite),
+            ("주말에 뭐 하면 좋을까?", Expect::NoWrite),
+            ("짧게 대답해 줘. 너 이름이 뭐야?", Expect::NoWrite),
+            ("친구랑 싸워서 속상해", Expect::NoWrite),
+            ("오늘 하늘이 정말 예쁘다", Expect::NoWrite),
+            ("심심한데 같이 얘기하자", Expect::NoWrite),
+            ("내가 방금 뭐라고 했지?", Expect::NoWrite),
+            ("잘 자", Expect::NoWrite),
+        ],
+    ),
 ];
 
 /// [`direct`] without a window: the same planning, then registry operations only.
@@ -319,6 +341,29 @@ fn check(expect: &Expect, before: &Value, after: &Value, receipts: usize) -> Val
     json!({"pass": pass, "expected": detail})
 }
 
+/// Saves the reply as the app does once it is shown, so the next turn reads it as history.
+fn present(
+    state: &AppState,
+    message_id: &str,
+    lines: &[SceneLine],
+    revision: i64,
+    epoch: u64,
+    cancel: &AtomicBool,
+) -> Result<Vec<String>, String> {
+    for (index, line) in lines.iter().enumerate() {
+        let id = conversation::reply_id(message_id, &line.persona);
+        if !crate::app::scene::present_line(
+            state, line, "llm", &id, index, 1, revision, epoch, cancel, true,
+        )? {
+            return Err("The reply was rejected before history insertion".into());
+        }
+        // Stands in for the native display acknowledgement.
+        let at = chrono::Utc::now().timestamp_millis();
+        store::mark_message_displayed(&*lock(&state.db)?, &id, at)?;
+    }
+    Ok(lines.iter().map(|line| line.text.clone()).collect())
+}
+
 async fn chain(
     state: &AppState,
     settings: &Settings,
@@ -361,6 +406,7 @@ async fn chain(
             records(&db)?
         };
         let cancel = Arc::new(AtomicBool::new(false));
+        let epoch = state.epoch.load(Ordering::SeqCst);
         let started = Instant::now();
         let organized = tokio::time::timeout(
             Duration::from_secs(300),
@@ -369,16 +415,31 @@ async fn chain(
         .await
         .unwrap_or_else(|_| Err("300 second organizer timeout".into()));
         let organizer_seconds = started.elapsed().as_secs_f64();
+        // The reply prompt of a plain conversation turn, as the model receives it.
+        let chat_prompt = {
+            let db = lock(&state.db)?;
+            let user = store::active_user_id(&db)?;
+            load_turn(&db, &user, &id)?
+                .filter(|turn| turn.state == "none")
+                .and_then(|_| conversation::single_reply_prompt(state, &db, &target, &id).ok())
+        };
         // The app shows the error and skips the reply when the organizer fails.
         let reply = match &organized {
             Ok(true) => Some(
                 tokio::time::timeout(
                     Duration::from_secs(180),
-                    conversation::generate_turn(state, std::slice::from_ref(&target), &id, cancel),
+                    conversation::generate_turn(
+                        state,
+                        std::slice::from_ref(&target),
+                        &id,
+                        cancel.clone(),
+                    ),
                 )
                 .await
                 .unwrap_or_else(|_| Err("180 second reply timeout".into()))
-                .map(|(lines, _)| lines.into_iter().map(|line| line.text).collect::<Vec<_>>()),
+                .and_then(|(lines, revision)| {
+                    present(state, &id, &lines, revision, epoch, &cancel)
+                }),
             ),
             _ => None,
         };
@@ -386,6 +447,18 @@ async fn chain(
         let user = store::active_user_id(&db)?;
         let receipts = actions::receipts(&db, &user, Some(&id))?;
         let after = records(&db)?;
+        let text = reply
+            .as_ref()
+            .and_then(|reply| reply.as_ref().ok())
+            .and_then(|lines| lines.first());
+        // A reply that hands back the input or one of the character's earlier replies.
+        let echo = text.map(|text| crate::domain::repeats_line(input, text));
+        let copy = text.map(|text| {
+            turns
+                .iter()
+                .filter_map(|turn: &Value| turn["reply"]["Ok"][0].as_str())
+                .any(|said| crate::domain::repeats_line(said, text))
+        });
         turns.push(json!({
             "input": input,
             "organizer": organized.map(|handled| if handled { "handled" } else { "legacy path (not run here)" }),
@@ -396,6 +469,9 @@ async fn chain(
             "totalSeconds": started.elapsed().as_secs_f64(),
             "records": after,
             "check": check(expect, &before, &after, receipts.len()),
+            "chatPrompt": chat_prompt,
+            "echo": echo,
+            "copy": copy,
         }));
     }
     Ok(json!({"name": name, "turns": turns}))
@@ -461,6 +537,15 @@ async fn actual_model_chat_requests_from_issue_192() {
         .filter(|pass| pass.is_boolean())
         .collect();
     let passed = checks.iter().filter(|pass| ***pass == true).count();
+    let count = |key: &str| {
+        let values: Vec<bool> = chains
+            .iter()
+            .flat_map(|chain| chain["turns"].as_array().into_iter().flatten())
+            .filter_map(|turn| turn[key].as_bool())
+            .collect();
+        (values.iter().filter(|value| **value).count(), values.len())
+    };
+    let ((echoes, replies), (copies, _)) = (count("echo"), count("copy"));
     let output = std::env::var_os("COMET_QA_OUTPUT_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir)
@@ -473,13 +558,15 @@ async fn actual_model_chat_requests_from_issue_192() {
             "syntheticOnly": true,
             "scope": "production reading, selection, planning, registry execution and reply generation; no app window or native UI",
             "storageChecks": {"passed": passed, "total": checks.len()},
+            "echoedReplies": {"echoed": echoes, "replies": replies},
+            "copiedReplies": {"copied": copies, "replies": replies},
             "chains": chains,
         }))
         .unwrap(),
     )
     .unwrap();
     println!(
-        "#192 chat samples: {passed}/{} storage checks, {}",
+        "#192 chat samples: {passed}/{} storage checks, {echoes}/{replies} replies repeat the input, {copies}/{replies} an earlier reply, {}",
         checks.len(),
         output.display()
     );
