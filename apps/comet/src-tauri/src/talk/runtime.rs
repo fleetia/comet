@@ -116,18 +116,18 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
         write_marker(&marker)?;
     }
     if let Err(error) = super::retired::migrate(&root) {
-        eprintln!(".talk retired-widget migration: {error}");
+        crate::report_error!("talk_migration_retired_widget", ".talk retired-widget migration: {error}");
     }
     migrate_defaults(&root);
     migrate_packs(&root);
     if let Err(error) = upgrade_bundled_dialogue(&root) {
-        eprintln!(".talk dialogue migration: {error}");
+        crate::report_error!("talk_migration_dialogue", ".talk dialogue migration: {error}");
     }
     if let Err(error) = replace_byulkkori_dialogue(&root) {
-        eprintln!(".talk byulkkori dialogue replacement: {error}");
+        crate::report_error!("talk_migration_byulkkori", ".talk byulkkori dialogue replacement: {error}");
     }
     if let Err(error) = add_revived_widget_dialogue(&root) {
-        eprintln!(".talk revived widget dialogue: {error}");
+        crate::report_error!("talk_migration_revived_widget", ".talk revived widget dialogue: {error}");
     }
     migrate_encryption(&root);
     Ok(root)
@@ -341,7 +341,7 @@ fn migrate_defaults(root: &Path) {
         })
         .collect::<Vec<_>>();
     if let Err(error) = upgrade_defaults(root, &files, super::legacy::FILE_HASHES) {
-        eprintln!(".talk default migration: {error}");
+        crate::report_error!("talk_migration_default", ".talk default migration: {error}");
     }
 }
 
@@ -433,7 +433,7 @@ fn migrate_packs(root: &Path) {
         return;
     }
     if let Err(error) = install_default_packs(root) {
-        eprintln!(".talk pack migration: {error}");
+        crate::report_error!("talk_migration_pack", ".talk pack migration: {error}");
     }
 }
 
@@ -635,7 +635,7 @@ fn migrate_encryption(root: &Path) {
         return;
     }
     if let Err(error) = super::files::seal_bundle(root, &super::context::registry()) {
-        eprintln!(".talk encryption migration: {error}");
+        crate::report_error!("talk_migration_encryption", ".talk encryption migration: {error}");
     }
 }
 

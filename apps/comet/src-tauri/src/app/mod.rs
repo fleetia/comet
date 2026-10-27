@@ -126,7 +126,7 @@ pub(crate) fn open_session(path: &std::path::Path) -> Result<Connection, String>
         let recovered = crate::organizer::runtime::collect_comet(&db, &user)
             .and_then(|()| crate::organizer::recover_operations(&db, &user));
         if recovered.is_err() {
-            eprintln!("Organizer operation recovery deferred");
+            crate::report_error!("organizer_recovery", "Organizer operation recovery deferred");
         }
     }
     Ok(db)

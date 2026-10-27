@@ -174,7 +174,7 @@ fn schedule_ticket(app: &tauri::AppHandle, ticket: OpenTicket) -> Result<(), Str
     let handle = app.clone();
     app.run_on_main_thread(move || {
         if let Err(error) = show(&handle, ticket) {
-            eprintln!("Planning window open failed: {error}");
+            crate::report_error!("planning_window_open", "Planning window open failed: {error}");
         }
     })
     .map_err(|error| error.to_string())
@@ -337,7 +337,7 @@ pub(crate) fn destroyed(app: &tauri::AppHandle, label: &str) {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
             if let Err(error) = schedule_ticket(&app, ticket) {
-                eprintln!("Planning window reopen failed: {error}");
+                crate::report_error!("planning_window_reopen", "Planning window reopen failed: {error}");
             }
         });
     }

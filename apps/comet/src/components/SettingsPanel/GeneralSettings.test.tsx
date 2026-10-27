@@ -26,7 +26,7 @@ vi.mock("../Launcher/LauncherSettings", () => ({
 }));
 vi.mock("../UpdatePanel/UpdatePanel", () => ({ UpdatePanel: () => null }));
 
-function props(consent = false): ComponentProps<typeof GeneralSettings> {
+function props(consent = true): ComponentProps<typeof GeneralSettings> {
   return {
     snapshot: {
       ...PREVIEW_SNAPSHOT,
@@ -49,64 +49,13 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-it("saves analytics consent independently and reflects the saved snapshot for regrant and withdrawal", async () => {
-  const view = render(<GeneralSettings {...props()} />);
-  const checkbox = screen.getByRole("checkbox", {
-    name: "(선택) 익명 사용 통계 수집에 동의해요",
-  });
-  expect(checkbox).toHaveProperty("checked", false);
-  expect(command).not.toHaveBeenCalled();
-
-  fireEvent.click(checkbox);
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledExactlyOnceWith("set_analytics_consent", {
-      enabled: true,
-    }),
-  );
-  view.rerender(<GeneralSettings {...props(true)} />);
-  expect(checkbox).toHaveProperty("checked", true);
-
-  await waitFor(() => expect(checkbox).toHaveProperty("disabled", false));
-  fireEvent.click(checkbox);
-  await waitFor(() =>
-    expect(command).toHaveBeenLastCalledWith("set_analytics_consent", {
-      enabled: false,
-    }),
-  );
-  view.rerender(<GeneralSettings {...props(false)} />);
-  expect(checkbox).toHaveProperty("checked", false);
-  expect(command).toHaveBeenCalledTimes(2);
-});
-
-it("keeps the saved consent when withdrawal fails and permits an explicit retry", async () => {
-  vi.mocked(command).mockRejectedValueOnce(new Error("동의 저장 실패"));
+it("offers no way to withdraw analytics consent", () => {
   render(<GeneralSettings {...props(true)} />);
-  const checkbox = screen.getByRole("checkbox");
-  fireEvent.click(checkbox);
-  expect(await screen.findByRole("alert")).toHaveProperty(
-    "textContent",
-    "동의 저장 실패",
+  expect(screen.queryByRole("checkbox")).toBeNull();
+  expect(command).not.toHaveBeenCalledWith(
+    "set_analytics_consent",
+    expect.anything(),
   );
-  expect(checkbox).toHaveProperty("checked", true);
-  expect(checkbox).toHaveProperty("disabled", false);
-
-  fireEvent.click(checkbox);
-  await waitFor(() => expect(command).toHaveBeenCalledTimes(2));
-  expect(command).toHaveBeenLastCalledWith("set_analytics_consent", {
-    enabled: false,
-  });
-});
-
-it("blocks duplicate consent saves while the native command is pending", () => {
-  vi.mocked(command).mockImplementation(() => new Promise<void>(() => {}));
-  render(<GeneralSettings {...props()} />);
-  const checkbox = screen.getByRole("checkbox");
-  fireEvent.click(checkbox);
-  fireEvent.click(checkbox);
-  expect(command).toHaveBeenCalledExactlyOnceWith("set_analytics_consent", {
-    enabled: true,
-  });
-  expect(checkbox).toHaveProperty("disabled", true);
 });
 
 it("opens the data folder in the system file manager and shows a failure in place", async () => {

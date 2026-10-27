@@ -71,7 +71,7 @@ pub(crate) fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 tauri::async_runtime::spawn(async move {
                     let state = app.state::<Arc<AppState>>();
                     if let Err(error) = open_launcher(app.clone(), state).await {
-                        eprintln!("빠른 실행 창을 열지 못했어요: {error}");
+                        crate::report_error!("launcher_open", "빠른 실행 창을 열지 못했어요: {error}");
                     }
                 });
             }

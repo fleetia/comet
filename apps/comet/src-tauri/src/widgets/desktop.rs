@@ -973,7 +973,7 @@ pub(crate) fn restore_on_start(app: &tauri::AppHandle, state: Arc<AppState>) {
             }
         });
         if let Err(error) = result {
-            eprintln!("바탕화면 위젯 복원 실패: {error}");
+            crate::report_error!("desktop_widget_restore", "바탕화면 위젯 복원 실패: {error}");
         }
     });
 }

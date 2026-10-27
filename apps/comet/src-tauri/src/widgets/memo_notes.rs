@@ -172,7 +172,7 @@ pub(crate) fn schedule_sync(app: &tauri::AppHandle) {
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
         if let Err(error) = sync(&handle, None).await {
-            eprintln!("메모 창 갱신 실패: {error}");
+            crate::report_error!("memo_window_refresh", "메모 창 갱신 실패: {error}");
         }
     });
 }

@@ -22,7 +22,7 @@ export async function command<T = void>(name: string, args?: Record<string, unkn
     trackSuccessfulCommand(name, args);
     return result;
   } catch (cause) {
-    trackCommandFailure(name);
+    trackCommandFailure(name, cause);
     throw cause;
   }
 }

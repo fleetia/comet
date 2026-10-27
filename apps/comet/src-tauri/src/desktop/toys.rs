@@ -567,7 +567,7 @@ fn open_one(
         tauri::async_runtime::spawn_blocking(move || {
             if let Err(error) = create_webview(&creation_app, &actor_id, x, y, scale) {
                 creation_result(&creation_app, &actor_id, Err(error.clone()));
-                eprintln!("desktop toy window creation failed: {error}");
+                crate::report_error!("desktop_toy_window", "desktop toy window creation failed: {error}");
             }
         });
         let timeout_app = app.clone();

@@ -36,6 +36,22 @@ trait Store {
 
 #[cfg(target_os = "windows")]
 struct Keyring<'a>(&'a Service);
+// Chunk keys carry a generation id; report only the slot kind.
+#[cfg(target_os = "windows")]
+pub(super) fn slot(key: &str) -> &'static str {
+    match key {
+        ROOT => "root",
+        PENDING => "pending",
+        _ => "chunk",
+    }
+}
+#[cfg(target_os = "windows")]
+impl Keyring<'_> {
+    fn fail(&self, operation: &'static str, key: &str, error: keyring::Error) -> String {
+        self.0.report_store_error(operation, slot(key), &error);
+        ERROR.into()
+    }
+}
 #[cfg(target_os = "windows")]
 impl Store for Keyring<'_> {
     fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
@@ -48,7 +64,7 @@ impl Store for Keyring<'_> {
         match result {
             Ok(value) => Ok(Some(value)),
             Err(keyring::Error::NoEntry) => Ok(None),
-            Err(_) => Err(ERROR.into()),
+            Err(error) => Err(self.fail("read", key, error)),
         }
     }
     fn set(&self, key: &str, value: &[u8]) -> Result<()> {
@@ -59,12 +75,12 @@ impl Store for Keyring<'_> {
         } else {
             entry.set_secret(value)
         }
-        .map_err(|_| ERROR.into())
+        .map_err(|error| self.fail("write", key, error))
     }
     fn delete(&self, key: &str) -> Result<()> {
         match self.0.entry_for(key)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(_) => Err(ERROR.into()),
+            Err(error) => Err(self.fail("delete", key, error)),
         }
     }
 }

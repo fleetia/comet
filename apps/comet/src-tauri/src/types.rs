@@ -209,7 +209,7 @@ fn default_autonomous_enabled() -> bool {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            analytics_consent: false,
+            analytics_consent: true,
             mode: "local".into(),
             local_model: LocalModel::default(),
             local_model_path: String::new(),

@@ -18,6 +18,20 @@ use tauri::Manager;
 const MEASUREMENT_ID: &str = "G-4Z0X58WFVB";
 const CLIENT_ID_FILE: &str = "analytics-client-id.json";
 const INVALID_EVENT: &str = "Invalid analytics event parameters.";
+const MAX_ERROR_DETAIL_CHARS: usize = 100;
+const MAX_EARLY_ERRORS: usize = 20;
+
+static ERROR_APP: OnceLock<tauri::AppHandle> = OnceLock::new();
+// Errors raised before the app handle exists wait here instead of being dropped.
+static EARLY_ERRORS: Mutex<Vec<(&'static str, String)>> = Mutex::new(Vec::new());
+
+/// Prints a backend error and sends a sanitized copy to GA under a fixed site code.
+#[macro_export]
+macro_rules! report_error {
+    ($site:literal, $($arg:tt)*) => {
+        $crate::analytics::report_backend_error($site, &format!($($arg)*))
+    };
+}
 
 #[derive(Default)]
 pub(crate) struct Runtime {
@@ -56,6 +70,41 @@ enum EventName {
     AiRequestCompleted,
     #[serde(rename = "comet_abnormal_exit")]
     AbnormalExit,
+    #[serde(rename = "comet_credential_error")]
+    CredentialError,
+    #[serde(rename = "comet_backend_error")]
+    BackendError,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum CredentialOperation {
+    Open,
+    Read,
+    Write,
+    Delete,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum CredentialSlot {
+    Accounts,
+    Root,
+    Pending,
+    Chunk,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum CredentialFailure {
+    PlatformFailure,
+    NoStorageAccess,
+    NoEntry,
+    BadEncoding,
+    TooLong,
+    Invalid,
+    Ambiguous,
+    Other,
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
@@ -206,6 +255,12 @@ pub(crate) struct Event {
     duration_ms: Option<u64>,
     termination_kind: Option<crash::TerminationKind>,
     crash_app_version: Option<String>,
+    credential_operation: Option<CredentialOperation>,
+    credential_slot: Option<CredentialSlot>,
+    credential_failure: Option<CredentialFailure>,
+    os_error_code: Option<u32>,
+    error_site: Option<String>,
+    error_detail: Option<String>,
     #[serde(rename = "app_version")]
     _app_version: Option<serde::de::IgnoredAny>,
     #[serde(rename = "os")]
@@ -228,6 +283,25 @@ impl Event {
         let has_request = self.request_outcome.is_some() || self.duration_ms.is_some();
         let has_termination = self.termination_kind.is_some() || self.crash_app_version.is_some();
         let legacy_fields_only = !has_error && !has_request && !has_termination;
+        let has_credential = self.credential_operation.is_some()
+            || self.credential_slot.is_some()
+            || self.credential_failure.is_some()
+            || self.os_error_code.is_some();
+        if has_credential != matches!(self.event, EventName::CredentialError) {
+            return Err(INVALID_EVENT.into());
+        }
+        if self.error_site.is_some() != matches!(self.event, EventName::BackendError)
+            || (self.error_detail.is_some()
+                && !matches!(self.event, EventName::BackendError | EventName::Error))
+        {
+            return Err(INVALID_EVENT.into());
+        }
+        // Sanitize again here: the webview copy is not trusted to have done it.
+        let detail = self
+            .error_detail
+            .as_deref()
+            .map(sanitize_error_detail)
+            .filter(|detail| !detail.is_empty());
         let value = match self.event {
             EventName::AppStarted
                 if !has_ai && !has_action && self.section.is_none() && legacy_fields_only =>
@@ -289,7 +363,7 @@ impl Event {
             {
                 let source = self.error_source.ok_or(INVALID_EVENT)?;
                 let code = self.error_code.ok_or(INVALID_EVENT)?;
-                match source {
+                let mut params = match source {
                     ErrorSource::FrontendCommand
                         if code == ErrorCode::CommandFailed && self.operation.is_some() =>
                     {
@@ -301,7 +375,11 @@ impl Event {
                         json!({ "error_source": source, "error_code": code, "error_count": 1 })
                     }
                     _ => return Err(INVALID_EVENT.into()),
+                };
+                if let Some(detail) = detail {
+                    params["error_detail"] = json!(detail);
                 }
+                params
             }
             EventName::AiRequestCompleted
                 if !has_action
@@ -361,6 +439,41 @@ impl Event {
                 json!({ "termination_kind": self.termination_kind.ok_or(INVALID_EVENT)?, "crash_app_version": version,
                     "abnormal_exit_count": 1 })
             }
+            EventName::CredentialError
+                if !has_ai
+                    && !has_action
+                    && self.section.is_none()
+                    && !has_error
+                    && !has_request
+                    && !has_termination =>
+            {
+                let mut params = json!({
+                    "credential_operation": self.credential_operation.ok_or(INVALID_EVENT)?,
+                    "credential_slot": self.credential_slot.ok_or(INVALID_EVENT)?,
+                    "credential_failure": self.credential_failure.ok_or(INVALID_EVENT)?,
+                    "credential_error_count": 1,
+                });
+                if let Some(code) = self.os_error_code {
+                    params["os_error_code"] = json!(code);
+                }
+                params
+            }
+            EventName::BackendError
+                if !has_ai
+                    && !has_action
+                    && self.section.is_none()
+                    && !has_error
+                    && !has_request
+                    && !has_termination =>
+            {
+                let site = self
+                    .error_site
+                    .as_deref()
+                    .filter(|site| valid_error_site(site))
+                    .ok_or(INVALID_EVENT)?;
+                let detail = detail.ok_or(INVALID_EVENT)?;
+                json!({ "error_site": site, "error_detail": detail, "backend_error_count": 1 })
+            }
             _ => return Err(INVALID_EVENT.into()),
         };
         value
@@ -384,6 +497,65 @@ impl Event {
             "events": [{ "name": self.event, "params": params }],
         }))
     }
+}
+
+fn valid_error_site(site: &str) -> bool {
+    (1..=40).contains(&site.len())
+        && site
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+}
+
+/// Drops paths and email addresses and fits GA's 100-character parameter limit.
+fn sanitize_error_detail(detail: &str) -> String {
+    detail
+        .split_whitespace()
+        .map(|word| {
+            if word.contains('/') || word.contains('\\') {
+                "<path>"
+            } else if word.contains('@') {
+                "<email>"
+            } else {
+                word
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(MAX_ERROR_DETAIL_CHARS)
+        .collect()
+}
+
+pub(crate) fn report_backend_error(site: &'static str, detail: &str) {
+    eprintln!("{detail}");
+    let detail = sanitize_error_detail(detail);
+    match ERROR_APP.get() {
+        Some(app) => enqueue_backend_error(app, site, detail),
+        None => {
+            if let Ok(mut early) = EARLY_ERRORS.lock() {
+                if early.len() < MAX_EARLY_ERRORS {
+                    early.push((site, detail));
+                }
+            }
+        }
+    }
+}
+
+fn enqueue_backend_error(app: &tauri::AppHandle, site: &str, detail: String) {
+    enqueue_leased(
+        app,
+        json!({ "event": "comet_backend_error", "error_site": site, "error_detail": detail }),
+    );
+}
+
+// Reporters may hold the DB lock that the consent lease reads, so take the lease off-thread.
+fn enqueue_leased(app: &tauri::AppHandle, value: Value) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Some(revision) = request_lease(&app) {
+            enqueue(&app, value, revision);
+        }
+    });
 }
 
 fn valid_app_version(value: &str) -> bool {
@@ -535,40 +707,15 @@ pub(crate) async fn get_analytics_context(
 
 // Lightweight bootstrap for windows which do not consume the application snapshot.
 #[tauri::command]
-pub(crate) fn get_analytics_consent(state: tauri::State<'_, Arc<AppState>>) -> Result<bool, String> {
+pub(crate) fn get_analytics_consent(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<bool, String> {
     analytics_consent(&state)
 }
 
 fn analytics_consent(state: &AppState) -> Result<bool, String> {
     let db = crate::lock(&state.db)?;
     Ok(store::settings(&db)?.analytics_consent)
-}
-
-fn save_consent(state: &AppState, enabled: bool) -> Result<(), String> {
-    let _action = crate::lock(&state.action)?;
-    let db = crate::lock(&state.db)?;
-    let tx = db
-        .unchecked_transaction()
-        .map_err(|error| error.to_string())?;
-    let mut settings = store::settings(&tx)?;
-    if settings.analytics_consent == enabled {
-        return Ok(());
-    }
-    settings.analytics_consent = enabled;
-    store::save_settings(&tx, &settings)?;
-    store::bump_revision(&tx)?;
-    tx.commit().map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub(crate) async fn set_analytics_consent(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<AppState>>,
-    enabled: bool,
-) -> Result<(), String> {
-    commit_consent_change(&app, &state, || save_consent(&state, enabled)).await?;
-    crate::app::publish(&app, &state);
-    Ok(())
 }
 
 pub(crate) async fn commit_consent_change<T>(
@@ -675,6 +822,30 @@ pub(crate) fn attach_request_observer(
     app: &tauri::AppHandle,
     inference: &crate::inference::Inference,
 ) {
+    if ERROR_APP.set(app.clone()).is_ok() {
+        let early = EARLY_ERRORS
+            .lock()
+            .map(|mut early| std::mem::take(&mut *early))
+            .unwrap_or_default();
+        for (site, detail) in early {
+            enqueue_backend_error(app, site, detail);
+        }
+    }
+    let store_app = app.clone();
+    inference
+        .chatgpt
+        .observe_store_failures(Arc::new(move |failure| {
+            enqueue_leased(
+                &store_app,
+                json!({
+                    "event": "comet_credential_error",
+                    "credential_operation": failure.operation,
+                    "credential_slot": failure.slot,
+                    "credential_failure": failure.failure,
+                    "os_error_code": failure.os_error_code,
+                }),
+            );
+        }));
     let begin_app = app.clone();
     let completed_app = app.clone();
     inference.observe_requests(
@@ -735,6 +906,10 @@ mod tests {
             json!({"event":"comet_ai_request_completed","ai_provider":"custom","ai_model_family":"other","ai_model_source":"service","request_outcome":"cancelled","duration_ms":0}),
             json!({"event":"comet_abnormal_exit","termination_kind":"unclean_exit","crash_app_version":"0.13.1"}),
             json!({"event":"comet_abnormal_exit","termination_kind":"rust_panic_observed","crash_app_version":"0.13.2-beta.1"}),
+            json!({"event":"comet_credential_error","credential_operation":"delete","credential_slot":"pending","credential_failure":"platform_failure","os_error_code":1312}),
+            json!({"event":"comet_credential_error","credential_operation":"write","credential_slot":"accounts","credential_failure":"no_storage_access"}),
+            json!({"event":"comet_backend_error","error_site":"history_window_open","error_detail":"History window open failed: <path>"}),
+            json!({"event":"comet_error","error_source":"frontend_command","error_code":"command_failed","operation":"other","error_detail":"login_chatgpt: ChatGPT 로그인을 다시 해 주세요."}),
         ] {
             let event: Event = serde_json::from_value(payload.clone()).unwrap();
             let body = event.body(&test_context("qa"), "123.456", 10).unwrap();
@@ -764,6 +939,8 @@ mod tests {
             for (event, counter) in [
                 ("comet_error", "error_count"),
                 ("comet_abnormal_exit", "abnormal_exit_count"),
+                ("comet_credential_error", "credential_error_count"),
+                ("comet_backend_error", "backend_error_count"),
             ] {
                 if payload["event"] == event {
                     assert_eq!(params[counter].as_u64(), Some(1));
@@ -793,6 +970,14 @@ mod tests {
             json!({"event":"comet_ai_request_completed","ai_provider":"local","ai_model_family":"qwen","ai_model_source":"catalog","request_outcome":"success","duration_ms":12,"ai_measured_duration_ms":1}),
             json!({"event":"comet_abnormal_exit","termination_kind":"unclean_exit","crash_app_version":"/Users/private/crash.log"}),
             json!({"event":"comet_abnormal_exit","termination_kind":"segfault","crash_app_version":"0.13.2"}),
+            json!({"event":"comet_credential_error","credential_operation":"write","credential_slot":"chunk"}),
+            json!({"event":"comet_credential_error","credential_operation":"write","credential_slot":"chunk","credential_failure":"platform_failure","os_error_code":-1}),
+            json!({"event":"comet_credential_error","credential_operation":"write","credential_slot":"accounts-v1-0","credential_failure":"platform_failure"}),
+            json!({"event":"comet_credential_error","credential_operation":"write","credential_slot":"chunk","credential_failure":"platform_failure","message":"private"}),
+            json!({"event":"comet_error","error_source":"frontend_runtime","error_code":"unexpected_error","os_error_code":5}),
+            json!({"event":"comet_backend_error","error_site":"Bad Site","error_detail":"failed"}),
+            json!({"event":"comet_backend_error","error_site":"talk_init"}),
+            json!({"event":"comet_app_started","error_detail":"leak"}),
         ] {
             if let Ok(event) = serde_json::from_value::<Event>(payload.clone()) {
                 assert!(
@@ -861,19 +1046,14 @@ mod tests {
 
     #[tokio::test]
     async fn consent_changes_wait_for_active_delivery_and_invalidate_the_previous_revision() {
-        let state = crate::app::tests::state();
         let runtime = Runtime::default();
-        save_consent(&state, true).unwrap();
         let delivery = runtime.transmission.read().await;
-        let mut change =
-            Box::pin(runtime.commit_consent_change(|| save_consent(&state, false), || {}));
+        let mut change = Box::pin(runtime.commit_consent_change(|| Ok::<(), String>(()), || {}));
         assert!(futures_util::poll!(change.as_mut()).is_pending());
-        assert!(analytics_consent(&state).unwrap());
         assert_eq!(runtime.consent_revision.load(Ordering::Acquire), 0);
 
         drop(delivery);
         change.await.unwrap();
-        assert!(!analytics_consent(&state).unwrap());
         assert_eq!(runtime.consent_revision.load(Ordering::Acquire), 1);
 
         let failed: Result<(), String> = runtime
@@ -1079,42 +1259,30 @@ mod tests {
     }
 
     #[test]
-    fn analytics_consent_blocks_start_claim_identity_and_event_until_opt_in_and_after_withdrawal() {
-        let state = crate::app::tests::state();
-        let runtime = Runtime::default();
-        let directory = tempfile::tempdir().unwrap();
-        let event: Event = serde_json::from_value(json!({"event": "comet_app_started"})).unwrap();
-        let mut context = test_context("qa");
-        context.analytics_consent = analytics_consent(&state).unwrap();
-        assert!(!context.analytics_consent);
-        assert!(!runtime.claim_start(context.analytics_consent));
-        assert!(runtime
-            .prepare_event(&context, &event, directory.path(), None)
-            .unwrap()
-            .is_none());
-        assert!(fs::read_dir(directory.path()).unwrap().next().is_none());
-        assert!(runtime.http.get().is_none());
-
-        save_consent(&state, true).unwrap();
-        context.analytics_consent = analytics_consent(&state).unwrap();
-        assert!(runtime.claim_start(context.analytics_consent));
-        assert!(!runtime.claim_start(context.analytics_consent));
-        assert!(runtime
-            .prepare_event(&context, &event, directory.path(), None)
-            .unwrap()
-            .is_some());
-        let identity = fs::read(directory.path().join(CLIENT_ID_FILE)).unwrap();
-        save_consent(&state, false).unwrap();
-        context.analytics_consent = analytics_consent(&state).unwrap();
-        assert!(!runtime.claim_start(context.analytics_consent));
-        assert!(runtime
-            .prepare_event(&context, &event, directory.path(), None)
-            .unwrap()
-            .is_none());
+    fn backend_error_details_drop_paths_and_emails_and_fit_ga_limits() {
         assert_eq!(
-            fs::read(directory.path().join(CLIENT_ID_FILE)).unwrap(),
-            identity
+            sanitize_error_detail(
+                "load failed: /Users/me/Library/a.talk  C:\\Users\\me\\x.db me@example.com"
+            ),
+            "load failed: <path> <path> <email>"
         );
-        assert!(runtime.http.get().is_none());
+        let event: Event = serde_json::from_value(json!({"event":"comet_error","error_source":"frontend_runtime","error_code":"unexpected_error","error_detail":"read /Users/me/a.db failed"})).unwrap();
+        let body = event.body(&test_context("qa"), "123.456", 10).unwrap();
+        assert_eq!(body["events"][0]["params"]["error_detail"], "read <path> failed");
+        let long = sanitize_error_detail(&"가".repeat(150));
+        assert_eq!(long.chars().count(), MAX_ERROR_DETAIL_CHARS);
+        assert!(valid_error_site("talk_migration_pack"));
+        assert!(!valid_error_site("talk-migration"));
+    }
+
+    #[test]
+    fn analytics_consent_stays_on_even_when_saved_settings_withdraw_it() {
+        let state = crate::app::tests::state();
+        let saved = crate::types::Settings {
+            analytics_consent: false,
+            ..crate::types::Settings::default()
+        };
+        store::save_settings(&crate::lock(&state.db).unwrap(), &saved).unwrap();
+        assert!(analytics_consent(&state).unwrap());
     }
 }
