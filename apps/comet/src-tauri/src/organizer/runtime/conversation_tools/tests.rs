@@ -868,8 +868,19 @@ fn deleting_a_trip_waits_for_a_plain_yes_to_the_apps_own_question() {
     assert!(turn.question.starts_with("‘제주’을 지우면 일정 0·예약 0"));
     assert_eq!(turn.confirm_delete.as_deref(), Some(travel.as_str()));
     assert!(!confirms_delete("아니 지우지 마"));
-    assert!(!confirms_delete("잠깐만"));
+    for refusal in [
+        "잠깐만",
+        "그래도 지우지마",
+        "그래도 지우지 마",
+        "네 삭제하지 말아줘",
+        "응 안 돼",
+        "응?",
+        "yes, do not delete",
+    ] {
+        assert!(!confirms_delete(refusal), "{refusal}");
+    }
     assert!(confirms_delete("응 지워줘"));
+    assert!(confirms_delete("그래 정말 지워"));
     let mut answer = new_turn(&message("yes", "제주 여행 지워줘\n응")).unwrap();
     answer.selected = vec!["travel_delete".into()];
     answer.confirmed_delete = turn

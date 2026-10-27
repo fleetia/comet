@@ -933,6 +933,70 @@ fn travel_booking_from_conversation_follows_the_ledger_and_undoes_together() {
         query_registry(&db, "ledger_query", &json!({})).unwrap()["expenseTotal"],
         10_944
     );
+    // Yen amount and rate must not carry over into dollars.
+    for (input, error) in [
+        (json!({"currency":"USD"}), "금액"),
+        (json!({"currency":"USD","amount":"8.50"}), "USD 환율"),
+    ] {
+        let failed = ask(
+            &db,
+            "travel_expense_update",
+            &lunch.target_id,
+            input,
+            "라멘 달러로 바꿔줘",
+        );
+        assert!(failed.unwrap_err().contains(error));
+    }
+    ask(
+        &db,
+        "travel_expense_update",
+        &lunch.target_id,
+        json!({"currency":"USD","amount":"8.50","rate":"1380"}),
+        "라멘 8.50달러, 환율 1380으로 바꿔줘",
+    )
+    .unwrap();
+    let saved = saved_diary(&db);
+    assert_eq!(saved["travelExpenses"][0]["amount"], 850);
+    assert_eq!(saved["travelExpenses"][0]["rate"], 13_800_000);
+    assert_eq!(
+        query_registry(&db, "ledger_query", &json!({})).unwrap()["expenseTotal"],
+        11_730
+    );
+}
+
+#[test]
+fn travel_context_is_bounded_and_finish_phrasings_are_explicit() {
+    let db = database();
+    let travel = ask(
+        &db,
+        "travel_create",
+        "",
+        json!({"title":"제주","startDate":"2026-11-01","endDate":"2026-11-02",
+               "timeZone":"Asia/Seoul","currency":"KRW"}),
+        "제주 여행 만들어줘",
+    )
+    .unwrap()
+    .target_id;
+    for day in 0..35 {
+        ask(
+            &db,
+            "travel_plan_add",
+            "",
+            json!({"travelId":travel,"kind":"plan","date":"2026-11-01",
+                   "title":format!("일정 {day}"),"memo":"메".repeat(2000)}),
+            "일정 추가해줘",
+        )
+        .unwrap();
+    }
+    let context = entities_for(&db, "travel_plan_update", "").unwrap();
+    assert_eq!(context["travelPlans"].as_array().unwrap().len(), 30);
+    assert_eq!(context["travels"][0]["linked"]["plans"], 35);
+    assert!(context["travelPlans"][0]["truncatedFields"]
+        .to_string()
+        .contains("memo"));
+    for request in ["제주 여행 끝내줘", "여행 다시 정리해줘", "finish my trip"] {
+        assert!(has_explicit_request(request), "{request}");
+    }
 }
 
 #[test]
@@ -1032,5 +1096,8 @@ fn travel_edits_keep_unmentioned_fields_and_never_take_masked_or_invented_number
     assert_eq!(saved["travelBookings"], json!([]));
     assert_eq!(saved["ledgerEntries"].as_array().unwrap().len(), 1);
     undo(&db, &user, &removed.id).unwrap();
-    assert_eq!(saved_diary(&db)["travelBookings"][0]["confirmation"], "AB12-4821");
+    assert_eq!(
+        saved_diary(&db)["travelBookings"][0]["confirmation"],
+        "AB12-4821"
+    );
 }

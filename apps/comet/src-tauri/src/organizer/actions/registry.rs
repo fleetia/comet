@@ -104,6 +104,15 @@ fn context(definition: &Definition, id: &str, revision: i64, data: &Value, query
     if definition.id.starts_with("travel_") {
         if let Ok(state) = serde_json::from_value::<diary::DiaryState>(data.clone()) {
             let mut value = diary::travel_conversation::context(&state, query);
+            // `linked` and `totalCount` keep the full counts for whatever is left out here.
+            for field in ["travels"]
+                .into_iter()
+                .chain(diary::travel_conversation::COLLECTIONS)
+            {
+                if let Some(rows) = value[field].as_array() {
+                    value[field] = json!(visible_rows(rows, query, 30));
+                }
+            }
             value["ownerId"] = json!(id);
             value["revision"] = json!(revision);
             value["kind"] = json!(definition.id);
@@ -551,6 +560,8 @@ pub(crate) fn has_explicit_request(query: &str) -> bool {
                     "잡아",
                     "예약해",
                     "마쳐",
+                    "끝내",
+                    "다시 정리해",
                     "만들어",
                     "수정해",
                     "바꿔",
@@ -587,7 +598,8 @@ pub(crate) fn has_explicit_request(query: &str) -> bool {
                 &[
                     "add", "create", "save", "record", "update", "edit", "change", "delete",
                     "remove", "complete", "mark", "undo", "start", "stop", "pause", "resume",
-                    "cancel", "roll", "flip", "draw", "open", "show", "archive",
+                    "cancel", "roll", "flip", "draw", "open", "show", "archive", "finish",
+                    "reopen",
                 ],
             )
         })

@@ -351,8 +351,10 @@ fn prepare_plan(
 /// Only a plain yes to the app's own delete question lets a trip be deleted.
 fn confirms_delete(answer: &str) -> bool {
     let answer = answer.trim().to_lowercase();
+    // Any negation or hesitation wins over a leading yes, as in "그래도 지우지 마".
     let refused = [
-        "아니", "안 지", "안지", "말아", "말고", "취소", "그만", "잠깐", "no", "don't",
+        "아니", "안 ", "안지", "안돼", "않", "지 마", "지마", "지 말", "지말", "말아", "말고",
+        "취소", "그만", "잠깐", "?", "no", "n't",
     ];
     if refused.iter().any(|word| answer.contains(word)) {
         return false;

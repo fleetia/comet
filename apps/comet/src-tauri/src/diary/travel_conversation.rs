@@ -8,7 +8,7 @@ use super::travel::{
 use super::{DiaryState, Result};
 use serde_json::{json, Value};
 
-const COLLECTIONS: [&str; 5] = [
+pub(crate) const COLLECTIONS: [&str; 5] = [
     "travelPlans",
     "travelBookings",
     "travelExpenses",
@@ -286,8 +286,18 @@ pub(crate) fn prepare(
     verbatim(model, "confirmation", request)?;
     verbatim(model, "link", request)?;
     if let Some(original) = original {
+        // Saved amount and rate are in the old currency's units; a new currency needs its own.
+        let new_currency = model
+            .get("currency")
+            .filter(|currency| *currency != &original["currency"]);
+        if new_currency.is_some() && model.get("amount").is_none() && original["amount"] != 0 {
+            return Err("통화를 바꾸려면 그 통화로 된 금액도 함께 알려 주세요.".into());
+        }
         // The diary replaces whole records, so whatever was not mentioned comes from the saved one.
         for (key, value) in original.as_object().into_iter().flatten() {
+            if new_currency.is_some() && key == "rate" {
+                continue;
+            }
             if payload.get(key).is_none() {
                 payload[key] = value.clone();
             }
