@@ -166,7 +166,9 @@ it("blocks small-model generation while leaving manual import available", async 
 });
 
 it("preserves a failed creation request and reloads eligibility for retry", async () => {
-  vi.mocked(command).mockRejectedValueOnce(new Error("모델 준비 실패"));
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "generate_widget") throw new Error("모델 준비 실패");
+  });
   render(<WidgetWorkshop />);
   fireEvent.change(screen.getByLabelText("어떤 도구가 필요한가요?"), {
     target: { value: "단수 세기" },
