@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { listen } from "@tauri-apps/api/event";
 import { command } from "../../hooks/useSnapshot";
 import { useGeneratedWidgets } from "./useGeneratedWidgets";
@@ -37,6 +37,46 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+async function confirmCreate(): Promise<void> {
+  fireEvent.click(screen.getByRole("button", { name: "만들기" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "위젯을 만들까요?" }));
+  fireEvent.click(dialog.getByRole("button", { name: "만들기" }));
+}
+
+it("asks for confirmation with the request and model before generating", async () => {
+  render(<WidgetWorkshop />);
+  fireEvent.change(screen.getByLabelText("어떤 도구가 필요한가요?"), {
+    target: { value: "단수 세기\n목표 40" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "만들기" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "위젯을 만들까요?" }));
+  expect(dialog.getByText("단수 세기 목표 40", { normalizer: (text) => text.replace(/\s+/g, " ") })).toBeTruthy();
+  expect(dialog.getByText(/test-12b/)).toBeTruthy();
+  expect(command).not.toHaveBeenCalledWith("generate_widget", expect.anything());
+  fireEvent.click(dialog.getByRole("button", { name: "취소" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "위젯을 만들까요?" })).toBeNull());
+  expect(command).not.toHaveBeenCalledWith("generate_widget", expect.anything());
+  expect(screen.getByLabelText("어떤 도구가 필요한가요?")).toHaveProperty("value", "단수 세기\n목표 40");
+});
+
+it("generates the request shown in the confirmation even if the draft changes behind it", async () => {
+  render(<WidgetWorkshop />);
+  const field = screen.getByLabelText("어떤 도구가 필요한가요?");
+  fireEvent.change(field, { target: { value: "단수 세기" } });
+  fireEvent.click(screen.getByRole("button", { name: "만들기" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "위젯을 만들까요?" }));
+  fireEvent.change(field, { target: { value: "다른 요청" } });
+  fireEvent.click(dialog.getByRole("button", { name: "만들기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("generate_widget", {
+      id: null,
+      expectedRevision: null,
+      request: "단수 세기",
+    }),
+  );
+  expect(field).toHaveProperty("value", "다른 요청");
+});
+
 it("recovers a missed import request after listener readiness and ignores reordered old modes", async () => {
   vi.mocked(command).mockImplementation(async (name) => name === "get_widget_workshop_mode" ? { mode: "import", sequence: 3 } : undefined);
   render(<WidgetWorkshop />);
@@ -62,7 +102,7 @@ it("keeps cancel available while import is open and confirms close without clear
   });
   render(<WidgetWorkshop />);
   fireEvent.change(screen.getByLabelText("어떤 도구가 필요한가요?"), { target: { value: "작성 중" } });
-  fireEvent.click(screen.getByRole("button", { name: "만들기" }));
+  await confirmCreate();
   fireEvent.click(screen.getByText("다른 AI가 만든 위젯 가져오기"));
   fireEvent.change(screen.getByLabelText("위젯 JSON"), { target: { value: "다른 초안" } });
   fireEvent.click(screen.getByRole("button", { name: "제작 중단" }));
@@ -86,7 +126,7 @@ it("keeps creation and import here and routes existing widget management to the 
   fireEvent.change(screen.getByLabelText("어떤 도구가 필요한가요?"), {
     target: { value: "단수 세기" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "만들기" }));
+  await confirmCreate();
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("generate_widget", {
       id: null,
@@ -126,12 +166,14 @@ it("blocks small-model generation while leaving manual import available", async 
 });
 
 it("preserves a failed creation request and reloads eligibility for retry", async () => {
-  vi.mocked(command).mockRejectedValueOnce(new Error("모델 준비 실패"));
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "generate_widget") throw new Error("모델 준비 실패");
+  });
   render(<WidgetWorkshop />);
   fireEvent.change(screen.getByLabelText("어떤 도구가 필요한가요?"), {
     target: { value: "단수 세기" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "만들기" }));
+  await confirmCreate();
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "모델 준비 실패");
   expect(screen.getByLabelText("어떤 도구가 필요한가요?")).toHaveProperty("value", "단수 세기");
   expect(reload).toHaveBeenCalled();

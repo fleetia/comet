@@ -38,6 +38,7 @@ export const status = style({
   fontSize: tokens["typography/sans/caption/fontSize"],
   color: tokens["color/ink-2"],
 });
+export const request = style({ whiteSpace: "pre-wrap", overflowWrap: "anywhere" });
 globalStyle(`${body} textarea`, {
   font: "inherit",
   minHeight: 80,
