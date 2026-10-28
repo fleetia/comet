@@ -786,18 +786,19 @@ mod tests {
     fn music_discussion_creates_only_a_new_draft_and_preserves_existing_conversations() {
         let state = super::super::tests::state();
         let at = chrono::Utc::now().timestamp_millis();
-        let old = {
+        let (old, music_id) = {
             let db = lock(&state.db).unwrap();
             store::set_user_name(&db, "음악 검사", at).unwrap();
             let actor = characters::active_ids(&db).unwrap()[0].clone();
             let old = store::create_conversation(&db, &[actor], None, None, at).unwrap();
             store::save_conversation_draft(&db, &old.id, "쓰던 초안\n보존").unwrap();
             let data = serde_json::json!({"configured":true,"status":"ready","observation":{"observedAt":at,"title":"밤의 산책","artist":"별빛정원"}});
-            db.execute("INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data) VALUES('music-talk','music',1,1,1,7,?1)", [data.to_string()]).unwrap();
-            old
+            let music_id: String = db.query_row("SELECT id FROM widget_instances WHERE kind='music'", [], |row| row.get(0)).unwrap();
+            db.execute("UPDATE widget_instances SET revision=7,data=?1 WHERE id=?2", rusqlite::params![data.to_string(), music_id]).unwrap();
+            (old, music_id)
         };
-        assert!(begin_music_discussion(&state, "music-talk", 6).is_err());
-        begin_music_discussion(&state, "music-talk", 7).unwrap();
+        assert!(begin_music_discussion(&state, &music_id, 6).is_err());
+        begin_music_discussion(&state, &music_id, 7).unwrap();
         let db = lock(&state.db).unwrap();
         let current = store::active_conversation(&db).unwrap().unwrap();
         assert_ne!(current.id, old.id);

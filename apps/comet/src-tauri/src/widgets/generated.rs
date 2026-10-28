@@ -66,6 +66,14 @@ pub struct GeneratedWidget {
     pub previous_definition: Option<Definition>,
 }
 
+impl GeneratedWidget {
+    pub(crate) fn same_execution_source(&self, other: &Self) -> bool {
+        let mut comparable = self.clone();
+        comparable.reaction = other.reaction;
+        comparable == *other
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StateRule {
@@ -927,6 +935,7 @@ mod tests {
 
     fn database() -> Connection {
         let db = Connection::open_in_memory().unwrap();
+        crate::widgets::storage::initialize(&db).unwrap();
         initialize(&db).unwrap();
         db
     }
@@ -1254,20 +1263,20 @@ mod tests {
     }
 
     #[test]
-    fn disabling_and_retiring_preserve_records_and_block_running_results() {
+    fn reaction_setting_preserves_data_and_retiring_blocks_running_results() {
         let db = database();
         let widget = ready(&db);
         let saved = save_state(&db, &widget.id, widget.revision, json!({"count":2})).unwrap();
-        let disabled = set_enabled(&db, &widget.id, saved.revision, false).unwrap();
-        assert!(!disabled.enabled);
-        assert_eq!(disabled.state, saved.state);
-        assert!(save_state(&db, &widget.id, disabled.revision, json!({"count":3})).is_err());
-        assert!(mark_ready(&db, &widget.id, disabled.revision).is_err());
-        let enabled = set_enabled(&db, &widget.id, disabled.revision, true).unwrap();
-        let retired = retire(&db, &widget.id, enabled.revision).unwrap();
+        crate::widgets::storage::set_reaction(&db, &widget.id, false).unwrap();
+        let off = get(&db, &widget.id).unwrap();
+        assert!(!off.reaction);
+        assert_eq!(off.state, saved.state);
+        assert_eq!(off.revision, saved.revision);
+        let updated = save_state(&db, &widget.id, off.revision, json!({"count":3})).unwrap();
+        let retired = retire(&db, &widget.id, updated.revision).unwrap();
         assert!(!retired.installed);
-        assert_eq!(retired.state, saved.state);
-        assert!(set_enabled(&db, &widget.id, retired.revision, true).is_err());
+        assert_eq!(retired.state, updated.state);
+        assert!(save_state(&db, &widget.id, retired.revision, json!({"count":4})).is_err());
         assert!(replace(&db, &widget.id, retired.revision, definition()).is_err());
     }
 
@@ -1505,7 +1514,7 @@ mod tests {
 
     #[test]
     fn code_and_lifecycle_changes_invalidate_reactions_even_when_the_condition_stays_true() {
-        for mutation in ["definition", "disabled", "error", "rule", "retired"] {
+        for mutation in ["definition", "error", "rule", "retired"] {
             let db = database();
             let widget = ready(&db);
             let mut condition = rule(&widget.id);
@@ -1527,10 +1536,6 @@ mod tests {
                     .unwrap();
                     mark_ready(&db, &updated.id, updated.revision).unwrap()
                 }
-                "disabled" => {
-                    let updated = set_enabled(&db, &widget.id, widget.revision, false).unwrap();
-                    set_enabled(&db, &updated.id, updated.revision, true).unwrap()
-                }
                 "error" => {
                     let updated = mark_error(&db, &widget.id, widget.revision, "failed").unwrap();
                     mark_ready(&db, &updated.id, updated.revision).unwrap()
@@ -1551,20 +1556,19 @@ mod tests {
     }
 
     #[test]
-    fn disabled_and_restarted_widgets_do_not_replay_pending_speech() {
+    fn reaction_toggle_and_restart_do_not_replay_pending_speech() {
         let db = database();
         let widget = ready(&db);
         save_rules(&db, &widget.id, vec![rule(&widget.id)], &widget.state).unwrap();
         let saved = save_state(&db, &widget.id, widget.revision, json!({"count":1})).unwrap();
         evaluate_rules(&db, &widget.id, &saved.state, saved.revision, 1000).unwrap();
-        let disabled = set_enabled(&db, &widget.id, saved.revision, false).unwrap();
+        crate::widgets::storage::set_reaction(&db, &widget.id, false).unwrap();
         assert!(take_pending(&db, 1000).unwrap().is_none());
+        assert!(!crate::widgets::storage::reaction_enabled(&db, &widget.id).unwrap());
+        crate::widgets::storage::set_reaction(&db, &widget.id, true).unwrap();
         evaluate_rules(&db, &widget.id, &saved.state, saved.revision, 1000).unwrap();
         assert!(take_pending(&db, 1000).unwrap().is_none());
-        let enabled = set_enabled(&db, &widget.id, disabled.revision, true).unwrap();
-        evaluate_rules(&db, &widget.id, &enabled.state, enabled.revision, 1000).unwrap();
-        assert!(take_pending(&db, 1000).unwrap().is_none());
-        let zero = save_state(&db, &widget.id, enabled.revision, json!({"count":0})).unwrap();
+        let zero = save_state(&db, &widget.id, saved.revision, json!({"count":0})).unwrap();
         evaluate_rules(&db, &widget.id, &zero.state, zero.revision, 1100).unwrap();
         let one = save_state(&db, &widget.id, zero.revision, json!({"count":1})).unwrap();
         evaluate_rules(&db, &widget.id, &one.state, one.revision, 1200).unwrap();
