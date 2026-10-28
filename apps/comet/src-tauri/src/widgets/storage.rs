@@ -883,7 +883,10 @@ pub(crate) fn record_daily_weather_event(
         return Ok(false);
     }
     let current = get(&tx, &instance.id)?;
-    if super::is_retired(&current.kind) || current.revision != instance.revision {
+    if super::is_retired(&current.kind)
+        || current.revision != instance.revision
+        || !reaction_enabled(&tx, &current.id)?
+    {
         return Ok(false);
     }
     let event = WidgetEvent {

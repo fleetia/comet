@@ -1532,6 +1532,16 @@ fn discarded_weather_reaction_can_be_queued_again_until_started() {
         text: "작년 날씨".into(),
         payload: json!({"day":"1970-01-01"}),
     };
+    storage::set_reaction(&db, &weather.id, false).unwrap();
+    for now in [0, 60_000, 120_000] {
+        assert!(!storage::record_daily_weather_event(&db, &weather, draft(), "1970-01-01", now).unwrap());
+    }
+    let counts: (i64, i64) = db.query_row(
+        "SELECT (SELECT COUNT(*) FROM widget_events), (SELECT COUNT(*) FROM widget_journal)",
+        [], |row| Ok((row.get(0)?, row.get(1)?)),
+    ).unwrap();
+    assert_eq!(counts, (0, 0));
+    storage::set_reaction(&db, &weather.id, true).unwrap();
     assert!(storage::record_daily_weather_event(&db, &weather, draft(), "1970-01-01", 0).unwrap());
     assert!(!storage::record_daily_weather_event(&db, &weather, draft(), "1970-01-01", 1).unwrap());
     storage::discard_pending(&db).unwrap();
