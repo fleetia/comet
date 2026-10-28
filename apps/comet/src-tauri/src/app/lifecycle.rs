@@ -230,6 +230,7 @@ pub fn run() {
                 gate: tokio::sync::Mutex::new(()),
                 epoch: AtomicU64::new(0),
                 widget_epoch: AtomicU64::new(0),
+                playback_link_gate: tokio::sync::Mutex::new(()),
                 widget_playback: Mutex::new(None),
                 talk: Mutex::new(talk),
                 talk_playback: Mutex::new(None),
