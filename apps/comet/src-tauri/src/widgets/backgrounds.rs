@@ -74,6 +74,15 @@ pub(crate) fn get(conn: &Connection, widget_id: &str) -> Result<Option<Backgroun
 
 pub(crate) fn put(conn: &Connection, widget_id: &str, bytes: &[u8]) -> Result<()> {
     let mime = validate(bytes)?;
+    put_media(conn, widget_id, mime, bytes)
+}
+
+pub(crate) fn put_media(
+    conn: &Connection,
+    widget_id: &str,
+    mime: &str,
+    bytes: &[u8],
+) -> Result<()> {
     let now = chrono::Utc::now().timestamp_millis();
     let updated = info(conn, widget_id)?
         .map(|background| now.max(background.updated_at.saturating_add(1)))
@@ -123,16 +132,95 @@ pub(crate) fn serve(
         .path_segments()
         .and_then(|mut segments| segments.next())
         .unwrap_or("")
-        .to_string();
+        .replace("%3A", ":")
+        .replace("%3a", ":");
     if id.is_empty() {
         return response(400, "text/plain", Vec::new());
     }
     let state = ctx.app_handle().state::<Arc<AppState>>();
-    match lock(&state.db).and_then(|db| storage::get(&db, &id).and_then(|_| get(&db, &id))) {
-        Ok(Some(background)) => response(200, &background.mime, background.data),
+    match lock(&state.db).and_then(|db| {
+        if let Some(image_id) = id.strip_prefix("image:") {
+            let allowed = storage::instances(&db)?.iter().any(|instance| {
+                instance.kind == "image"
+                    && instance.data["images"]
+                        .as_array()
+                        .is_some_and(|images| images.iter().any(|image| image["id"] == image_id))
+            });
+            if !allowed {
+                return Ok(None);
+            }
+        } else {
+            storage::get(&db, &id)?;
+        }
+        get(&db, &id)
+    }) {
+        Ok(Some(background)) => media_response(&request, background),
         Ok(None) => response(404, "text/plain", Vec::new()),
         Err(_) => response(500, "text/plain", Vec::new()),
     }
+}
+
+fn media_response(
+    request: &tauri::http::Request<Vec<u8>>,
+    background: Background,
+) -> tauri::http::Response<Vec<u8>> {
+    let Some(range) = request
+        .headers()
+        .get("range")
+        .and_then(|value| value.to_str().ok())
+    else {
+        return tauri::http::Response::builder()
+            .status(200)
+            .header("Content-Type", &background.mime)
+            .header("Content-Length", background.data.len().to_string())
+            .header("Accept-Ranges", "bytes")
+            .header("Cache-Control", "public, max-age=31536000, immutable")
+            .body(background.data)
+            .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
+    };
+    let len = background.data.len();
+    let bounds = range
+        .strip_prefix("bytes=")
+        .and_then(|value| value.split_once('-'))
+        .and_then(|(start, end)| {
+            if len == 0 || end.contains(',') {
+                return None;
+            }
+            if start.is_empty() {
+                let suffix = end.parse::<usize>().ok()?;
+                if suffix == 0 {
+                    return None;
+                }
+                Some((len.saturating_sub(suffix), len - 1))
+            } else {
+                let start = start.parse::<usize>().ok()?;
+                let end = if end.is_empty() {
+                    len - 1
+                } else {
+                    end.parse::<usize>().ok()?.min(len - 1)
+                };
+                if start >= len || start > end {
+                    return None;
+                }
+                Some((start, end))
+            }
+        });
+    let builder = tauri::http::Response::builder()
+        .header("Accept-Ranges", "bytes")
+        .header("Content-Type", &background.mime)
+        .header("Cache-Control", "public, max-age=31536000, immutable");
+    match bounds {
+        Some((start, end)) => builder
+            .status(206)
+            .header("Content-Range", format!("bytes {start}-{end}/{len}"))
+            .header("Content-Length", (end - start + 1).to_string())
+            .body(background.data[start..=end].to_vec()),
+        None => builder
+            .status(416)
+            .header("Content-Range", format!("bytes */{len}"))
+            .body(Vec::new()),
+    }
+    .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()))
 }
 
 #[cfg(test)]

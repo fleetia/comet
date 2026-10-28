@@ -98,7 +98,7 @@ pub fn get(db: &Connection, id: &str) -> Result<WidgetInstance> {
         .ok_or_else(|| "설치된 위젯을 찾지 못했어요.".into())
 }
 
-fn put(db: &Connection, instance: &WidgetInstance) -> Result<()> {
+pub(crate) fn put(db: &Connection, instance: &WidgetInstance) -> Result<()> {
     db.execute(
         "INSERT INTO widget_instances VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
 ON CONFLICT(id) DO UPDATE SET version=excluded.version,installed=excluded.installed,
@@ -349,7 +349,7 @@ pub fn remove(db: &Connection, directory: &Path, id: &str, delete_data: bool) ->
         instance.revision += 1;
         instance.error = None;
         suspend(&mut instance, chrono::Utc::now().timestamp_millis(), false)?;
-        if delete_data {
+        if delete_data && instance.kind != "image" {
             instance.data = super::initial(&instance.kind)?;
             super::backgrounds::remove(&tx, id)?;
             tx.execute("DELETE FROM widget_journal WHERE event_id IN (SELECT id FROM desktop_toy_results WHERE widget_id=?1)",[id]).map_err(err)?;

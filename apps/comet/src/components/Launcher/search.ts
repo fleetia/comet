@@ -14,6 +14,7 @@ export type LauncherState = {
 export type LauncherAction =
   | { type: "settings"; section: SettingsSection | null; widgetKind?: string }
   | { type: "widget"; id: string; expectedRevision: number }
+  | { type: "image"; expectedRevision: number | null }
   | { type: "chat"; content: string; target: string; clientMessageId: string }
   | { type: "addTodo"; id: string; expectedRevision: number; title: string; requestId: string }
   | { type: "travel"; id: string };
@@ -122,6 +123,7 @@ const WIDGET_ALIASES: Record<string, string[]> = {
   "focus-timer": ["타이머", "집중"],
   "small-match": ["주사위", "가위바위보", "동전"],
   music: ["음악"],
+  image: ["이미지 띄우기", "사진", "사진 띄우기"],
 };
 const SECTION_ALIASES: Partial<Record<SettingsSection, string[]>> = {
   model: ["모델", "API", "AI", "인공지능"],
@@ -135,38 +137,51 @@ function widgetResult(
   entry: { id: string; name: string; description: string },
   instance: WidgetView | undefined,
 ): LauncherResult {
+  const canAddImage = entry.id === "image" && !instance?.installed;
   const needsSetup = instance?.installed && instance.enabled && instance.status === "setup";
   const available = instance?.installed && instance.enabled && !needsSetup;
   const toy = isDesktopToy(entry.id);
   return {
     id: `widget:${entry.id}`,
-    title: available
-      ? entry.id === "memo"
-        ? "새 메모 꺼내기"
-        : `${entry.name} ${toy ? "꺼내기" : "열기"}`
-      : needsSetup
-        ? `${entry.name} 설정 열기`
-        : `${entry.name} ${instance?.installed ? "켜기" : "설치"} 설정 열기`,
-    detail: available
-      ? entry.id === "memo"
-        ? "바탕화면 낱장 메모"
-        : toy
-          ? "바탕화면 장난감"
-          : "위젯"
-      : "설정 › 위젯",
-    preview: available
-      ? entry.id === "memo"
-        ? "새 낱장을 꺼내요. 저장한 메모 목록과 검색은 다이어리에서 볼 수 있어요."
-        : toy
-          ? `${entry.name}을 바탕화면에 꺼내요. 우클릭으로 정리할 수 있어요.`
-          : entry.description
-      : needsSetup
-        ? `${entry.name} 사용 준비가 필요해요. 위젯 설정에서 연결과 설정을 확인해요.`
-        : `${entry.name}을 사용할 수 있도록 위젯 설정으로 이동해요. 자동으로 설치하거나 켜지 않아요.`,
+    title: canAddImage
+      ? "이미지 띄우기"
+      : available
+        ? entry.id === "image"
+          ? "이미지 띄우기"
+          : entry.id === "memo"
+            ? "새 메모 꺼내기"
+            : `${entry.name} ${toy ? "꺼내기" : "열기"}`
+        : needsSetup
+          ? `${entry.name} 설정 열기`
+          : `${entry.name} ${instance?.installed ? "켜기" : "설치"} 설정 열기`,
+    detail: canAddImage
+      ? "바탕화면 이미지"
+      : available
+        ? entry.id === "image"
+          ? "바탕화면 이미지"
+          : entry.id === "memo"
+            ? "바탕화면 낱장 메모"
+            : toy
+              ? "바탕화면 장난감"
+              : "위젯"
+        : "설정 › 위젯",
+    preview: canAddImage
+      ? entry.description
+      : available
+        ? entry.id === "memo"
+          ? "새 낱장을 꺼내요. 저장한 메모 목록과 검색은 다이어리에서 볼 수 있어요."
+          : toy
+            ? `${entry.name}을 바탕화면에 꺼내요. 우클릭으로 정리할 수 있어요.`
+            : entry.description
+        : needsSetup
+          ? `${entry.name} 사용 준비가 필요해요. 위젯 설정에서 연결과 설정을 확인해요.`
+          : `${entry.name}을 사용할 수 있도록 위젯 설정으로 이동해요. 자동으로 설치하거나 켜지 않아요.`,
     kind: "widget",
-    action: available
-      ? { type: "widget", id: instance.id, expectedRevision: instance.revision }
-      : { type: "settings", section: "widgets", widgetKind: entry.id },
+    action: canAddImage
+      ? { type: "image", expectedRevision: instance?.revision ?? null }
+      : available
+        ? { type: "widget", id: instance.id, expectedRevision: instance.revision }
+        : { type: "settings", section: "widgets", widgetKind: entry.id },
   };
 }
 /** Saves the whole input, as typed, to the undated inbox only when this row is chosen. */

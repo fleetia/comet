@@ -1,0 +1,6 @@
+{
+  "identifier": "image-window-dialog",
+  "description": "Image widget deletion confirmation",
+  "windows": ["widget-*-image-*"],
+  "permissions": ["dialog:allow-message"]
+}

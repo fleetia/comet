@@ -23,6 +23,7 @@ export const WIDGET_ICONS: Record<string, IconName> = {
   preparation: "envelope",
   clock: "clock",
   memo: "memo",
+  image: "image",
   weather: "cloud",
   music: "music",
   device: "battery",
@@ -60,6 +61,7 @@ export function WidgetCatalog({
   onToggle,
   onEditDesktop,
   menuActions,
+  submenuActions,
   onMenuAction,
   disabled = false,
   children,
@@ -70,12 +72,15 @@ export function WidgetCatalog({
   onToggle?: (id: string, checked: boolean) => void;
   onEditDesktop?: () => void;
   menuActions?: (id: string) => ContextMenuAction[];
+  submenuActions?: (id: string, action: string) => ContextMenuAction[] | undefined;
   onMenuAction?: (id: string, action: string) => void;
   disabled?: boolean;
   children?: ReactNode;
 }): ReactElement {
   const [search, setSearch] = useState("");
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number; submenu?: string } | null>(
+    null,
+  );
   const menuRef = useRef<HTMLDivElement>(null);
   const menuTrigger = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
@@ -97,6 +102,14 @@ export function WidgetCatalog({
     setMenu(null);
     menuTrigger.current?.focus();
   }
+  const visibleActions = menu?.submenu
+    ? [
+        { id: "__back", label: "뒤로", icon: "chevleft" as const },
+        ...(submenuActions?.(menu.id, menu.submenu) ?? []),
+      ]
+    : menu
+      ? (menuActions?.(menu.id) ?? [])
+      : [];
   const query = search.trim().toLocaleLowerCase();
   const groupOf = (item: WidgetListEntry): string =>
     item.id === "clock" ? "daily" : item.category;
@@ -216,10 +229,7 @@ export function WidgetCatalog({
                 Math.min(
                   menu.y,
                   window.innerHeight -
-                    Math.min(
-                      (menuActions?.(menu.id).length || 1) * 36 + 24,
-                      window.innerHeight - 16,
-                    ),
+                    Math.min((visibleActions.length || 1) * 36 + 24, window.innerHeight - 16),
                 ),
               ),
               zIndex: 1000,
@@ -229,12 +239,22 @@ export function WidgetCatalog({
           >
             <ContextMenu
               label={`${entries.find((entry) => entry.id === menu.id)?.name || "위젯"} 관리`}
-              actions={menuActions?.(menu.id) || []}
+              actions={visibleActions}
               onAction={(action) => {
+                if (action === "__back") {
+                  setMenu({ ...menu, submenu: undefined });
+                  return;
+                }
+                if (!menu.submenu && submenuActions?.(menu.id, action)) {
+                  setMenu({ ...menu, submenu: action });
+                  return;
+                }
                 closeMenu();
                 onMenuAction?.(menu.id, action);
               }}
-              onDismiss={closeMenu}
+              onDismiss={() =>
+                menu.submenu ? setMenu({ ...menu, submenu: undefined }) : closeMenu()
+              }
             />
           </div>,
           document.body,

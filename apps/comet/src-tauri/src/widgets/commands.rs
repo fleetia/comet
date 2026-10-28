@@ -128,6 +128,7 @@ pub(crate) fn install_widgets(
 ) -> Result<(), String> {
     let result = change(&state, |db| storage::install(db, &state.app_data, &kinds));
     crate::widgets::memo_notes::schedule_sync(&app);
+    crate::widgets::images::schedule_sync(&app);
     publish_widgets(&app, &state);
     result
 }
@@ -156,6 +157,7 @@ pub(crate) async fn set_widget_enabled(
         crate::widgets::memo_notes::with_flushed_notes(&app, &state, &id, mutation).await?;
     }
     crate::widgets::memo_notes::schedule_sync(&app);
+    crate::widgets::images::schedule_sync(&app);
     if !enabled {
         crate::desktop::toys::remove_widget(&app, &id);
         cancel_widget_scene(&app, &state)?;
@@ -181,6 +183,7 @@ pub(crate) async fn remove_widget(
     })
     .await?;
     crate::widgets::memo_notes::schedule_sync(&app);
+    crate::widgets::images::schedule_sync(&app);
     cancel_widget_scene(&app, &state)?;
     crate::desktop::toys::remove_widget(&app, &id);
     close_widget_windows(&app, &id)?;
@@ -961,6 +964,15 @@ async fn open_widget_inner(
     if instance.kind == "memo" {
         let snapshot = create_memo_for_open(state, id, launcher)?;
         crate::widgets::memo_notes::reveal_created_note(app, state, id, snapshot).await?;
+        return Ok(());
+    }
+    if instance.kind == "image" {
+        if let Some((_, session)) = launcher {
+            change(state, |_| {
+                crate::app::launcher::accept_execution(state, session)
+            })?;
+        }
+        crate::widgets::images::add_current(app, state, id.into(), instance.revision).await?;
         return Ok(());
     }
     if instance.kind == "travel" {
