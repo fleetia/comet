@@ -1040,20 +1040,36 @@ pub(crate) fn trigger_character_interaction(
         };
         (eligible, held, stale)
     };
-    if let Some(execution_id) = held {
+    if let Some(ref execution_id) = held {
         crate::characters::reaction_host::direct_end(
             app,
             state.inner().clone(),
             character_id,
-            &execution_id,
+            execution_id,
             stale,
         )?;
-    } else if let Some(event) = eligible {
-        let gesture = if action == "cheek-grab" {
-            "stroke"
-        } else {
-            &action
-        };
+    }
+    if let Some(event) = eligible {
+        let gesture = if action == "cheek-grab" { "stroke" } else { &action };
+        if crate::characters::reaction_host::direct_milestone(
+            app,
+            state.inner().clone(),
+            character_id,
+            &event,
+            identity,
+        )? {
+            if held.is_none() {
+                crate::characters::reaction_host::direct_motion(
+                    app, state.inner().clone(), character_id, gesture, body_part.as_deref(), identity,
+                )?;
+            }
+            crate::widgets::commands::publish_widgets(app, &state);
+            return Ok(());
+        }
+        if event.event.kind == "interaction.milestone" || held.is_some() {
+            crate::widgets::commands::publish_widgets(app, &state);
+            return Ok(());
+        }
         if crate::characters::reaction_host::direct_start(
             app,
             state.inner().clone(),
@@ -1172,6 +1188,24 @@ fn menu_interaction(
         )?
     };
     if let Some(event) = eligible {
+        if crate::characters::reaction_host::direct_milestone(
+            app,
+            state.clone(),
+            &character_id,
+            &event,
+            crate::characters::reaction_host::window_identity(&window),
+        )? {
+            crate::characters::reaction_host::direct_motion(
+                app, state.clone(), &character_id, action, None,
+                crate::characters::reaction_host::window_identity(&window),
+            )?;
+            crate::widgets::commands::publish_widgets(app, state);
+            return Ok(());
+        }
+        if event.event.kind == "interaction.milestone" {
+            crate::widgets::commands::publish_widgets(app, state);
+            return Ok(());
+        }
         if crate::characters::reaction_host::direct_start(
             app,
             state.clone(),

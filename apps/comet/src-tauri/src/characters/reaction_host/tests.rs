@@ -114,6 +114,115 @@ fn common_body_talk_uses_the_existing_pack_with_the_builtin_interaction_widget()
 }
 
 #[test]
+fn touching_one_character_expires_old_events_for_all_owners() {
+    let state = crate::app::tests::state();
+    let db = lock(&state.db).unwrap();
+    let id = characters::active_character(&db, "a").unwrap().id;
+    let user = store::active_user_id(&db).unwrap();
+    let now = 1_000_000_000_i64;
+    let cutoff = now - 172_800_000;
+    for (character, owner, at) in [
+        (id.as_str(), user.as_str(), cutoff - 1),
+        (id.as_str(), "other-user", cutoff - 1),
+        ("other-character", user.as_str(), cutoff - 1),
+        ("other-character", "other-user", cutoff - 1),
+        ("other-character", "other-user", cutoff),
+        ("other-character", "other-user", cutoff + 1),
+    ] {
+        db.execute(
+            "INSERT INTO character_touch_events(character_id,user_id,created_at) VALUES(?1,?2,?3)",
+            rusqlite::params![character, owner, at],
+        )
+        .unwrap();
+    }
+    db.execute(
+        "INSERT INTO character_touches(character_id,user_id,action,count,last_at) VALUES('other-character','other-user','stroke',7,?1)",
+        [cutoff - 1],
+    )
+    .unwrap();
+    widgets::storage::body_interaction(&db, &id, "stroke", &uuid::Uuid::new_v4().to_string(), now)
+        .unwrap();
+    let expired: i64 = db
+        .query_row("SELECT COUNT(*) FROM character_touch_events WHERE created_at<?1", [cutoff], |row| row.get(0))
+        .unwrap();
+    let retained: i64 = db
+        .query_row("SELECT COUNT(*) FROM character_touch_events WHERE character_id='other-character' AND user_id='other-user'", [], |row| row.get(0))
+        .unwrap();
+    let total: i64 = db
+        .query_row("SELECT count FROM character_touches WHERE character_id='other-character' AND user_id='other-user'", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!((expired, retained, total), (0, 2, 7));
+}
+
+#[test]
+fn milestone_interrupts_automatic_talk_only_when_allowed_and_matched() {
+    let state = crate::app::tests::state();
+    let program = crate::talk::validate_source(
+        std::path::Path::new("index.talk"),
+        "format: 1\nscene: idle\non: idle\n---\nA: 이전 첫 줄\nA: 이전 다음 줄\n===\nscene: milestone\non: interaction.milestone\nwhen: interaction.milestone == 1\n---\nA: 기념 대사\n===\n",
+        &crate::talk::context::registry(),
+    )
+    .unwrap();
+    lock(&state.talk).unwrap().apply(Ok(program));
+    let (old_epoch, old_cancel) = app::interrupt(&state, true).unwrap();
+    let (old_lines, mut event, revision) = {
+        let db = lock(&state.db).unwrap();
+        let lines = crate::talk::host::prepare(&state, &db, None)
+            .unwrap()
+            .unwrap();
+        let id = characters::active_character(&db, "a").unwrap().id;
+        let mut event = widgets::storage::body_interaction(
+            &db,
+            &id,
+            "stroke",
+            &uuid::Uuid::new_v4().to_string(),
+            chrono::Utc::now().timestamp_millis(),
+        )
+        .unwrap()
+        .unwrap();
+        event.event.kind = "interaction.milestone".into();
+        (lines, event, store::revision(&db).unwrap())
+    };
+    assert!(scene::present_line(
+        &state, &old_lines[0], "talk", "old-first", 0, 2, revision, old_epoch, &old_cancel, false,
+    ).unwrap());
+    assert!(scene::clear_line_if_current(&state, old_epoch, &old_cancel).unwrap());
+    assert!(speech_reason(&state).unwrap().is_none());
+    state.automatic.store(false, Ordering::SeqCst);
+    assert!(speech_reason(&state).unwrap().is_some());
+    state.automatic.store(true, Ordering::SeqCst);
+    let (new_lines, new_epoch, new_cancel) = {
+        let db = lock(&state.db).unwrap();
+        lock(&state.runtime).unwrap().paused = true;
+        assert!(prepare_milestone(&state, &db, &event).unwrap().is_none());
+        lock(&state.runtime).unwrap().paused = false;
+        event.event.payload["milestone"] = serde_json::json!(10);
+        assert!(prepare_milestone(&state, &db, &event).unwrap().is_none());
+        assert!(!old_cancel.load(Ordering::SeqCst));
+        assert!(crate::talk::host::current(&state, &db).unwrap());
+        event.event.payload["milestone"] = serde_json::json!(1);
+        let (lines, (epoch, cancel)) = prepare_milestone(&state, &db, &event)
+            .unwrap()
+            .unwrap();
+        assert_eq!(lines[0].text, "기념 대사");
+        assert!(!cancel.load(Ordering::SeqCst));
+        assert!(crate::talk::host::current(&state, &db).unwrap());
+        let count: i64 = db
+            .query_row("SELECT SUM(count) FROM character_touches", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+        (lines, epoch, cancel)
+    };
+    assert!(old_cancel.load(Ordering::SeqCst));
+    assert!(!scene::present_line(
+        &state, &old_lines[1], "talk", "old-next", 1, 2, revision, old_epoch, &old_cancel, false,
+    ).unwrap());
+    assert!(scene::present_line(
+        &state, &new_lines[0], "talk", "milestone", 0, 1, revision, new_epoch, &new_cancel, false,
+    ).unwrap());
+}
+
+#[test]
 fn gesture_phases_ignore_late_completion_and_hold_cycles_until_explicit_release() {
     let (state, id) = configured_gesture("cheek-grab");
     let execution = prepare_direct(&state, &id, "cheek-grab", None, 7)

@@ -1478,11 +1478,11 @@ fn body_and_widget_share_inventory_and_cooldown_without_installing_the_widget() 
     );
     assert_eq!(instance(&db, "interaction").data["snacks"], 5);
     let cheek = uuid::Uuid::new_v4().to_string();
-    assert!(
-        !storage::body_interaction(&db, &character, "cheek-grab", &cheek, 6001)
-            .unwrap()
-            .is_some()
-    );
+    let milestone = storage::body_interaction(&db, &character, "cheek-grab", &cheek, 6001)
+        .unwrap()
+        .unwrap();
+    assert_eq!(milestone.event.kind, "interaction.milestone");
+    assert_eq!(milestone.event.payload["milestone"], 1);
     assert_eq!(instance(&db, "interaction").data["snacks"], 5);
     assert_eq!(instance(&db, "interaction").data["touches"], 4);
 }
@@ -1538,7 +1538,7 @@ fn drink_and_gift_share_body_cooldown_without_spending_items_or_creating_rewards
     )
     .unwrap()
     .is_some());
-    assert!(storage::body_interaction(
+    let milestone = storage::body_interaction(
         &db,
         &owner,
         "poke",
@@ -1546,7 +1546,9 @@ fn drink_and_gift_share_body_cooldown_without_spending_items_or_creating_rewards
         6001
     )
     .unwrap()
-    .is_none());
+    .unwrap();
+    assert_eq!(milestone.event.kind, "interaction.milestone");
+    assert_eq!(milestone.event.payload["milestone"], 1);
     assert_eq!(instance(&db, "interaction").data["touches"], 1);
     assert!(storage::take_reaction(&db, 6002).unwrap().is_none());
     assert_eq!(
