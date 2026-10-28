@@ -106,7 +106,7 @@ it("preserves all pack preview content, initial disclosure states, and verbatim 
       },
     ],
   };
-  vi.mocked(command).mockResolvedValue(previewPack);
+  vi.mocked(command).mockResolvedValue({ pack: previewPack, warnings: [] });
   render(<CharacterSharing snapshot={snapshot} selectedId="local-third" disabled={false} />);
   fireEvent.click(screen.getByRole("button", { name: "공유 파일 가져오기" }));
   const preview = within(await screen.findByLabelText("가져오기 미리보기"));
