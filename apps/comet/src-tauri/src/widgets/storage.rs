@@ -925,6 +925,14 @@ pub(crate) fn record_daily_weather_event(
     if previous.as_deref() == Some(day) {
         return Ok(false);
     }
+    let pending: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM widget_events WHERE pending=1 AND json_extract(data,'$.kind')=?1 AND json_extract(data,'$.payload.day')=?2 AND json_extract(data,'$.expiresAt')>?3)",
+        params![draft.kind, day, now],
+        |row| row.get(0),
+    ).map_err(err)?;
+    if pending {
+        return Ok(false);
+    }
     let current = get(&tx, &instance.id)?;
     if !current.installed || !current.enabled || current.revision != instance.revision {
         return Ok(false);
@@ -952,12 +960,22 @@ pub(crate) fn record_daily_weather_event(
         [&event.id],
     )
     .map_err(err)?;
-    tx.execute(
-        "INSERT INTO widget_preferences(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        params![key, day],
-    ).map_err(err)?;
     tx.commit().map_err(err)?;
     Ok(true)
+}
+
+pub(crate) fn mark_weather_reaction_started(db: &Connection, event: &WidgetEvent) -> Result<()> {
+    if !matches!(event.event.kind.as_str(), "weather.last-year" | "weather.rain-tomorrow") {
+        return Ok(());
+    }
+    let Some(day) = event.event.payload["day"].as_str() else {
+        return Ok(());
+    };
+    db.execute(
+        "INSERT INTO widget_preferences(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        params![format!("weather-talk:{}", event.event.kind), day],
+    ).map_err(err)?;
+    Ok(())
 }
 
 pub(crate) fn record_desktop_result(

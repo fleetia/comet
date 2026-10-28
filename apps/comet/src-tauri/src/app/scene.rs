@@ -139,6 +139,11 @@ pub(crate) fn present_line(
             Some(line),
         )?;
     }
+    if line_index == 0 && state.widget_epoch.load(Ordering::SeqCst) == epoch {
+        if let Some(event) = lock(&state.widget_playback)?.as_ref() {
+            widgets::storage::mark_weather_reaction_started(&db, event)?;
+        }
+    }
     *lock(&state.playback)? = Some(Playback {
         id: id.into(),
         persona: line.persona.clone(),

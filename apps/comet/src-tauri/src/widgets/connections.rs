@@ -688,7 +688,7 @@ pub fn save_weather_history(
     }
     let entry = &data["forecast"]["today"];
     if entry["date"].as_str() == Some(today.to_string().as_str()) {
-        tx.execute("INSERT INTO weather_history(day,lat,lon,code,tMax,tMin,tObserved,source) VALUES(?1,?2,?3,?4,?5,?6,?7,'live') ON CONFLICT(day,lat,lon) DO UPDATE SET tObserved=excluded.tObserved,code=CASE WHEN source='archive' THEN excluded.code ELSE code END,tMax=CASE WHEN source='archive' THEN excluded.tMax ELSE tMax END,tMin=CASE WHEN source='archive' THEN excluded.tMin ELSE tMin END,source='live'", params![today.to_string(),lat,lon,entry["code"].as_i64(),entry["tMax"].as_f64(),entry["tMin"].as_f64(),data["observation"]["temperature"].as_f64()]).map_err(|e| e.to_string())?;
+        tx.execute("INSERT INTO weather_history(day,lat,lon,code,tMax,tMin,tObserved,source) VALUES(?1,?2,?3,?4,?5,?6,?7,'live') ON CONFLICT(day,lat,lon) DO UPDATE SET tObserved=excluded.tObserved,code=excluded.code,tMax=excluded.tMax,tMin=excluded.tMin,source='live'", params![today.to_string(),lat,lon,entry["code"].as_i64(),entry["tMax"].as_f64(),entry["tMin"].as_f64(),data["observation"]["temperature"].as_f64()]).map_err(|e| e.to_string())?;
     } else {
         tx.execute("UPDATE weather_history SET tObserved=?1 WHERE day=?2 AND lat=?3 AND lon=?4 AND source='live'", params![data["observation"]["temperature"].as_f64(), today.to_string(), lat, lon]).map_err(|e| e.to_string())?;
     }

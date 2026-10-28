@@ -1572,3 +1572,39 @@ fn selected_play_owner_is_revalidated_inside_the_widget_transaction() {
         crate::characters::apply_roster(&db, ids.clone()).unwrap();
     }
 }
+
+#[test]
+fn discarded_weather_reaction_can_be_queued_again_until_started() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    install(&db, directory.path(), &["weather"]);
+    let weather = instance(&db, "weather");
+    let draft = || super::EventDraft {
+        kind: "weather.last-year".into(),
+        text: "작년 날씨".into(),
+        payload: json!({"day":"1970-01-01"}),
+    };
+    assert!(storage::record_daily_weather_event(&db, &weather, draft(), "1970-01-01", 0).unwrap());
+    assert!(!storage::record_daily_weather_event(&db, &weather, draft(), "1970-01-01", 1).unwrap());
+    storage::discard_pending(&db).unwrap();
+    assert!(storage::record_daily_weather_event(&db, &weather, draft(), "1970-01-01", 2).unwrap());
+    let event = storage::take_reaction(&db, 3).unwrap().unwrap();
+    storage::mark_weather_reaction_started(&db, &event).unwrap();
+    assert!(!storage::record_daily_weather_event(&db, &weather, draft(), "1970-01-01", 4).unwrap());
+}
+
+#[test]
+fn weather_history_updates_later_live_forecasts() {
+    let db = database();
+    let mut data = json!({"config":{"latitude":37.5,"longitude":127.0},"forecast":{"timezone":"UTC","today":{"date":"1970-01-01","code":1,"tMax":10.0,"tMin":2.0}},"observation":{"temperature":5.0}});
+    super::connections::save_weather_history(&db, &mut data, 0, None).unwrap();
+    data["forecast"]["today"]["code"] = json!(3);
+    data["forecast"]["today"]["tMax"] = json!(15.0);
+    data["forecast"]["today"]["tMin"] = json!(1.0);
+    super::connections::save_weather_history(&db, &mut data, 1, None).unwrap();
+    let summary: (i64, f64, f64) = db.query_row(
+        "SELECT code,tMax,tMin FROM weather_history WHERE day='1970-01-01'",
+        [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).unwrap();
+    assert_eq!(summary, (3, 15.0, 1.0));
+}
