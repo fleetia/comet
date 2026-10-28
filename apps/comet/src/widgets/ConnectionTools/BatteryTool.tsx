@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Button, Select, Switch } from "@comet/ui";
 import { Icon } from "@comet/icon";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
-import { record, rows, text } from "../toolData";
+import { record, rows, text, type DataRecord } from "../toolData";
 import { useConnectionCommand } from "../useConnectionCommand";
 import type { WidgetView } from "../types";
 import * as toy from "../ToyTools/toyTools.css";
@@ -82,7 +82,14 @@ export function BatteryTool({ widget }: { widget: WidgetView }): ReactElement {
     }
   }, [draft, stored.allowTalk, stored.lowThreshold, stored.criticalNotification]);
   const device = navigator.userAgent.includes("Mac") ? "이 Mac" : "이 PC";
-  const battery = rows(observation.batteries)[0];
+  const battery = rows(observation.batteries).reduce<DataRecord | undefined>(
+    (lowest, current) => {
+      const value = typeof current.percent === "number" ? current.percent : 101;
+      const previous = typeof lowest?.percent === "number" ? lowest.percent : 101;
+      return !lowest || value < previous ? current : lowest;
+    },
+    undefined,
+  );
   const percent = typeof battery?.percent === "number" ? battery.percent : null;
   const power =
     observation.powerSource === "ac"

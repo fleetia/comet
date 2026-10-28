@@ -185,7 +185,7 @@ it("does not refresh the battery when its initial configuration fails", async ()
   });
 });
 
-it("shows the reading of the first battery and the power source", () => {
+it("shows the lowest known battery reading and the power source", () => {
   render(
     <BatteryTool
       widget={widget("device", {
@@ -193,7 +193,7 @@ it("shows the reading of the first battery and the power source", () => {
         observation: {
           hasBattery: true,
           powerSource: "ac",
-          batteries: [{ percent: 64, status: "charging" }],
+          batteries: [{ percent: 80, status: "charged" }, { percent: 64, status: "charging" }],
         },
       })}
     />,
