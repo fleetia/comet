@@ -71,3 +71,11 @@ it("keeps row navigation separate from toggle actions and exposes errors", () =>
   expect(toggle).toHaveBeenCalledExactlyOnceWith("focus-timer", false);
   expect(select).not.toHaveBeenCalled();
 });
+
+it("opens image from its row without offering a character reaction switch", () => {
+  const select = vi.fn();
+  render(<WidgetCatalog entries={entries} onSelect={select} onToggle={vi.fn()} />);
+  expect(screen.queryByRole("switch", { name: "이미지 캐릭터 반응" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "이미지 켜짐" }));
+  expect(select).toHaveBeenCalledWith("image");
+});

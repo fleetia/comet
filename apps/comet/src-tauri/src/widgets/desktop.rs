@@ -244,14 +244,14 @@ pub(crate) struct Runtime {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Rect {
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
+pub(crate) struct Rect {
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) width: f64,
+    pub(crate) height: f64,
 }
 impl Rect {
-    fn at(point: &Point, (width, height): (f64, f64)) -> Self {
+    pub(crate) fn at(point: &Point, (width, height): (f64, f64)) -> Self {
         Self {
             x: point.x,
             y: point.y,
@@ -297,7 +297,7 @@ fn overlap(start: f64, length: f64, other: f64, other_length: f64) -> f64 {
 }
 
 /// Keeps a saved spot unless no work area shows enough of it, then moves it into the nearest one.
-fn clamp_point(point: &Point, size: (f64, f64), areas: &[Rect]) -> Point {
+pub(crate) fn clamp_point(point: &Point, size: (f64, f64), areas: &[Rect]) -> Point {
     let visible = |area: &&Rect| {
         overlap(point.x, size.0, area.x, area.width) >= size.0.min(48.0)
             && overlap(point.y, size.1, area.y, area.height) >= size.1.min(48.0)
@@ -330,7 +330,7 @@ fn clamp_point(point: &Point, size: (f64, f64), areas: &[Rect]) -> Point {
 }
 
 /// Column by column from the top-right corner, the first spot that overlaps no placed widget.
-fn auto_place(area: Rect, size: (f64, f64), occupied: &[Rect]) -> Point {
+pub(crate) fn auto_place(area: Rect, size: (f64, f64), occupied: &[Rect]) -> Point {
     let right = area.x + area.width - INSET - size.0;
     let bottom = area.y + area.height - INSET - size.1;
     let mut x = right;
@@ -687,7 +687,7 @@ fn area_of(monitor: &tauri::Monitor) -> Rect {
         height: area.size.height as f64 / scale,
     }
 }
-fn work_areas(app: &tauri::AppHandle) -> Result<Vec<Rect>, String> {
+pub(crate) fn work_areas(app: &tauri::AppHandle) -> Result<Vec<Rect>, String> {
     Ok(app
         .available_monitors()
         .map_err(|e| e.to_string())?
@@ -695,7 +695,7 @@ fn work_areas(app: &tauri::AppHandle) -> Result<Vec<Rect>, String> {
         .map(area_of)
         .collect())
 }
-fn primary_area(app: &tauri::AppHandle) -> Result<Rect, String> {
+pub(crate) fn primary_area(app: &tauri::AppHandle) -> Result<Rect, String> {
     let monitor = match app.primary_monitor().map_err(|e| e.to_string())? {
         Some(monitor) => Some(monitor),
         None => app
@@ -708,7 +708,10 @@ fn primary_area(app: &tauri::AppHandle) -> Result<Rect, String> {
         .map(|monitor| area_of(&monitor))
         .ok_or_else(|| "화면을 확인하지 못했어요.".into())
 }
-fn window_area(app: &tauri::AppHandle, window: &tauri::WebviewWindow) -> Result<Rect, String> {
+pub(crate) fn window_area(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+) -> Result<Rect, String> {
     match window.current_monitor().map_err(|e| e.to_string())? {
         Some(monitor) => Ok(area_of(&monitor)),
         None => primary_area(app),

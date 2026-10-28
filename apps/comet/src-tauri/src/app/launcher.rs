@@ -71,7 +71,10 @@ pub(crate) fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 tauri::async_runtime::spawn(async move {
                     let state = app.state::<Arc<AppState>>();
                     if let Err(error) = open_launcher(app.clone(), state).await {
-                        crate::report_error!("launcher_open", "빠른 실행 창을 열지 못했어요: {error}");
+                        crate::report_error!(
+                            "launcher_open",
+                            "빠른 실행 창을 열지 못했어요: {error}"
+                        );
                     }
                 });
             }
@@ -526,6 +529,9 @@ pub(crate) enum LauncherAction {
         id: String,
         expected_revision: i64,
     },
+    Image {
+        expected_revision: Option<i64>,
+    },
     Chat {
         content: String,
         target: String,
@@ -592,7 +598,9 @@ pub(crate) async fn execute_launcher(
             .and_then(|db| widgets::storage::get(&db, id))
             .map(|widget| crate::behavior::DESKTOP_TOYS.contains(&widget.kind.as_str()))
             .unwrap_or(false),
-        LauncherAction::Settings { .. } | LauncherAction::Travel { .. } => false,
+        LauncherAction::Settings { .. }
+        | LauncherAction::Travel { .. }
+        | LauncherAction::Image { .. } => false,
     };
     let result = async {
         match request.action {
@@ -627,6 +635,22 @@ pub(crate) async fn execute_launcher(
                     request.session_id,
                 )
                 .await
+            }
+            LauncherAction::Image { expected_revision } => {
+                {
+                    let _action = lock(&state.action)?;
+                    let current = widgets::storage::instances(&*lock(&state.db)?)?
+                        .into_iter()
+                        .find(|widget| widget.kind == "image");
+                    if current.as_ref().map(|widget| widget.revision) != expected_revision
+                    {
+                        return Err("위젯이 변경됐어요. 다시 확인해 주세요.".into());
+                    }
+                    accept_execution(&state, request.session_id)?;
+                }
+                widgets::images::add_for_launcher(&app, &state, expected_revision)
+                    .await
+                    .map(|_| ())
             }
             LauncherAction::Chat {
                 content,

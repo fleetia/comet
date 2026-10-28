@@ -512,7 +512,7 @@ it("includes created and imported widgets in the same list, counts and filters",
   expect(list.getByRole("button", { name: "할 일 켜짐" })).toBeTruthy();
   expect(list.getByRole("button", { name: "단수 세기 켜짐" })).toBeTruthy();
   expect(list.getByRole("button", { name: "물 마시기 실행 검사 대기" })).toBeTruthy();
-  expect(list.getByText(/모두 23개/)).toBeTruthy();
+  expect(list.getByText(new RegExp(`모두 ${PREVIEW_WIDGETS.catalog.length + 2}개`))).toBeTruthy();
   for (const name of ["할 일", "단수 세기", "물 마시기"]) {
     expect(list.getByRole("switch", { name: `${name} 캐릭터 반응` })).toHaveProperty(
       "checked",
@@ -741,7 +741,8 @@ it("omits retired collection and journal even when legacy records are present", 
   render(<WidgetManager embedded />);
   expect(screen.queryByRole("button", { name: /^수집함·소품/ })).toBeNull();
   expect(screen.queryByRole("button", { name: /^함께한 사건 일지/ })).toBeNull();
-  expect(PREVIEW_WIDGETS.catalog).toHaveLength(21);
+  expect(PREVIEW_WIDGETS.catalog).toHaveLength(22);
+  expect(PREVIEW_WIDGETS.catalog.some((entry) => entry.id === "image")).toBe(true);
 });
 
 it("exposes AI creation and automatic creation in the Figma experiment rows", async () => {

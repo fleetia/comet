@@ -44,22 +44,24 @@ jsonwebtoken = { version = "9.3", default-features = false }
 libc = "0.2"
 tauri-plugin-global-shortcut = "2"
 kamadak-exif = "0.6"
+image = { version = "0.25.9", default-features = false, features = ["png", "gif", "jpeg", "webp"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
 objc2 = "0.6.4"
 block2 = "0.6.2"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSWorkspace", "NSRunningApplication", "libc"] }
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSBundle", "NSNotification", "NSOperation", "NSString", "NSGeometry", "NSRunLoop", "NSTimer", "NSDate", "NSObjCRuntime", "block2"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSBundle", "NSNotification", "NSOperation", "NSString", "NSURL", "NSGeometry", "NSRunLoop", "NSTimer", "NSDate", "NSObjCRuntime", "block2"] }
 objc2-core-foundation = "0.3.2"
 objc2-service-management = { version = "0.3.2", default-features = false, features = ["std", "SMAppService", "objc2", "objc2-foundation"] }
 objc2-event-kit = { version = "0.3.2", default-features = false, features = ["std", "EKCalendar", "EKCalendarItem", "EKEvent", "EKEventStore", "EKObject", "EKSource", "EKTypes", "block2"] }
 objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationSettings", "UNNotificationContent", "UNNotificationRequest", "UNNotificationTrigger", "UNNotification", "UNNotificationResponse", "UNNotificationAction", "UNNotificationCategory", "UNNotificationSound"] }
+objc2-av-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "AVAsset", "AVAssetExportSession", "AVMediaFormat"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }
 winreg = "0.55"
-windows = { version = "0.61.3", features = ["Media_Control", "Foundation", "Foundation_Collections", "Storage_Streams"] }
+windows = { version = "0.61.3", features = ["Media_Control", "Media_MediaProperties", "Media_Transcoding", "Foundation", "Foundation_Collections", "Storage", "Storage_Search", "Storage_Streams"] }
 windows-future = { version = "0.2.1", features = ["std"] }
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_RemoteDesktop"] }
 
