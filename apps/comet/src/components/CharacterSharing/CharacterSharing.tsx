@@ -17,6 +17,7 @@ import * as s from "../characters.css";
 export type SharingAction = "import" | "export" | "attribution";
 type Attribution = { author: string; sourceUrl: string };
 type AttributionDraft = { saved: Attribution; draft: Attribution };
+type PackPreview = { pack: CharacterPack; warnings: string[] };
 
 type Props = {
   children?: (summary: ReactNode) => ReactNode;
@@ -62,6 +63,7 @@ export function CharacterSharing({
   const [attributions, setAttributions] = useState<Record<string, AttributionDraft>>({});
   const [wordbookIds, setWordbookIds] = useState<string[]>([]);
   const [pack, setPack] = useState<CharacterPack | null>(null);
+  const [packWarnings, setPackWarnings] = useState<string[]>([]);
   const [archiveChoice, setArchiveChoice] = useState<ArchiveChoice>(NO_ARCHIVE);
   const [installed, setInstalled] = useState<InstalledCharacter[]>([]);
   const [pending, setPending] = useState(false);
@@ -155,9 +157,10 @@ export function CharacterSharing({
   }
   async function choosePack(): Promise<void> {
     await run(async () => {
-      const chosen = await command<CharacterPack | null>("choose_character_pack");
+      const chosen = await command<PackPreview | null>("choose_character_pack");
       if (chosen) {
-        setPack(chosen);
+        setPack(chosen.pack);
+        setPackWarnings(chosen.warnings);
         setArchiveChoice(NO_ARCHIVE);
         setInstalled([]);
       }
@@ -406,6 +409,11 @@ export function CharacterSharing({
         <p className={ui.quiet}>.comet-character.json · 최대 32 MiB · 온라인에 게시하지 않아요.</p>
         {pack && (full || action === "import") && (
           <section className={s.section} aria-label="가져오기 미리보기">
+            {packWarnings.map((warning, index) => (
+              <p key={index} className={ui.error} role="status">
+                {warning}
+              </p>
+            ))}
             <CharacterPackPreview pack={pack} />
             {installed.length === 0 ? (
               <div className={ui.row}>
@@ -516,6 +524,7 @@ export function CharacterSharing({
         >
           <CharacterImportPreview
             pack={pack}
+            warnings={packWarnings}
             activeCount={active.length}
             installed={installed.length > 0}
             joinDisabled={

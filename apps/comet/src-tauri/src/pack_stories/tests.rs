@@ -36,6 +36,8 @@ fn fixture() -> (Connection, String, String, String) {
         keywords: vec!["이야기".into()],
         required_flags: vec![],
         min_affinity: 0,
+        reveal_affinity: None,
+        defer: vec![],
         intro: vec![line(&center, "  함께 걸어 볼까?\n원문  ")],
         accept: vec![line(&center, "함께 가자.")],
         decline: vec![line(&center, "다음에 이야기하자.")],

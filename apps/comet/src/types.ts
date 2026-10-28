@@ -93,6 +93,8 @@ export type ScenarioDefinition = {
   keywords: string[];
   requiredFlags: string[];
   minAffinity: number;
+  revealAffinity?: number | null;
+  defer?: SceneLine[];
   intro: SceneLine[];
   accept: SceneLine[];
   decline: SceneLine[];
@@ -123,7 +125,7 @@ export type AuthoringSubject =
   | { kind: "npc"; actorId: string }
   | { kind: "relation"; actorId: string; targetId: string }
   | { kind: "scenario"; scenarioId: string };
-export type AuthoringStage = "entry" | "intro" | "accept" | "decline" | "ending";
+export type AuthoringStage = "entry" | "intro" | "defer" | "accept" | "decline" | "ending";
 export type AuthoringState = {
   stage: AuthoringStage | null;
   ready: boolean;
@@ -252,7 +254,7 @@ export type CharacterArchive = {
   }[];
 };
 export type CharacterPack = Partial<PackStoryDefinition> & {
-  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 12;
   name: string;
   author: string;
   sourceUrl?: string;
