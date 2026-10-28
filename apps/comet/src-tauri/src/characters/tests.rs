@@ -54,6 +54,19 @@ fn pack() -> CharacterPack {
     }
 }
 #[test]
+fn standalone_initialization_keeps_the_birthday_migration_marker() {
+    let conn = Connection::open_in_memory().unwrap();
+    initialize(&conn).unwrap();
+    initialize(&conn).unwrap();
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM kv WHERE key='character:official-birthdays:v1'",
+        [],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
 fn fresh_install_starts_with_byulkkori_alone_as_a_removable_pack() {
     let conn = Connection::open_in_memory().unwrap();
     initialize(&conn).unwrap();

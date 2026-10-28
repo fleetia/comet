@@ -603,6 +603,8 @@ pub fn run() {
             super::history::list_character_history,
             super::users::set_user_name,
             super::users::register_user_name,
+            super::users::register_user_profile,
+            super::users::set_user_birthday,
             super::users::list_legacy_memories,
             super::users::assign_legacy_memories,
             super::users::forget_character_memories,

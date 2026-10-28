@@ -192,6 +192,7 @@ export type AnimationAssetInfo = { mime: string; width: number; height: number }
 export type AnimationAsset = AnimationAssetInfo & { assetId: string; data: string };
 export type CharacterDefinition = {
   sourceId: string;
+  birthday?: string | null;
   name: string;
   description: string;
   personality: string;
@@ -495,6 +496,7 @@ export type ConversationView = ConversationMessages & {
   session: ConversationSession;
 };
 export type UserIdentity = { id: string; name: string; startedAt: number; endedAt: number | null };
+export type UserBirthday = { month: number; day: number; year: number | null };
 export type CharacterExportOptions = {
   includeSprites: boolean;
   includeMemories: boolean;
@@ -598,6 +600,7 @@ export type Snapshot = {
   };
   reactions?: Record<string, CharacterReactionRun>;
   user: UserIdentity | null;
+  userBirthday?: UserBirthday | null;
   legacyMemoryCount: number;
   characters: CharacterCollection;
   messageIdentities: MessageIdentity[];
