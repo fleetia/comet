@@ -158,6 +158,54 @@
       "expectedScene": "weather.rain"
     },
     {
+      "id": "weather.tomorrow-rain-idle",
+      "path": "situations/weather.talk",
+      "trigger": "idle",
+      "available": [
+        "weather"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "weather.tomorrowRainProb": 65,
+        "weather.tomorrowCode": 61
+      },
+      "expectedScene": "weather.tomorrow-rain-idle"
+    },
+    {
+      "id": "weather.rain-tomorrow",
+      "path": "situations/weather.talk",
+      "trigger": "weather.rain-tomorrow",
+      "available": [
+        "weather"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "weather.tomorrowRainProb": 65,
+        "weather.tomorrowCode": 61
+      },
+      "expectedScene": "weather.rain-tomorrow"
+    },
+    {
+      "id": "weather.last-year",
+      "path": "situations/weather.talk",
+      "trigger": "weather.last-year",
+      "available": [
+        "weather"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "weather.lastYearName": "맑음",
+        "weather.temperature": 17
+      },
+      "expectedScene": "weather.last-year"
+    },
+    {
       "id": "weather.snow",
       "path": "situations/weather.talk",
       "trigger": "idle",

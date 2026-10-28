@@ -260,6 +260,14 @@ export function WeatherSettings({
                 onChange={(event) => void save({ ...config, showDetails: event.target.checked })}
               />
             </div>
+            <div className={s.row}>
+              <span className={s.copy}>내일 예보 보기</span>
+              <Switch
+                aria-label="내일 예보 보기"
+                checked={config.showTomorrow}
+                onChange={(event) => void save({ ...config, showTomorrow: event.target.checked })}
+              />
+            </div>
           </div>
         </section>
         <section className={s.section}>
