@@ -1231,6 +1231,16 @@ fn weather_event_current(db: &rusqlite::Connection, event: &WidgetEvent) -> Resu
         })
 }
 
+fn weather_reaction_pending(db: &rusqlite::Connection, event: &WidgetEvent) -> Result<bool, String> {
+    if !matches!(event.event.kind.as_str(), "weather.rain-tomorrow" | "weather.last-year") {
+        return Ok(true);
+    }
+    let Some(day) = event.event.payload["day"].as_str() else {
+        return Ok(false);
+    };
+    Ok(!storage::weather_reaction_started(db, &event.event.kind, day)?)
+}
+
 /// Caller holds action and db. Share eligibility and queue consumption with the scheduler tests.
 pub(crate) fn take_pending_reaction(
     state: &AppState,
@@ -1261,7 +1271,8 @@ pub(crate) fn take_pending_reaction(
     match event {
         Some(event)
             if widgets::reminders::event_current(db, &event)?
-                && weather_event_current(db, &event)? =>
+                && weather_event_current(db, &event)?
+                && weather_reaction_pending(db, &event)? =>
         {
             Ok(Some(event))
         }
@@ -1350,6 +1361,25 @@ fn fallback_reaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queued_weather_rechecks_the_displayed_day() {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        storage::initialize(&db).unwrap();
+        let mut event = WidgetEvent {
+            id: "rain".into(), instance_id: "weather".into(), widget_kind: "weather".into(),
+            revision: 0, created_at: 0, expires_at: i64::MAX,
+            event: widgets::EventDraft {
+                kind: "weather.rain-tomorrow".into(), text: "비".into(),
+                payload: json!({"day": "2026-10-28"}),
+            },
+        };
+        assert!(weather_reaction_pending(&db, &event).unwrap());
+        storage::mark_weather_reaction_day(&db, "weather.rain-tomorrow", "2026-10-28").unwrap();
+        assert!(!weather_reaction_pending(&db, &event).unwrap());
+        event.event.payload = json!({"day": "2026-10-29"});
+        assert!(weather_reaction_pending(&db, &event).unwrap());
+    }
 
     #[test]
     fn widget_navigation_opens_the_matching_planner_destination() {

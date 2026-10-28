@@ -913,6 +913,23 @@ pub(crate) fn record_daily_weather_event(
     Ok(true)
 }
 
+pub(crate) fn weather_reaction_started(db: &Connection, kind: &str, day: &str) -> Result<bool> {
+    let previous: Option<String> = db.query_row(
+        "SELECT value FROM widget_preferences WHERE key=?1",
+        [format!("weather-talk:{kind}")],
+        |row| row.get(0),
+    ).optional().map_err(err)?;
+    Ok(previous.as_deref() == Some(day))
+}
+
+pub(crate) fn mark_weather_reaction_day(db: &Connection, kind: &str, day: &str) -> Result<()> {
+    db.execute(
+        "INSERT INTO widget_preferences(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        params![format!("weather-talk:{kind}"), day],
+    ).map_err(err)?;
+    Ok(())
+}
+
 pub(crate) fn mark_weather_reaction_started(db: &Connection, event: &WidgetEvent) -> Result<()> {
     if !matches!(event.event.kind.as_str(), "weather.last-year" | "weather.rain-tomorrow") {
         return Ok(());
@@ -920,11 +937,7 @@ pub(crate) fn mark_weather_reaction_started(db: &Connection, event: &WidgetEvent
     let Some(day) = event.event.payload["day"].as_str() else {
         return Ok(());
     };
-    db.execute(
-        "INSERT INTO widget_preferences(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        params![format!("weather-talk:{}", event.event.kind), day],
-    ).map_err(err)?;
-    Ok(())
+    mark_weather_reaction_day(db, &event.event.kind, day)
 }
 
 pub(crate) fn record_desktop_result(
