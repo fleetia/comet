@@ -23,7 +23,7 @@ pub(crate) fn cli(args: &[String]) -> Option<i32> {
         return None;
     }
     if args.len() == 3 && matches!(args[2].as_str(), "--help" | "-h") {
-        println!("comet notify <text> [--title <title>] [--result ok|failed|canceled] [--urgent] [--os] [--dry-run]\n접수는 말풍선 표시를 뜻하지 않습니다.");
+        println!("comet notify <text> [--title <title>] [--result ok|failed|canceled] [--urgent] [--os] [--dry-run]\n접수는 말풍선 표시를 뜻하지 않습니다. OS 알림은 앱 설정을 따릅니다.");
         return Some(0);
     }
     let parsed = (|| -> Result<(Notice, bool), String> {
@@ -187,6 +187,26 @@ pub(crate) fn configure(data: &Value, input: &Value) -> Result<widgets::WidgetEf
     })
 }
 
+fn prepare_notice(notice: &Notice, data: &Value, now: i64) -> (widgets::EventDraft, bool) {
+    let prefix = data["prefix"].as_str().unwrap_or("바깥에서 소식:");
+    let text = [
+        Some(prefix),
+        notice.title.as_deref(),
+        Some(notice.text.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|part| !part.is_empty())
+    .collect::<Vec<_>>()
+    .join(" ");
+    let draft = widgets::EventDraft {
+        kind: "external-notice".into(),
+        text,
+        payload: json!({"title": notice.title, "text": notice.text, "result": notice.result, "urgent": notice.urgent, "source": "url", "receivedAt": now}),
+    };
+    (draft, data["osNotifications"] == true)
+}
+
 pub(crate) fn receive_url(app: &tauri::AppHandle, url: &tauri::Url) {
     let Ok(notice) = parse_url(url) else {
         return;
@@ -224,22 +244,8 @@ fn receive(
             return Err("바깥 알림이 너무 자주 도착했어요.".into());
         }
         let now = chrono::Utc::now().timestamp_millis();
-        let prefix = instance.data["prefix"].as_str().unwrap_or("바깥에서 소식:");
-        let text = [
-            Some(prefix),
-            notice.title.as_deref(),
-            Some(notice.text.as_str()),
-        ]
-        .into_iter()
-        .flatten()
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
-        let draft = widgets::EventDraft {
-            kind: "external-notice".into(),
-            text: text.clone(),
-            payload: json!({"title": notice.title, "text": notice.text, "result": notice.result, "urgent": notice.urgent, "source": "url", "receivedAt": now}),
-        };
+        let (draft, os) = prepare_notice(&notice, &instance.data, now);
+        let text = draft.text.clone();
         widgets::storage::record_external_notice(db, &instance, draft, now)?;
         recent.push_back(at);
         let status = app::lock(&state.runtime)?;
@@ -254,14 +260,39 @@ fn receive(
         } else if app::quiet_hours::active(&store::settings(db)?) && !notice.urgent {
             widgets::storage::discard_pending_during_quiet(db)?;
         }
-        Ok((
-            notice.os || notice.urgent || instance.data["osNotifications"] == true,
-            text,
-        ))
+        Ok((os, text))
     })?;
     if os {
         widgets::planning::notifications::show_external(app, &text);
     }
     widgets::commands::publish_widgets(app, state);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn os_delivery_follows_saved_preference_for_every_url_flag() {
+        for urgent in [0, 1] {
+            for os in [0, 1] {
+                let url = tauri::Url::parse(&format!(
+                    "comet://notify?text=hello&urgent={urgent}&os={os}"
+                ))
+                .unwrap();
+                let notice = parse_url(&url).unwrap();
+                for enabled in [false, true] {
+                    let (draft, deliver_os) = prepare_notice(
+                        &notice,
+                        &json!({"osNotifications": enabled}),
+                        123,
+                    );
+                    assert_eq!(deliver_os, enabled, "urgent={urgent}, os={os}");
+                    assert_eq!(draft.payload["urgent"], urgent == 1);
+                    assert_eq!(draft.payload["text"], "hello");
+                }
+            }
+        }
+    }
 }
