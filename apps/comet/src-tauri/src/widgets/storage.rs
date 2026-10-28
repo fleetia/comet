@@ -56,6 +56,13 @@ CREATE TABLE IF NOT EXISTS desktop_toy_results(id TEXT PRIMARY KEY,widget_id TEX
                 )
                 .map_err(err)?;
             }
+            if !enabled {
+                tx.execute(
+                    "INSERT OR IGNORE INTO widget_preferences(key,value) VALUES(?1,'0')",
+                    [format!("reaction:{id}")],
+                )
+                .map_err(err)?;
+            }
             if manifest.id == "plant" && !enabled {
                 tx.execute(
                     "UPDATE widget_instances SET data=json_set(data,'$.updatedAt',?1) WHERE id=?2",

@@ -1572,3 +1572,19 @@ fn selected_play_owner_is_revalidated_inside_the_widget_transaction() {
         crate::characters::apply_roster(&db, ids.clone()).unwrap();
     }
 }
+
+#[test]
+fn disabled_official_widget_migrates_reaction_preference_once() {
+    let db = database();
+    let id = instance(&db, "plant").id;
+    db.execute("UPDATE widget_instances SET enabled=0 WHERE id=?1", [&id]).unwrap();
+    storage::initialize(&db).unwrap();
+    assert!(!storage::reaction_enabled(&db, &id).unwrap());
+    let enabled: i64 = db.query_row(
+        "SELECT enabled FROM widget_instances WHERE id=?1", [&id], |row| row.get(0),
+    ).unwrap();
+    assert_eq!(enabled, 1);
+    db.execute("DELETE FROM widget_preferences WHERE key=?1", [format!("reaction:{id}")]).unwrap();
+    storage::initialize(&db).unwrap();
+    assert!(storage::reaction_enabled(&db, &id).unwrap());
+}

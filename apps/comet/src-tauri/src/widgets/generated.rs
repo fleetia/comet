@@ -262,6 +262,8 @@ pub fn initialize(db: &Connection) -> Result<()> {
 id TEXT PRIMARY KEY,definition TEXT NOT NULL,state TEXT NOT NULL,revision INTEGER NOT NULL,
 enabled INTEGER NOT NULL,installed INTEGER NOT NULL,status TEXT NOT NULL,error TEXT);
 CREATE TABLE IF NOT EXISTS widget_preferences(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+INSERT OR IGNORE INTO widget_preferences(key,value)
+SELECT 'reaction:' || id, '0' FROM generated_widgets WHERE enabled=0;
 UPDATE generated_widgets SET enabled=1 WHERE enabled!=1;
 CREATE TABLE IF NOT EXISTS widget_state_rules(
 id TEXT PRIMARY KEY,widget_id TEXT NOT NULL,definition TEXT NOT NULL,revision INTEGER NOT NULL,
@@ -927,6 +929,25 @@ mod tests {
         let db = Connection::open_in_memory().unwrap();
         initialize(&db).unwrap();
         db
+    }
+
+    #[test]
+    fn disabled_generated_widget_migrates_reaction_preference_once() {
+        let db = database();
+        db.execute(
+            "INSERT INTO generated_widgets(id,definition,state,revision,enabled,installed,status,error) VALUES('legacy','{}','{}',0,0,1,'ready',NULL)",
+            [],
+        )
+        .unwrap();
+        initialize(&db).unwrap();
+        assert!(!super::super::storage::reaction_enabled(&db, "legacy").unwrap());
+        let enabled: i64 = db.query_row(
+            "SELECT enabled FROM generated_widgets WHERE id='legacy'", [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(enabled, 1);
+        db.execute("DELETE FROM widget_preferences WHERE key='reaction:legacy'", []).unwrap();
+        initialize(&db).unwrap();
+        assert!(super::super::storage::reaction_enabled(&db, "legacy").unwrap());
     }
 
     #[test]
