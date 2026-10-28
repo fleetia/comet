@@ -143,6 +143,47 @@ fn apply_birthday(context: &mut talk::EvalContext, birthday: &BirthdayTrigger) {
     context.values.insert("event.character".into(), serde_json::json!(birthday.character));
 }
 
+fn moment_event_current(
+    db: &Connection,
+    event: &widgets::WidgetEvent,
+    visible: &[String],
+    lines: &[crate::types::SceneLine],
+) -> Result<bool, String> {
+    if event.event.kind != "moment.added" {
+        return Ok(true);
+    }
+    let Some(user_id) = event.event.payload["userId"].as_str() else { return Ok(false) };
+    let Some(source) = event.event.payload["momentSource"].as_str() else { return Ok(false) };
+    let Some(summary) = event.event.payload["summary"].as_str() else { return Ok(false) };
+    let Some(memory_ids) = event.event.payload["memoryIds"].as_array() else { return Ok(false) };
+    if let Some(kind) = event.event.payload["widgetKind"].as_str() {
+        if !widgets::storage::instances(db)?.iter().any(|widget| widget.id == event.instance_id && widget.kind == kind)
+            || !widgets::storage::reaction_enabled(db, &event.instance_id)?
+        {
+            return Ok(false);
+        }
+    }
+    if crate::store::current_user(db)?.as_ref().map(|user| user.id.as_str()) != Some(user_id) {
+        return Ok(false);
+    }
+    let speakers = if lines.is_empty() {
+        visible.to_vec()
+    } else {
+        crate::characters::resolve_lines(db, lines)?.into_iter().map(|line| line.persona).collect()
+    };
+    let mut found = false;
+    for character in speakers {
+        let exists: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM memories WHERE user_id=?1 AND character_id=?2 AND source=?3 AND content=?4 AND id IN (SELECT value FROM json_each(?5)) AND kind='experience' AND deleted=0 AND expired=0 AND required_chapter IS NULL)",
+            rusqlite::params![user_id, character, source, summary, serde_json::to_string(memory_ids).map_err(|error| error.to_string())?], |row| row.get(0),
+        ).map_err(|error| error.to_string())?;
+        let eligible = exists && visible.contains(&character);
+        if !lines.is_empty() && !eligible { return Ok(false); }
+        found |= eligible;
+    }
+    Ok(found)
+}
+
 fn prepare_with_triggers(
     state: &AppState,
     db: &Connection,
@@ -196,6 +237,11 @@ fn prepare_with_triggers(
         None
     };
     context.visible = presence::present_ids(state, &context.active)?;
+    if let Some(event) = event {
+        if !moment_event_current(db, event, &context.visible, &[])? {
+            return Ok(None);
+        }
+    }
     let moment_recall = talk::context::moment_recall(db, &context.visible, context.now_ms)?;
     context.values.insert(
         "recall.moment".into(),
@@ -238,6 +284,13 @@ fn prepare_with_triggers(
         |selection| {
             if event_muted || muted_selection(selection, &muted) {
                 return Err("reaction_disabled".into());
+            }
+            if let Some(event) = event {
+                if !moment_event_current(db, event, &context.visible, &selection.lines)
+                    .map_err(|error| format!("motion_error: {error}"))?
+                {
+                    return Err("moment_not_owned".into());
+                }
             }
             validate_motions(db, &selection.lines)
                 .map_err(|error| format!("motion_error: {error}"))?;
@@ -285,7 +338,7 @@ fn prepare_with_triggers(
     {
         dependencies.insert("weather".into());
     }
-    if let Some(event) = event.filter(|event| event.event.kind != "mood.changed") {
+    if let Some(event) = event.filter(|event| !matches!(event.event.kind.as_str(), "mood.changed" | "moment.added")) {
         dependencies.insert(event.widget_kind.clone());
     }
     for kind in dependencies.clone() {
@@ -417,7 +470,7 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
     if prepared
         .event
         .as_ref()
-        .is_some_and(|event| event.event.kind == "mood.changed")
+        .is_some_and(|event| matches!(event.event.kind.as_str(), "mood.changed" | "moment.added"))
     {
         let status = lock(&state.runtime)?.clone();
         let settings = crate::store::settings(db)?;
@@ -487,6 +540,11 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
         }
     }
     context.visible = presence::present_ids(state, &context.active)?;
+    if let Some(event) = prepared.event.as_ref() {
+        if !moment_event_current(db, event, &context.visible, &prepared.selection.lines)? {
+            return Ok(false);
+        }
+    }
     if let Some(birthday) = &prepared.birthday {
         if chrono::Local::now().date_naive() != birthday.date {
             return Ok(false);

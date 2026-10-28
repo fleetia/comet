@@ -258,6 +258,9 @@ pub(crate) fn interrupt_with_db(
     automatic: bool,
     db: &rusqlite::Connection,
 ) -> Result<(u64, Arc<AtomicBool>), String> {
+    if !automatic {
+        db.execute("DELETE FROM moment_events", []).map_err(|error| error.to_string())?;
+    }
     let run_id = lock(&state.pack_stories)?
         .run
         .as_ref()
