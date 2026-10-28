@@ -254,7 +254,7 @@ it("only completes a linked todo after an explicit completion click", async () =
   );
   expect(act).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "5분 쉬기" }));
-  expect(act).toHaveBeenCalledWith("rest");
+  expect(act).toHaveBeenCalledWith("rest", {});
   fireEvent.click(screen.getByRole("checkbox", { name: "읽기 완료로 표시" }));
   expect(act).toHaveBeenCalledWith("complete", { id: "task" }, todo);
 });

@@ -22,6 +22,7 @@ export type DiaryTasks = {
   toggleTask: (item: DataRecord, date?: string) => Promise<boolean>;
   undoCompletion: () => Promise<void>;
   focusTask: (item: DataRecord) => Promise<void>;
+  queueTask: (item: DataRecord) => Promise<void>;
   focusEnvelope: () => Promise<void>;
 };
 
@@ -130,6 +131,15 @@ export function useDiaryTasks({
       await run(() => command("open_widget", { id: timer.id }));
     }
   }
+  async function queueTask(item: DataRecord): Promise<void> {
+    if (!timer) {
+      await run(() => command("open_planner_settings", { kind: "focus-timer" }));
+      return;
+    }
+    if (await act("queue-add", { title: text(item.title), todoId: text(item.id) }, timer)) {
+      setNotice("다음 집중에 추가했어요.");
+    }
+  }
   return {
     completionUndo,
     planTask,
@@ -137,6 +147,7 @@ export function useDiaryTasks({
     toggleTask,
     undoCompletion,
     focusTask,
+    queueTask,
     focusEnvelope,
   };
 }
