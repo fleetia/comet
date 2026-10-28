@@ -244,7 +244,7 @@ pub fn configure(kind: &str, data: &Value, input: &Value) -> Result<Value, Strin
     serde_json::to_value(state).map_err(|error| error.to_string())
 }
 
-pub(crate) fn device_events(previous: &Value, next: &mut Value) -> Vec<EventDraft> {
+pub(crate) fn device_events(previous: &Value, next: &mut Value) -> (Vec<EventDraft>, bool) {
     fn battery(data: &Value) -> Option<&Value> {
         data["observation"]["batteries"]
             .as_array()?
@@ -252,12 +252,12 @@ pub(crate) fn device_events(previous: &Value, next: &mut Value) -> Vec<EventDraf
             .min_by_key(|item| item["percent"].as_u64().unwrap_or(101))
     }
     let Ok(config) = device_config(&next["config"]) else {
-        return vec![];
+        return (vec![], false);
     };
     let mut latches: DeviceLatches =
         serde_json::from_value(previous["latches"].clone()).unwrap_or_default();
     let Some(current) = battery(next) else {
-        return vec![];
+        return (vec![], false);
     };
     let status = current["status"].as_str().unwrap_or("unknown");
     let percent = current["percent"].as_u64();
@@ -268,6 +268,7 @@ pub(crate) fn device_events(previous: &Value, next: &mut Value) -> Vec<EventDraf
             .map(str::to_owned)
     });
     let mut events = vec![];
+    let mut critical_transition = false;
     let mut emit = |kind: &str, text: &str| {
         if config.allow_talk {
             events.push(EventDraft {
@@ -287,6 +288,7 @@ pub(crate) fn device_events(previous: &Value, next: &mut Value) -> Vec<EventDraf
             }
             if percent.is_some_and(|value| value <= 10) && !latches.critical {
                 latches.critical = true;
+                critical_transition = true;
                 emit(
                     "device.critical",
                     "배터리가 위험 수준이에요. 충전해 주세요.",
@@ -308,11 +310,11 @@ pub(crate) fn device_events(previous: &Value, next: &mut Value) -> Vec<EventDraf
                 }
             }
         }
-        _ => return vec![],
+        _ => return (vec![], false),
     }
     latches.last_status = Some(status.to_owned());
     next["latches"] = serde_json::to_value(latches).unwrap_or(Value::Null);
-    events
+    (events, critical_transition)
 }
 
 fn client() -> Result<reqwest::Client, ConnectionError> {
@@ -961,15 +963,31 @@ mod tests {
             "config": {}, "observation": {"batteries": [{"status": status, "percent": percent}]}
         });
         let mut full = observation("charged", 100);
-        assert!(device_events(&Value::Null, &mut full).is_empty());
+        assert!(device_events(&Value::Null, &mut full).0.is_empty());
         let mut again = observation("charged", 100);
-        assert!(device_events(&full, &mut again).is_empty());
+        assert!(device_events(&full, &mut again).0.is_empty());
         let mut legacy_full = observation("charged", 100);
-        assert!(device_events(&observation("charging", 100), &mut legacy_full).is_empty());
+        assert!(device_events(&observation("charging", 100), &mut legacy_full).0.is_empty());
         let mut completed = observation("charged", 100);
-        let events = device_events(&observation("charging", 99), &mut completed);
+        let (events, _) = device_events(&observation("charging", 99), &mut completed);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].kind, "device.charged");
+    }
+
+    #[test]
+    fn critical_transition_is_available_when_talk_is_disabled() {
+        for allow_talk in [false, true] {
+            let mut next = json!({
+                "config": {"allowTalk": allow_talk, "criticalNotification": true},
+                "observation": {"batteries": [{"status": "discharging", "percent": 10}]}
+            });
+            let (events, critical) = device_events(&Value::Null, &mut next);
+            assert!(critical);
+            assert_eq!(events.iter().any(|event| event.kind == "device.critical"), allow_talk);
+            let mut repeated = next.clone();
+            let (_, critical_again) = device_events(&next, &mut repeated);
+            assert!(!critical_again);
+        }
     }
 
     #[test]

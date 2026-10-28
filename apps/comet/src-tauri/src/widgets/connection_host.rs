@@ -1311,8 +1311,7 @@ async fn refresh_information(
         && job.instance.data["config"]["criticalNotification"] == true
         && matches!(&result, Ok(Ok(value)) if {
             let mut next = value.clone();
-            connections::device_events(&job.instance.data, &mut next)
-                .iter().any(|event| event.kind == "device.critical")
+            connections::device_events(&job.instance.data, &mut next).1
         });
     let notification_allowed = needs_notification
         && crate::widgets::planning::notifications::get_planner_notification_permission(
@@ -1324,11 +1323,13 @@ async fn refresh_information(
     let outcome = match result {
         Ok(result) => finish(state, &job, |db, current| {
             let mut events = vec![];
+            let mut critical_transition = false;
             let mut data = match &result {
                 Ok(value) => {
                     let mut value = value.clone();
                     if current.kind == "device" {
-                        events = connections::device_events(&current.data, &mut value);
+                        (events, critical_transition) =
+                            connections::device_events(&current.data, &mut value);
                     }
                     value["lastAttemptAt"] = json!(time);
                     value["failureCount"] = json!(0);
@@ -1369,10 +1370,10 @@ async fn refresh_information(
                     || !wake_event_allowed(state, db)?
                 {
                     events.clear();
+                    critical_transition = false;
                 }
             }
-            let notify = events.iter().any(|event| event.kind == "device.critical")
-                && current.data["config"]["criticalNotification"] == true;
+            let notify = critical_transition && current.data["config"]["criticalNotification"] == true;
             let os_event = notify.then(|| super::WidgetEvent {
                 id: uuid::Uuid::new_v4().to_string(),
                 instance_id: current.id.clone(),
