@@ -143,6 +143,47 @@ fn apply_birthday(context: &mut talk::EvalContext, birthday: &BirthdayTrigger) {
     context.values.insert("event.character".into(), serde_json::json!(birthday.character));
 }
 
+fn moment_event_current(
+    db: &Connection,
+    event: &widgets::WidgetEvent,
+    visible: &[String],
+    lines: &[crate::types::SceneLine],
+) -> Result<bool, String> {
+    if event.event.kind != "moment.added" {
+        return Ok(true);
+    }
+    let Some(user_id) = event.event.payload["userId"].as_str() else { return Ok(false) };
+    let Some(source) = event.event.payload["momentSource"].as_str() else { return Ok(false) };
+    let Some(summary) = event.event.payload["summary"].as_str() else { return Ok(false) };
+    let Some(memory_refs) = event.event.payload["memoryRefs"].as_array() else { return Ok(false) };
+    if let Some(kind) = event.event.payload["widgetKind"].as_str() {
+        if !widgets::storage::instances(db)?.iter().any(|widget| widget.id == event.instance_id && widget.kind == kind)
+            || !widgets::storage::reaction_enabled(db, &event.instance_id)?
+        {
+            return Ok(false);
+        }
+    }
+    if crate::store::current_user(db)?.as_ref().map(|user| user.id.as_str()) != Some(user_id) {
+        return Ok(false);
+    }
+    let speakers = if lines.is_empty() {
+        visible.to_vec()
+    } else {
+        crate::characters::resolve_lines(db, lines)?.into_iter().map(|line| line.persona).collect()
+    };
+    let mut found = false;
+    for character in speakers {
+        let exists: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM memories m WHERE user_id=?1 AND character_id=?2 AND source=?3 AND content=?4 AND EXISTS(SELECT 1 FROM json_each(?5) r WHERE json_extract(r.value,'$.id')=m.id AND json_extract(r.value,'$.version')=m.content_version) AND kind='experience' AND deleted=0 AND expired=0 AND required_chapter IS NULL)",
+            rusqlite::params![user_id, character, source, summary, serde_json::to_string(memory_refs).map_err(|error| error.to_string())?], |row| row.get(0),
+        ).map_err(|error| error.to_string())?;
+        let eligible = exists && visible.contains(&character);
+        if !lines.is_empty() && !eligible { return Ok(false); }
+        found |= eligible;
+    }
+    Ok(found)
+}
+
 fn prepare_with_triggers(
     state: &AppState,
     db: &Connection,
@@ -196,6 +237,11 @@ fn prepare_with_triggers(
         None
     };
     context.visible = presence::present_ids(state, &context.active)?;
+    if let Some(event) = event {
+        if !moment_event_current(db, event, &context.visible, &[])? {
+            return Ok(None);
+        }
+    }
     let moment_recall = talk::context::moment_recall(db, &context.visible, context.now_ms)?;
     context.values.insert(
         "recall.moment".into(),
@@ -238,6 +284,13 @@ fn prepare_with_triggers(
         |selection| {
             if event_muted || muted_selection(selection, &muted) {
                 return Err("reaction_disabled".into());
+            }
+            if let Some(event) = event {
+                if !moment_event_current(db, event, &context.visible, &selection.lines)
+                    .map_err(|error| format!("motion_error: {error}"))?
+                {
+                    return Err("moment_not_owned".into());
+                }
             }
             validate_motions(db, &selection.lines)
                 .map_err(|error| format!("motion_error: {error}"))?;
@@ -285,7 +338,7 @@ fn prepare_with_triggers(
     {
         dependencies.insert("weather".into());
     }
-    if let Some(event) = event.filter(|event| event.event.kind != "mood.changed") {
+    if let Some(event) = event.filter(|event| !matches!(event.event.kind.as_str(), "mood.changed" | "moment.added")) {
         dependencies.insert(event.widget_kind.clone());
     }
     for kind in dependencies.clone() {
@@ -417,7 +470,7 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
     if prepared
         .event
         .as_ref()
-        .is_some_and(|event| event.event.kind == "mood.changed")
+        .is_some_and(|event| matches!(event.event.kind.as_str(), "mood.changed" | "moment.added"))
     {
         let status = lock(&state.runtime)?.clone();
         let settings = crate::store::settings(db)?;
@@ -487,6 +540,11 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
         }
     }
     context.visible = presence::present_ids(state, &context.active)?;
+    if let Some(event) = prepared.event.as_ref() {
+        if !moment_event_current(db, event, &context.visible, &prepared.selection.lines)? {
+            return Ok(false);
+        }
+    }
     if let Some(birthday) = &prepared.birthday {
         if chrono::Local::now().date_naive() != birthday.date {
             return Ok(false);
@@ -935,6 +993,50 @@ mod tests {
 
     const FIRST_PACK: &str =
         "format: 1\nscene: first\non: idle\n---\nA: 첫 대사\nB: 다음 대사\n===\n";
+
+    #[test]
+    fn moment_event_selects_only_its_current_visible_keeper_and_rechecks_widget_and_memory() {
+        let state = crate::app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        crate::store::set_user_name(&db, "친구", now).unwrap();
+        let user = crate::store::current_user(&db).unwrap().unwrap();
+        let characters = crate::characters::active_ids(&db).unwrap();
+        assert!(crate::store::insert_moment(&db, &characters[0], &user.id, "bloom", "꽃이 핀 날", now, None, json!({}), None, None).unwrap());
+        let (memory_id, source): (String, String) = db.query_row("SELECT id,source FROM memories WHERE source LIKE 'moment:bloom:%'", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+        let plant = widgets::storage::instances(&db).unwrap().into_iter().find(|widget| widget.kind == "plant").unwrap();
+        let mut event = widgets::WidgetEvent {
+            id: "event".into(), instance_id: plant.id.clone(), widget_kind: "moment".into(), revision: 0,
+            created_at: now, expires_at: now + 60_000,
+            event: widgets::EventDraft { kind: "moment.added".into(), text: String::new(),
+                payload: json!({"userId":user.id,"momentSource":source,"event":"bloom","summary":"꽃이 핀 날","memoryRefs":[{"id":memory_id,"version":1}],"widgetKind":"plant"}) },
+        };
+        let program = talk::validate_source(Path::new("moment.talk"),
+            "format: 1\nscene: other\non: moment.added\n---\nB: 내 추억이야.\n===\nscene: owner\non: moment.added\nwhen: event.event == \"bloom\"\n---\nA: ${event.summary}\n===\n",
+            &talk::context::registry()).unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        widgets::storage::set_reaction(&db, &plant.id, false).unwrap();
+        assert!(prepare(&state, &db, Some(&event)).unwrap().is_none());
+        widgets::storage::set_reaction(&db, &plant.id, true).unwrap();
+        let lines = prepare(&state, &db, Some(&event)).unwrap().unwrap();
+        assert_eq!(lines[0].persona, "a");
+        assert_eq!(lines[0].text, "꽃이 핀 날");
+        assert!(current(&state, &db).unwrap());
+        db.execute("UPDATE memories SET content='수정됨' WHERE id=?1", [&memory_id]).unwrap();
+        assert!(!current(&state, &db).unwrap());
+        db.execute("UPDATE memories SET content='꽃이 핀 날' WHERE id=?1", [&memory_id]).unwrap();
+        assert!(!current(&state, &db).unwrap());
+        let version: i64 = db.query_row("SELECT content_version FROM memories WHERE id=?1", [&memory_id], |row| row.get(0)).unwrap();
+        event.event.payload["memoryRefs"][0]["version"] = json!(version);
+        assert!(prepare(&state, &db, Some(&event)).unwrap().is_some());
+        assert!(current(&state, &db).unwrap());
+        db.execute("UPDATE kv SET value=?1 WHERE key='active_user_id'", [serde_json::to_string("other-user").unwrap()]).unwrap();
+        assert!(!current(&state, &db).unwrap());
+        db.execute("UPDATE kv SET value=?1 WHERE key='active_user_id'", [serde_json::to_string(&user.id).unwrap()]).unwrap();
+        assert!(current(&state, &db).unwrap());
+        lock(&state.presence).unwrap().leave_for_tests(&characters[0]);
+        assert!(!current(&state, &db).unwrap());
+    }
 
     fn state_with_packs() -> (tempfile::TempDir, AppState) {
         let directory = tempfile::tempdir().unwrap();

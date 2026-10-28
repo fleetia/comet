@@ -96,6 +96,8 @@ fn record_travel_moments(
                     now,
                     Some(&reference),
                     serde_json::json!({"travelId":travel.id,"stage":stage}),
+                    None,
+                    None,
                 )?;
             }
         }

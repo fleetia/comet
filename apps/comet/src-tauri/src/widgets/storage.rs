@@ -1002,7 +1002,7 @@ fn record_widget_moments_since(
             }
         }
         for character_id in present {
-            changed |= crate::store::insert_moment(db, character_id, &user.id, event, &summary, now, reference.as_deref(), refs.clone())?;
+            changed |= crate::store::insert_moment(db, character_id, &user.id, event, &summary, now, reference.as_deref(), refs.clone(), Some(&before.kind), Some(&before.id))?;
         }
     }
     Ok(changed)
@@ -1038,7 +1038,7 @@ pub(crate) fn commit_data_with_presence(
             for event in events.iter().filter(|event| event.kind == "planner-anniversary") {
                 if let (Some(id), Some(title)) = (event.payload["anniversaryId"].as_str(), event.payload["title"].as_str()) {
                     for character_id in present {
-                        crate::store::insert_moment(&tx, character_id, &user.id, "anniversary", &format!("‘{title}’ 기념일을 함께"), now, Some(id), json!({"anniversaryId":id}))?;
+                        crate::store::insert_moment(&tx, character_id, &user.id, "anniversary", &format!("‘{title}’ 기념일을 함께"), now, Some(id), json!({"anniversaryId":id}), Some(&instance.kind), Some(&instance.id))?;
                     }
                 }
             }
@@ -1344,6 +1344,15 @@ pub(crate) fn set_reaction(db: &Connection, id: &str, enabled: bool) -> Result<(
     .map_err(err)?;
     tx.execute("DELETE FROM widget_state_pending WHERE widget_id=?1", [id])
         .map_err(err)?;
+    if !enabled {
+        let has_moment_events: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_temp_master WHERE type='table' AND name='moment_events')",
+            [], |row| row.get(0),
+        ).map_err(err)?;
+        if has_moment_events {
+            tx.execute("DELETE FROM moment_events WHERE widget_id=?1", [id]).map_err(err)?;
+        }
+    }
     if enabled {
         // Changes made while reactions were off become the next observation baseline.
         super::generated::invalidate_rule_source(&tx, id)?;

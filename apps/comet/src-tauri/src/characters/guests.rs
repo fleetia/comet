@@ -569,6 +569,8 @@ pub(crate) fn interact_locked(
                     now,
                     Some(&format!("{counter}:{number}")),
                     serde_json::json!({"counter":counter,"count":number}),
+                    None,
+                    None,
                 )?;
             }
         }

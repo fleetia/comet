@@ -824,6 +824,7 @@ pub(crate) async fn send_message_inner(
             },
             mode: input_mode.into(),
         });
+        super::discard_moment_events(&db)?;
         state.last_input.store(now(), Ordering::SeqCst);
         schedule_idle(&state, settings.idle_minutes);
         (token, registered, routing_targets, source, admitted)
@@ -1020,6 +1021,7 @@ pub(crate) fn retry_turn(
                 mode: input_mode.into(),
             });
         }
+        super::discard_moment_events(&db)?;
         state.last_input.store(now(), Ordering::SeqCst);
         schedule_idle(&state, store::settings(&db)?.idle_minutes);
         (targets, token, registered, source, admitted)
