@@ -284,7 +284,7 @@ pub(crate) fn device_events(previous: &Value, next: &mut Value) -> (Vec<EventDra
     let previous_status = latches.last_status.clone().or_else(|| {
         battery(previous)
             .and_then(|item| item["status"].as_str())
-            .filter(|status| matches!(*status, "discharging" | "not-charging" | "ac" | "charging" | "charged"))
+            .filter(|status| matches!(*status, "discharging" | "not-charging" | "partially-charged" | "ac" | "charging" | "charged"))
             .map(str::to_owned)
     });
     let mut events = vec![];
@@ -299,7 +299,7 @@ pub(crate) fn device_events(previous: &Value, next: &mut Value) -> (Vec<EventDra
         }
     };
     match status {
-        "discharging" | "not-charging" | "ac" => {
+        "discharging" | "not-charging" | "partially-charged" | "ac" => {
             latches.charged = false;
             if percent.is_some_and(|value| value <= u64::from(config.low_threshold)) && !latches.low
             {
@@ -1094,6 +1094,7 @@ fn parse_windows_battery(output: &str, now: i64) -> Result<Value, ConnectionErro
             Some(3) => "charged",
             Some(6..=9) => "charging",
             Some(2) => "ac",
+            Some(11) => "partially-charged",
             _ => "unknown",
         };
         batteries.push(json!({"percent":row.estimated_charge_remaining,"status":status}));
@@ -1371,15 +1372,16 @@ mod tests {
     }
 
     #[test]
-    fn windows_ac_status_reports_critical_battery() {
-        let observation = parse_windows_battery(
-            r#"[{"EstimatedChargeRemaining":9,"BatteryStatus":2}]"#, 100,
-        ).unwrap();
-        assert_eq!(observation["batteries"][0]["status"], "ac");
-        let mut next = json!({"config": {"criticalNotification": true}, "observation": observation});
-        let (events, critical) = device_events(&Value::Null, &mut next);
-        assert!(critical);
-        assert!(events.iter().any(|event| event.kind == "device.critical"));
+    fn windows_ac_and_partially_charged_statuses_report_critical_battery() {
+        for (status, expected) in [(2, "ac"), (11, "partially-charged")] {
+            let output = format!(r#"[{{"EstimatedChargeRemaining":9,"BatteryStatus":{status}}}]"#);
+            let observation = parse_windows_battery(&output, 100).unwrap();
+            assert_eq!(observation["batteries"][0]["status"], expected);
+            let mut next = json!({"config": {"criticalNotification": true}, "observation": observation});
+            let (events, critical) = device_events(&Value::Null, &mut next);
+            assert!(critical);
+            assert!(events.iter().any(|event| event.kind == "device.critical"));
+        }
     }
 
     #[test]
