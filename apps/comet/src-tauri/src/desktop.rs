@@ -1641,6 +1641,7 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
             first_display =
                 crate::app::scene::mark_line_displayed(line, chrono::Utc::now().timestamp_millis());
             if first_display && line.source != "update" {
+                crate::app::scene::record_link_hint_displayed(&db, line)?;
                 displayed_message = line
                     .display_started_at
                     .map(|at| (line.id.clone(), at, line.source.clone()));
@@ -2298,6 +2299,7 @@ mod tests {
             text: "새로운 업데이트가 있어요!".into(),
             motion: Default::default(),
             source: "update".into(),
+            link: None,
             text_speed: 0,
             display_started_at: None,
             ends_at: 0,
@@ -2369,6 +2371,7 @@ mod tests {
             expression: "기쁨".into(),
             text: "안녕".into(),
             source: "script".into(),
+            link: None,
             ends_at: 1,
             text_speed: 0,
             display_started_at: None,
@@ -2415,6 +2418,7 @@ mod tests {
             text: "안녕".into(),
             motion: Default::default(),
             source: "npc".into(),
+            link: None,
             ends_at: 1,
             text_speed: 0,
             display_started_at: None,
@@ -2470,6 +2474,7 @@ mod tests {
             expression: "미등록".into(),
             text: "안녕".into(),
             source: "script".into(),
+            link: None,
             ends_at: 1,
             text_speed: 0,
             display_started_at: None,
@@ -2640,6 +2645,7 @@ mod tests {
             expression: "평온".into(),
             text: "안녕".into(),
             source: "script".into(),
+            link: None,
             ends_at: 1,
             text_speed: 0,
             display_started_at: None,

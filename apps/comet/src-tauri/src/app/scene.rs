@@ -10,6 +10,155 @@ use std::{
     time::Duration,
 };
 
+fn playback_link(
+    db: &Connection,
+    state: &AppState,
+    source: &str,
+    id: &str,
+    line: &SceneLine,
+) -> Result<Option<PlaybackLink>, String> {
+    if source == "diary" {
+        let mut statement = db
+            .prepare("SELECT key FROM diary_deliveries WHERE message_id=?1")
+            .map_err(|error| error.to_string())?;
+        let keys = statement
+            .query_map([id], |row| row.get::<_, String>(0))
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?;
+        let [key] = keys.as_slice() else {
+            return Ok(None);
+        };
+        let mut parts = key.split(':');
+        let (Some(kind), Some(target)) = (parts.next(), parts.next()) else {
+            return Ok(None);
+        };
+        if kind == "habit-reminder" {
+            return Ok(Some(PlaybackLink {
+                instance_id: "diary".into(),
+                kind: "habit".into(),
+                label: "습관".into(),
+                item: Some(PlaybackLinkItem {
+                    entity: "habit".into(),
+                    id: target.into(),
+                }),
+            }));
+        }
+        if kind.starts_with("travel-") {
+            let diary =
+                serde_json::to_value(crate::diary::read(db)?).map_err(|error| error.to_string())?;
+            let travel_id = if kind == "travel-photos" {
+                Some(target.to_string())
+            } else {
+                ["travelBookings", "travelPlans"]
+                    .iter()
+                    .flat_map(|field| diary[*field].as_array().into_iter().flatten())
+                    .find(|entry| entry["id"] == target)
+                    .and_then(|entry| entry["travelId"].as_str())
+                    .map(str::to_owned)
+            };
+            if let Some(id) = travel_id {
+                return Ok(Some(PlaybackLink {
+                    instance_id: "diary".into(),
+                    kind: "travel".into(),
+                    label: "여행".into(),
+                    item: Some(PlaybackLinkItem {
+                        entity: "travel".into(),
+                        id,
+                    }),
+                }));
+            }
+        }
+        return Ok(None);
+    }
+    let event = if matches!(source, "widget" | "reaction" | "talk") {
+        let event = lock(&state.widget_playback)?.clone();
+        if source == "talk" {
+            let talk_event = lock(&state.talk_playback)?.as_ref().and_then(|talk| talk.event.clone());
+            event.filter(|event| talk_event.as_ref().is_some_and(|talk| talk.id == event.id))
+        } else {
+            event
+        }
+    } else {
+        None
+    };
+    let kind = if let Some(event) = &event {
+        Some(event.widget_kind.clone())
+    } else if source == "talk" {
+        lock(&state.talk_playback)?.as_ref().and_then(|talk| {
+            (talk.selection.dependencies.len() == 1)
+                .then(|| talk.selection.dependencies.iter().next().cloned())
+                .flatten()
+        })
+    } else if matches!(source, "llm" | "question") {
+        line.widget.clone()
+    } else {
+        None
+    };
+    let Some(kind) = kind else { return Ok(None) };
+    let instances = widgets::storage::instances(db)?;
+    let instance = instances.iter().find(|instance| {
+        event.as_ref().map_or(instance.kind == kind, |event| {
+            instance.id == event.instance_id
+        })
+    });
+    let (instance_id, kind, label) = if let Some(instance) = instance {
+        if widgets::is_retired(&instance.kind) {
+            return Ok(None);
+        }
+        (
+            instance.id.clone(),
+            instance.kind.clone(),
+            widgets::manifest(&instance.kind)?.name,
+        )
+    } else {
+        let id = event
+            .as_ref()
+            .map_or(kind.as_str(), |event| event.instance_id.as_str());
+        let Some(widget) = widgets::generated::list(db)?
+            .into_iter()
+            .find(|widget| widget.id == id && widget.installed)
+        else {
+            return Ok(None);
+        };
+        (widget.id.clone(), widget.id, widget.definition.name)
+    };
+    let item = event.as_ref().and_then(|event| {
+        let payload = &event.event.payload;
+        let (entity, id) = match event.event.kind.as_str() {
+            "calendar-reminder" => ("event", payload["eventId"].as_str()?),
+            "todo-completed" => ("todo", payload["itemId"].as_str()?),
+            "planner-mood" => ("today", ""),
+            "planner-reminder" => {
+                let targets = payload["targets"].as_array()?;
+                if targets.len() != 1 {
+                    ("today", "")
+                } else {
+                    let target = &targets[0];
+                    match target["kind"].as_str()? {
+                        "calendar" => ("event", target["id"].as_str()?),
+                        "focus-event" => ("event", target["eventId"].as_str()?),
+                        "todo" => ("todo", target["id"].as_str()?),
+                        "preparation" => ("envelope", target["id"].as_str()?),
+                        _ => return None,
+                    }
+                }
+            }
+            _ => return None,
+        };
+        Some(PlaybackLinkItem {
+            entity: entity.into(),
+            id: id.into(),
+        })
+    });
+    Ok(Some(PlaybackLink {
+        instance_id,
+        kind,
+        label,
+        item,
+    }))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn present_line(
     state: &AppState,
@@ -122,6 +271,7 @@ pub(crate) fn present_line(
     } else {
         None
     };
+    let link = playback_link(&db, state, source, id, line)?;
     let message = Message {
         id: id.into(),
         role: "assistant".into(),
@@ -150,6 +300,14 @@ pub(crate) fn present_line(
             )?;
         }
     }
+    if let Some(link) = &link {
+        let value = serde_json::to_string(link).map_err(|error| error.to_string())?;
+        db.execute(
+            "UPDATE messages SET data=json_set(data,'$.link',json(?2)) WHERE id=?1",
+            rusqlite::params![id, value],
+        )
+        .map_err(|error| error.to_string())?;
+    }
     *lock(&state.playback)? = Some(Playback {
         id: id.into(),
         persona: line.persona.clone(),
@@ -157,6 +315,7 @@ pub(crate) fn present_line(
         text: line.text.clone(),
         motion: line.motion.clone(),
         source: source.into(),
+        link,
         text_speed,
         display_started_at: None,
         ends_at: 0,
@@ -382,8 +541,135 @@ pub(crate) async fn wait_for_line(
         let until = chrono::Utc::now().timestamp_millis() + 30_000;
         let _ = wait_for_valid_line(state, &line, until, epoch, cancel.clone()).await?;
     }
+    if is_current(state, epoch, &cancel) {
+        show_link_hint(app, state, &line, epoch, cancel.clone()).await?;
+    }
     if clear_line_if_current(state, epoch, &cancel)? {
         publish(app, state);
+    }
+    Ok(())
+}
+
+const LINK_HINT_SOURCE: &str = "balloon-link-hint";
+
+pub(crate) fn record_link_hint_displayed(db: &Connection, line: &Playback) -> Result<(), String> {
+    if line.source != LINK_HINT_SOURCE {
+        return Ok(());
+    }
+    let user = store::active_user_id(db)?;
+    db.execute(
+        "INSERT OR IGNORE INTO pack_story_outcomes(run_id,kind,scope,scenario_id,input_id,evidence) VALUES(?1,'hint:balloon-link',?2,'','','[]')",
+        rusqlite::params![format!("balloon-link-hint:{user}"), user],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+async fn show_link_hint(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    original: &Playback,
+    epoch: u64,
+    cancel: Arc<AtomicBool>,
+) -> Result<(), String> {
+    if original.link.is_none() {
+        return Ok(());
+    }
+    {
+        let _action = lock(&state.action)?;
+        if !is_current(state, epoch, &cancel) {
+            return Ok(());
+        }
+        let db = lock(&state.db)?;
+        let runtime = lock(&state.runtime)?.clone();
+        let widget_reaction = original.source == "reaction" && {
+            let event = lock(&state.widget_playback)?;
+            event.is_some()
+        };
+        if runtime.hidden
+            || super::unavailable(state)
+            || widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
+            || super::quiet_hours::playback_blocked(state, &store::settings(&db)?, runtime.paused)?
+            || (original.source == "diary"
+                && !crate::diary::runtime::playback_current(state, &db, &original.id)?)
+            || ((original.source == "widget" || widget_reaction)
+                && !widgets::commands::widget_event_current(state, &db)?)
+            || (original.source == "talk" && !talk::host::current(state, &db)?)
+        {
+            return Ok(());
+        }
+        let user = store::active_user_id(&db)?;
+        let shown: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pack_story_outcomes WHERE scope=?1 AND kind='hint:balloon-link')",
+            [&user],
+            |row| row.get(0),
+        ).map_err(|error| error.to_string())?;
+        if shown {
+            return Ok(());
+        }
+        let mut playback = lock(&state.playback)?;
+        if !playback.as_ref().is_some_and(|line| {
+            line.id == original.id && line.display_started_at == original.display_started_at
+        }) {
+            return Ok(());
+        }
+        let mut hint = original.clone();
+        hint.id = format!("balloon-link-hint:{}", uuid::Uuid::new_v4());
+        hint.text = "이 말을 누르면 바로 열려.".into();
+        hint.source = LINK_HINT_SOURCE.into();
+        hint.display_started_at = None;
+        hint.ends_at = 0;
+        hint.line_index = 0;
+        hint.line_count = 1;
+        let message = Message {
+            id: hint.id.clone(),
+            role: "assistant".into(),
+            persona: Some(hint.persona.clone()),
+            content: hint.text.clone(),
+            expression: Some(hint.expression.clone()),
+            created_at: chrono::Utc::now().timestamp_millis(),
+            status: "complete".into(),
+        };
+        let line = SceneLine {
+            persona: hint.persona.clone(),
+            expression: hint.expression.clone(),
+            text: hint.text.clone(),
+            widget: None,
+            motion: hint.motion.clone(),
+        };
+        if let Some(ticket) = lock(&state.tasks)?.participants.clone() {
+            let actor = characters::guests::resolve_actor(state, &db, &ticket, &hint.persona)?;
+            store::insert_message_with_actor(
+                &db,
+                &message,
+                LINK_HINT_SOURCE,
+                false,
+                &line,
+                &actor,
+            )?;
+        } else {
+            store::insert_message_with_playback(&db, &message, LINK_HINT_SOURCE, None, false, None)?;
+        }
+        db.execute(
+            "INSERT INTO message_playback(message_id,revision,line) VALUES(?1,?2,?3)",
+            rusqlite::params![
+                hint.id,
+                store::revision(&db)?,
+                serde_json::to_string(&line).map_err(|error| error.to_string())?
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+        let link = serde_json::to_string(&hint.link).map_err(|error| error.to_string())?;
+        db.execute(
+            "UPDATE messages SET data=json_set(data,'$.link',json(?2)) WHERE id=?1",
+            rusqlite::params![hint.id, link],
+        )
+        .map_err(|error| error.to_string())?;
+        *playback = Some(hint);
+    }
+    publish(app, state);
+    if let Some(hint) = wait_for_displayed_line(state, epoch, cancel.clone()).await? {
+        let _ = wait_for_valid_line(state, &hint, hint.ends_at, epoch, cancel).await?;
     }
     Ok(())
 }
@@ -728,6 +1014,7 @@ fn visible_script(
                 persona: member.id.clone(),
                 expression: line.expression.clone(),
                 text: line.text.clone(),
+                widget: None,
                 motion: line.motion.clone(),
             });
         }
@@ -750,6 +1037,58 @@ pub(crate) fn character_script(db: &Connection, sequence: u64) -> Result<Vec<Sce
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn event_triggered_talk_links_to_its_originating_widget() {
+        let state = super::super::tests::state();
+        let db = lock(&state.db).unwrap();
+        let todo = widgets::storage::instances(&db).unwrap().into_iter()
+            .find(|widget| widget.kind == "todo").unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        let event = widgets::WidgetEvent {
+            id: "event".into(), instance_id: todo.id.clone(), widget_kind: todo.kind,
+            revision: todo.revision, created_at: now, expires_at: now + 30_000,
+            event: widgets::EventDraft { kind: "todo-completed".into(), text: String::new(), payload: serde_json::json!({}) },
+        };
+        let source = "format: 1\nscene: complete\non: todo-completed\n---\nA: 다 했구나!\n===\n";
+        lock(&state.talk).unwrap().apply(Ok(talk::validate_source(std::path::Path::new("event.talk"), source, &talk::context::registry()).unwrap()));
+        let lines = talk::host::prepare(&state, &db, Some(&event)).unwrap().unwrap();
+        *lock(&state.widget_playback).unwrap() = Some(event.clone());
+        let link = playback_link(&db, &state, "talk", "line", &lines[0]).unwrap().unwrap();
+        assert_eq!(link.instance_id, todo.id);
+        lock(&state.widget_playback).unwrap().as_mut().unwrap().id = "different".into();
+        assert!(playback_link(&db, &state, "talk", "line", &lines[0]).unwrap().is_none());
+    }
+
+    #[test]
+    fn official_widget_links_are_available_even_when_reactions_are_disabled() {
+        let state = super::super::tests::state();
+        let db = lock(&state.db).unwrap();
+        db.execute("DELETE FROM widget_instances WHERE kind='device'", [])
+            .unwrap();
+        db.execute("INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data) VALUES('test-device','device',1,1,1,1,'{}')", []).unwrap();
+        let line = SceneLine {
+            persona: "builtin-a".into(),
+            expression: "평온".into(),
+            text: "배터리".into(),
+            widget: Some("device".into()),
+            motion: Default::default(),
+        };
+        for reaction_enabled in [true, false] {
+            if !reaction_enabled {
+                db.execute("INSERT INTO widget_preferences(key,value) VALUES('reaction:test-device','0')", []).unwrap();
+            }
+            let mut prompt = Vec::new();
+            let mut schema = crate::domain::reply_schema_for(&["builtin-a".into()], &["평온"]);
+            let kinds = crate::domain::configure_widget_replies(&db, &mut prompt, &mut schema, false)
+                .unwrap();
+            assert!(kinds.iter().any(|kind| kind == "device"));
+            assert_eq!(
+                playback_link(&db, &state, "llm", "message", &line).unwrap().is_some(),
+                true
+            );
+        }
+    }
 
     #[test]
     fn generated_expression_choices_reach_single_expression_character_presentation() {
@@ -806,6 +1145,7 @@ mod tests {
             persona: member.id,
             expression: "호기심".into(),
             text: "  등록 원문\n그대로  ".into(),
+            widget: None,
             motion: Default::default(),
         };
         let db = lock(&state.db).unwrap();
@@ -827,6 +1167,7 @@ mod tests {
             persona: "builtin-a".into(),
             expression: "평온".into(),
             text: "  재시도 원문\n그대로  ".into(),
+            widget: None,
             motion: crate::characters::reactions::MotionOverride::Static,
         };
         assert!(present_line(
@@ -854,6 +1195,7 @@ mod tests {
         let retry = super::super::interrupt(&state, false).unwrap();
         let changed = SceneLine {
             text: "다른 새 생성은 사용하지 않음".into(),
+            widget: None,
             motion: Default::default(),
             ..line.clone()
         };
@@ -931,6 +1273,7 @@ mod tests {
             let token = super::super::interrupt(&state, false).unwrap();
             let line = SceneLine {
                 persona: "a".into(),
+                widget: None,
                 motion: Default::default(),
                 expression: "평온".into(),
                 text: "  표시할 원문\n그대로  ".into(),

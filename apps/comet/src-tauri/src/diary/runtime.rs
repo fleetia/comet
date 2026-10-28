@@ -295,6 +295,7 @@ pub(crate) fn tick(app: &tauri::AppHandle, state: &Arc<AppState>) -> Result<()> 
                     persona,
                     expression: "평온".into(),
                     text,
+                    widget: None,
                     motion: Default::default(),
                 };
                 drop(db);

@@ -5,6 +5,10 @@ import { ConversationResponse } from "../components/Balloon/ConversationResponse
 import { PREVIEW_SNAPSHOT, command } from "../hooks/useSnapshot";
 import { listen } from "@tauri-apps/api/event";
 
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ label: "conversation-input" }),
+}));
+
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(vi.fn()),
 }));

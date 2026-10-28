@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-const MAX_INPUT_BYTES: usize = 12_000;
+pub(crate) const MAX_INPUT_BYTES: usize = 12_000;
 const MAX_OUTPUT_TOKENS: u32 = 768;
 const CONTEXT_ERROR: &str = "Apple 온디바이스 AI의 짧은 문맥 범위를 넘었어요. 입력을 줄이거나 다른 AI를 직접 선택해 주세요.";
 pub(crate) const WIDGET_UNSUPPORTED: &str =
@@ -142,6 +142,26 @@ fn validate_schema(schema: &Value, depth: usize) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+fn discard_invalid_widget_tags(value: &mut Value, schema: &Value) {
+    if let Some(object) = value.as_object_mut() {
+        if let Some(widget_schema) = schema["properties"].get("widget") {
+            if object.get("widget").is_some_and(|widget| {
+                !widget_schema["enum"].as_array().is_some_and(|choices| choices.contains(widget))
+            }) {
+                object.remove("widget");
+            }
+        }
+        for (key, child) in object {
+            discard_invalid_widget_tags(child, &schema["properties"][key]);
+        }
+    } else if let Some(items) = value.as_array_mut() {
+        for item in items {
+            discard_invalid_widget_tags(item, &schema["items"]);
+        }
+    }
+}
+
 #[cfg(any(target_os = "macos", test))]
 fn validate_response(value: &Value, schema: &Value) -> bool {
     if let Some(choices) = schema["enum"].as_array() {
@@ -214,7 +234,8 @@ pub(crate) async fn generate(
     #[cfg(target_os = "macos")]
     {
         telemetry.dispatched();
-        let response = native::generate(&input, timeout, cancel.clone()).await?;
+        let mut response = native::generate(&input, timeout, cancel.clone()).await?;
+        discard_invalid_widget_tags(&mut response, &schema);
         if cancel.load(Ordering::Acquire) {
             return Err("취소됨".into());
         }
