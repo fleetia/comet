@@ -498,7 +498,8 @@ fn add_battery_dialogue(root: &Path) -> Result<(), String> {
     };
     let index = read_optional(&entry)?;
     let default_index = super::encryption::decode(bundled("index.talk")?.as_bytes())?;
-    if index.as_deref() == Some(default_index.as_str()) {
+    let before_birthday = default_index.replace("import \"./situations/birthday.talk\"\n", "");
+    if matches!(index.as_deref(), Some(value) if value == default_index.as_str() || value == before_birthday.as_str()) {
         if let Some(original) = read_optional(&device)? {
             let mut source = original.clone();
             let program = super::load_pack(&entry, &super::context::registry(), pack.id)
@@ -1691,10 +1692,11 @@ mod byulkkori_replacement_tests {
         let pack = root.join("packs/byulkkori");
         let entry = pack.join("index.talk");
         let device = pack.join("widgets/device.talk");
+        let full_index = source(&entry);
         let old_device = source(&device).split("\nscene: ")
             .filter(|part| !part.starts_with("device.event-"))
             .collect::<Vec<_>>().join("\nscene: ");
-        fs::write(&device, old_device).unwrap();
+        fs::write(&device, &old_device).unwrap();
         fs::write(&entry, include_str!("../../content/previous-byulkkori-index-v5.talk")).unwrap();
         fs::remove_file(pack.join("widgets/interaction-milestone.talk")).unwrap();
         fs::remove_file(pack.join("situations/recall.talk")).unwrap();
@@ -1707,6 +1709,16 @@ mod byulkkori_replacement_tests {
         for id in ["interaction.milestone-1", "device.event-low", "device.event-critical", "device.event-charging-started", "device.event-charged"] {
             assert!(program.scenes.iter().any(|scene| scene.id == id), "missing {id}");
         }
+        assert_eq!(source(&entry), full_index.replace("import \"./situations/birthday.talk\"\n", ""));
+
+        // A user-edited index must not be treated as either known factory stage.
+        let authored_index = format!("{}\n# 사용자 수정\n", source(&entry));
+        fs::write(&entry, super::super::encryption::encode(&authored_index).unwrap()).unwrap();
+        fs::write(&device, &old_device).unwrap();
+        fs::remove_file(directory.path().join(".talk-byulkkori-battery-v1")).unwrap();
+        add_battery_dialogue(&root).unwrap();
+        assert_eq!(source(&entry), authored_index);
+        assert_eq!(source(&device), old_device);
     }
 
     #[test]
