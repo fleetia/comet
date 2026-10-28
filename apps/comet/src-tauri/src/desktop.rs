@@ -1655,20 +1655,17 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
                 crate::app::scene::mark_line_displayed(line, chrono::Utc::now().timestamp_millis());
             if first_display && line.source != "update" {
                 crate::app::scene::record_link_hint_displayed(&db, line)?;
-                displayed_message = line.display_started_at.map(|at| (line.id.clone(), at));
+                displayed_message = line
+                    .display_started_at
+                    .map(|at| (line.id.clone(), at, line.source == "talk"));
                 if line.source == "talk" {
                     crate::talk::host::mark_moment_recall_displayed(
-                        &state,
-                        &db,
-                        line.line_index,
-                        line.display_started_at.unwrap_or_default(),
+                        &state, &db, line.line_index, line.display_started_at.unwrap_or_default(),
                     )?;
                 }
                 if line.source == "talk" && line.line_index == 0 {
                     crate::talk::host::mark_birthday_displayed(
-                        &state,
-                        &db,
-                        line.display_started_at.unwrap_or_default(),
+                        &state, &db, line.display_started_at.unwrap_or_default(),
                     )?;
                     crate::talk::host::mark_anniversary_displayed(
                         &state,
@@ -1686,13 +1683,16 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         }
     }
     drop((playback, story));
-    if let Some((id, at)) = displayed_message {
+    if let Some((id, at, is_talk)) = displayed_message {
         store::mark_message_displayed_with_provenance(
             &db,
             &id,
             at,
             Some(state.automatic.load(Ordering::SeqCst)),
         )?;
+        if is_talk && store::message_displayed(&db, &id)? {
+            crate::talk::host::record_recall_displayed(&state, &db, at)?;
+        }
         if let Some(ticket) = super::lock(&state.tasks)?.participants.clone() {
             crate::characters::guests::hear_displayed_locked(&state, &db, &ticket, &id, at)?;
         }

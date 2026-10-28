@@ -1,6 +1,33 @@
 {
   "cases": [
     {
+      "id": "recall.year",
+      "path": "situations/recall.talk",
+      "trigger": "diary.recall",
+      "available": [],
+      "active": ["fixture-a"],
+      "values": {"recall.ready": true, "recall.kind": "year", "recall.snippet": "지난 기록"},
+      "expectedScene": "recall.year"
+    },
+    {
+      "id": "recall.month",
+      "path": "situations/recall.talk",
+      "trigger": "diary.recall",
+      "available": [],
+      "active": ["fixture-a"],
+      "values": {"recall.ready": true, "recall.kind": "month", "recall.snippet": "지난 기록"},
+      "expectedScene": "recall.month"
+    },
+    {
+      "id": "recall.week",
+      "path": "situations/recall.talk",
+      "trigger": "diary.recall",
+      "available": [],
+      "active": ["fixture-a"],
+      "values": {"recall.ready": true, "recall.kind": "week", "recall.snippet": "지난 기록"},
+      "expectedScene": "recall.week"
+    },
+    {
       "id": "time.morning",
       "path": "situations/time.talk",
       "trigger": "idle",
