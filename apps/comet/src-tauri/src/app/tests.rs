@@ -449,6 +449,7 @@ fn weather_day_is_recorded_only_after_current_line_is_displayed() {
     });
     let mut line = Playback {
         id: "scene:weather:0".into(),
+        link: None,
         persona: "a".into(),
         expression: "normal".into(),
         text: "작년 날씨".into(),

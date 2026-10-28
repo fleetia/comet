@@ -422,7 +422,7 @@ mod tests {
         let tomorrow = chrono::Local::now().date_naive().succ_opt().unwrap().to_string();
         assert!(prepare(&state, &db, None).unwrap().is_some());
         let mut line = crate::types::Playback {
-            id: "rain".into(), persona: "a".into(), expression: "평온".into(),
+            id: "rain".into(), link: None, persona: "a".into(), expression: "평온".into(),
             text: "비가 온대.".into(), motion: Default::default(), source: "talk".into(),
             text_speed: 0, display_started_at: None, ends_at: 0, line_index: 0, line_count: 1,
         };
