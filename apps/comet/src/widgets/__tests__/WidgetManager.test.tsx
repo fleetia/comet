@@ -512,11 +512,12 @@ it("includes created and imported widgets in the same list, counts and filters",
   expect(list.getByRole("button", { name: "단수 세기 켜짐" })).toBeTruthy();
   expect(list.getByRole("button", { name: "물 마시기 실행 검사 대기" })).toBeTruthy();
   expect(list.getByText(/모두 23개/)).toBeTruthy();
-  expect(
-    list
-      .getAllByRole("switch", { name: / 사용$/ })
-      .filter((item) => (item as HTMLInputElement).checked),
-  ).toHaveLength(3);
+  for (const name of ["할 일", "단수 세기", "물 마시기"]) {
+    expect(list.getByRole("switch", { name: `${name} 캐릭터 반응` })).toHaveProperty(
+      "checked",
+      true,
+    );
+  }
   fireEvent.change(screen.getByRole("searchbox", { name: "위젯 검색" }), {
     target: { value: "AI·가져온" },
   });
