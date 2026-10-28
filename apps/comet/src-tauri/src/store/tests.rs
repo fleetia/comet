@@ -25,6 +25,56 @@ fn apply(conn: &Connection, facts: Vec<Value>, events: Vec<Value>) {
 }
 
 #[test]
+fn moment_events_are_grouped_by_source_and_only_record_actual_insertions() {
+    let db = open(Path::new(":memory:")).unwrap();
+    let at = 1_800_000_000_000;
+    let add = |character: &str, event: &str| {
+        insert_moment(&db, character, "user", event, "함께한 날", at, None, json!({}), Some("plant"), Some("plant-1"))
+    };
+    assert!(add("a", "bloom").unwrap());
+    assert!(add("b", "bloom").unwrap());
+    assert!(!add("a", "bloom").unwrap());
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM moment_events", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+    let queued: (String, String, String, i64, String, String) = db.query_row(
+        "SELECT user_id,event,summary,created_at,widget_kind,widget_id FROM moment_events", [],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+    ).unwrap();
+    assert_eq!(queued, ("user".into(), "bloom".into(), "함께한 날".into(), at, "plant".into(), "plant-1".into()));
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM moment_event_keepers k JOIN memories m ON m.id=k.memory_id AND m.character_id=k.character_id AND m.user_id=k.user_id AND m.source=k.source", [], |r| r.get::<_, i64>(0)).unwrap(), 2);
+    assert!(add("a", "first-catch").unwrap());
+    assert!(add("a", "focus-day").unwrap());
+    assert!(!add("a", "fourth").unwrap());
+    let date = chrono::DateTime::from_timestamp_millis(at).unwrap().with_timezone(&chrono::Local).format("%Y-%m-%d").to_string();
+    db.execute("INSERT INTO memory_exclusions VALUES(?1,?2,?3)", params!["b", "user", format!("moment:excluded:{date}")]).unwrap();
+    assert!(!add("b", "excluded").unwrap());
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM moment_events", [], |r| r.get::<_, i64>(0)).unwrap(), 3);
+    db.execute("DELETE FROM moment_events WHERE event='bloom'", []).unwrap();
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM moment_event_keepers k WHERE NOT EXISTS (SELECT 1 FROM moment_events e WHERE e.user_id=k.user_id AND e.source=k.source)", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+}
+
+#[test]
+fn moment_queue_rolls_back_with_storage_and_does_not_survive_reopening() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("moments.sqlite");
+    let db = open(&path).unwrap();
+    let at = 1_800_000_000_000;
+    let tx = db.unchecked_transaction().unwrap();
+    assert!(insert_moment(&tx, "a", "user", "rolled-back", "요약", at, None, json!({}), None, None).unwrap());
+    tx.rollback().unwrap();
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM moment_events", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:%'", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    db.execute_batch("CREATE TEMP TRIGGER reject_moment_event BEFORE INSERT ON moment_events BEGIN SELECT RAISE(ABORT, 'queue failure'); END;").unwrap();
+    assert!(insert_moment(&db, "a", "user", "failed", "요약", at, None, json!({}), None, None).is_err());
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:%'", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    db.execute_batch("DROP TRIGGER reject_moment_event").unwrap();
+    assert!(insert_moment(&db, "a", "user", "saved", "요약", at, None, json!({}), None, None).unwrap());
+    drop(db);
+    let db = open(&path).unwrap();
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM moment_events", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:%'", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+}
+
+#[test]
 fn ai_input_choice_survives_reopen_and_duplicate_submissions_keep_original_choice() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("synthetic.sqlite");

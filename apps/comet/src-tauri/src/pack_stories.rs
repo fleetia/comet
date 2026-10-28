@@ -1126,6 +1126,8 @@ pub fn display_finished(
                         proof.now,
                         ticket.scenario_id.as_deref(),
                         serde_json::json!({"scenarioId":ticket.scenario_id}),
+                        None,
+                        None,
                     )?;
                 }
             }

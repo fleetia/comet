@@ -114,6 +114,8 @@ pub(super) fn record_moment(
             at,
             Some(id),
             serde_json::json!({"habitId":id,"streak":streak}),
+            None,
+            None,
         )?;
     }
     Ok(())

@@ -78,6 +78,8 @@ fn save_profile(
                     at,
                     None,
                     serde_json::json!({}),
+                    None,
+                    None,
                 )?;
                 if birthday.is_some() {
                     store::insert_moment(
@@ -89,6 +91,8 @@ fn save_profile(
                         at,
                         None,
                         serde_json::json!({}),
+                        None,
+                        None,
                     )?;
                 }
             }
@@ -151,6 +155,8 @@ pub(crate) fn set_user_birthday(
                         at,
                         None,
                         serde_json::json!({}),
+                        None,
+                        None,
                     )?;
                 }
             }

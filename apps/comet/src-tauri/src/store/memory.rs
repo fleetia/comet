@@ -299,6 +299,8 @@ pub fn insert_moment(
     at: i64,
     reference: Option<&str>,
     refs: Value,
+    widget_kind: Option<&str>,
+    widget_id: Option<&str>,
 ) -> Result<bool> {
     let date = chrono::DateTime::from_timestamp_millis(at)
         .ok_or("추억 날짜가 올바르지 않아요.")?
@@ -312,18 +314,40 @@ pub fn insert_moment(
     let source_text = serde_json::json!({"event":event,"at":at,"summary":summary,"refs":refs}).to_string();
     let day_pattern = format!("moment:%:{date}");
     let day_ref_pattern = format!("moment:%:{date}:%");
-    let inserted = conn.execute(
+    let memory_id = uuid::Uuid::new_v4().to_string();
+    conn.execute_batch("SAVEPOINT insert_moment").map_err(err)?;
+    let result = (|| -> Result<bool> {
+        let inserted = conn.execute(
         "INSERT INTO memories(id,content,source,updated,character_id,user_id,kind,source_text,source_created_at)
          SELECT ?1,?2,?3,?4,?5,?6,'experience',?7,?4
          WHERE NOT EXISTS(SELECT 1 FROM memory_exclusions WHERE character_id=?5 AND user_id=?6 AND source=?3)
            AND NOT EXISTS(SELECT 1 FROM memories WHERE character_id=?5 AND user_id=?6 AND source=?3)
            AND (SELECT COUNT(*) FROM memories WHERE character_id=?5 AND (source LIKE ?8 OR source LIKE ?9)) < 3",
-        params![uuid::Uuid::new_v4().to_string(), summary, source, at, character_id, user_id, source_text, day_pattern, day_ref_pattern],
-    ).map_err(err)?;
-    if inserted > 0 {
-        bump_revision(conn)?;
+        params![memory_id, summary, source, at, character_id, user_id, source_text, day_pattern, day_ref_pattern],
+        ).map_err(err)?;
+        if inserted > 0 {
+            bump_revision(conn)?;
+            conn.execute(
+                "INSERT OR IGNORE INTO moment_events(user_id,source,event,summary,created_at,widget_kind,widget_id) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                params![user_id, source, event, summary, at, widget_kind, widget_id],
+            ).map_err(err)?;
+            conn.execute(
+                "INSERT INTO moment_event_keepers(user_id,source,character_id,memory_id) VALUES(?1,?2,?3,?4)",
+                params![user_id, source, character_id, memory_id],
+            ).map_err(err)?;
+        }
+        Ok(inserted > 0)
+    })();
+    match result {
+        Ok(inserted) => {
+            conn.execute_batch("RELEASE insert_moment").map_err(err)?;
+            Ok(inserted)
+        }
+        Err(error) => {
+            conn.execute_batch("ROLLBACK TO insert_moment; RELEASE insert_moment").map_err(err)?;
+            Err(error)
+        }
     }
-    Ok(inserted > 0)
 }
 
 pub fn record_recall(conn: &Connection, key: &str, memories: &[Memory], at: i64) -> Result<()> {

@@ -91,6 +91,16 @@ CREATE TABLE IF NOT EXISTS scenes(id TEXT PRIMARY KEY,revision INTEGER NOT NULL,
 CREATE TABLE IF NOT EXISTS affinity(source TEXT NOT NULL,persona TEXT NOT NULL,day TEXT NOT NULL,delta INTEGER NOT NULL,fingerprint TEXT NOT NULL,PRIMARY KEY(source,persona));
 CREATE TABLE IF NOT EXISTS talk_history(scene_key TEXT PRIMARY KEY,shown_at INTEGER NOT NULL);
 INSERT OR IGNORE INTO kv VALUES('revision','0');").map_err(err)?;
+    conn.execute_batch("CREATE TEMP TABLE moment_events(
+        user_id TEXT NOT NULL, source TEXT NOT NULL, event TEXT NOT NULL,
+        summary TEXT NOT NULL, created_at INTEGER NOT NULL, widget_kind TEXT, widget_id TEXT,
+        PRIMARY KEY(user_id, source)
+    );
+    CREATE TEMP TABLE moment_event_keepers(
+        user_id TEXT NOT NULL, source TEXT NOT NULL, character_id TEXT NOT NULL, memory_id TEXT NOT NULL,
+        PRIMARY KEY(user_id, source, character_id),
+        FOREIGN KEY(user_id, source) REFERENCES moment_events(user_id, source) ON DELETE CASCADE
+    );").map_err(err)?;
     // Regression tests were written against the A/B factory roster; production seeds the
     // Byulkkori default. Both paths share the same one-time `character_seed` guard.
     #[cfg(not(test))]
