@@ -26,7 +26,7 @@ const READY: GeneratedWidget = {
   state: { count: 0 },
   revision: 1,
   installed: true,
-  enabled: true,
+  reaction: true,
   installation: null,
   updatedAt: null,
   status: "ready",
@@ -492,7 +492,7 @@ it("keeps blurred inputs in order across a running tick and reload, without queu
   expect(screen.getByRole("textbox", { name: "메모" })).toHaveProperty("value", "둘째 편집");
 });
 
-it.each(["source change", "disable", "unmount"] as const)(
+it.each(["source change", "remove", "unmount"] as const)(
   "drops queued input after %s while a tick is running",
   async (boundary) => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
@@ -512,7 +512,7 @@ it.each(["source change", "disable", "unmount"] as const)(
       vi.mocked(command).mockResolvedValue({
         ...INPUT,
         revision: 2,
-        enabled: boundary !== "disable",
+        installed: boundary !== "remove",
         definition: {
           ...INPUT.definition,
           source: boundary === "source change" ? "new source" : INPUT.definition.source,

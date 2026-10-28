@@ -25,8 +25,7 @@ function widget(data: WidgetView["data"] = { appearance }): WidgetView {
   return {
     id: "clock",
     kind: "clock",
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 4,
     version: 1,
     data,

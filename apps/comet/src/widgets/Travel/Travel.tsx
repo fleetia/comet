@@ -86,7 +86,7 @@ export function Travel({ onClose }: { onClose?: () => void } = {}): ReactElement
   const [drafting, setDrafting] = useState(false);
   const widgets = snapshot?.widgets ?? [];
   const enabled = (kind: string) =>
-    widgets.find((widget) => widget.kind === kind && widget.installed && widget.enabled);
+    widgets.find((widget) => widget.kind === kind);
   const todo = enabled("todo");
   const envelopes = rows(record(enabled("preparation")?.data).envelopes);
   const items = rows(record(todo?.data).items);

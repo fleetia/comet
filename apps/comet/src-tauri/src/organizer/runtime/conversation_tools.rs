@@ -771,7 +771,7 @@ fn previous_turn(db: &Connection, user: &str, input: &str) -> Result<Option<Turn
     };
     let owned: bool = db
         .query_row(
-            "SELECT source='user' AND forgotten=0 FROM message_context WHERE message_id=?1",
+            "SELECT source IN ('user','follow-up') AND forgotten=0 FROM message_context WHERE message_id=?1",
             [&previous],
             |row| row.get(0),
         )
@@ -800,7 +800,7 @@ fn capability<'a>(catalog: &'a [Value], id: &str) -> Result<&'a Value, String> {
     catalog
         .iter()
         .find(|entry| entry["id"] == id)
-        .ok_or_else(|| "현재 사용할 수 없는 기능이에요. 설치·사용 상태를 확인해 주세요.".into())
+        .ok_or_else(|| "현재 사용할 수 없는 기능이에요. 위젯 상태를 확인해 주세요.".into())
 }
 
 fn select(selection: &Selection, catalog: &[Value]) -> Result<(), String> {
@@ -1163,7 +1163,7 @@ async fn plan(
             })
             .map_err(|e| e.to_string())?;
         let message: Message = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-        let owned: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM message_context WHERE message_id=?1 AND source='user' AND forgotten=0)", [input], |row| row.get(0)).map_err(|e| e.to_string())?;
+        let owned: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM message_context WHERE message_id=?1 AND source IN ('user','follow-up') AND forgotten=0)", [input], |row| row.get(0)).map_err(|e| e.to_string())?;
         if message.role != "user" || !owned {
             return Ok(Planned::Done(true));
         }

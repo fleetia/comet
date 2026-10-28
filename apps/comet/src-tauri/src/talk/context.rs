@@ -65,7 +65,7 @@ const FIELDS: &[(&str, &str, &str, &str, &str)] = &[
 fn description(prefix: &str, field: &str, nullable: bool) -> String {
     let text = match (prefix, field) {
         ("dialogue", "variant") => "한 대본 재생 동안 고정되는 0~4 변형 번호",
-        ("environment", "weatherReady") => "설치된 날씨 연결에 2시간 이내의 유효한 관측이 있는지 여부. 미설치·비활성·실패·오래됨에는 false",
+        ("environment", "weatherReady") => "날씨 연결에 2시간 이내의 유효한 관측이 있는지 여부. 연결 실패·오래됨에는 false",
         ("environment", "weatherStatus") => "날씨 연결 상태. not-installed·disabled·offline·stale을 관측 성공과 구분",
         ("environment", "weatherTemperature") => "날씨 연결의 최신 관측 기온(섭씨)",
         ("environment", "weatherCode") => "날씨 연결의 최신 WMO weatherCode 숫자",
@@ -87,8 +87,8 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         ("travel", "daysUntil") => "가장 가까운 여행의 첫날까지 남은 일수(그곳 날짜 기준). 이미 시작했으면 0 이하",
         ("travel", "title") => "가장 가까운 여행의 이름. 여행이 없으면 null",
         ("travel", "stage") => "가장 가까운 여행의 단계: planning, before, traveling, wrapping",
-        (_, "ready") => "설치·활성·의존성과 데이터 최신성 검사를 통과했는지 여부",
-        (_, "status") => "설치 상태 또는 연결 상태. unavailable·실패·stale은 성공한 빈 값과 구분",
+        (_, "ready") => "연결과 데이터 최신성 검사를 통과했는지 여부",
+        (_, "status") => "연결 상태. unavailable·실패·stale은 성공한 빈 값과 구분",
         (_, "openCount") => "완료하지 않은 할 일 수",
         (_, "completedCount") => "완료한 할 일 수",
         (_, "overdueCount") => "미완료이며 지정 시각 또는 날짜를 지난 할 일 수. 날짜 비교는 기기 현지 날짜 기준",
@@ -163,7 +163,7 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         return format!("{text}. 해당 캐릭터가 없으면 null.");
     }
     if nullable {
-        format!("{text}. 미설치·비활성·자료 없음·오래됨에는 null(별도 명시된 독립 관측값 제외).")
+        format!("{text}. 자료 없음·오래됨에는 null(별도 명시된 독립 관측값 제외).")
     } else {
         text.to_owned()
     }
@@ -331,10 +331,10 @@ fn project(snapshot: &WidgetSnapshot, now: i64) -> (BTreeMap<String, Value>, BTr
         let Some(widget) = widget else {
             continue;
         };
-        if !widget.instance.installed || !widget.instance.enabled || !widget.missing.is_empty() {
+        available.insert(kind.to_owned());
+        if widget.status == "install-error" {
             continue;
         }
-        available.insert(kind.to_owned());
         let d = &widget.instance.data;
         let external = matches!(kind, "weather" | "music" | "device");
         let mut ready = widget.status == "enabled";
@@ -710,9 +710,25 @@ pub fn build(
             values.insert("journal.recentKind".into(), json!(kind));
         }
     }
+    let is_body_receipt = if let Some(event) = event.filter(|event| {
+        event.widget_kind == "interaction" && event.event.kind == "interaction.touch"
+    }) {
+        let receipt: Option<String> = db
+            .query_row(
+                "SELECT fingerprint FROM widget_requests WHERE id=?",
+                [&event.id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        receipt.is_some_and(|value| value.starts_with("body:"))
+    } else {
+        false
+    };
     let event = event.filter(|event| {
         !widgets::is_retired(&event.widget_kind)
-            && (event.event.payload["source"] != "body" || body_data.is_some())
+            && ((event.event.payload["source"] != "body" && !is_body_receipt)
+                || body_data.is_some())
     });
     if let Some(event) = event {
         values.insert("event.kind".into(), json!(event.event.kind));
@@ -824,10 +840,9 @@ mod tests {
                 .selected
                 .is_some()
         );
-        assert!(!build(&db, None, 1001, 0)
-            .unwrap()
-            .available
-            .contains("interaction"));
+        let idle = build(&db, None, 1001, 0).unwrap();
+        assert!(idle.available.contains("interaction"));
+        assert_eq!(idle.values["event.action"], Value::Null);
         for kind in 0..6 {
             let mut invalid = event.clone();
             match kind {
@@ -839,7 +854,8 @@ mod tests {
                 _ => invalid.event.payload["character"] = json!("A"),
             }
             let context = build(&db, Some(&invalid), 1001, 0).unwrap();
-            assert!(!context.available.contains("interaction"), "case {kind}");
+            assert!(context.available.contains("interaction"), "case {kind}");
+            assert_eq!(context.values["event.action"], Value::Null, "case {kind}");
             assert!(
                 super::super::simulate(&program, &context, &super::super::History::new())
                     .selected
@@ -860,14 +876,26 @@ mod tests {
             build(&db, Some(&cheek), 6002, 0).unwrap().values["event.action"],
             "stroke"
         );
-        assert!(!build(&db, Some(&event), 6002, 0)
-            .unwrap()
-            .available
-            .contains("interaction"));
+        let stale = build(&db, Some(&event), 6002, 0).unwrap();
+        assert!(stale.available.contains("interaction"));
+        assert_eq!(stale.values["event.action"], Value::Null);
+
+        let widget = storage::instances(&db).unwrap().into_iter()
+            .find(|instance| instance.kind == "interaction").unwrap();
+        storage::execute(&db, &crate::widgets::WidgetRequest {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            instance_id: widget.id,
+            expected_revision: widget.revision,
+            action: "stroke".into(),
+            input: json!({"character":"B", "owner":owner}),
+        }, 12_000, 0).unwrap();
+        let normal_event = storage::take_reaction(&db, 12_001).unwrap().unwrap();
+        let normal_context = build(&db, Some(&normal_event), 12_001, 0).unwrap();
+        assert_eq!(normal_context.values["event.action"], "stroke");
     }
 
     #[test]
-    fn core_context_is_typed_and_time_available_without_optional_widgets() {
+    fn core_context_is_typed_and_time_available_before_weather_setup() {
         let db = crate::store::open(std::path::Path::new(":memory:")).unwrap();
         let now = 1_000_000;
         let context = build(&db, None, now, 14).unwrap();
@@ -879,7 +907,7 @@ mod tests {
                 .hour()
         );
         assert_eq!(context.values["environment.weatherReady"], false);
-        assert_eq!(context.values["environment.weatherStatus"], "not-installed");
+        assert_eq!(context.values["environment.weatherStatus"], "permission-needed");
         assert_eq!(
             context.values["environment.weatherTemperature"],
             Value::Null
@@ -914,13 +942,12 @@ mod tests {
         assert_eq!(fresh["environment.weatherTemperature"], 0);
         assert_eq!(fresh["environment.weatherCode"], 3);
         assert_eq!(fresh["environment.weatherName"], "서울");
-        for failure in ["stale", "offline", "missing", "disabled"] {
+        for failure in ["stale", "offline", "missing"] {
             let mut state = snapshot("weather", source.clone());
             match failure {
                 "stale" => state.widgets[0].instance.data["observation"]["observedAt"] = json!(0),
                 "offline" => state.widgets[0].instance.data["status"] = json!("offline"),
                 "missing" => state.widgets[0].instance.data["observation"] = Value::Null,
-                "disabled" => state.widgets[0].instance.enabled = false,
                 _ => unreachable!(),
             }
             let (values, _) = project(&state, now);
@@ -944,18 +971,31 @@ mod tests {
                     id: "test".into(),
                     kind: kind.into(),
                     version: 1,
-                    installed: true,
-                    enabled: true,
                     revision: 1,
                     data,
                     error: None,
                 },
                 status: "enabled".into(),
                 missing: vec![],
+                reaction: true,
                 package_bytes: 0,
                 background_updated_at: None,
             }],
         }
+    }
+
+    #[test]
+    fn disabling_reactions_keeps_weather_context_available() {
+        let now = 1_000_000;
+        let mut state = snapshot(
+            "weather",
+            json!({"status":"ready","lastSuccessAt":now,"observation":{"temperature":0,"observedAt":now}}),
+        );
+        state.widgets[0].reaction = false;
+        let (values, available) = project(&state, now);
+        assert!(available.contains("weather"));
+        assert_eq!(values["weather.ready"], true);
+        assert_eq!(values["weather.temperature"], 0);
     }
 
     #[test]
@@ -1192,22 +1232,16 @@ mod tests {
     #[test]
     fn installation_failures_and_missing_success_cache_remain_distinct() {
         let now = 1000;
-        for (installed, enabled, status) in
-            [(false, false, "install-error"), (true, false, "disabled")]
-        {
-            let mut state = snapshot(
-                "weather",
-                json!({"status":"ready","lastSuccessAt":now,"observation":{"temperature":0,"observedAt":now}}),
-            );
-            state.widgets[0].instance.installed = installed;
-            state.widgets[0].instance.enabled = enabled;
-            state.widgets[0].status = status.into();
-            let (values, available) = project(&state, now);
-            assert_eq!(values["weather.status"], status);
-            assert_eq!(values["weather.ready"], false);
-            assert_eq!(values["weather.temperature"], Value::Null);
-            assert!(!available.contains("weather"));
-        }
+        let mut state = snapshot(
+            "weather",
+            json!({"status":"ready","lastSuccessAt":now,"observation":{"temperature":0,"observedAt":now}}),
+        );
+        state.widgets[0].status = "install-error".into();
+        let (values, available) = project(&state, now);
+        assert_eq!(values["weather.status"], "install-error");
+        assert_eq!(values["weather.ready"], false);
+        assert_eq!(values["weather.temperature"], Value::Null);
+        assert!(available.contains("weather"));
         for kind in ["weather", "music", "device"] {
             let (values, _) = project(
                 &snapshot(

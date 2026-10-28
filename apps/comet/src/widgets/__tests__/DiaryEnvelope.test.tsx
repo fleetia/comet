@@ -14,8 +14,7 @@ beforeEach(() => localStorage.clear());
 const preparation: WidgetView = {
   id: "preparation",
   kind: "preparation",
-  installed: true,
-  enabled: true,
+  reaction: true,
   revision: 1,
   version: 1,
   data: { envelopes: [] },

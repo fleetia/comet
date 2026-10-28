@@ -15,16 +15,13 @@ export function PlannerDayTaskList({
   inboxCount,
   selectedTask,
   hasTodo,
-  todoInstalled,
   calendar,
-  busy,
   act,
   quickInput,
   taskActions,
   renderCheck,
   onToggleAllTasks,
   onOpenInbox,
-  onEnableTodo,
   onTemplates,
   onSelectTask,
   onEdit,
@@ -36,7 +33,6 @@ export function PlannerDayTaskList({
   inboxCount: number;
   selectedTask: string;
   hasTodo: boolean;
-  todoInstalled: boolean;
   calendar: WidgetView | undefined;
   busy: boolean;
   act: ToolAction;
@@ -45,7 +41,6 @@ export function PlannerDayTaskList({
   renderCheck: (item: DataRecord) => ReactElement;
   onToggleAllTasks: () => void;
   onOpenInbox: () => void;
-  onEnableTodo: () => Promise<void>;
   onTemplates: () => void;
   onSelectTask: (id: string) => void;
   onEdit: (item: DataRecord) => void;
@@ -70,7 +65,7 @@ export function PlannerDayTaskList({
         </Button>
       </div>
       {!hasTodo ? (
-        <PlannerTodoEmpty installed={todoInstalled} busy={busy} onEnable={onEnableTodo} />
+        <PlannerTodoEmpty />
       ) : (
         <>
           {quickInput}

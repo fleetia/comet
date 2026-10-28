@@ -5,6 +5,7 @@ import { Icon } from "@comet/icon";
 import {
   Button,
   ChoiceButton,
+  ConstellationChoices,
   Dialog,
   InputCapsule,
   SearchInput,
@@ -30,6 +31,7 @@ import {
 import { aiAvailability, responseOrigin } from "./conversationStatus";
 import { draftPreview } from "./ConversationHistory";
 import { useHistoryScroll, type HistoryReadingPosition } from "./useHistoryScroll";
+import { useFollowUpChoice } from "./useFollowUpChoice";
 import * as s from "./conversationHistoryWindow.css";
 
 type Props = {
@@ -267,6 +269,11 @@ export function ConversationHistoryWindow({
   const responding = ["loading", "generating"].includes(snapshot.runtime.phase);
   const busy = responding || Boolean(snapshot.playback);
   const selectedId = selected?.id;
+  const followUps = snapshot.followUps;
+  const followUpChoice = useFollowUpChoice(
+    followUps?.surface === "history-input" && followUps.sessionId === selectedId ? followUps : null,
+    command,
+  );
   const transcript = useHistoryScroll(selectedId, page, snapshot.user?.id);
   const activeCharactersKey = snapshot.characters.active.join("\0");
   const editable = Boolean(selectedId && editing === selectedId);
@@ -304,6 +311,20 @@ export function ConversationHistoryWindow({
   }
   function showSelection(session: ConversationSession | null): void {
     if (selectedRef.current?.id !== session?.id) {
+      const previousId = selectedRef.current?.id;
+      const previousFollowUps = current.current.followUps;
+      const previousRequest = current.current.activeRequest;
+      if (
+        previousId &&
+        (previousFollowUps?.sessionId === previousId || previousRequest?.sessionId === previousId)
+      ) {
+        void command("dismiss_follow_ups", {
+          sessionId: previousId,
+          requestId:
+            previousFollowUps?.sessionId === previousId ? previousFollowUps.requestId : undefined,
+          epoch: previousRequest?.sessionId === previousId ? previousRequest.epoch : undefined,
+        }).catch((cause: unknown) => setError(errorText(cause)));
+      }
       setPage(null);
       setSaveRequest(null);
       setError(null);
@@ -1336,6 +1357,28 @@ export function ConversationHistoryWindow({
                         </div>
                         {!user && time}
                       </article>
+                      {!user &&
+                        !busy &&
+                        !input &&
+                        followUps?.surface === "history-input" &&
+                        followUps.sessionId === selectedId &&
+                        followUps.messageId === message.id && (
+                          <div className={s.followUps}>
+                            <ConstellationChoices
+                              label="이어서 할 말"
+                              options={followUps.options.map((option) => ({
+                                ...option,
+                                disabled: followUpChoice.pending,
+                              }))}
+                              onChoose={(id) => void followUpChoice.choose(id)}
+                            />
+                            {followUpChoice.error && (
+                              <p className={s.error} role="alert">
+                                {followUpChoice.error}
+                              </p>
+                            )}
+                          </div>
+                        )}
                       {(receiptsByMessage.get(message.id)?.length ?? 0) > 0 && (
                         <div className={`${s.memoryReceipts} ${user ? s.userMemoryReceipts : ""}`}>
                           {receiptsByMessage.get(message.id)?.map((receipt) => (
@@ -1475,6 +1518,19 @@ export function ConversationHistoryWindow({
                   onValueChange={(value) => {
                     // Text typed after the closing flush would not be saved.
                     if (draft.current && editable && !closing.current) {
+                      if (value !== draft.current.value && selectedId && (snapshot.activeRequest || followUps)) {
+                        void command("dismiss_follow_ups", {
+                          sessionId: selectedId,
+                          requestId:
+                            followUps?.sessionId === selectedId ? followUps.requestId : undefined,
+                          epoch:
+                            snapshot.activeRequest?.sessionId === selectedId
+                              ? snapshot.activeRequest.epoch
+                              : undefined,
+                        }).catch(
+                          (cause: unknown) => setError(errorText(cause)),
+                        );
+                      }
                       draft.current.value = value;
                       setInput(value);
                     }

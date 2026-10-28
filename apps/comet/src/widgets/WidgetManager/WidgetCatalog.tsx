@@ -10,8 +10,7 @@ export type WidgetListEntry = {
   name: string;
   description: string;
   category: string;
-  installed: boolean;
-  enabled?: boolean;
+  reaction: boolean;
   status: WidgetView["status"] | "draft";
   attention: boolean;
 };
@@ -38,9 +37,7 @@ export const WIDGET_ICONS: Record<string, IconName> = {
   bubbles: "bubble",
 };
 const STATUS: Record<WidgetListEntry["status"], string> = {
-  "not-installed": "미설치",
   "install-error": "설치 오류",
-  disabled: "꺼짐",
   setup: "설정 필요",
   error: "오류",
   enabled: "켜짐",
@@ -161,8 +158,8 @@ export function WidgetCatalog({
                 <ChevIcon size={14} />
               </button>
               <Switch
-                aria-label={`${item.name} 사용`}
-                checked={item.installed && (item.enabled ?? item.status === "enabled")}
+                aria-label={`${item.name} 캐릭터 반응`}
+                checked={item.reaction}
                 disabled={disabled || !onToggle}
                 onChange={(event) => onToggle?.(item.id, event.target.checked)}
               />
@@ -177,7 +174,7 @@ export function WidgetCatalog({
       <header className={styles.title}>
         <div className={styles.headingCopy}>
           <h1>위젯</h1>
-          <p>모두 {entries.length}개 · 켜고 끄거나, 눌러서 자세히 정해요</p>
+          <p>모두 {entries.length}개 · 캐릭터가 반응할지 정하거나, 눌러서 자세히 정해요</p>
         </div>
         <div className={styles.toolbar}>
           <SearchInput

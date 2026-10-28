@@ -222,7 +222,7 @@ pub(super) fn schema(definition: &Definition) -> Value {
 
 pub(crate) fn catalog(db: &Connection) -> Result<Vec<Value>> {
     let widgets = crate::widgets::storage::instances(db)?;
-    Ok(DEFINITIONS.iter().filter(|definition| definition.owner == "diary" || widgets.iter().any(|widget| widget.kind == definition.owner && widget.enabled && widget.installed)).map(|definition| json!({"id":definition.id,"effect":definition.effect,"automatic":definition.automatic,"receipt":definition.effect != "read" && definition.action != "desktop-open","undoSupported":definition.undo,"requiresTarget":definition.target,"owner":definition.owner,"description":definition.description,"inputSchema":schema(definition)})).collect())
+    Ok(DEFINITIONS.iter().filter(|definition| definition.owner == "diary" || widgets.iter().any(|widget| widget.kind == definition.owner)).map(|definition| json!({"id":definition.id,"effect":definition.effect,"automatic":definition.automatic,"receipt":definition.effect != "read" && definition.action != "desktop-open","undoSupported":definition.undo,"requiresTarget":definition.target,"owner":definition.owner,"description":definition.description,"inputSchema":schema(definition)})).collect())
 }
 
 pub(super) fn validate(definition: &Definition, input: &Value) -> Result<()> {

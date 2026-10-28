@@ -24,17 +24,19 @@ function StageLines({
   lines,
   definitions,
   onChange,
+  maxLines = 32,
 }: {
   label: string;
   lines: SceneLine[];
   definitions: CharacterDefinition[];
   onChange: (lines: SceneLine[]) => void;
+  maxLines?: number;
 }): JSX.Element {
   const first = definitions[0];
   return (
     <details>
       <summary>
-        {label} · {lines.length} / 32줄
+        {label} · {lines.length} / {maxLines}줄
       </summary>
       {lines.map((line, index) => {
         const actor = definitions.find((definition) => definition.sourceId === line.persona);
@@ -103,7 +105,7 @@ function StageLines({
       })}
       <Button
         variant="ghost"
-        disabled={!first || lines.length >= 32}
+        disabled={!first || lines.length >= maxLines}
         onClick={() =>
           onChange([...lines, { persona: first.sourceId, expression: "평온", text: "" }])
         }
@@ -526,6 +528,32 @@ export function PackStoryEditor({
                 onChange={(event) => updateScenario({ keywords: entries(event.target.value) })}
               />
             </FormField>
+            <StageLines
+              label="유보"
+              lines={selectedScenario.defer ?? []}
+              maxLines={8}
+              definitions={definitions.filter((value) =>
+                selectedScenario.participants.includes(value.sourceId),
+              )}
+              onChange={(lines) => updateScenario({ defer: lines })}
+            />
+            <details>
+              <summary>이야기 저작 진단</summary>
+              <p>
+                노출 친밀도 ≤ 최소 친밀도: {selectedScenario.revealAffinity == null ||
+                selectedScenario.revealAffinity <= selectedScenario.minAffinity
+                  ? "통과"
+                  : "확인 필요"}
+              </p>
+              <p>
+                유보 대사 화자가 참가자 안에 있음:{" "}
+                {(selectedScenario.defer ?? []).every((line) =>
+                  selectedScenario.participants.includes(line.persona),
+                )
+                  ? "통과"
+                  : "확인 필요"}
+              </p>
+            </details>
             {(
               [
                 ["intro", "제안"],
@@ -575,6 +603,25 @@ export function PackStoryEditor({
                   onChange={(event) => updateScenario({ minAffinity: Number(event.target.value) })}
                 />
               </FormField>
+              <FormField label="노출 친밀도 · 선택 사항">
+                <TextInput
+                  fill
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={selectedScenario.revealAffinity ?? ""}
+                  onChange={(event) =>
+                    updateScenario({
+                      revealAffinity: event.target.value === "" ? null : Number(event.target.value),
+                    })
+                  }
+                />
+              </FormField>
+              <p className={s.small}>
+                최소 친밀도보다 낮게 정하면 이야기를 시작하기 전 유보 대사를 말해요. 비워 두면
+                최소 친밀도에 도달할 때까지 이야기가 나오지 않아요. 유보 대사가 없으면 기본 문구를
+                사용해요.
+              </p>
               {(
                 [
                   ["acceptNextId", "마친 뒤 다음 이야기"],
