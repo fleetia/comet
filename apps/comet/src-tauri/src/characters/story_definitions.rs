@@ -97,7 +97,8 @@ pub fn save_pack_story_definition_expected(
         crate::pack_stories::validate_pack(&definitions, definition)?;
         pack.set_story_definition(definition.clone());
         if !definition.is_empty() {
-            pack.format_version = 8;
+            // Keep a newer format such as 13 (mood motions) when stories are saved.
+            pack.format_version = pack.format_version.max(8);
         }
         tx.execute(
             "UPDATE character_packs SET data=?1 WHERE id=?2",
