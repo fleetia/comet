@@ -158,6 +158,7 @@ it("preserves the initially selected widget draft when a native deep link change
   expect(onDirtyChange).toHaveBeenLastCalledWith(true);
   act(() => receiveTarget({ event: "planner-settings-target", id: 2, payload: "focus-timer" }));
   expect(screen.getByRole("region", { name: "집중 타이머 설정" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "집중 타이머 세부 설정" })).toBeTruthy();
   expect(command).not.toHaveBeenCalledWith("install_widgets", expect.anything());
   expect(command).not.toHaveBeenCalledWith("set_widget_enabled", expect.anything());
   expect(onDirtyChange).toHaveBeenLastCalledWith(true);
