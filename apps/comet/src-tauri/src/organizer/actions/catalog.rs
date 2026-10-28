@@ -83,7 +83,7 @@ pub(super) const DEFINITIONS: &[Definition] = &[
     definition!("focus_start","focus-timer","start","","control",false,false,false,"durationMs,title,todoId","","집중 타이머 시작. durationMs는 밀리초. todoId를 지정하면 해당 할 일로 새 맥락을 시작하며 이전 메모·일정·노트 연결을 비운다. title을 생략하면 할 일 제목을 쓴다."),
     definition!("focus_pause","focus-timer","pause","","control",false,false,false,"","","실행 중인 집중 타이머 일시정지."),
     definition!("focus_resume","focus-timer","resume","","control",false,false,false,"","","일시정지한 집중 타이머 재개."),
-    definition!("focus_cancel","focus-timer","cancel","","control",false,false,false,"","","집중 타이머 취소. 진행 중인 집중은 기록하지 않고 대기 목록과 회차는 유지."),
+    definition!("focus_cancel","focus-timer","cancel","","control",false,false,false,"","","집중 타이머 취소. 경과한 집중 시간은 기록하고 대기 목록과 회차는 유지."),
     definition!("focus_rest","focus-timer","rest","","control",false,false,false,"durationMs","","완료한 집중 타이머에서 휴식 시작."),
     definition!("weather_query","weather","","","read",false,false,false,"","","설정한 지역의 마지막 날씨 관측 조회. observedAt과 오류를 확인하고 현재 날씨로 단정하지 않는다."),
     definition!("music_query","music","","","read",false,false,false,"","","현재 연결에서 마지막으로 관측한 음악 정보 조회. 재생 제어·연결 설정은 제공하지 않음."),
