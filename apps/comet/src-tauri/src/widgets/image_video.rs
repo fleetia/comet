@@ -104,29 +104,13 @@ pub(crate) fn dimensions(path: &Path) -> Result<(u32, u32), String> {
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-pub(crate) fn transcode(path: &Path) -> Result<Vec<u8>, String> {
-    let dir = std::env::temp_dir().join(format!("comet-image-video-{}", uuid::Uuid::new_v4()));
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        std::fs::DirBuilder::new()
-            .mode(0o700)
-            .create(&dir)
-            .map_err(|e| e.to_string())?;
+pub(crate) fn transcode(path: &Path, output: &Path) -> Result<(), String> {
+    transcode_to(path, output)?;
+    let size = output.metadata().map_err(|e| e.to_string())?.len();
+    if size == 0 || size >= path.metadata().map_err(|e| e.to_string())?.len() {
+        return Err("압축한 동영상이 원본보다 작지 않아요.".into());
     }
-    #[cfg(not(unix))]
-    std::fs::create_dir(&dir).map_err(|e| e.to_string())?;
-    let output = dir.join("output.mp4");
-    let result = transcode_to(path, &output).and_then(|()| {
-        if output.metadata().map_err(|e| e.to_string())?.len()
-            >= path.metadata().map_err(|e| e.to_string())?.len()
-        {
-            return Err("압축한 동영상이 원본보다 작지 않아요.".into());
-        }
-        std::fs::read(&output).map_err(|e| e.to_string())
-    });
-    let _ = std::fs::remove_dir_all(&dir);
-    result
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -206,6 +190,6 @@ fn transcode_to(path: &Path, output: &Path) -> Result<(), String> {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-pub(crate) fn transcode(_path: &Path) -> Result<Vec<u8>, String> {
+pub(crate) fn transcode(_path: &Path, _output: &Path) -> Result<(), String> {
     Err("이 운영체제는 동영상 압축을 지원하지 않아요.".into())
 }

@@ -340,7 +340,7 @@ async fn add_expected(
         items.push(json!({"id":image_id,"addedAt":chrono::Utc::now().timestamp_millis(),"mime":media.mime,"naturalWidth":media.width,"naturalHeight":media.height,"x":null,"y":null,"width":(media.width as f64 * scale).max(48.0),"height":(media.height as f64 * scale).max(48.0),"isOpen":true}));
         instance.revision += 1;
         storage::put(&tx, &instance)?;
-        super::backgrounds::put_media(&tx, &format!("image:{image_id}"), media.mime, &media.bytes)?;
+        media.store(&tx, &format!("image:{image_id}"))?;
         tx.commit().map_err(err)?;
         storage::snapshot(db)
     })?;
@@ -565,7 +565,7 @@ mod tests {
         let db = lock(&state.db).unwrap();
         let instance = storage::get(&db, &id).unwrap();
         assert_eq!(instance.data["images"][0]["isOpen"], false);
-        assert_eq!(super::super::backgrounds::get(&db, "image:image-one").unwrap().unwrap().data, b"original");
+        assert_eq!(super::super::backgrounds::get(&db, "image:image-one").unwrap().unwrap().data.as_slice(), b"original");
         assert!(!storage::reaction_enabled(&db, &id).unwrap());
     }
 }
