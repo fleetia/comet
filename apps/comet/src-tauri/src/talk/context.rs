@@ -1646,8 +1646,15 @@ mod tests {
                 .iter()
                 .filter(|(_, kind, _, _, _)| !widgets::is_retired(kind))
                 .count(),
-            widgets::catalog().unwrap().len()
+            widgets::catalog().unwrap().iter().filter(|item| item.id != "image").count()
         );
+        let (image_values, available) = project(
+            &snapshot("image", json!({"images":[{"id":"private-image-id","path":"private-image-path"}]})),
+            0,
+        );
+        assert!(!available.contains("image"));
+        assert!(!image_values.keys().any(|key| key.starts_with("image.")));
+        assert!(!serde_json::to_string(&image_values).unwrap().contains("private-image"));
     }
 
     #[test]

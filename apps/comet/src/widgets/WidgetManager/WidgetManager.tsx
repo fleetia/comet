@@ -257,7 +257,7 @@ export function WidgetManager({
   };
   function openCanonical(target: WidgetView): void {
     if (DESKTOP_TOYS.includes(target.kind)) void act("desktop-open", {}, target);
-    else void run(target.kind === "memo" ? "create_memo_note" : "open_widget", { id: target.id });
+    else void run(target.kind === "memo" ? "create_memo_note" : target.kind === "image" ? "add_widget_image" : "open_widget", { id: target.id });
   }
   function contextActions(id: string): ContextMenuAction[] {
     const target = findView(id);
@@ -282,7 +282,9 @@ export function WidgetManager({
       actions.push({
         id: "open",
         label:
-          target.kind === "memo"
+          target.kind === "image"
+            ? "이미지 띄우기"
+            : target.kind === "memo"
             ? "새 메모 꺼내기"
             : DESKTOP_TOYS.includes(target.kind)
               ? "바탕화면에 꺼내기"
@@ -303,6 +305,12 @@ export function WidgetManager({
       );
     if (DESKTOP_TOYS.includes(target.kind))
       actions.push({ id: "clear", label: "장난감 정리하기", disabled: !canAct });
+    if (target.kind === "image") {
+      const images = rows(record(target.data).images);
+      const closed = images.filter((image) => image.isOpen === false && typeof image.id === "string");
+      actions.push({ id: "close-images", label: "띄운 이미지 정리", disabled: !canAct || !images.some((image) => image.isOpen === true) });
+      actions.push({ id: "closed-images", label: `닫아 둔 이미지 ${closed.length}장 ›`, disabled: !canAct || closed.length === 0 });
+    }
     if (confirmed && current?.toys)
       actions.push({
         id: "toy-status",
@@ -324,6 +332,7 @@ export function WidgetManager({
       });
     if (current?.actionError)
       actions.push({ id: "action-error", label: current.actionError.message, disabled: true });
+    if (target.kind !== "image") {
     actions.push({
       id: "toggle",
       label: target.reaction ? "캐릭터 반응 끄기" : "캐릭터 반응 켜기",
@@ -336,7 +345,19 @@ export function WidgetManager({
       icon: "balloon",
       disabled: !canAct,
     });
+    }
     return actions;
+  }
+  function submenuActions(kind: string, action: string): ContextMenuAction[] | undefined {
+    if (kind !== "image" || action !== "closed-images") return undefined;
+    const target = findView(kind);
+    return rows(record(target?.data).images)
+      .filter((image) => image.isOpen === false && typeof image.id === "string")
+      .map((image, index) => ({
+        id: `open-image:${image.id}`,
+        label: `이미지 ${index + 1}${typeof image.addedAt === "number" ? ` · ${new Date(image.addedAt).toLocaleString()}` : ""}`,
+        disabled: !canAct,
+      }));
   }
   function contextAction(kind: string, action: string): void {
     const target = findView(kind);
@@ -353,6 +374,8 @@ export function WidgetManager({
     else if (action === "open") openCanonical(target);
     else if (action === "state-rules") void run("open_widget_state_rules", { id: target.id });
     else if (action === "clear") void act("desktop-clear", {}, target);
+    else if (action === "close-images") void run("close_all_widget_images", { id: target.id });
+    else if (action.startsWith("open-image:")) void run("open_widget_image", { id: target.id, imageId: action.slice("open-image:".length) });
     else if (action === "desktop-add") void run("add_widget_desktop_item", { id: target.id });
     else if (action === "desktop-remove") void run("remove_widget_desktop_item", { id: target.id });
     else if (action === "refresh-runtime") runtime.reload();
@@ -458,6 +481,7 @@ export function WidgetManager({
               selectedId={selectedId}
               onSelect={focusWidget}
               menuActions={contextActions}
+              submenuActions={submenuActions}
               onMenuAction={contextAction}
               onEditDesktop={() => void run("set_widget_desktop_editing", { editing: true })}
               disabled={!canAct}

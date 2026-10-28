@@ -192,7 +192,10 @@ pub fn run() {
                 crate::report_error!("reset_cleanup", "Reset cleanup incomplete: {error}");
             }
             if crate::exbrain::initialize(&app_data).is_err() {
-                crate::report_error!("widget_context_init", "Widget context initialization deferred");
+                crate::report_error!(
+                    "widget_context_init",
+                    "Widget context initialization deferred"
+                );
             }
             let (sidecar, runtime) = resource_paths(app.handle()).map_err(std::io::Error::other)?;
             let talk = talk::host::initialize(&app_data);
@@ -281,6 +284,7 @@ pub fn run() {
             app.manage(updater::UpdateState::default());
             launcher::initialize(app.handle(), &state).map_err(std::io::Error::other)?;
             crate::widgets::memo_notes::schedule_sync(app.handle());
+            crate::widgets::images::schedule_sync(app.handle());
             lock(&state.runtime).map_err(std::io::Error::other)?.hidden =
                 !behavior::preferences(&*lock(&state.db).map_err(std::io::Error::other)?)
                     .map_err(std::io::Error::other)?
@@ -290,7 +294,10 @@ pub fn run() {
             crate::widgets::desktop::restore_on_start(app.handle(), state.clone());
             crate::widgets::planning::notifications::install(app.handle())?;
             if let Err(error) = device::wake::install(app.handle()) {
-                crate::report_error!("device_resume_notification", "기기 복귀 알림 연결 실패: {error}");
+                crate::report_error!(
+                    "device_resume_notification",
+                    "기기 복귀 알림 연결 실패: {error}"
+                );
             }
             let handle = app.handle().clone();
             talk::host::watch(handle.clone(), state.clone());
@@ -382,7 +389,10 @@ pub fn run() {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     if let Err(error) = window.hide() {
-                        crate::report_error!("settings_window_hide", "Settings window hide failed: {error}");
+                        crate::report_error!(
+                            "settings_window_hide",
+                            "Settings window hide failed: {error}"
+                        );
                     }
                 }
                 return;
@@ -624,6 +634,13 @@ pub fn run() {
             crate::widgets::memo_notes::close_memo_note,
             crate::widgets::memo_notes::request_close_memo_note,
             crate::widgets::memo_notes::save_memo_note,
+            crate::widgets::images::add_widget_image,
+            crate::widgets::images::open_widget_image,
+            crate::widgets::images::close_widget_image,
+            crate::widgets::images::close_all_widget_images,
+            crate::widgets::images::remove_widget_image,
+            crate::widgets::images::move_widget_image,
+            crate::widgets::images::resize_widget_image,
             widgets::commands::get_widgets,
             widgets::commands::list_usage_applications,
             crate::chatgpt::get_chatgpt_status,
@@ -824,7 +841,10 @@ pub fn run() {
                     if windows::settings_exit_needs_confirmation(&state) {
                         api.prevent_exit();
                         if let Err(error) = windows::confirm_settings_exit(app, &state) {
-                            crate::report_error!("settings_exit_confirm", "Failed to confirm unsaved settings before exit: {error}");
+                            crate::report_error!(
+                                "settings_exit_confirm",
+                                "Failed to confirm unsaved settings before exit: {error}"
+                            );
                         }
                         return;
                     }

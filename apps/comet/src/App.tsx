@@ -22,6 +22,7 @@ import { WidgetStack } from "./widgets/WidgetDisplay/WidgetStack";
 import { WidgetDisplay } from "./widgets/WidgetDisplay/WidgetDisplay";
 import { WidgetEditor } from "./widgets/WidgetDisplay/WidgetEditor";
 import { MemoNote } from "./widgets/MemoNote/MemoNote";
+import { ImageWindow } from "./widgets/ImageWidget/ImageWindow";
 import { WindowHeader } from "./components/WindowHeader/WindowHeader";
 import { command, isDesktop, useSnapshot } from "./hooks/useSnapshot";
 import { useAnalyticsConsent } from "./hooks/useAnalyticsConsent";
@@ -58,6 +59,9 @@ function standaloneRoute(query: URLSearchParams): JSX.Element | null {
   if (view === "widget-editor") return <WidgetEditor />;
   if (view === "memo-note") {
     return <MemoNote id={query.get("id") ?? ""} noteId={query.get("noteId") ?? ""} />;
+  }
+  if (view === "image") {
+    return <ImageWindow id={query.get("id") ?? ""} imageId={query.get("imageId") ?? ""} />;
   }
   return null;
 }
