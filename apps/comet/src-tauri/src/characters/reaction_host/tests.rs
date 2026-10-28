@@ -146,6 +146,11 @@ fn milestone_interrupts_automatic_talk_only_when_allowed_and_matched() {
     assert!(scene::present_line(
         &state, &old_lines[0], "talk", "old-first", 0, 2, revision, old_epoch, &old_cancel, false,
     ).unwrap());
+    assert!(scene::clear_line_if_current(&state, old_epoch, &old_cancel).unwrap());
+    assert!(speech_reason(&state).unwrap().is_none());
+    state.automatic.store(false, Ordering::SeqCst);
+    assert!(speech_reason(&state).unwrap().is_some());
+    state.automatic.store(true, Ordering::SeqCst);
     let (new_lines, new_epoch, new_cancel) = {
         let db = lock(&state.db).unwrap();
         lock(&state.runtime).unwrap().paused = true;

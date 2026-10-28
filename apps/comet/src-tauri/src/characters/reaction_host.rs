@@ -764,9 +764,10 @@ fn speech_reason(state: &AppState) -> Result<Option<&'static str>> {
         return Ok(Some("위젯 알림을 읽고 있어요."));
     }
     let ambient = state.automatic.load(Ordering::SeqCst)
-        && lock(&state.playback)?.as_ref().is_some_and(|line| {
-            matches!(line.source.as_str(), "script" | "wordbook" | "llm" | "talk")
-        });
+        && lock(&state.playback)?.as_ref().map_or(
+            phase == RuntimePhase::Playing,
+            |line| matches!(line.source.as_str(), "script" | "wordbook" | "llm" | "talk"),
+        );
     Ok((!ambient).then_some("진행 중인 대화를 읽고 있어요."))
 }
 
