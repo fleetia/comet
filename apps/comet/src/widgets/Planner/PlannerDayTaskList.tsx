@@ -16,7 +16,6 @@ export function PlannerDayTaskList({
   selectedTask,
   hasTodo,
   calendar,
-  busy,
   act,
   quickInput,
   taskActions,

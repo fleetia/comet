@@ -18,12 +18,11 @@ vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({ startDragging: vi.fn().mockResolvedValue(undefined) }),
 }));
 
-function widget(id: string, kind: string, installed = true): WidgetView {
+function widget(id: string, kind: string, reaction = true): WidgetView {
   return {
     id,
     kind,
-    enabled: true,
-    installed,
+    reaction,
     revision: 3,
     version: 1,
     missing: [],
