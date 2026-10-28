@@ -1902,7 +1902,7 @@ fn advance_app_usage(state: &AppState, db: &rusqlite::Connection, at: i64) -> Re
             return Ok(false);
         }
     }
-    let sample = if preferences.activity_enabled {
+    let sample = if activity_due {
         let sample = crate::app_usage::detailed_sample();
         let focus_sample = sample.sample.clone();
         lock(&state.life)?
