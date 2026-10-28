@@ -744,6 +744,15 @@ pub fn add_follow_ups_to_schema(schema: &mut Value) {
     schema["properties"]["followUps"] =
         json!({"type":"array","maxItems":3,"items":{"type":"string","maxLength":24}});
 }
+pub(crate) fn require_follow_ups_in_strict_schema(schema: &mut Value) {
+    if schema.pointer("/properties/followUps").is_some() {
+        if let Some(required) = schema.get_mut("required").and_then(Value::as_array_mut) {
+            if !required.iter().any(|field| field.as_str() == Some("followUps")) {
+                required.push(json!("followUps"));
+            }
+        }
+    }
+}
 /// A small model's reply stops at 200 characters: past that it rambles over the balloon and runs
 /// into the token limit before closing the JSON.
 pub fn small_reply_schema_for(targets: &[String], expressions: &[&str]) -> Value {
@@ -1103,6 +1112,19 @@ pub fn analysis_schema() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strict_follow_ups_are_required_only_when_present() {
+        let mut schema = super::reply_schema_for(&["a".into()], &["normal"]);
+        super::require_follow_ups_in_strict_schema(&mut schema);
+        super::require_follow_ups_in_strict_schema(&mut schema);
+        assert_eq!(schema["required"].as_array().unwrap().iter()
+            .filter(|field| field.as_str() == Some("followUps")).count(), 1);
+        let mut without = super::small_reply_schema_for(&["a".into()], &["normal"]);
+        super::require_follow_ups_in_strict_schema(&mut without);
+        assert!(!without["required"].as_array().unwrap().iter()
+            .any(|field| field.as_str() == Some("followUps")));
+    }
 
     #[test]
     fn truncated_latest_input_is_rejected_in_single_and_roster_prompts() {
