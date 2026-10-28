@@ -189,6 +189,7 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
                 .to_ascii_lowercase();
             crate::characters::active_character(db, &slot)
                 .is_ok_and(|character| character.id == *id)
+                && !crate::characters::life::sleeping(state, id)?
                 && context
                     .values
                     .get(&format!("character.{slot}.birthdayToday"))
@@ -420,6 +421,42 @@ mod tests {
             .unwrap()
             .apply(talk::load_bundle(&root, &talk::context::registry()));
         (directory, state)
+    }
+
+    #[test]
+    fn prepared_character_birthday_is_not_current_while_the_target_sleeps() {
+        let state = crate::app::tests::state();
+        let today = chrono::Local::now().date_naive();
+        let id = {
+            let db = lock(&state.db).unwrap();
+            let mut character = crate::characters::active_character(&db, "a").unwrap();
+            character.definition.birthday = Some(today.format("%m-%d").to_string());
+            crate::characters::save(&db, &character.id, &character.definition).unwrap();
+            character.id
+        };
+        let program = talk::validate_source(
+            Path::new("birthday.talk"),
+            "format: 1\nscene: birthday\non: character.birthday\n---\nA: 생일 축하해.\n===\n",
+            &talk::context::registry(),
+        ).unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        let trigger = BirthdayTrigger {
+            kind: "character.birthday", key: "test-birthday".into(), date: today,
+            character: Some("A".into()), character_id: Some(id.clone()),
+        };
+        {
+            let db = lock(&state.db).unwrap();
+            assert!(prepare_birthday(&state, &db, trigger).unwrap().is_some());
+            assert!(birthday_current(&state, &db).unwrap());
+        }
+        crate::characters::life::set_sleep(&state, &id, true).unwrap();
+        {
+            let db = lock(&state.db).unwrap();
+            assert!(!birthday_current(&state, &db).unwrap());
+            assert_eq!(crate::store::get(&db, "test-birthday").unwrap(), None);
+        }
+        crate::characters::life::set_sleep(&state, &id, false).unwrap();
+        assert!(birthday_current(&state, &lock(&state.db).unwrap()).unwrap());
     }
 
     #[test]

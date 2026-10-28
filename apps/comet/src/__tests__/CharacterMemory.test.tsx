@@ -196,6 +196,37 @@ it("registers a trimmed name, leaves same-name changes alone, and explicitly con
   expect(command).toHaveBeenCalledTimes(3);
 });
 
+it("keeps a birthday draft when this form changes the user's name", async () => {
+  const birthday = { month: 2, day: 10, year: null };
+  const user = { id: "old-user", name: "민수", startedAt: 1, endedAt: null };
+  const { rerender } = render(<UserSettings snapshot={{ ...PREVIEW_SNAPSHOT, user, userBirthday: birthday }} />);
+  const section = within(screen.getByRole("region", { name: "사용자 생일" }));
+  fireEvent.change(section.getByLabelText("일"), { target: { value: "11" } });
+  fireEvent.change(screen.getByLabelText("부를 이름"), { target: { value: "지연" } });
+  fireEvent.click(screen.getByRole("button", { name: "바꾸기…" }));
+  fireEvent.click(screen.getByRole("button", { name: "바꾸기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("set_user_name", { name: "지연" }));
+  rerender(<UserSettings snapshot={{ ...PREVIEW_SNAPSHOT, user: { ...user, id: "new-user", name: "지연" }, userBirthday: birthday }} />);
+  expect(section.getByLabelText("일")).toHaveProperty("value", "11");
+  fireEvent.click(section.getByRole("button", { name: "생일 저장" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("set_user_birthday", {
+    birthday: { month: 2, day: 11, year: null }, expected: birthday, userId: "new-user",
+  }));
+});
+
+it("keeps the original birthday target when another identity appears", async () => {
+  const birthday = { month: 2, day: 10, year: null };
+  const user = { id: "old-user", name: "민수", startedAt: 1, endedAt: null };
+  const { rerender } = render(<UserSettings snapshot={{ ...PREVIEW_SNAPSHOT, user, userBirthday: birthday }} />);
+  const section = within(screen.getByRole("region", { name: "사용자 생일" }));
+  fireEvent.change(section.getByLabelText("일"), { target: { value: "11" } });
+  rerender(<UserSettings snapshot={{ ...PREVIEW_SNAPSHOT, user: { ...user, id: "other-user", name: "다른 사람" }, userBirthday: birthday }} />);
+  fireEvent.click(section.getByRole("button", { name: "생일 저장" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("set_user_birthday", {
+    birthday: { month: 2, day: 11, year: null }, expected: birthday, userId: "old-user",
+  }));
+});
+
 it("rejects blank and overlong names and preserves a failed registration draft", async () => {
   vi.mocked(command).mockRejectedValue(new Error("이름 저장 실패"));
   render(<UserSettings snapshot={{ ...PREVIEW_SNAPSHOT, user: null }} />);

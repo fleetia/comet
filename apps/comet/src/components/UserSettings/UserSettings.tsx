@@ -25,6 +25,7 @@ export function UserSettings({
   const [birthdayError, setBirthdayError] = useState<string | null>(null);
   const [birthdayNotice, setBirthdayNotice] = useState<string | null>(null);
   const birthdayBusy = useRef(false);
+  const pendingRename = useRef<{ from: string | undefined; name: string } | null>(null);
   const [showLegacy, setShowLegacy] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [pending, setPending] = useState(false);
@@ -45,7 +46,23 @@ export function UserSettings({
     setSavedName(next);
   }, [snapshot.user?.id]);
   useEffect(() => {
-    if (birthdayDirty) return;
+    if (birthdayDirty) {
+      const rename = pendingRename.current;
+      if (
+        rename &&
+        rename.from === birthdayUserId &&
+        snapshot.user?.id !== rename.from &&
+        snapshot.user?.name === rename.name &&
+        snapshot.userBirthday?.month === savedBirthday?.month &&
+        snapshot.userBirthday?.day === savedBirthday?.day &&
+        snapshot.userBirthday?.year === savedBirthday?.year
+      ) {
+        setBirthdayUserId(snapshot.user?.id);
+        pendingRename.current = null;
+      }
+      return;
+    }
+    pendingRename.current = null;
     const next = snapshot.userBirthday ?? null;
     setBirthday(birthdayDraft(next));
     setSavedBirthday(next);
@@ -61,6 +78,7 @@ export function UserSettings({
     busy.current = true;
     setPending(true);
     setError(null);
+    pendingRename.current = { from: snapshot.user?.id, name: trimmed };
     try {
       await command("set_user_name", { name: trimmed });
       setSavedName(trimmed);
@@ -68,6 +86,7 @@ export function UserSettings({
       setConfirm(false);
       setNotice("이름을 저장했어요.");
     } catch (cause) {
+      pendingRename.current = null;
       setError(errorText(cause));
     } finally {
       busy.current = false;
