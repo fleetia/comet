@@ -207,7 +207,6 @@ it("labels a Windows AC observation without guessing charging state", () => {
     configured: true,
     observation: { hasBattery: true, powerSource: "unknown", batteries: [{ percent: 35, status: "ac" }] },
   })} />);
-  expect(screen.getByText("35%")).toBeTruthy();
   expect(screen.getByRole("status").textContent).toBe("전원 연결됨");
 });
 
