@@ -3038,6 +3038,76 @@
         "pet.status": "enabled"
       },
       "expectedScene": "pet.arrived"
+    },
+    {
+      "id": "interaction.milestone-1",
+      "path": "widgets/interaction-milestone.talk",
+      "trigger": "interaction.milestone",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.character": "A",
+        "interaction.milestone": 1
+      },
+      "expectedScene": "interaction.milestone-1"
+    },
+    {
+      "id": "interaction.milestone-10",
+      "path": "widgets/interaction-milestone.talk",
+      "trigger": "interaction.milestone",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.character": "A",
+        "interaction.milestone": 10
+      },
+      "expectedScene": "interaction.milestone-10"
+    },
+    {
+      "id": "interaction.milestone-100",
+      "path": "widgets/interaction-milestone.talk",
+      "trigger": "interaction.milestone",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.character": "A",
+        "interaction.milestone": 100
+      },
+      "expectedScene": "interaction.milestone-100"
+    },
+    {
+      "id": "interaction.milestone-500",
+      "path": "widgets/interaction-milestone.talk",
+      "trigger": "interaction.milestone",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.character": "A",
+        "interaction.milestone": 500
+      },
+      "expectedScene": "interaction.milestone-500"
+    },
+    {
+      "id": "interaction.milestone-1000",
+      "path": "widgets/interaction-milestone.talk",
+      "trigger": "interaction.milestone",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.character": "A",
+        "interaction.milestone": 1000
+      },
+      "expectedScene": "interaction.milestone-1000"
     }
   ]
 }
