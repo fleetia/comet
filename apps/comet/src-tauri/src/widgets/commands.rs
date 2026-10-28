@@ -678,6 +678,10 @@ fn finish_playback_link(state: &AppState, db: &rusqlite::Connection) -> Result<u
     Ok(epoch)
 }
 
+fn reserve_playback_link_open(state: &AppState) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
+    state.playback_link_gate.try_lock().map_err(|_| "위젯을 열고 있어요. 잠시 기다려 주세요.".into())
+}
+
 fn playback_link_for_open(state: &AppState, playback_id: &str) -> Result<crate::types::PlaybackLink, String> {
     lock(&state.playback)?
         .as_ref()
@@ -692,6 +696,7 @@ pub(crate) async fn open_playback_link(
     state: tauri::State<'_, Arc<AppState>>,
     playback_id: String,
 ) -> Result<bool, String> {
+    let _open = reserve_playback_link_open(&state)?;
     let link = {
         let _action = lock(&state.action)?;
         playback_link_for_open(&state, &playback_id)?
@@ -1453,6 +1458,27 @@ fn fallback_reaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn playback_link_reservation_prevents_duplicate_memo_creation() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut state = crate::app::tests::state();
+        state.app_data = directory.path().into();
+        let memo = change(&state, |db| {
+            storage::install(db, &state.app_data, &["memo".into()])?;
+            Ok(storage::instances(db)?.remove(0))
+        }).unwrap();
+        *lock(&state.playback).unwrap() = Some(serde_json::from_value(serde_json::json!({
+            "id":"line", "persona":"a", "expression":"평온", "text":"메모", "source":"talk",
+            "endsAt":0, "lineIndex":0, "lineCount":1
+        })).unwrap());
+        let first = reserve_playback_link_open(&state).unwrap();
+        assert!(reserve_playback_link_open(&state).is_err());
+        create_memo_for_open(&state, &memo.id, None, Some("line")).unwrap();
+        assert_eq!(storage::get(&lock(&state.db).unwrap(), &memo.id).unwrap().data["notes"].as_array().unwrap().len(), 1);
+        drop(first);
+        assert!(reserve_playback_link_open(&state).is_ok());
+    }
 
     #[test]
     fn playback_link_open_rejects_missing_and_changed_lines() {
