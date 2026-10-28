@@ -539,7 +539,7 @@ pub(crate) fn interact_locked(
     let event = crate::widgets::storage::body_interaction_with_actor(
         db, &actor, slot, action, request_id, now,
     )?;
-    if let (Some(event), Some(user)) = (&event, crate::store::current_user(db)?) {
+    if let (Some(event), Some(user)) = (event.event.as_ref(), crate::store::current_user(db)?) {
         if let (Some(number), Some(counter)) = (
             event
                 .event
@@ -1329,5 +1329,36 @@ mod tests {
             characters::active_ids(&db).unwrap(),
             vec![request.center_id]
         );
+    }
+
+    #[test]
+    fn guest_milestone_records_one_moment_for_a_retried_gesture() {
+        let (state, request) = fixture(1);
+        admit(&state, &request);
+        let db = lock(&state.db).unwrap();
+        store::set_user_name(&db, "친구", 1).unwrap();
+        let user = store::current_user(&db).unwrap().unwrap();
+        let guest = &request.guest_ids[0];
+        db.execute(
+            "INSERT INTO character_touches(character_id,user_id,action,count,last_at) VALUES(?1,?2,'poke',99,1)",
+            rusqlite::params![guest, user.id],
+        )
+        .unwrap();
+        let gesture = uuid::Uuid::new_v4().to_string();
+        assert!(interact_locked(&state, &db, guest, "poke", &gesture, 10000)
+            .unwrap()
+            .accepted);
+        assert!(!interact_locked(&state, &db, guest, "poke", &gesture, 11000)
+            .unwrap()
+            .accepted);
+        let (count, source): (i64, String) = db
+            .query_row(
+                "SELECT COUNT(*), COALESCE(MAX(source),'') FROM memories WHERE character_id=?1 AND user_id=?2 AND source LIKE 'moment:touch-milestone:%'",
+                rusqlite::params![guest, user.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+        assert!(source.ends_with(":total:100"));
     }
 }
