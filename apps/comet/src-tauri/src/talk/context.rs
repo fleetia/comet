@@ -99,6 +99,10 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         (_, "affinity") if prefix.starts_with("character.") => "해당 캐릭터의 현재 친밀도 점수",
         (_, "daysTogether") if prefix.starts_with("character.") => "현재 사용자와 처음 만난 날부터 지난 날짜를 포함한 일수",
         (_, "momentCount") if prefix.starts_with("character.") => "현재 사용자와 해당 캐릭터의 유효한 함께한 추억 수",
+        (_, "mood") if prefix.starts_with("character.") => "해당 캐릭터의 현재 단기 기분(-2~2)",
+        ("event", "from") => "기분 변경 전 값(-2~2)",
+        ("event", "to") => "기분 변경 후 값(-2~2)",
+        ("event", "source") => "기분 변경을 일으킨 사건의 종류",
         (_, "total") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "현재 사용자와 해당 캐릭터의 누적 교감 횟수",
         (_, "stroke") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "현재 사용자와 해당 캐릭터의 누적 쓰다듬기 횟수",
         (_, "poke") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "현재 사용자와 해당 캐릭터의 누적 찌르기 횟수",
@@ -260,6 +264,10 @@ pub fn registry() -> Registry {
     ] {
         add("event", name, ValueType::String, true, None);
     }
+    add("event", "source", ValueType::String, true, None);
+    for name in ["from", "to"] {
+        add("event", name, ValueType::Number, true, None);
+    }
     add("recall", "ready", ValueType::Boolean, false, None);
     for name in ["kind", "date", "snippet"] {
         add("recall", name, ValueType::String, true, None);
@@ -343,6 +351,13 @@ pub fn registry() -> Registry {
                 None,
             );
         }
+        add(
+            &format!("character.{persona}"),
+            "mood",
+            ValueType::Number,
+            true,
+            None,
+        );
     }
     add(
         "character.nadir",
@@ -352,6 +367,7 @@ pub fn registry() -> Registry {
         None,
     );
     add("character.nadir", "affinity", ValueType::Number, true, None);
+    add("character.nadir", "mood", ValueType::Number, true, None);
     add("character", "count", ValueType::Number, false, None);
     Registry {
         variables,
@@ -375,6 +391,7 @@ pub fn registry() -> Registry {
             "weather.last-year",
             "interaction.touch",
             "interaction.milestone",
+            "mood.changed",
             "ball.stopped",
             "paper-plane.landed",
             "bubbles.streak",
@@ -1125,12 +1142,16 @@ pub fn build(
             ("itemName", "name"),
             ("event", "event"),
             ("summary", "summary"),
+            ("source", "source"),
         ] {
             let value = event.event.payload[source]
                 .as_str()
                 .map(|text| json!(text))
                 .unwrap_or(Value::Null);
             values.insert(format!("event.{field}"), value);
+        }
+        for field in ["from", "to"] {
+            values.insert(format!("event.{field}"), event.event.payload[field].clone());
         }
         if body_data.is_some() && event.event.payload["action"] == "cheek-grab" {
             values.insert("event.action".into(), json!("stroke"));
@@ -1200,6 +1221,12 @@ pub fn build(
             ).map_err(|error| error.to_string())?;
             values.insert(format!("character.{persona}.momentCount"), json!(count));
         }
+        if event.is_some_and(|event| {
+            event.event.kind == "mood.changed"
+                && event.event.payload["character"].as_str() == Some(&character.id)
+        }) {
+            values.insert("event.character".into(), json!(persona));
+        }
         let touches = storage::character_touches(db, &character.id, now_ms)?;
         for (field, count) in [
             ("total", touches.total),
@@ -1261,6 +1288,29 @@ pub fn build(
 mod tests {
     use super::*;
     use crate::widgets::{WidgetInstance, WidgetView};
+
+    #[test]
+    fn mood_event_keeps_character_identity_and_shared_moment_context() {
+        let db = crate::store::open(std::path::Path::new(":memory:")).unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        crate::store::set_user_name(&db, "친구", now).unwrap();
+        let character = crate::characters::active_character(&db, "a").unwrap();
+        let event = crate::widgets::WidgetEvent {
+            id: "mood".into(), instance_id: "mood".into(), widget_kind: "mood".into(),
+            revision: 0, created_at: now, expires_at: now + 1000,
+            event: crate::widgets::EventDraft {
+                kind: "mood.changed".into(), text: "".into(),
+                payload: json!({"character": character.id, "source": "focus", "from": 0, "to": 1}),
+            },
+        };
+        let context = build(&db, Some(&event), now, 0).unwrap();
+        assert_eq!(context.values["event.character"], "a");
+        assert_eq!(context.values["event.source"], "focus");
+        assert_eq!(context.values["event.from"], 0);
+        assert_eq!(context.values["event.to"], 1);
+        assert_eq!(context.values["character.a.daysTogether"], 1);
+        assert_eq!(context.values["character.a.momentCount"], 0);
+    }
 
     #[test]
     fn disabling_recall_hides_diary_values_from_all_talk_contexts() {

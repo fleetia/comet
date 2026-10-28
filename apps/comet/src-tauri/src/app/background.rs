@@ -21,7 +21,7 @@ use std::{
     time::Duration,
 };
 
-pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>) {
+pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>, mut mood_event_cursor: i64) {
     let mut interval = tokio::time::interval(Duration::from_millis(500));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
@@ -70,10 +70,14 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         });
         let _ = flush_positions(&state, false);
         let _ = advance_widgets(&app, &state);
+        let _ = crate::widgets::mood::advance(&app, &state, &mut mood_event_cursor);
         if crate::talk::host::play_activity_reaction(&app, &state).unwrap_or(false) {
             continue;
         }
         let _ = crate::diary::runtime::tick(&app, &state);
+        if play_mood_reaction(&app, &state).unwrap_or(false) {
+            continue;
+        }
         if crate::widgets::generated::commands::advance_reactions(&app, &state).unwrap_or(false) {
             continue;
         }
@@ -148,6 +152,61 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
             );
         }
     }
+}
+
+fn play_mood_reaction(app: &tauri::AppHandle, state: &Arc<AppState>) -> Result<bool, String> {
+    let pending = {
+        let _action = lock(&state.action)?;
+        let status = lock(&state.runtime)?.clone();
+        let db = lock(&state.db)?;
+        let settings = store::settings(&db)?;
+        if unavailable(state) || status.hidden || status.paused || !settings.autonomous_enabled
+            || storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
+            || super::quiet_hours::automatic_blocked(state, &settings)?
+        {
+            crate::characters::life::discard_mood_changes(state)?;
+            return Ok(false);
+        }
+        if status.phase != "idle" || state.launcher_open.load(Ordering::SeqCst)
+            || lock(&state.panel)?.is_some() || lock(&state.pack_stories)?.run.is_some()
+            || behavior::reactions_blocked(state)?
+        {
+            return Ok(false);
+        }
+        let Some(change) = crate::characters::life::pop_mood_change(state)? else {
+            return Ok(false);
+        };
+        if change.epoch != state.epoch.load(Ordering::SeqCst)
+            || !characters::active_ids(&db)?.contains(&change.character)
+        {
+            return Ok(false);
+        }
+        let previous_epoch = change.epoch;
+        let event = crate::widgets::WidgetEvent {
+            id: uuid::Uuid::new_v4().to_string(),
+            instance_id: String::new(), widget_kind: "mood".into(), revision: 0,
+            created_at: change.at, expires_at: change.at.saturating_add(60_000),
+            event: crate::widgets::EventDraft {
+                kind: "mood.changed".into(), text: String::new(),
+                payload: serde_json::json!({"character": change.character, "from": change.from, "to": change.to, "source": change.source}),
+            },
+        };
+        match crate::talk::host::prepare(state, &db, Some(&event))? {
+            Some(lines) => {
+                let prepared = lock(&state.talk_playback)?.take();
+                let token = super::interrupt_with_db(state, true, &db)?;
+                crate::characters::life::advance_mood_changes_epoch(state, previous_epoch, token.0)?;
+                *lock(&state.talk_playback)? = prepared;
+                Some((token, lines))
+            }
+            None => None,
+        }
+    };
+    if let Some((token, lines)) = pending {
+        super::scene::start_scene(app.clone(), state.clone(), lines, "talk", token, None);
+        return Ok(true);
+    }
+    Ok(false)
 }
 
 fn claim_recall_opportunity(db: &Connection) -> Result<bool, String> {
@@ -525,7 +584,7 @@ pub(crate) async fn run_background(
             &memories,
             chrono::Utc::now().timestamp_millis(),
         )?;
-        domain::with_user_context(
+        let mut prompt = domain::with_user_context(
             domain::roster_scene_prompt(
                 &characters,
                 &memories,
@@ -534,7 +593,13 @@ pub(crate) async fn run_background(
                 &installed,
             ),
             store::current_user(&db)?.as_ref(),
-        )
+        );
+        let moods = characters.iter().map(|character| {
+            Ok((character.id.clone(), crate::characters::life::mood(state, &character.id)?))
+        }).collect::<Result<std::collections::BTreeMap<_, _>, String>>()?;
+        let small = settings.mode == "apple" || (settings.mode == "local" && models::selected_small(&settings));
+        domain::with_moods(&mut prompt, &moods, !small, 7200);
+        prompt
     };
     let expressions =
         domain::generated_expressions(characters.iter().map(|member| &member.definition));

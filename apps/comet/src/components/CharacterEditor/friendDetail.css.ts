@@ -58,6 +58,16 @@ export const caption = style({
   color: tokens["color/ink-3"],
 });
 export const talk = style({ width: "100%", height: 40 });
+export const mood = style({
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  margin: 0,
+  fontSize: 13,
+  color: tokens["color/ink-2"],
+});
+export const moodArtwork = style({ width: 28, height: 28, flexShrink: 0 });
+globalStyle(`${moodArtwork} img, ${moodArtwork} > *`, { maxWidth: 28, maxHeight: 28 });
 export const together = style({
   width: "100%",
   display: "flex",

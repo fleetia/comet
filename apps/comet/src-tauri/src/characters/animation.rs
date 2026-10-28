@@ -59,6 +59,10 @@ pub struct Bindings {
     pub focus: Option<Binding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rest: Option<Binding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mood_high: Option<Binding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mood_low: Option<Binding>,
 }
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -188,6 +192,8 @@ pub fn validate_animation(
         &animation.bindings.sleep,
         &animation.bindings.focus,
         &animation.bindings.rest,
+        &animation.bindings.mood_high,
+        &animation.bindings.mood_low,
     ]
     .into_iter()
     .flatten()

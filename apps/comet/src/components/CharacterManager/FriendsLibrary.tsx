@@ -9,7 +9,7 @@ import {
 } from "@comet/ui";
 import { ChatIcon, CopyIcon, GripIcon, PlusIcon, ShareIcon } from "@comet/icon";
 import type { InstalledCharacter, InstalledCharacterPack, Snapshot } from "../../types";
-import { DEFAULT_EXPRESSION, spriteSource } from "../characterIdentity";
+import { DEFAULT_EXPRESSION, spriteSource, spriteUrl } from "../characterIdentity";
 import * as styles from "./friends.css";
 
 type Props = {
@@ -32,15 +32,20 @@ type Props = {
 export function FriendArtwork({
   character,
   compact = false,
+  expression = DEFAULT_EXPRESSION,
 }: {
   character: InstalledCharacter;
   compact?: boolean;
+  expression?: string;
 }): JSX.Element {
-  const sprite = spriteSource(character, DEFAULT_EXPRESSION);
+  const sprite =
+    expression === DEFAULT_EXPRESSION
+      ? spriteSource(character, expression)
+      : spriteUrl(character, expression);
   if (!sprite) {
     return (
       <CharacterArtwork
-        face={character.definition.expressions[DEFAULT_EXPRESSION]}
+        face={character.definition.expressions[expression]}
         size={compact ? "compact" : "large"}
       />
     );
