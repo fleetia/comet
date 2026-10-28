@@ -327,6 +327,11 @@ pub fn insert_moment(
         ).map_err(err)?;
         if inserted > 0 {
             bump_revision(conn)?;
+            if let Some(id) = widget_id {
+                if !crate::widgets::storage::reaction_enabled(conn, id)? {
+                    return Ok(true);
+                }
+            }
             conn.execute(
                 "INSERT OR IGNORE INTO moment_events(user_id,source,event,summary,created_at,widget_kind,widget_id) VALUES(?1,?2,?3,?4,?5,?6,?7)",
                 params![user_id, source, event, summary, at, widget_kind, widget_id],

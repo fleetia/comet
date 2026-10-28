@@ -1344,6 +1344,15 @@ pub(crate) fn set_reaction(db: &Connection, id: &str, enabled: bool) -> Result<(
     .map_err(err)?;
     tx.execute("DELETE FROM widget_state_pending WHERE widget_id=?1", [id])
         .map_err(err)?;
+    if !enabled {
+        let has_moment_events: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_temp_master WHERE type='table' AND name='moment_events')",
+            [], |row| row.get(0),
+        ).map_err(err)?;
+        if has_moment_events {
+            tx.execute("DELETE FROM moment_events WHERE widget_id=?1", [id]).map_err(err)?;
+        }
+    }
     if enabled {
         // Changes made while reactions were off become the next observation baseline.
         super::generated::invalidate_rule_source(&tx, id)?;

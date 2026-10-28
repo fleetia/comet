@@ -75,6 +75,29 @@ fn moment_queue_rolls_back_with_storage_and_does_not_survive_reopening() {
 }
 
 #[test]
+fn muted_widget_moments_are_saved_without_becoming_reactions_after_reenable() {
+    let db = open(Path::new(":memory:")).unwrap();
+    let widgets = crate::widgets::storage::instances(&db).unwrap();
+    let plant = widgets.iter().find(|widget| widget.kind == "plant").unwrap();
+    let fishing = widgets.iter().find(|widget| widget.kind == "fishing").unwrap();
+    let at = 1_800_000_000_000;
+
+    crate::widgets::storage::set_reaction(&db, &plant.id, false).unwrap();
+    assert!(insert_moment(&db, "a", "user", "muted-bloom", "꽃이 핀 날", at, None, json!({}), Some("plant"), Some(&plant.id)).unwrap());
+    crate::widgets::storage::set_reaction(&db, &plant.id, true).unwrap();
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:muted-bloom:%'", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM moment_events", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+
+    assert!(insert_moment(&db, "a", "user", "bloom", "새 꽃", at, None, json!({}), Some("plant"), Some(&plant.id)).unwrap());
+    assert!(insert_moment(&db, "a", "user", "first-catch", "첫 물고기", at, None, json!({}), Some("fishing"), Some(&fishing.id)).unwrap());
+    crate::widgets::storage::set_reaction(&db, &plant.id, false).unwrap();
+    crate::widgets::storage::set_reaction(&db, &plant.id, true).unwrap();
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM moment_events WHERE widget_id=?1", [&plant.id], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM moment_events WHERE widget_id=?1", [&fishing.id], |r| r.get::<_, i64>(0)).unwrap(), 1);
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:bloom:%'", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+}
+
+#[test]
 fn ai_input_choice_survives_reopen_and_duplicate_submissions_keep_original_choice() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("synthetic.sqlite");
