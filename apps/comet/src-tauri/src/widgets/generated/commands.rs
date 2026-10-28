@@ -227,8 +227,8 @@ fn validate_generation(
     }
     if let Some(id) = target {
         let widget = generated::get(db, id)?;
-        if !widget.installed || !widget.enabled {
-            return Err("위젯이 중지되거나 제거됐어요.".into());
+        if !widget.installed {
+            return Err("위젯이 제거됐어요.".into());
         }
     }
     Ok(())
@@ -326,6 +326,9 @@ fn observe_generated_state(
     )?;
     if reactions_blocked(state, db)? {
         generated::discard_pending(db)?;
+    } else if !storage::reaction_enabled(db, &widget.id)? {
+        db.execute("DELETE FROM widget_state_pending WHERE widget_id=?1", [&widget.id])
+            .map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -377,7 +380,7 @@ pub(crate) async fn generate_widget(
         }
         let previous = if let Some(id) = &id {
             let current = generated::get(&db, id)?;
-            if Some(current.revision) != expected_revision || !current.installed || !current.enabled
+            if Some(current.revision) != expected_revision || !current.installed
             {
                 return Err("위젯이 변경되었어요. 최신 상태에서 다시 요청해 주세요.".into());
             }
@@ -533,8 +536,8 @@ fn replace_current_definition(
     definition: generated::Definition,
 ) -> Result<generated::GeneratedWidget> {
     let current = generated::get(db, &previous.id)?;
-    if !current.installed || !current.enabled || current.definition != previous.definition {
-        return Err("위젯 코드가 변경되거나 중지됐어요. 최신 상태에서 다시 요청해 주세요.".into());
+    if !current.installed || current.definition != previous.definition {
+        return Err("위젯 코드가 변경되거나 제거됐어요. 최신 상태에서 다시 요청해 주세요.".into());
     }
     generated::replace(db, &current.id, current.revision, definition)
 }
@@ -836,30 +839,6 @@ pub(crate) fn report_generated_result(
 }
 
 #[tauri::command]
-pub(crate) fn set_generated_widget_enabled(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<AppState>>,
-    id: String,
-    expected_revision: i64,
-    enabled: bool,
-) -> Result<()> {
-    crate::widgets::commands::change(&state, |db| {
-        let widget = generated::set_enabled(db, &id, expected_revision, enabled)?;
-        if !enabled {
-            cancel_bound(&state, db, Some(&id), false, None)?;
-        }
-        observe_generated_state(&state, db, &widget)?;
-        Ok(widget)
-    })?;
-    if !enabled {
-        close_generated_inner(&app, &id)?;
-    }
-    crate::widgets::commands::cancel_widget_scene(&app, &state)?;
-    publish(&app);
-    Ok(())
-}
-
-#[tauri::command]
 pub(crate) fn restore_previous_generated_widget(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
@@ -999,7 +978,6 @@ fn validate_open(
     if epoch.is_some_and(|e| state.epoch.load(Ordering::SeqCst) != e)
         || crate::unavailable(state)
         || !widget.installed
-        || !widget.enabled
         || revision.is_some_and(|r| widget.revision != r)
     {
         return Err("위젯이 변경되거나 제작을 취소했어요.".into());
@@ -1009,8 +987,8 @@ fn validate_open(
 
 fn source_state(db: &rusqlite::Connection, id: &str) -> Result<(Value, i64)> {
     if let Ok(widget) = generated::get(db, id) {
-        if !widget.installed || !widget.enabled || widget.status != "ready" {
-            return Err("위젯을 켜고 실행을 확인해 주세요.".into());
+        if !widget.installed || widget.status != "ready" {
+            return Err("위젯 실행을 확인해 주세요.".into());
         }
         return Ok((widget.state, widget.revision));
     }
@@ -1018,7 +996,7 @@ fn source_state(db: &rusqlite::Connection, id: &str) -> Result<(Value, i64)> {
         .widgets
         .into_iter()
         .find(|widget| {
-            widget.instance.id == id && widget.instance.installed && widget.instance.enabled
+            widget.instance.id == id
         })
         .ok_or("현재 사용할 수 없는 위젯이에요.")?;
     Ok((widget.instance.data, widget.instance.revision))
@@ -1047,8 +1025,8 @@ fn editable_state(db: &rusqlite::Connection, id: &str) -> Result<Value> {
     let widget = storage::snapshot(db)?
         .widgets
         .into_iter()
-        .find(|w| w.instance.id == id && w.instance.installed)
-        .ok_or("현재 설치되지 않은 위젯이에요.")?;
+        .find(|w| w.instance.id == id)
+        .ok_or("현재 사용할 수 없는 위젯이에요.")?;
     Ok(widget.instance.data)
 }
 
@@ -1322,6 +1300,9 @@ pub(crate) fn close_widget_state_rules(app: tauri::AppHandle, id: String) -> Res
 pub(crate) fn event_current(db: &rusqlite::Connection, event: &WidgetEvent) -> Result<bool> {
     let pending: generated::PendingReaction =
         serde_json::from_value(event.event.payload.clone()).map_err(|e| e.to_string())?;
+    if !storage::reaction_enabled(db, &pending.widget_id)? {
+        return Ok(false);
+    }
     let Ok((data, revision)) = source_state(db, &pending.widget_id) else {
         return Ok(false);
     };
@@ -1433,6 +1414,9 @@ pub(crate) fn advance_reactions(app: &tauri::AppHandle, state: &Arc<AppState>) -
         let Some(pending) = generated::take_pending(&db, timestamp)? else {
             return Ok(false);
         };
+        if !storage::reaction_enabled(&db, &pending.widget_id)? {
+            return Ok(false);
+        }
         let Ok((data, revision)) = source_state(&db, &pending.widget_id) else {
             return Ok(false);
         };
@@ -1548,7 +1532,7 @@ pub(crate) async fn maybe_create(
         db.execute("INSERT INTO kv VALUES('generated.last-at',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[app::now().to_string()]).map_err(|e|e.to_string())?;
         let names: Vec<String> = generated::list(&db)?
             .iter()
-            .filter(|widget| widget.installed && widget.enabled)
+            .filter(|widget| widget.installed)
             .map(|w| format!("{}: {}", w.definition.name, w.definition.description))
             .chain(
                 widgets::catalog()?
@@ -1894,8 +1878,8 @@ mod tests {
             runtime.paused = false;
         }
         let directory = tempfile::tempdir().unwrap();
-        crate::widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
-        let timer = crate::widgets::storage::instances(&db).unwrap().remove(0);
+        crate::widgets::storage::verify_packages(&db, directory.path()).unwrap();
+        let timer = crate::widgets::storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "focus-timer").unwrap();
         let at = chrono::Utc::now().timestamp_millis();
         let mut focus = timer.data.clone();
         focus["status"] = serde_json::json!("running");
@@ -1904,7 +1888,7 @@ mod tests {
             .unwrap();
         assert!(!automatic_allowed(&state, &db, &settings).unwrap());
         assert!(reactions_blocked(&state, &db).unwrap());
-        let mut idle = crate::widgets::storage::instances(&db).unwrap().remove(0);
+        let mut idle = crate::widgets::storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "focus-timer").unwrap();
         idle.data["status"] = serde_json::json!("idle");
         crate::widgets::storage::commit_data(&db, &idle.id, idle.revision, idle.data, vec![], at)
             .unwrap();

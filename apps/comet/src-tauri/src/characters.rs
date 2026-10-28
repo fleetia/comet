@@ -1444,6 +1444,7 @@ fn export_pack_contents(
                 .iter_mut()
                 .chain(&mut scenario.accept)
                 .chain(&mut scenario.decline)
+                .chain(&mut scenario.defer)
                 .chain(&mut scenario.ending)
             {
                 line.motion = line.motion.without_images();
@@ -1477,6 +1478,13 @@ fn export_pack_contents(
         })
     {
         pack.format_version = 8;
+    }
+    if pack
+        .scenarios
+        .iter()
+        .any(|scene| scene.reveal_affinity.is_some() || !scene.defer.is_empty())
+    {
+        pack.format_version = 12;
     }
     validation::validate_pack_metadata(&pack)?;
     Ok(pack)

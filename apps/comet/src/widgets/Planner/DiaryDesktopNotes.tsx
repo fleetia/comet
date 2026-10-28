@@ -38,7 +38,7 @@ export function DiaryDesktopNoteDetail({
 }): ReactElement {
   const { widget, note, key } = item;
   const id = text(note.id);
-  const unavailable = props.busy || !widget.installed || !widget.enabled;
+  const unavailable = props.busy;
   const payload: WidgetDragPayload = { v: 1, kind: "memo", widgetId: widget.id, itemId: id };
   return (
     <DiaryNoteDetail
@@ -97,9 +97,7 @@ export function DiaryDesktopNoteDetail({
             <div className={ns.metadataCopy}>
               <span className={ns.metadataLabel}>바탕화면</span>
               <span className={ns.caption}>
-                {!widget.installed || !widget.enabled
-                  ? "위젯 설정에서 메모를 켜면 다시 꺼낼 수 있어요."
-                  : "낱장으로 꺼내 두고 고쳐도 여기에 함께 반영돼요."}
+                낱장으로 꺼내 두고 고쳐도 여기에 함께 반영돼요.
               </span>
             </div>
             <Select
