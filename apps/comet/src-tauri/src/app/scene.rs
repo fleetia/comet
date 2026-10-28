@@ -624,7 +624,7 @@ async fn show_link_hint(
                 &actor,
             )?;
         } else {
-            store::insert_message_with_source(&db, &message, LINK_HINT_SOURCE, None, false)?;
+            store::insert_message_with_playback(&db, &message, LINK_HINT_SOURCE, None, false, None)?;
         }
         db.execute(
             "INSERT INTO message_playback(message_id,revision,line) VALUES(?1,?2,?3)",
