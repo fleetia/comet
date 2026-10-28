@@ -3038,6 +3038,90 @@
         "pet.status": "enabled"
       },
       "expectedScene": "pet.arrived"
+    },
+    {
+      "id": "activity.long-session.editor",
+      "path": "situations/solo.talk",
+      "trigger": "activity.long-session",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "activity.ready": true,
+        "activity.category": "editor"
+      },
+      "expectedScene": "activity.long-session"
+    },
+    {
+      "id": "activity.long-session.browser",
+      "path": "situations/solo.talk",
+      "trigger": "activity.long-session",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "activity.ready": true,
+        "activity.category": "browser"
+      },
+      "expectedScene": "activity.long-session"
+    },
+    {
+      "id": "activity.long-session.other",
+      "path": "situations/solo.talk",
+      "trigger": "activity.long-session",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "activity.ready": true,
+        "activity.category": "other"
+      },
+      "expectedScene": "activity.long-session"
+    },
+    {
+      "id": "activity.idle-return.editor",
+      "path": "situations/solo.talk",
+      "trigger": "activity.idle-return",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "activity.ready": true,
+        "activity.category": "editor"
+      },
+      "expectedScene": "activity.idle-return"
+    },
+    {
+      "id": "activity.idle-return.browser",
+      "path": "situations/solo.talk",
+      "trigger": "activity.idle-return",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "activity.ready": true,
+        "activity.category": "browser"
+      },
+      "expectedScene": "activity.idle-return"
+    },
+    {
+      "id": "activity.idle-return.other",
+      "path": "situations/solo.talk",
+      "trigger": "activity.idle-return",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "activity.ready": true,
+        "activity.category": "other"
+      },
+      "expectedScene": "activity.idle-return"
     }
   ]
 }

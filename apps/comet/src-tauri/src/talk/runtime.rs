@@ -1181,8 +1181,8 @@ mod dialogue_upgrade_tests {
         reset_upgrade(directory.path());
         initialize_files(directory.path()).unwrap();
         let after = super::super::load_bundle(&root, &super::super::context::registry()).unwrap();
-        // The two inputs contribute 18 solo scenes and 8 pair scenes in total.
-        assert_eq!(after.scenes.len(), before.scenes.len() + 26);
+        // The two inputs contribute 20 solo scenes and 8 pair scenes in total.
+        assert_eq!(after.scenes.len(), before.scenes.len() + 28);
         let added: std::collections::BTreeSet<_> = after
             .scenes
             .iter()
@@ -1210,6 +1210,8 @@ mod dialogue_upgrade_tests {
                 "solo.staying-near",
                 "solo.new-friend",
                 "solo.close-friend",
+                "activity.long-session",
+                "activity.idle-return",
                 "situation.unfinished-syllable",
                 "situation.small-game",
                 "situation.shared-quiet",
