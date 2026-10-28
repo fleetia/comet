@@ -678,6 +678,14 @@ fn finish_playback_link(state: &AppState, db: &rusqlite::Connection) -> Result<u
     Ok(epoch)
 }
 
+fn playback_link_for_open(state: &AppState, playback_id: &str) -> Result<crate::types::PlaybackLink, String> {
+    lock(&state.playback)?
+        .as_ref()
+        .filter(|line| line.id == playback_id)
+        .and_then(|line| line.link.clone())
+        .ok_or_else(|| "대사가 바뀌어 위젯을 열지 않았어요.".into())
+}
+
 #[tauri::command]
 pub(crate) async fn open_playback_link(
     app: tauri::AppHandle,
@@ -686,15 +694,7 @@ pub(crate) async fn open_playback_link(
 ) -> Result<bool, String> {
     let link = {
         let _action = lock(&state.action)?;
-        let playback = lock(&state.playback)?;
-        let Some(link) = playback
-            .as_ref()
-            .filter(|line| line.id == playback_id)
-            .and_then(|line| line.link.clone())
-        else {
-            return Ok(false);
-        };
-        link
+        playback_link_for_open(&state, &playback_id)?
     };
     let planner = link
         .item
@@ -710,12 +710,7 @@ pub(crate) async fn open_playback_link(
     if let Some((tab, entity, id)) = planner {
         let epoch = {
             let _action = lock(&state.action)?;
-            if !lock(&state.playback)?
-                .as_ref()
-                .is_some_and(|line| line.id == playback_id)
-            {
-                return Ok(false);
-            }
+            validate_playback_open(&state, Some(&playback_id))?;
             let db = lock(&state.db)?;
             crate::widgets::planning::windows::open_playback_target(&app, &db, tab, entity, id)?;
             finish_playback_link(&state, &db)?
@@ -733,12 +728,7 @@ pub(crate) async fn open_playback_link(
     if let Some(item) = link.item.as_ref().filter(|item| item.entity == "travel") {
         let epoch = {
             let _action = lock(&state.action)?;
-            if !lock(&state.playback)?
-                .as_ref()
-                .is_some_and(|line| line.id == playback_id)
-            {
-                return Ok(false);
-            }
+            validate_playback_open(&state, Some(&playback_id))?;
             let db = lock(&state.db)?;
             let target = crate::diary::travel_exists(&db, &item.id)?.then(|| item.id.clone());
             crate::widgets::planning::windows::open_playback_travel(&app, target)?;
@@ -756,12 +746,7 @@ pub(crate) async fn open_playback_link(
     }
     if matches!(link.kind.as_str(), "clock" | "weather") {
         let _action = lock(&state.action)?;
-        if !lock(&state.playback)?
-            .as_ref()
-            .is_some_and(|line| line.id == playback_id)
-        {
-            return Ok(false);
-        }
+        validate_playback_open(&state, Some(&playback_id))?;
         let label =
             crate::widgets::desktop::playback_window_label(&*lock(&state.db)?, &link.instance_id)?;
         if let Some(window) = label.and_then(|label| app.get_webview_window(&label)) {
@@ -804,12 +789,7 @@ pub(crate) async fn open_playback_link(
     }
     let epoch = {
         let _action = lock(&state.action)?;
-        if !lock(&state.playback)?
-            .as_ref()
-            .is_some_and(|line| line.id == playback_id)
-        {
-            return Ok(false);
-        }
+        validate_playback_open(&state, Some(&playback_id))?;
         let db = lock(&state.db)?;
         finish_playback_link(&state, &db)?
     };
@@ -1473,6 +1453,23 @@ fn fallback_reaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn playback_link_open_rejects_missing_and_changed_lines() {
+        let state = crate::app::tests::state();
+        let error = "대사가 바뀌어 위젯을 열지 않았어요.";
+        assert_eq!(playback_link_for_open(&state, "old").unwrap_err(), error);
+        *lock(&state.playback).unwrap() = Some(serde_json::from_value(serde_json::json!({
+            "id":"old", "persona":"a", "expression":"평온", "text":"날씨",
+            "source":"talk", "link":{"instanceId":"weather","kind":"weather","label":"날씨"},
+            "endsAt":0,"lineIndex":0,"lineCount":1
+        })).unwrap());
+        assert_eq!(playback_link_for_open(&state, "old").unwrap().kind, "weather");
+        assert!(validate_playback_open(&state, Some("old")).is_ok());
+        lock(&state.playback).unwrap().as_mut().unwrap().id = "new".into();
+        assert_eq!(playback_link_for_open(&state, "old").unwrap_err(), error);
+        assert_eq!(validate_playback_open(&state, Some("old")).unwrap_err(), error);
+    }
 
     #[test]
     fn widget_navigation_opens_the_matching_planner_destination() {
