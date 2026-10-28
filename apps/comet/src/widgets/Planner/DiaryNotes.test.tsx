@@ -163,8 +163,7 @@ it("filters both stores and autosaves the desktop original with both conflict gu
   const widget = {
     id: "memo",
     kind: "memo",
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 1,
     version: 1,
     data: { notes: [{ id: "desktop", title: "바깥 생각", body: "바탕화면 원문", isOpen: true }] },

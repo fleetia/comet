@@ -211,14 +211,12 @@ fn time_record_undo_restores_split_intervals_without_losing_later_records() {
 }
 
 #[test]
-fn registry_only_exposes_installed_actions_and_keeps_connection_secrets_out() {
+fn registry_exposes_official_actions_and_keeps_connection_secrets_out() {
     let db = database();
-    let directory = tempfile::tempdir().unwrap();
-    assert!(!catalog(&db)
+    assert!(catalog(&db)
         .unwrap()
         .iter()
         .any(|item| item["id"] == "music_query"));
-    storage::install(&db, directory.path(), &["music".into(), "weather".into()]).unwrap();
     let widget = storage::instances(&db)
         .unwrap()
         .into_iter()
@@ -350,13 +348,6 @@ fn time_colons_preserve_requests_without_opening_quoted_instructions() {
 #[test]
 fn widget_controls_have_receipts_and_explicitly_cannot_be_undone() {
     let db = database();
-    let directory = tempfile::tempdir().unwrap();
-    storage::install(
-        &db,
-        directory.path(),
-        &["small-match".into(), "focus-timer".into()],
-    )
-    .unwrap();
     let dice = run(&db, "match_dice", "", json!({}));
     assert_eq!(dice.undo_supported, Some(false));
     assert!(!dice.result.as_ref().unwrap()["a"]
@@ -384,13 +375,6 @@ fn widget_controls_have_receipts_and_explicitly_cannot_be_undone() {
 #[test]
 fn task_focus_start_clears_previous_context_and_preserves_source_records() {
     let db = database();
-    let directory = tempfile::tempdir().unwrap();
-    storage::install(
-        &db,
-        directory.path(),
-        &["todo".into(), "focus-timer".into()],
-    )
-    .unwrap();
     let task = run(
         &db,
         "task_add",
@@ -472,8 +456,6 @@ fn task_focus_start_clears_previous_context_and_preserves_source_records() {
 #[test]
 fn task_partial_edit_preserves_recurrence_and_undo_respects_diary_references() {
     let db = database();
-    let directory = tempfile::tempdir().unwrap();
-    storage::install(&db, directory.path(), &["todo".into()]).unwrap();
     let task = run(
         &db,
         "task_add",
@@ -505,13 +487,6 @@ fn task_partial_edit_preserves_recurrence_and_undo_respects_diary_references() {
 fn preparation_create_receipt_selects_the_new_envelope_and_undo_preserves_existing_records() {
     let db = database();
     let user = store::active_user_id(&db).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    storage::install(
-        &db,
-        directory.path(),
-        &["preparation".into(), "calendar".into()],
-    )
-    .unwrap();
     let event = run(
         &db,
         "event_add",
@@ -572,8 +547,6 @@ fn preparation_create_receipt_selects_the_new_envelope_and_undo_preserves_existi
 #[test]
 fn calendar_query_accepts_rfc3339_bounds_as_inclusive_calendar_dates() {
     let db = database();
-    let directory = tempfile::tempdir().unwrap();
-    storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
     for (title, start, end) in [
         ("어제 일정", "2026-10-20", "2026-10-21"),
         ("오늘 종일 일정", "2026-10-21", "2026-10-22"),
@@ -631,8 +604,6 @@ fn calendar_query_accepts_rfc3339_bounds_as_inclusive_calendar_dates() {
 #[test]
 fn calendar_query_rejects_invalid_ambiguous_and_reversed_date_bounds() {
     let db = database();
-    let directory = tempfile::tempdir().unwrap();
-    storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
     for bounds in [
         json!({"from":"2026-02-30"}),
         json!({"through":"2026-02-30T23:59:59+09:00"}),
@@ -652,8 +623,6 @@ fn calendar_query_rejects_invalid_ambiguous_and_reversed_date_bounds() {
 #[test]
 fn calendar_query_includes_timed_events_and_remote_events_remain_read_only() {
     let db = database();
-    let directory = tempfile::tempdir().unwrap();
-    storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
     let start = chrono::DateTime::parse_from_rfc3339("2026-10-18T10:00:00+09:00")
         .unwrap()
         .timestamp_millis();
@@ -708,8 +677,6 @@ fn calendar_query_includes_timed_events_and_remote_events_remain_read_only() {
 #[test]
 fn memo_owners_are_distinct_and_open_drafts_are_protected() {
     let db = database();
-    let directory = tempfile::tempdir().unwrap();
-    storage::install(&db, directory.path(), &["memo".into()]).unwrap();
     run(
         &db,
         "note_create",
@@ -772,8 +739,6 @@ fn memo_owners_are_distinct_and_open_drafts_are_protected() {
 #[test]
 fn undo_removes_new_default_fields_instead_of_storing_invalid_nulls() {
     let db = database();
-    let directory = tempfile::tempdir().unwrap();
-    storage::install(&db, directory.path(), &["clock".into()]).unwrap();
     let before = storage::instances(&db)
         .unwrap()
         .into_iter()
@@ -806,8 +771,6 @@ fn undo_removes_new_default_fields_instead_of_storing_invalid_nulls() {
 #[test]
 fn deleting_or_undoing_a_referenced_task_is_atomic_and_rejected() {
     let db = database();
-    let directory = tempfile::tempdir().unwrap();
-    storage::install(&db, directory.path(), &["todo".into()]).unwrap();
     let task = run(&db, "task_add", "", json!({"title":"원고 쓰기"}));
     let page = run(&db, "page_create", "", json!({"title":"오늘"}));
     let revision = entities_for(&db, "page_record", "").unwrap()["revision"]

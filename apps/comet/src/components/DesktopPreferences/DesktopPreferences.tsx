@@ -265,12 +265,12 @@ export function DesktopPreferences({
                   pending ||
                   !loaded ||
                   !widgets.snapshot?.widgets.some(
-                    (item) => item.kind === toy.id && item.installed && item.enabled,
+                    (item) => item.kind === toy.id,
                   )
                 }
                 onClick={() => {
                   const target = widgets.snapshot?.widgets.find(
-                    (item) => item.kind === toy.id && item.installed && item.enabled,
+                    (item) => item.kind === toy.id,
                   );
                   if (target)
                     void command("execute_widget", {

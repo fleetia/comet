@@ -135,8 +135,7 @@ export function Planner({
   const { snapshot, error: loadError, reload } = useWidgets();
   const widgets = snapshot?.widgets ?? [];
   const enabled = (kind: string): WidgetView | undefined =>
-    widgets.find((w) => w.kind === kind && w.installed && w.enabled);
-  const todoInstalled = widgets.some((widget) => widget.kind === "todo" && widget.installed);
+    widgets.find((w) => w.kind === kind);
   const todo = enabled("todo"),
     calendar = enabled("calendar"),
     preparation = enabled("preparation"),
@@ -261,14 +260,6 @@ export function Planner({
     if (isDesktop()) void run(() => command("open_planner_settings", { kind }));
     else window.location.assign(`/?view=settings&section=widgets&preview=installed`);
   }
-  async function enableTodo(): Promise<void> {
-    const existing = widgets.find((w) => w.kind === "todo");
-    await run(() =>
-      existing?.installed
-        ? command("set_widget_enabled", { id: existing.id, enabled: true })
-        : command("install_widgets", { kinds: ["todo"] }),
-    );
-  }
   function edit(item: DataRecord, field?: TodoEditorField): void {
     if (todo) setEditing({ item, widget: todo, field });
   }
@@ -367,7 +358,6 @@ export function Planner({
         lists={lists}
         envelopes={rows(record(preparation?.data).envelopes)}
         todo={todo}
-        todoInstalled={todoInstalled}
         calendar={calendar}
         busy={busy}
         act={act}
@@ -389,7 +379,6 @@ export function Planner({
         }}
         onManageLists={() => setManageLists(true)}
         onWrap={openWrap}
-        onEnableTodo={enableTodo}
       />
     );
   }
@@ -578,7 +567,6 @@ export function Planner({
                     inboxCount={inboxCount}
                     selectedTask={selectedTask}
                     hasTodo={Boolean(todo)}
-                    todoInstalled={todoInstalled}
                     calendar={calendar}
                     busy={busy}
                     act={act}
@@ -590,7 +578,6 @@ export function Planner({
                       setPeriod("inbox");
                       selectTab("plans");
                     }}
-                    onEnableTodo={enableTodo}
                     onTemplates={() => selectTab("templates")}
                     onSelectTask={setSelectedTask}
                     onEdit={edit}
@@ -610,7 +597,6 @@ export function Planner({
               visibleList={visibleList}
               showCompleted={showCompleted}
               hasTodo={Boolean(todo)}
-              todoInstalled={todoInstalled}
               headerActions={Boolean(headerActionsTarget)}
               busy={busy}
               act={act}
@@ -622,7 +608,6 @@ export function Planner({
               onShowCompletedChange={setShowCompleted}
               onManageLists={() => setManageLists(true)}
               onEdit={edit}
-              onEnableTodo={enableTodo}
             />
           </PlannerPanel>
           {!embedded && (
@@ -674,9 +659,6 @@ export function Planner({
               />
             ) : (
               <PlannerTodoEmpty
-                installed={todoInstalled}
-                busy={busy}
-                onEnable={enableTodo}
                 message="할 일을 시작하면 템플릿을 사용할 수 있어요."
               />
             )}

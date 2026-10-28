@@ -369,7 +369,7 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
         let Ok(instance) = widgets::storage::get(&db, &outcome.widget_id) else {
             continue;
         };
-        if !instance.installed || !instance.enabled || instance.revision != outcome.revision {
+        if instance.revision != outcome.revision {
             continue;
         }
         let payload = serde_json::json!({"actorId":outcome.actor_id,"popped":outcome.popped,"automatic":outcome.automatic,"owner":outcome.owner});
@@ -418,8 +418,7 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
         let eligible: Vec<_> = widgets::storage::instances(&db)?
             .into_iter()
             .filter(|instance| {
-                instance.installed
-                    && instance.enabled
+                !widgets::is_retired(&instance.kind)
                     && preferences.allowed_toys.contains(&instance.kind)
             })
             .collect();
@@ -574,12 +573,7 @@ mod tests {
             let (event, token, revision) = {
                 let _action = lock(&state.action).unwrap();
                 let db = lock(&state.db).unwrap();
-                widgets::storage::install(
-                    &db,
-                    directory.path(),
-                    &["focus-timer".into(), "ball".into()],
-                )
-                .unwrap();
+                widgets::storage::verify_packages(&db, directory.path()).unwrap();
                 let timer = widgets::storage::instances(&db)
                     .unwrap()
                     .into_iter()

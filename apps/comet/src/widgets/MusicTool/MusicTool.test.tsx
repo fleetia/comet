@@ -20,8 +20,7 @@ function widget(
   return {
     id: "music",
     kind: "music",
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 7,
     version: 1,
     error: null,

@@ -1,12 +1,14 @@
 import { useId, useLayoutEffect, useState, type CSSProperties, type JSX } from "react";
-import { Balloon, WaitingDots } from "@comet/ui";
+import { Balloon, ConstellationChoices, WaitingDots } from "@comet/ui";
 import type { Snapshot } from "../../types";
+import { command } from "../../hooks/useSnapshot";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
 import { skinStyle, useImageSlice } from "../../hooks/useImageSlice";
 import { useTypewriter } from "../../hooks/useTypewriter";
 import { activeCharacter, BALLOON_SPRITE, characterName, spriteUrl } from "../characterIdentity";
 import { balloonTextStyle } from "../balloonTypography";
 import { responseOrigin } from "./conversationStatus";
+import { useFollowUpChoice } from "./useFollowUpChoice";
 import * as companion from "../companion.css";
 import * as styles from "./conversationSurface.css";
 
@@ -41,6 +43,15 @@ export function ConversationResponse({ snapshot, preview = false }: Props): JSX.
   const [error, setError] = useState<string | null>(null);
   const mode = snapshot.panel?.mode;
   const active = mode === "input" || mode === "history-input";
+  const followUps = snapshot.followUps;
+  const followUpChoice = useFollowUpChoice(
+    mode === "input" &&
+      followUps?.surface === "input" &&
+      followUps.sessionId === conversation?.session.id
+      ? followUps
+      : null,
+    command,
+  );
   const contentKey = snapshot.panel
     ? `panel:${snapshot.panel.persona}:${snapshot.panel.mode}${snapshot.playback ? `:playback:${snapshot.playback.id}` : ""}`
     : "conversation:closed";
@@ -123,6 +134,25 @@ export function ConversationResponse({ snapshot, preview = false }: Props): JSX.
           </span>
         )}
       </Balloon>
+      {mode === "input" &&
+        !snapshot.playback &&
+        !responding &&
+        !revealing &&
+        followUps?.surface === "input" &&
+        followUps.sessionId === conversation?.session.id &&
+        followUps.messageId === latestReply?.id && (
+          <>
+            <ConstellationChoices
+              label="이어서 할 말"
+              options={followUps.options.map((option) => ({
+                ...option,
+                disabled: followUpChoice.pending,
+              }))}
+              onChoose={(id) => void followUpChoice.choose(id)}
+            />
+            {followUpChoice.error && <p role="alert">{followUpChoice.error}</p>}
+          </>
+        )}
       {error && <p role="alert">{error}</p>}
     </section>
   );
