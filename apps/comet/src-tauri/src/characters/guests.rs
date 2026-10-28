@@ -1276,7 +1276,7 @@ mod tests {
         assert!(interact_locked(&state, &db, id, "poke", &gesture, 11000)
             .unwrap()
             .is_none());
-        assert!(interact_locked(
+        let milestone = interact_locked(
             &state,
             &db,
             &request.center_id,
@@ -1285,7 +1285,9 @@ mod tests {
             11000
         )
         .unwrap()
-        .is_none());
+        .unwrap();
+        assert_eq!(milestone.event.kind, "interaction.milestone");
+        assert_eq!(milestone.event.payload["milestone"], 1);
         assert_eq!(
             characters::active_ids(&db).unwrap(),
             vec![request.center_id]
