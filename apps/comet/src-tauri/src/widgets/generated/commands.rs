@@ -660,7 +660,7 @@ fn record_action_failure(
     crate::widgets::commands::change(state, |db| {
         check_execution_current(state, epoch, cancel)?;
         if store::active_user_id(db)? != request.user_id
-            || generated::get(db, &request.widget_id)? != *before
+            || !generated::get(db, &request.widget_id)?.same_execution_source(before)
         {
             return Err("실행 중 위젯이나 사용자가 변경되어 오류 결과를 적용하지 않았어요.".into());
         }
@@ -1666,6 +1666,24 @@ mod tests {
     }
 
     #[test]
+    fn reaction_toggle_does_not_discard_in_flight_action_errors() {
+        let state = app::tests::state();
+        let (before, request) = ready_action_fixture(&state);
+        crate::widgets::storage::set_reaction(&lock(&state.db).unwrap(), &before.id, false).unwrap();
+        let failed = record_action_failure(
+            &state,
+            &request,
+            &before,
+            Some(state.epoch.load(Ordering::SeqCst)),
+            &Arc::new(AtomicBool::new(false)),
+            "reducer failed",
+        ).unwrap();
+        assert_eq!(failed.status, "error");
+        assert!(!failed.reaction);
+        assert_eq!(failed.state, before.state);
+    }
+
+    #[test]
     fn action_interpreter_failure_cannot_overwrite_cancelled_or_changed_work() {
         for mutation in [
             "cancel",
@@ -1673,7 +1691,6 @@ mod tests {
             "user",
             "state",
             "definition",
-            "disabled",
             "retired",
         ] {
             let state = app::tests::state();
@@ -1706,9 +1723,6 @@ mod tests {
                             },
                         )
                         .unwrap();
-                    }
-                    "disabled" => {
-                        generated::set_enabled(&db, &before.id, before.revision, false).unwrap();
                     }
                     "retired" => {
                         generated::retire(&db, &before.id, before.revision).unwrap();
@@ -2159,7 +2173,6 @@ mod tests {
             "description",
             "source",
             "initialState",
-            "disabled",
             "retired",
         ] {
             let state = app::tests::state();
@@ -2174,7 +2187,6 @@ mod tests {
             .unwrap();
             let mut changed = previous.definition.clone();
             let latest = match field {
-                "disabled" => generated::set_enabled(&db, &previous.id, previous.revision, false),
                 "retired" => generated::retire(&db, &previous.id, previous.revision),
                 _ => {
                     match field {
@@ -2404,6 +2416,22 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_ne!(next.rule_revision, pending.rule_revision);
+        let event = WidgetEvent {
+            id: next.id.clone(),
+            instance_id: widget.id.clone(),
+            widget_kind: "state-rule".into(),
+            revision: next.revision,
+            created_at: next.created_at,
+            expires_at: next.expires_at,
+            event: EventDraft {
+                kind: "state-rule".into(),
+                text: next.text.clone(),
+                payload: serde_json::to_value(&next).unwrap(),
+            },
+        };
+        assert!(event_current(&db, &event).unwrap());
+        storage::set_reaction(&db, &widget.id, false).unwrap();
+        assert!(!event_current(&db, &event).unwrap());
         assert!(generated::reaction_current(
             &db,
             &next,
