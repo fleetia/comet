@@ -766,7 +766,7 @@ fn parse_windows_battery(output: &str, now: i64) -> Result<Value, ConnectionErro
             return Err(failure("offline", "배터리 잔량이 올바르지 않아요."));
         }
         let status = match row.battery_status {
-            Some(1) => "discharging",
+            Some(1 | 4 | 5) => "discharging",
             Some(3) => "charged",
             Some(6..=9) => "charging",
             Some(2) => "ac",
@@ -987,6 +987,27 @@ mod tests {
             let mut repeated = next.clone();
             let (_, critical_again) = device_events(&next, &mut repeated);
             assert!(!critical_again);
+        }
+    }
+
+    #[test]
+    fn windows_low_and_critical_statuses_follow_discharge_thresholds() {
+        for (status, percent, expected) in [(4, 19, "device.low"), (5, 9, "device.critical")] {
+            let output = format!(
+                r#"[{{"EstimatedChargeRemaining":{percent},"BatteryStatus":{status}}}]"#
+            );
+            let observation = parse_windows_battery(&output, 100).unwrap();
+            assert_eq!(observation["batteries"][0]["status"], "discharging");
+            let mut next = json!({"config": {}, "observation": observation});
+            let (events, critical) = device_events(&Value::Null, &mut next);
+            assert!(events.iter().any(|event| event.kind == expected));
+            assert_eq!(critical, status == 5);
+            let mut charging = json!({
+                "config": {},
+                "observation": {"batteries": [{"status": "charging", "percent": percent}]}
+            });
+            let (events, _) = device_events(&next, &mut charging);
+            assert!(events.iter().any(|event| event.kind == "device.charging-started"));
         }
     }
 

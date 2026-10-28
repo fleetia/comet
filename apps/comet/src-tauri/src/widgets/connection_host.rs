@@ -1255,6 +1255,16 @@ pub(crate) async fn music_bridge_pair(
     outcome
 }
 
+fn add_wake_event_if_no_transition(events: &mut Vec<super::EventDraft>) {
+    if events.is_empty() {
+        events.push(super::EventDraft {
+            kind: "device-woke".into(),
+            text: "다시 깨어났어요.".into(),
+            payload: json!({}),
+        });
+    }
+}
+
 fn begin_information(state: &AppState, id: &str, manual: bool, time: i64) -> Result<Job, String> {
     begin(state, id, None, |instance| {
         if !manual && lock(&state.widget_jobs)?.contains_key(id) {
@@ -1355,11 +1365,7 @@ async fn refresh_information(
                 && wake_event_allowed(state, db)?
                 && current.data["config"]["allowTalk"] != false
             {
-                events.push(super::EventDraft {
-                    kind: "device-woke".into(),
-                    text: "다시 깨어났어요.".into(),
-                    payload: json!({}),
-                });
+                add_wake_event_if_no_transition(&mut events);
             }
             if current.kind == "device" {
                 data["pendingWakeAt"] = Value::Null;
@@ -1550,6 +1556,31 @@ mod tests {
         data["configured"] = json!(configured);
         storage::commit_data(&db, &instance.id, instance.revision, data, vec![], 1).unwrap();
         instance.id
+    }
+
+    #[test]
+    fn wake_does_not_hide_a_battery_transition_from_reaction_selection() {
+        for (before, after, percent, expected) in [
+            ("discharging", "discharging", 80, "device-woke"),
+            ("discharging", "discharging", 19, "device.low"),
+            ("discharging", "discharging", 9, "device.critical"),
+            ("charging", "charged", 100, "device.charged"),
+        ] {
+            let state = crate::lifecycle_tests::state();
+            let id = installed_information(&state, "device", true);
+            let db = lock(&state.db).unwrap();
+            let instance = storage::get(&db, &id).unwrap();
+            let mut previous = instance.data.clone();
+            previous["observation"] = json!({"batteries": [{"status": before, "percent": 99}]});
+            let mut next = previous.clone();
+            next["observation"] = json!({"batteries": [{"status": after, "percent": percent}]});
+            let (mut events, _) = connections::device_events(&previous, &mut next);
+            add_wake_event_if_no_transition(&mut events);
+            storage::commit_data(&db, &id, instance.revision, next, events, 100).unwrap();
+            let selected = storage::take_reaction(&db, 101).unwrap().unwrap();
+            assert_eq!(selected.event.kind, expected);
+            assert!(storage::take_reaction(&db, 102).unwrap().is_none());
+        }
     }
 
     #[test]
