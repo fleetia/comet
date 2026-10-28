@@ -1333,6 +1333,10 @@ fn observe_official_rules(db: &rusqlite::Connection, timestamp: i64) -> Result<(
         match source_state(db, &id) {
             Ok((data, revision)) => {
                 let _ = generated::evaluate_rules(db, &id, &data, revision, timestamp);
+                if !storage::reaction_enabled(db, &id)? {
+                    db.execute("DELETE FROM widget_state_pending WHERE widget_id=?1", [&id])
+                        .map_err(|error| error.to_string())?;
+                }
             }
             Err(_) => {
                 reset_rule_baseline(db, &id)?;
@@ -2291,27 +2295,27 @@ mod tests {
     }
 
     #[test]
-    fn disabled_official_widget_resets_baseline_without_replaying_on_reactivation() {
+    fn official_reaction_off_discards_state_changes_without_replaying_on_reactivation() {
         let state = app::tests::state();
         let db = lock(&state.db).unwrap();
-        let id = uuid::Uuid::new_v4().to_string();
+        let id: String = db
+            .query_row("SELECT id FROM widget_instances WHERE kind='memo'", [], |row| row.get(0))
+            .unwrap();
         db.execute(
-            "INSERT INTO widget_instances VALUES(?1,'memo',1,1,1,1,'{\"count\":0}',NULL)",
+            "UPDATE widget_instances SET data='{\"count\":0}',revision=1 WHERE id=?1",
             [&id],
         )
         .unwrap();
         generated::save_rules(&db, &id, vec![rule(&id)], &json!({"count":0})).unwrap();
+        storage::set_reaction(&db, &id, false).unwrap();
         db.execute(
-            "UPDATE widget_instances SET enabled=0,data='{\"count\":1}',revision=2 WHERE id=?1",
+            "UPDATE widget_instances SET data='{\"count\":1}',revision=2 WHERE id=?1",
             [&id],
         )
         .unwrap();
         observe_official_rules(&db, 1000).unwrap();
-        db.execute(
-            "UPDATE widget_instances SET enabled=1,revision=3 WHERE id=?1",
-            [&id],
-        )
-        .unwrap();
+        assert!(generated::take_pending(&db, 1000).unwrap().is_none());
+        storage::set_reaction(&db, &id, true).unwrap();
         observe_official_rules(&db, 1100).unwrap();
         assert!(generated::take_pending(&db, 1100).unwrap().is_none());
         db.execute(
@@ -2327,6 +2331,22 @@ mod tests {
         .unwrap();
         observe_official_rules(&db, 1300).unwrap();
         assert!(generated::take_pending(&db, 1300).unwrap().is_some());
+
+        db.execute(
+            "UPDATE widget_instances SET data='{\"count\":0}',revision=6 WHERE id=?1",
+            [&id],
+        )
+        .unwrap();
+        observe_official_rules(&db, 1400).unwrap();
+        storage::set_reaction(&db, &id, false).unwrap();
+        db.execute(
+            "UPDATE widget_instances SET data='{\"count\":1}',revision=7 WHERE id=?1",
+            [&id],
+        )
+        .unwrap();
+        storage::set_reaction(&db, &id, true).unwrap();
+        observe_official_rules(&db, 1500).unwrap();
+        assert!(generated::take_pending(&db, 1500).unwrap().is_none());
     }
 
     #[test]
@@ -2443,17 +2463,19 @@ mod tests {
     }
 
     #[test]
-    fn official_state_rule_survives_unrelated_updates_but_not_disable_and_reenable() {
+    fn official_state_rule_survives_unrelated_updates_but_not_baseline_reset() {
         let state = app::tests::state();
         let db = lock(&state.db).unwrap();
-        let id = uuid::Uuid::new_v4().to_string();
+        let id: String = db
+            .query_row("SELECT id FROM widget_instances WHERE kind='memo'", [], |row| row.get(0))
+            .unwrap();
         db.execute(
-            "INSERT INTO widget_instances VALUES(?1,'memo',1,1,1,1,'{\"count\":0}',NULL)",
+            "UPDATE widget_instances SET data='{\"count\":0}',revision=1 WHERE id=?1",
             [&id],
         )
         .unwrap();
         let condition = rule(&id);
-        generated::save_rules(&db, &id, vec![condition.clone()], &json!({"count":0})).unwrap();
+        generated::save_rules(&db, &id, vec![condition], &json!({"count":0})).unwrap();
         db.execute(
             "UPDATE widget_instances SET data='{\"count\":1,\"ticks\":0}',revision=2 WHERE id=?1",
             [&id],
@@ -2469,37 +2491,8 @@ mod tests {
         let pending = generated::take_pending(&db, 1100).unwrap().unwrap();
         let (data, revision) = source_state(&db, &id).unwrap();
         assert!(generated::reaction_current(&db, &pending, &data, revision, 1100).unwrap());
-        db.execute(
-            "UPDATE widget_instances SET enabled=0,revision=4 WHERE id=?1",
-            [&id],
-        )
-        .unwrap();
         reset_rule_baseline(&db, &id).unwrap();
-        let current: i64 = db
-            .query_row(
-                "SELECT revision FROM widget_state_rules WHERE id=?1",
-                [&condition.id],
-                |row| row.get(0),
-            )
-            .unwrap();
         observe_official_rules(&db, 1200).unwrap();
-        let repeated: i64 = db
-            .query_row(
-                "SELECT revision FROM widget_state_rules WHERE id=?1",
-                [&condition.id],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(
-            current, repeated,
-            "inactive polling must not repeatedly bump rule versions"
-        );
-        db.execute(
-            "UPDATE widget_instances SET enabled=1,revision=5 WHERE id=?1",
-            [&id],
-        )
-        .unwrap();
-        reset_rule_baseline(&db, &id).unwrap();
         let (data, revision) = source_state(&db, &id).unwrap();
         assert!(!generated::reaction_current(&db, &pending, &data, revision, 1300).unwrap());
         assert!(generated::take_pending(&db, 1300).unwrap().is_none());
