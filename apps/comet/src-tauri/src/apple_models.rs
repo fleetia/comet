@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-const MAX_INPUT_BYTES: usize = 12_000;
+pub(crate) const MAX_INPUT_BYTES: usize = 12_000;
 const MAX_OUTPUT_TOKENS: u32 = 768;
 const CONTEXT_ERROR: &str = "Apple 온디바이스 AI의 짧은 문맥 범위를 넘었어요. 입력을 줄이거나 다른 AI를 직접 선택해 주세요.";
 pub(crate) const WIDGET_UNSUPPORTED: &str =

@@ -752,10 +752,45 @@ pub(crate) fn configure_widget_replies(
             .filter(|widget| widget.installed)
             .map(|widget| (widget.id, widget.definition.name)),
     );
-    let kinds: Vec<String> = widgets.iter().map(|(id, _)| id.clone()).collect();
-    if kinds.is_empty() {
-        return Ok(kinds);
+    configure_widget_choices(prompt, schema, apple, widgets)
+}
+
+fn configure_widget_choices(
+    prompt: &mut [ChatMessage],
+    schema: &mut Value,
+    apple: bool,
+    widgets: Vec<(String, String)>,
+) -> Result<Vec<String>, String> {
+    let base_size = serde_json::to_string(&*prompt).map_err(|error| error.to_string())?.len()
+        + serde_json::to_string(&*schema).map_err(|error| error.to_string())?.len();
+    let mut selected = Vec::new();
+    for widget in widgets.into_iter().take(128) {
+        let mut candidate = selected.clone();
+        candidate.push(widget);
+        let mut candidate_prompt = prompt.to_vec();
+        let mut candidate_schema = schema.clone();
+        add_widget_choices(&mut candidate_prompt, &mut candidate_schema, apple, &candidate);
+        let size = serde_json::to_string(&candidate_prompt).map_err(|error| error.to_string())?.len()
+            + serde_json::to_string(&candidate_schema).map_err(|error| error.to_string())?.len();
+        if size.saturating_sub(base_size) <= 2_000
+            && (!apple || size <= crate::apple_models::MAX_INPUT_BYTES.saturating_sub(512))
+        {
+            selected = candidate;
+        }
     }
+    if !selected.is_empty() {
+        add_widget_choices(prompt, schema, apple, &selected);
+    }
+    Ok(selected.into_iter().map(|(id, _)| id).collect())
+}
+
+fn add_widget_choices(
+    prompt: &mut [ChatMessage],
+    schema: &mut Value,
+    apple: bool,
+    widgets: &[(String, String)],
+) {
+    let kinds: Vec<&str> = widgets.iter().map(|(id, _)| id.as_str()).collect();
     let mut choices: Vec<Value> = kinds.iter().map(|id| json!(id)).collect();
     if !apple {
         choices.push(Value::Null);
@@ -782,7 +817,6 @@ pub(crate) fn configure_widget_replies(
             json!(widgets)
         ));
     }
-    Ok(kinds)
 }
 
 pub(crate) fn validate_generated_widgets(lines: &mut [SceneLine], kinds: &[String]) {
@@ -1181,6 +1215,36 @@ pub fn analysis_schema() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn widget_choices_respect_prompt_and_apple_request_budgets() {
+        for apple in [false, true] {
+            let mut prompt = vec![ChatMessage { role: "system".into(), content: "x".repeat(8_000) }];
+            let mut schema = reply_schema();
+            let original = serde_json::to_string(&prompt).unwrap().len() + serde_json::to_string(&schema).unwrap().len();
+            let widgets = (0..100)
+                .map(|index| (format!("generated-{index:03}"), "이름\"\\".repeat(30)))
+                .collect();
+            let kinds = configure_widget_choices(&mut prompt, &mut schema, apple, widgets).unwrap();
+            let total = serde_json::to_string(&prompt).unwrap().len() + serde_json::to_string(&schema).unwrap().len();
+            assert!(!kinds.is_empty());
+            assert!(kinds.len() < 100);
+            assert!(total - original <= 2_000);
+            assert!(!apple || total <= crate::apple_models::MAX_INPUT_BYTES);
+            let choices = schema["properties"]["widget"]["enum"].as_array().unwrap();
+            assert!(kinds.iter().all(|kind| choices.contains(&json!(kind))));
+        }
+    }
+
+    #[test]
+    fn apple_widget_choices_leave_an_already_full_request_unchanged() {
+        let mut prompt = vec![ChatMessage { role: "system".into(), content: "x".repeat(11_500) }];
+        let mut schema = reply_schema();
+        let before = serde_json::to_string(&(&prompt, &schema)).unwrap();
+        let kinds = configure_widget_choices(&mut prompt, &mut schema, true, vec![("memo".into(), "메모".into())]).unwrap();
+        assert!(kinds.is_empty());
+        assert_eq!(serde_json::to_string(&(&prompt, &schema)).unwrap(), before);
+    }
 
     #[test]
     fn reply_can_carry_a_widget_and_follow_up_choices() {

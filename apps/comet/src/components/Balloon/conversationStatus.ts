@@ -61,6 +61,8 @@ export function responseOrigin(source?: string): string {
       return "등록 대사 · 방문";
     case "widget":
       return "위젯 대사";
+    case "balloon-link-hint":
+      return "위젯 안내";
     case "archive":
     case "imported":
       return "가져온 기록";
