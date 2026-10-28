@@ -509,7 +509,7 @@ async fn generate_definition(
                 )
                 .is_err()
                 {
-                    eprintln!("Widget context recording deferred");
+                    crate::report_error!("widget_context_record", "Widget context recording deferred");
                 }
                 return Ok(widget);
             }
@@ -740,7 +740,7 @@ async fn execute_registered_action(
         let receipt = generated::actions::commit(db, &request, &before, output.state, output.view)?;
         if let Ok(current) = generated::get(db, &request.widget_id) {
             if observe_generated_state(state, db, &current).is_err() {
-                eprintln!("Saved generated widget action; reaction refresh deferred");
+                crate::report_error!("widget_reaction_refresh", "Saved generated widget action; reaction refresh deferred");
             }
         }
         Ok(receipt)

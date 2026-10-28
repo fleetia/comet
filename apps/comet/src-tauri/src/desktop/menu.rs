@@ -66,7 +66,7 @@ fn install_macos_menu(app: &tauri::AppHandle) -> Result<(), String> {
                 .find(|window| window.is_focused().unwrap_or(false))
             {
                 if let Err(error) = window.close() {
-                    eprintln!("App menu window close failed: {error}");
+                    crate::report_error!("menu_window_close", "App menu window close failed: {error}");
                 }
             }
             return;
@@ -78,7 +78,7 @@ fn install_macos_menu(app: &tauri::AppHandle) -> Result<(), String> {
         tauri::async_runtime::spawn(async move {
             let state = app.state::<Arc<AppState>>();
             if let Err(error) = crate::quit_app(app.clone(), state, None).await {
-                eprintln!("App menu quit failed: {error}");
+                crate::report_error!("menu_quit", "App menu quit failed: {error}");
             }
         });
     });
@@ -196,7 +196,7 @@ pub(crate) fn create(app: &tauri::AppHandle) -> Result<(), String> {
                     }
                 };
                 if let Err(error) = result {
-                    eprintln!("Menu action failed: {error}");
+                    crate::report_error!("menu_action", "Menu action failed: {error}");
                 }
             });
         })

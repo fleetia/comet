@@ -125,7 +125,7 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
                     if is_current(&worker_state, epoch, &cancel) {
                         if result.is_err() {
                             // User content and model responses are deliberately omitted.
-                            eprintln!("Automatic preparation deferred");
+                            crate::report_error!("automatic_preparation", "Automatic preparation deferred");
                         }
                         phase(
                             &worker_app,

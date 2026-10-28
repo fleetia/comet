@@ -12,10 +12,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
-    path::Path,
+    io::Write,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
     time::Duration,
 };
@@ -70,6 +71,8 @@ struct State {
 }
 struct Inner {
     namespace: Mutex<String>,
+    store_log: PathBuf,
+    store_observer: OnceLock<StoreObserver>,
     state: Mutex<State>,
     credential_io: Mutex<()>,
     loading: tokio::sync::Mutex<()>,
@@ -79,6 +82,33 @@ struct Inner {
 }
 #[derive(Clone)]
 pub(crate) struct Service(Arc<Inner>);
+/// Fixed codes only, so a credential store failure can be reported without its OS message.
+pub(crate) struct StoreFailure {
+    pub operation: &'static str,
+    pub slot: &'static str,
+    pub failure: &'static str,
+    pub os_error_code: Option<u32>,
+}
+type StoreObserver = Arc<dyn Fn(StoreFailure) + Send + Sync>;
+fn store_failure(error: &keyring::Error) -> (&'static str, Option<u32>) {
+    let (failure, source) = match error {
+        keyring::Error::PlatformFailure(source) => ("platform_failure", Some(source)),
+        keyring::Error::NoStorageAccess(source) => ("no_storage_access", Some(source)),
+        keyring::Error::NoEntry => ("no_entry", None),
+        keyring::Error::BadEncoding(_) => ("bad_encoding", None),
+        keyring::Error::TooLong(..) => ("too_long", None),
+        keyring::Error::Invalid(..) => ("invalid", None),
+        keyring::Error::Ambiguous(_) => ("ambiguous", None),
+        _ => ("other", None),
+    };
+    #[cfg(target_os = "windows")]
+    let code = source
+        .and_then(|source| source.downcast_ref::<keyring::windows::Error>())
+        .map(|error| error.0);
+    #[cfg(not(target_os = "windows"))]
+    let code = source.and(None);
+    (failure, code)
+}
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,6 +147,8 @@ impl Service {
         ));
         Self(Arc::new(Inner {
             namespace: Mutex::new(format!("space.starlight.comet.{hash}.chatgpt")),
+            store_log: app_data.join("logs").join("chatgpt-credentials.log"),
+            store_observer: OnceLock::new(),
             state: Mutex::new(State::default()),
             credential_io: Mutex::new(()),
             loading: tokio::sync::Mutex::new(()),
@@ -142,6 +174,45 @@ impl Service {
         self.0.generation.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
+    pub(crate) fn observe_store_failures(&self, observer: StoreObserver) {
+        let _ = self.0.store_observer.set(observer);
+    }
+    /// Keeps the OS error that user-facing messages hide. Never pass credential values here.
+    fn report_store_error(
+        &self,
+        operation: &'static str,
+        slot: &'static str,
+        error: &keyring::Error,
+    ) {
+        if let Some(observer) = self.0.store_observer.get() {
+            let (failure, os_error_code) = store_failure(error);
+            observer(StoreFailure {
+                operation,
+                slot,
+                failure,
+                os_error_code,
+            });
+        }
+        const MAX_LOG_BYTES: u64 = 256 * 1024;
+        let path = &self.0.store_log;
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if std::fs::metadata(path).is_ok_and(|meta| meta.len() > MAX_LOG_BYTES) {
+            let _ = std::fs::rename(path, path.with_extension("log.1"));
+        }
+        let line = format!(
+            "{} {operation} {slot}: {error}\n",
+            chrono::Utc::now().to_rfc3339()
+        );
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = file.write_all(line.as_bytes());
+        }
+    }
     #[cfg(not(target_os = "windows"))]
     fn entry(&self) -> Result<keyring::Entry> {
         keyring::Entry::new(&lock(&self.0.namespace)?, "accounts-v1")
@@ -149,8 +220,10 @@ impl Service {
     }
     #[cfg(target_os = "windows")]
     fn entry_for(&self, key: &str) -> Result<keyring::Entry> {
-        keyring::Entry::new(&lock(&self.0.namespace)?, key)
-            .map_err(|_| "ChatGPT 자격 증명 저장소를 열지 못했어요.".into())
+        keyring::Entry::new(&lock(&self.0.namespace)?, key).map_err(|error| {
+            self.report_store_error("open", credentials::slot(key), &error);
+            "ChatGPT 자격 증명 저장소를 열지 못했어요.".into()
+        })
     }
     fn read_saved(&self) -> Result<Option<String>> {
         #[cfg(target_os = "windows")]
@@ -159,7 +232,10 @@ impl Service {
         match self.entry()?.get_password() {
             Ok(raw) => Ok(Some(raw)),
             Err(keyring::Error::NoEntry) => Ok(None),
-            Err(_) => Err("시스템 저장소에서 ChatGPT 연결을 읽지 못했어요.".into()),
+            Err(error) => {
+                self.report_store_error("read", "accounts", &error);
+                Err("시스템 저장소에서 ChatGPT 연결을 읽지 못했어요.".into())
+            }
         }
     }
     pub(crate) async fn initialize(&self) -> Result<()> {
@@ -172,6 +248,7 @@ impl Service {
             .await
             .map_err(|_| "ChatGPT 저장소 읽기가 중단됐어요.".to_string())?;
         if let Err(error) = &result {
+            crate::report_error!("chatgpt_load", "{error}");
             lock(&self.0.state)?.notice = Some(error.clone());
         }
         result
@@ -264,9 +341,10 @@ impl Service {
         }
         #[cfg(not(target_os = "windows"))]
         {
-            self.entry()?
-                .set_password(&raw)
-                .map_err(|_| "ChatGPT 연결을 시스템 자격 증명 저장소에 저장하지 못했어요.".into())
+            self.entry()?.set_password(&raw).map_err(|error| {
+                self.report_store_error("write", "accounts", &error);
+                "ChatGPT 연결을 시스템 자격 증명 저장소에 저장하지 못했어요.".into()
+            })
         }
     }
     async fn commit_login(
@@ -540,6 +618,12 @@ impl Service {
                     (Ok((access, permitted)), true)
                 }
                 Err(error) => {
+                    crate::report_error!(
+                        "chatgpt_refresh",
+                        "terminal={} {}",
+                        error.terminal_refresh,
+                        error.message
+                    );
                     if error.terminal_refresh {
                         target.tokens = None;
                         state.saved = saved;
@@ -552,7 +636,9 @@ impl Service {
             }
         };
         if changed {
-            self.persist().await?;
+            self.persist().await.inspect_err(|error| {
+                crate::report_error!("chatgpt_refresh_persist", "{error}");
+            })?;
         }
         let (access, permitted) = result?;
         self.current(generation, &AtomicBool::new(false))?;
@@ -567,6 +653,7 @@ impl Service {
             if self.0.generation.load(Ordering::SeqCst) != generation {
                 return;
             }
+            crate::report_error!("chatgpt_request", "{}", error.message);
             state.notice = Some(error.message.clone());
             if error.usage_limit {
                 state.usage_blocked = true;
@@ -673,6 +760,7 @@ pub(crate) async fn login_chatgpt(
             inner.pending = None;
         }
         if let Err(error) = &result {
+            crate::report_error!("chatgpt_login", "{error}");
             if service.0.login_generation.load(Ordering::SeqCst) == attempt {
                 inner.notice = Some(error.clone());
             }
@@ -751,6 +839,9 @@ pub(crate) async fn logout_chatgpt(
         inner.notice = Some(if revoked { "ChatGPT에서 로그아웃했어요." } else { "이 기기에서 로그아웃했지만 서버 연결 해제는 확인하지 못했어요. ChatGPT 사용량 설정에서 앱 연결을 해제할 수 있어요." }.into());
     }
     let persisted = service.persist().await;
+    if let Err(error) = &persisted {
+        crate::report_error!("chatgpt_logout_persist", "{error}");
+    }
     publish(&app, &state);
     persisted?;
     service.status()

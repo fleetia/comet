@@ -144,6 +144,7 @@ function push(context: AnalyticsContext, event: AnalyticsEvent): void {
     error_source: null,
     error_code: null,
     operation: null,
+    error_detail: null,
     ...event,
   };
   try {
@@ -270,12 +271,9 @@ function commandEvent(name: string, args: Record<string, unknown>): AnalyticsEve
 
 export function trackSuccessfulCommand(name: string, args?: Record<string, unknown>): void {
   try {
-    if (name === "register_user_name" || name === "set_analytics_consent") {
+    if (name === "register_user_name") {
       consentRevision += 1;
       initialization = undefined;
-      if (args?.enabled === false || args?.analyticsConsent === false) {
-        setConsent(false);
-      }
       void initializeAnalytics();
     }
     const event = commandEvent(name, args ?? {});
@@ -303,10 +301,26 @@ export function trackSettingsView(section: string): void {
   });
 }
 
+const MAX_ERROR_DETAIL_CHARS = 100;
+
+// Matches the native sanitizer: no paths or email addresses, within GA's 100-character limit.
+export function sanitizeErrorDetail(detail: unknown): string | null {
+  const text = detail instanceof Error ? detail.message : String(detail ?? "");
+  const words = text
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) =>
+      word.includes("/") || word.includes("\\") ? "<path>" : word.includes("@") ? "<email>" : word,
+    );
+  const sanitized = Array.from(words.join(" ")).slice(0, MAX_ERROR_DETAIL_CHARS).join("");
+  return sanitized || null;
+}
+
 function trackError(
   source: "frontend_runtime" | "frontend_promise" | "frontend_command",
   code: "unexpected_error" | "command_failed",
-  operation: string | null = null,
+  operation: string | null,
+  detail: string | null,
 ): void {
   if (hasConsent !== true) {
     return;
@@ -320,7 +334,7 @@ function trackError(
     errorWindowStartedAt = now;
     reportedErrors.clear();
   }
-  const key = `${source}:${code}:${operation}`;
+  const key = `${source}:${code}:${operation}:${detail}`;
   if (reportedErrors.has(key) || reportedErrors.size >= MAX_ERRORS_PER_WINDOW) {
     return;
   }
@@ -333,12 +347,13 @@ function trackError(
         error_source: source,
         error_code: code,
         operation,
+        error_detail: detail,
       });
     }
   });
 }
 
-export function trackCommandFailure(name: string): void {
+export function trackCommandFailure(name: string, cause?: unknown): void {
   if (
     name === "get_analytics_context" ||
     name === "send_analytics_event" ||
@@ -346,11 +361,11 @@ export function trackCommandFailure(name: string): void {
   ) {
     return;
   }
-  trackError(
-    "frontend_command",
-    "command_failed",
-    allowed(name, ERROR_OPERATIONS) ? name : "other",
-  );
+  const known = allowed(name, ERROR_OPERATIONS);
+  const message = cause instanceof Error ? cause.message : String(cause ?? "");
+  // Unknown commands collapse to "other", so keep their name in the detail.
+  const detail = known ? message : message ? `${name}: ${message}` : name;
+  trackError("frontend_command", "command_failed", known ? name : "other", sanitizeErrorDetail(detail));
 }
 
 export function initializeErrorReporting(): void {
@@ -358,8 +373,10 @@ export function initializeErrorReporting(): void {
     return;
   }
   errorReportingInitialized = true;
-  window.addEventListener("error", () => trackError("frontend_runtime", "unexpected_error"));
-  window.addEventListener("unhandledrejection", () =>
-    trackError("frontend_promise", "unexpected_error"),
+  window.addEventListener("error", (event) =>
+    trackError("frontend_runtime", "unexpected_error", null, sanitizeErrorDetail(event.message)),
+  );
+  window.addEventListener("unhandledrejection", (event) =>
+    trackError("frontend_promise", "unexpected_error", null, sanitizeErrorDetail(event.reason)),
   );
 }

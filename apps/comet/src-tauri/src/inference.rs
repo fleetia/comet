@@ -358,8 +358,31 @@ fn legacy_credential(settings: &Settings) -> Result<keyring::Entry, String> {
     keyring::Entry::new(&service, &account)
         .map_err(|_| "시스템 자격 증명 저장소에 접근할 수 없습니다.".into())
 }
+// Every app snapshot asks for key presence; read each OS credential once per process.
+fn key_presence() -> &'static std::sync::Mutex<std::collections::HashMap<String, bool>> {
+    static PRESENCE: OnceLock<std::sync::Mutex<std::collections::HashMap<String, bool>>> =
+        OnceLock::new();
+    PRESENCE.get_or_init(Default::default)
+}
+fn remember_key_presence(settings: &Settings, present: bool) {
+    if let (Ok(account), Ok(mut presence)) = (account(settings), key_presence().lock()) {
+        presence.insert(account, present);
+    }
+}
 pub fn has_api_key(settings: &Settings) -> bool {
-    saved_key(settings).ok().flatten().is_some()
+    let Ok(account) = account(settings) else {
+        return false;
+    };
+    if let Some(present) = key_presence()
+        .lock()
+        .ok()
+        .and_then(|presence| presence.get(&account).copied())
+    {
+        return present;
+    }
+    let present = saved_key(settings).ok().flatten().is_some();
+    remember_key_presence(settings, present);
+    present
 }
 pub fn api_key_providers(settings: &Settings) -> Vec<ApiProvider> {
     settings
@@ -440,12 +463,14 @@ pub fn set_api_key(settings: &Settings, key: &str) -> Result<(), String> {
     credential(settings)?
         .set_password(key.trim())
         .map_err(|_| String::from("API 키를 시스템 자격 증명 저장소에 저장할 수 없습니다."))?;
+    remember_key_presence(settings, true);
     if let Ok(entry) = legacy_credential(settings) {
         let _ = entry.delete_credential();
     }
     Ok(())
 }
 pub fn clear_api_key(settings: &Settings) -> Result<(), String> {
+    remember_key_presence(settings, false);
     match credential(settings)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => {}
         Err(_) => return Err("API 키 삭제에 실패했습니다.".into()),

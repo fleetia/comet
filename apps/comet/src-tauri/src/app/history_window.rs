@@ -160,7 +160,7 @@ fn schedule_open(app: &tauri::AppHandle, request: OpenRequest) -> Result<(), Str
     let handle = app.clone();
     app.run_on_main_thread(move || {
         if let Err(error) = show(&handle, request) {
-            eprintln!("History window open failed: {error}");
+            crate::report_error!("history_window_open", "History window open failed: {error}");
         }
     })
     .map_err(|error| error.to_string())
@@ -286,7 +286,7 @@ pub(crate) async fn release(
                 super::publish(&handle, &state);
                 // Close succeeded; a focus failure must not look like an unsaved close.
                 if let Err(error) = crate::desktop::request_balloon_focus(&handle) {
-                    eprintln!("History released but input focus failed: {error}");
+                    crate::report_error!("history_focus", "History released but input focus failed: {error}");
                 }
             }
             Ok(true)
@@ -308,7 +308,7 @@ pub(crate) fn destroyed(app: &tauri::AppHandle) {
         // Leave the Destroyed callback before constructing the replacement webview.
         tauri::async_runtime::spawn(async move {
             if let Err(error) = schedule_open(&app, request) {
-                eprintln!("History window reopen failed: {error}");
+                crate::report_error!("history_window_reopen", "History window reopen failed: {error}");
             }
         });
     }

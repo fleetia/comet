@@ -189,15 +189,15 @@ pub fn run() {
             migrate_app_data(&app_data)?;
             std::fs::create_dir_all(&app_data)?;
             if let Err(error) = super::reset::apply_pending(&app_data) {
-                eprintln!("Reset cleanup incomplete: {error}");
+                crate::report_error!("reset_cleanup", "Reset cleanup incomplete: {error}");
             }
             if crate::exbrain::initialize(&app_data).is_err() {
-                eprintln!("Widget context initialization deferred");
+                crate::report_error!("widget_context_init", "Widget context initialization deferred");
             }
             let (sidecar, runtime) = resource_paths(app.handle()).map_err(std::io::Error::other)?;
             let talk = talk::host::initialize(&app_data);
             if let Err(error) = story::initialize_files(&app_data) {
-                eprintln!("Story initialization: {error}");
+                crate::report_error!("story_init", "Story initialization: {error}");
             }
             let story_catalog = story::load(&app_data)
                 .or_else(|_| story::catalog())
@@ -287,7 +287,7 @@ pub fn run() {
             crate::widgets::desktop::restore_on_start(app.handle(), state.clone());
             crate::widgets::planning::notifications::install(app.handle())?;
             if let Err(error) = device::wake::install(app.handle()) {
-                eprintln!("기기 복귀 알림 연결 실패: {error}");
+                crate::report_error!("device_resume_notification", "기기 복귀 알림 연결 실패: {error}");
             }
             let handle = app.handle().clone();
             talk::host::watch(handle.clone(), state.clone());
@@ -379,7 +379,7 @@ pub fn run() {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     if let Err(error) = window.hide() {
-                        eprintln!("Settings window hide failed: {error}");
+                        crate::report_error!("settings_window_hide", "Settings window hide failed: {error}");
                     }
                 }
                 return;
@@ -538,7 +538,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             crate::analytics::get_analytics_context,
             crate::analytics::get_analytics_consent,
-            crate::analytics::set_analytics_consent,
             crate::analytics::send_analytics_event,
             crate::characters::guests::leave_character_guest,
             crate::pack_stories::commands::get_pack_story_definition,
@@ -816,7 +815,7 @@ pub fn run() {
                     if windows::settings_exit_needs_confirmation(&state) {
                         api.prevent_exit();
                         if let Err(error) = windows::confirm_settings_exit(app, &state) {
-                            eprintln!("Failed to confirm unsaved settings before exit: {error}");
+                            crate::report_error!("settings_exit_confirm", "Failed to confirm unsaved settings before exit: {error}");
                         }
                         return;
                     }

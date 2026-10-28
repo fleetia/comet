@@ -148,7 +148,7 @@ pub(crate) fn install(app: &AppHandle, state: Arc<AppState>) {
             };
             let identity = window_identity(&window);
             if let Err(error) = handle_gesture(&app, state.clone(), event, identity) {
-                eprintln!("캐릭터 행동 반응: {error}");
+                crate::report_error!("character_reaction", "캐릭터 행동 반응: {error}");
             }
         }
     });

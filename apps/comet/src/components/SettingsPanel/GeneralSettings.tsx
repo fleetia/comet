@@ -2,7 +2,6 @@ import { useRef, useState, type JSX } from "react";
 import { ExitIcon, HideIcon, MemoryIcon } from "@comet/icon";
 import {
   Button,
-  Checkbox,
   Dialog,
   SettingControlRow,
   SettingsSummary,
@@ -62,8 +61,6 @@ export function GeneralSettings({
 }: Props): JSX.Element {
   const name = snapshot.user?.name || "여행자";
   const { appearance } = useAppearance();
-  const [consentPending, setConsentPending] = useState(false);
-  const [consentError, setConsentError] = useState<string | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
   async function revealDataFolder(): Promise<void> {
     setFolderError(null);
@@ -92,25 +89,6 @@ export function GeneralSettings({
       setResetPending(false);
     }
   }
-  const consentSaving = useRef(false);
-
-  async function saveConsent(enabled: boolean): Promise<void> {
-    if (consentSaving.current) {
-      return;
-    }
-    consentSaving.current = true;
-    setConsentPending(true);
-    setConsentError(null);
-    try {
-      await command("set_analytics_consent", { enabled });
-    } catch (cause: unknown) {
-      setConsentError(errorText(cause));
-    } finally {
-      consentSaving.current = false;
-      setConsentPending(false);
-    }
-  }
-
   return (
     <div className={styles.split}>
       <UpdatePanel onBusyChange={onBusyChange} hasUnsavedChanges={hasChanges} />
@@ -247,19 +225,6 @@ export function GeneralSettings({
               }
             />
           </div>
-          <Checkbox
-            checked={snapshot.settings.analyticsConsent}
-            disabled={consentPending}
-            aria-busy={consentPending}
-            description="선택한 AI 종류, 기능 사용, 오류·비정상 종료와 AI 요청의 성공 여부·응답 시간을 Google Analytics로 보내요. 대화 내용·이름·파일 경로는 보내지 않아요."
-            onChange={(event) => void saveConsent(event.target.checked)}
-            label="(선택) 익명 사용 통계 수집에 동의해요"
-          />
-          {consentError && (
-            <p role="alert" className={errorStyle}>
-              {consentError}
-            </p>
-          )}
         </section>
       </div>
       <Dialog

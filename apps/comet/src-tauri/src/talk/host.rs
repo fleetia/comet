@@ -56,7 +56,7 @@ pub(crate) fn prepare(
         .iter()
         .filter(|candidate| candidate.reason.starts_with("motion_error:"))
     {
-        eprintln!("talk scene {}: {}", candidate.scene_id, candidate.reason);
+        crate::report_error!("talk_scene_motion", "talk scene {}: {}", candidate.scene_id, candidate.reason);
     }
     let Some(selection) = simulation.selected else {
         return Ok(None);
@@ -160,7 +160,7 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
 
 fn log_diagnostics(diagnostics: &[talk::Diagnostic]) {
     for error in diagnostics {
-        eprintln!(
+        crate::report_error!("talk_diagnostic", 
             ".talk {}:{}:{} [{}] {}",
             error.path, error.line, error.column, error.code, error.message
         );
@@ -174,7 +174,7 @@ pub(crate) fn initialize(app_data: &std::path::Path) -> talk::runtime::ActivePro
             active.apply(talk::load_bundle(&root, &talk::context::registry()));
             log_diagnostics(&active.diagnostics);
         }
-        Err(error) => eprintln!(".talk 초기화 실패: {error}"),
+        Err(error) => crate::report_error!("talk_init", ".talk 초기화 실패: {error}"),
     }
     active
 }
@@ -263,7 +263,7 @@ pub(crate) fn watch(app: tauri::AppHandle, state: Arc<AppState>) {
             let generation = match lock(&state.talk) {
                 Ok(active) => active.generation,
                 Err(error) => {
-                    eprintln!(".talk 재로딩 실패: {error}");
+                    crate::report_error!("talk_reload", ".talk 재로딩 실패: {error}");
                     break;
                 }
             };
@@ -277,7 +277,7 @@ pub(crate) fn watch(app: tauri::AppHandle, state: Arc<AppState>) {
                     Ok(None) => {
                         monitor = talk::runtime::Monitor::new(talk::runtime::root(&state.app_data));
                     }
-                    Err(error) => eprintln!(".talk 재로딩 실패: {error}"),
+                    Err(error) => crate::report_error!("talk_reload", ".talk 재로딩 실패: {error}"),
                     _ => {}
                 }
             }

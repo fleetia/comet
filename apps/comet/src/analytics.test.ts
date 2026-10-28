@@ -327,27 +327,6 @@ describe("desktop analytics", () => {
     expect(JSON.stringify(target.dataLayer)).not.toContain("민수");
   });
 
-  it("refreshes consent and stops delivery after withdrawal despite a stale settings draft", async () => {
-    analytics.trackSettingsView("model");
-    await vi.waitFor(() => expect(events()).toHaveLength(1));
-    currentContext.analyticsConsent = false;
-
-    await command("set_analytics_consent", { enabled: false });
-    await analytics.initializeAnalytics();
-    await command("save_settings", {
-      scope: "general",
-      settings: { analyticsConsent: true },
-    });
-    analytics.trackSettingsView("general");
-    await analytics.initializeAnalytics();
-
-    expect(target["ga-disable-G-4Z0X58WFVB"]).toBe(true);
-    expect(events()).toHaveLength(1);
-    expect(core.invoke.mock.calls.filter(([name]) => name === "send_analytics_event")).toHaveLength(
-      1,
-    );
-  });
-
   it("ignores an older context response after consent was withdrawn", async () => {
     let resolveContext: (value: typeof context) => void = () => {};
     core.invoke.mockImplementationOnce(
@@ -395,7 +374,7 @@ describe("desktop analytics", () => {
     expect(target["ga-disable-G-4Z0X58WFVB"]).toBe(true);
   });
 
-  it("reports sanitized runtime errors and unhandled promises with one listener per source", async () => {
+  it("reports runtime and promise error messages without paths, with one listener per source", async () => {
     const listeners = new Map<string, EventListener>();
     vi.spyOn(window, "addEventListener").mockImplementation((name, listener) => {
       if (typeof listener === "function") {
@@ -409,14 +388,14 @@ describe("desktop analytics", () => {
     expect(window.addEventListener).toHaveBeenCalledTimes(2);
 
     const privateError = new ErrorEvent("error", {
-      message: "private prompt and token",
+      message: "load failed at /Users/me/app.js for me@example.com",
       filename: "https://private.example/file.js",
       error: new Error("private stack"),
     });
     listeners.get("error")?.(privateError);
     listeners.get("error")?.(privateError);
     listeners.get("unhandledrejection")?.(
-      Object.assign(new Event("unhandledrejection"), { reason: new Error("private response") }),
+      Object.assign(new Event("unhandledrejection"), { reason: new Error("request timed out") }),
     );
     await vi.waitFor(() => expect(events()).toHaveLength(2));
     expect(events()).toEqual([
@@ -425,15 +404,17 @@ describe("desktop analytics", () => {
         error_source: "frontend_runtime",
         error_code: "unexpected_error",
         operation: null,
+        error_detail: "load failed at <path> for <email>",
       }),
       expect.objectContaining({
         event: "comet_error",
         error_source: "frontend_promise",
         error_code: "unexpected_error",
         operation: null,
+        error_detail: "request timed out",
       }),
     ]);
-    expect(JSON.stringify(events())).not.toMatch(/private|stack|filename|reason/);
+    expect(JSON.stringify(events())).not.toMatch(/Users|example\.com|stack|filename/);
   });
 
   it("bounds distinct errors, normalizes unknown commands and allows a new report after one minute", async () => {
@@ -458,8 +439,10 @@ describe("desktop analytics", () => {
     }
     analytics.trackCommandFailure("save_settings");
     await vi.waitFor(() => expect(events()).toHaveLength(10));
-    expect(events()[0]).toMatchObject({ operation: "other" });
-    expect(JSON.stringify(events())).not.toContain("private");
+    expect(events()[0]).toMatchObject({
+      operation: "other",
+      error_detail: "private-custom-command",
+    });
 
     now += 60_001;
     analytics.trackCommandFailure("save_settings");

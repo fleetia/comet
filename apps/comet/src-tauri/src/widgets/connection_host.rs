@@ -642,7 +642,7 @@ fn forget_music_credential(owner: String, pairing: String) {
     // OS credential dialogs must not hold the action/DB locks or delay application shutdown.
     std::thread::spawn(move || {
         if crate::widgets::music_bridge::forget(&owner, &pairing).is_err() {
-            eprintln!("해제한 음악 연결의 저장된 인증 정보를 삭제하지 못했습니다.");
+            crate::report_error!("music_credential_delete", "해제한 음악 연결의 저장된 인증 정보를 삭제하지 못했습니다.");
         }
     });
 }

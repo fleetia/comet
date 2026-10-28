@@ -444,7 +444,7 @@ pub(crate) async fn execute_widget(
         if created_id.is_none() {
             return Err(error);
         }
-        eprintln!("위젯 내용 저장 후 반응 갱신 실패: {error}");
+        crate::report_error!("widget_save_reaction", "위젯 내용 저장 후 반응 갱신 실패: {error}");
         if let Ok(mut runtime) = lock(&state.runtime) {
             runtime.error = Some("내용은 저장했지만 캐릭터 반응을 갱신하지 못했어요.".into());
         }
