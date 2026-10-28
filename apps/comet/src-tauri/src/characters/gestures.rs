@@ -1029,14 +1029,18 @@ pub(crate) fn trigger_character_interaction(
         let eligible = if stale {
             None
         } else {
-            crate::characters::guests::interact_locked(
+            let result = crate::characters::guests::interact_locked(
                 &state,
                 &db,
                 character_id,
                 &action,
                 &session_id,
                 chrono::Utc::now().timestamp_millis(),
-            )?
+            )?;
+            crate::characters::life::change_interaction_mood(
+                app, &state, character_id, &action, result.accepted, &session_id,
+            )?;
+            result.event
         };
         (eligible, held, stale)
     };
@@ -1070,24 +1074,21 @@ pub(crate) fn trigger_character_interaction(
             crate::widgets::commands::publish_widgets(app, &state);
             return Ok(());
         }
-        if crate::characters::reaction_host::direct_start(
+        let _started = crate::characters::reaction_host::direct_start_interaction(
             app,
             state.inner().clone(),
             character_id,
             gesture,
             body_part.as_deref(),
             identity,
-        )?
-        .is_none()
-        {
-            crate::characters::reaction_host::direct_common(
-                app,
-                state.inner().clone(),
-                character_id,
-                &event,
-                identity,
-            )?;
-        }
+            &event.id,
+        )?.is_some() || crate::characters::reaction_host::direct_common(
+            app,
+            state.inner().clone(),
+            character_id,
+            &event,
+            identity,
+        )?;
     }
     crate::widgets::commands::publish_widgets(app, &state);
     Ok(())
@@ -1178,14 +1179,18 @@ fn menu_interaction(
         let session_id = uuid::Uuid::new_v4().to_string();
         touch_session(state, &character_id, &session_id, None)?;
         let db = lock(&state.db)?;
-        crate::characters::guests::interact_locked(
+        let result = crate::characters::guests::interact_locked(
             state,
             &db,
             &character_id,
             action,
             &session_id,
             chrono::Utc::now().timestamp_millis(),
-        )?
+        )?;
+        crate::characters::life::change_interaction_mood(
+            app, state, &character_id, action, result.accepted, &session_id,
+        )?;
+        result.event
     };
     if let Some(event) = eligible {
         if crate::characters::reaction_host::direct_milestone(
@@ -1206,24 +1211,21 @@ fn menu_interaction(
             crate::widgets::commands::publish_widgets(app, state);
             return Ok(());
         }
-        if crate::characters::reaction_host::direct_start(
+        let _started = crate::characters::reaction_host::direct_start_interaction(
             app,
             state.clone(),
             &character_id,
             action,
             None,
             crate::characters::reaction_host::window_identity(&window),
-        )?
-        .is_none()
-        {
-            crate::characters::reaction_host::direct_common(
-                app,
-                state.clone(),
-                &character_id,
-                &event,
-                crate::characters::reaction_host::window_identity(&window),
-            )?;
-        }
+            &event.id,
+        )?.is_some() || crate::characters::reaction_host::direct_common(
+            app,
+            state.clone(),
+            &character_id,
+            &event,
+            crate::characters::reaction_host::window_identity(&window),
+        )?;
     }
     crate::widgets::commands::publish_widgets(app, state);
     Ok(())

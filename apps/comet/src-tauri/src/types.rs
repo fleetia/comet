@@ -517,6 +517,10 @@ pub struct CharacterAnimationStates {
     pub rest: bool,
     #[serde(default)]
     pub sleeping_character_ids: Vec<String>,
+    #[serde(default)]
+    pub mood_high_character_ids: Vec<String>,
+    #[serde(default)]
+    pub mood_low_character_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

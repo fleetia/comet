@@ -86,6 +86,39 @@ fn new_story_fields_require_pack_format_12() {
     }
 }
 
+#[test]
+fn mood_and_story_features_preserve_the_highest_pack_version() {
+    use crate::characters::animation::{self, Animation, Binding, Bindings, Clip, Frame};
+    let (db, pack_id, center, guest) = fixture();
+    let asset = animation::prepare_png(animation::png_fixture(2, 2, 255, false)).unwrap();
+    let mut definition = characters::get(&db, &center).unwrap().definition;
+    definition.animation = Some(Animation {
+        clips: vec![Clip {
+            id: "mood".into(), name: "기분".into(), fps: 6,
+            frames: vec![Frame { asset_id: asset.asset_id.clone(), x: 0, y: 0, width: 2, height: 2 }],
+        }],
+        bindings: Bindings {
+            mood_high: Some(Binding { clip_id: "mood".into(), repeat: true, interval_ms: 0 }),
+            ..Default::default()
+        },
+        overrides: Default::default(),
+    });
+    characters::save_with_assets(&db, &center, &definition, &[asset]).unwrap();
+    let mut story = characters::get_pack_story_definition(&db, &pack_id).unwrap();
+    story.definition.scenarios[0].reveal_affinity = Some(0);
+    characters::save_pack_story_definition_expected(&db, &pack_id, &story.definition, &story.baseline).unwrap();
+    let exported = characters::export_pack(&db, &[center, guest], &[]).unwrap();
+    assert_eq!(exported.format_version, 13);
+    let target = store::open(Path::new(":memory:")).unwrap();
+    let installed = characters::import_pack(&target, &exported).unwrap();
+    let imported_pack = installed[0].pack_id.as_ref().unwrap();
+    let story = characters::get_pack_story_definition(&target, imported_pack).unwrap();
+    characters::save_pack_story_definition_expected(&target, imported_pack, &story.definition, &story.baseline).unwrap();
+    let reexported = characters::export_pack(&target, &installed.iter().map(|c| c.id.clone()).collect::<Vec<_>>(), &[]).unwrap();
+    assert_eq!(reexported.format_version, 13);
+    assert!(reexported.scenarios[0].reveal_affinity.is_some());
+}
+
 fn input(db: &Connection, center: &str, content: &str, epoch: u64) -> InputContext {
     let id = uuid::Uuid::new_v4().to_string();
     store::insert_user_input(
