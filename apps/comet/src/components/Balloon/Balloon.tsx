@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
-import { Button, IconButton, InputCapsule } from "@comet/ui";
+import { Button, ConstellationChoices, IconButton, InputCapsule } from "@comet/ui";
 import type { ConversationView, Dispatch, Message, Persona, Snapshot } from "../../types";
-import { command } from "../../hooks/useSnapshot";
+import { command, errorText } from "../../hooks/useSnapshot";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
 import { useTypewriter } from "../../hooks/useTypewriter";
 import * as s from "../companion.css";
@@ -38,6 +38,7 @@ import {
   type ConversationDraft,
 } from "./useConversationDraft";
 import { ConversationSave, type ConversationSaveRequest } from "./ConversationSave";
+import { useFollowUpChoice } from "./useFollowUpChoice";
 
 type Props = {
   snapshot: Snapshot;
@@ -79,6 +80,11 @@ export function Balloon({
   const updateNotice = snapshot.playback?.source === "update" && (!mode || mode === "update");
   const conversation = snapshot.conversation;
   const sessionId = conversation?.session.id;
+  const followUps = snapshot.followUps;
+  const followUpChoice = useFollowUpChoice(
+    followUps?.surface === "input" && followUps.sessionId === sessionId ? followUps : null,
+    dispatch,
+  );
   const userId = snapshot.user?.id;
   const viewIdentity = `${snapshot.user?.id ?? ""}:${mode === "input" && sessionId ? `conversation:${sessionId}` : snapshot.panel ? `${mode}:${snapshot.panel.persona}${mode === "update" ? `:${snapshot.playback?.id ?? ""}` : ""}` : (snapshot.playback?.id ?? "")}`;
   const currentView = useRef<BalloonView>({
@@ -404,6 +410,16 @@ export function Balloon({
   };
   const inputLabel = target === "all" ? "모두에게 할 말" : `${recipientName}에게 할 말`;
   function changeInput(value: string): void {
+    if (value !== draft.current.value && sessionId && (snapshot.activeRequest || followUps)) {
+      void dispatch("dismiss_follow_ups", {
+        sessionId,
+        requestId: followUps?.sessionId === sessionId ? followUps.requestId : undefined,
+        epoch:
+          snapshot.activeRequest?.sessionId === sessionId ? snapshot.activeRequest.epoch : undefined,
+      }).catch((cause: unknown) =>
+        setError(errorText(cause)),
+      );
+    }
     draft.current.value = value;
     setInput(value);
   }
@@ -460,6 +476,28 @@ export function Balloon({
           onSave={saveMessage}
         />
       )}
+      {!snapshot.playback &&
+        !responding &&
+        !input &&
+        followUps?.surface === "input" &&
+        followUps.sessionId === sessionId &&
+        followUps.messageId === latestReply?.id && (
+          <>
+            <ConstellationChoices
+              label="이어서 할 말"
+              options={followUps.options.map((option) => ({
+                ...option,
+                disabled: followUpChoice.pending,
+              }))}
+              onChoose={(id) => void followUpChoice.choose(id)}
+            />
+            {followUpChoice.error && (
+              <p className={s.error} role="alert">
+                {followUpChoice.error}
+              </p>
+            )}
+          </>
+        )}
       {conversation && (
         <ConversationDisclosures
           snapshot={snapshot}

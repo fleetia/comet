@@ -313,6 +313,13 @@ export type StoryRequest = {
   prompt: string;
   choices: { id: string; label: string }[];
 };
+export type FollowUpRequest = {
+  requestId: string;
+  messageId: string;
+  sessionId: string;
+  surface: string;
+  options: { id: string; label: string }[];
+};
 export type PanelState = {
   persona: Persona;
   mode: "menu" | "input" | "history" | "history-input" | "name" | "focus" | "update";
@@ -399,6 +406,7 @@ export type Settings = {
   apiProvider: ApiProvider;
   apiProfiles: Partial<Record<ApiProvider, ApiProfile>>;
   autonomousEnabled: boolean;
+  showFollowUps: boolean;
   randomPresenceEnabled: boolean;
   localModel: LocalModel;
   localModelPath: string;
@@ -579,6 +587,7 @@ export type Snapshot = {
   settings: Settings;
   playback: Playback | null;
   story: StoryRequest | null;
+  followUps?: FollowUpRequest | null;
   panel: PanelState | null;
   conversation?: ConversationView | null;
   wordbook: WordbookEntry[];

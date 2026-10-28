@@ -193,6 +193,8 @@ pub struct Settings {
     pub apple_idle_enabled: bool,
     #[serde(default = "default_autonomous_enabled")]
     pub autonomous_enabled: bool,
+    #[serde(default = "default_autonomous_enabled")]
+    pub show_follow_ups: bool,
     #[serde(default)]
     pub random_presence_enabled: bool,
     pub local_idle_enabled: bool,
@@ -223,6 +225,7 @@ impl Default for Settings {
             chatgpt_idle_enabled: false,
             apple_idle_enabled: false,
             autonomous_enabled: true,
+            show_follow_ups: true,
             random_presence_enabled: false,
             local_idle_enabled: false,
             api_idle_enabled: false,
@@ -502,6 +505,18 @@ pub struct ActiveRequest {
     pub message_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FollowUpRequest {
+    pub request_id: String,
+    pub message_id: String,
+    pub session_id: String,
+    pub surface: String,
+    pub options: Vec<crate::story::Choice>,
+    #[serde(skip)]
+    pub target: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
@@ -544,6 +559,8 @@ pub struct Snapshot {
     pub wordbook: Vec<WordbookEntry>,
     #[serde(default, skip_deserializing)]
     pub story: Option<crate::story::Request>,
+    #[serde(default, skip_deserializing)]
+    pub follow_ups: Option<FollowUpRequest>,
 }
 
 #[cfg(test)]

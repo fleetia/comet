@@ -235,6 +235,8 @@ pub fn run() {
                 talk_playback: Mutex::new(None),
                 talk_turn: AtomicBool::new(true),
                 story: Mutex::new(None),
+                follow_ups: Mutex::new(None),
+                follow_up_dismissed_epoch: AtomicU64::new(u64::MAX),
                 pack_stories: Mutex::new(crate::pack_stories::Runtime::default()),
                 story_clock: Mutex::new(story::Clock::default()),
                 story_catalog: Mutex::new(story_catalog),
@@ -797,6 +799,8 @@ pub fn run() {
             windows::quit_app,
             windows::reveal_data_folder,
             story::host::choose_story,
+            super::chat::choose_follow_up,
+            super::chat::dismiss_follow_ups,
             story::host::defer_story,
         ])
         .build(tauri::generate_context!())
