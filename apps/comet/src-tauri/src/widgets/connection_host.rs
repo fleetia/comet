@@ -1318,7 +1318,7 @@ async fn refresh_information(
             Ok(result) => Some(result),
             Err(error) => {
                 let _action = lock(&state.action)?;
-                connections::cancel_weather_archive(&lock(&state.db)?, request)?;
+                connections::cancel_weather_archive(&*lock(&state.db)?, request)?;
                 abandon(state, &job);
                 return Err(error);
             }
@@ -1364,7 +1364,7 @@ async fn refresh_information(
     if outcome.is_err() && archive.as_ref().is_none_or(|result| result.is_ok()) {
         if let Some(request) = &request {
             let _action = lock(&state.action)?;
-            connections::cancel_weather_archive(&lock(&state.db)?, request)?;
+            connections::cancel_weather_archive(&*lock(&state.db)?, request)?;
         }
     }
     publish_widgets(app, state);
