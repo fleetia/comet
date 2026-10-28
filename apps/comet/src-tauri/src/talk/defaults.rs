@@ -846,7 +846,9 @@ mod pipeline_tests {
         let kinds = catalog
             .iter()
             .map(|manifest| manifest.id.as_str())
-            .filter(|kind| !REVIVED.iter().any(|(revived, _)| revived == kind))
+            .filter(|kind| {
+                *kind != "external-notice" && !REVIVED.iter().any(|(revived, _)| revived == kind)
+            })
             .collect::<Vec<_>>();
         assert_eq!(INITIAL_STATES.len(), kinds.len());
         let (db, _directory) = nadir_database(&kinds);
@@ -874,7 +876,8 @@ mod pipeline_tests {
         )
         .unwrap();
         let program = program(BYULKKORI);
-        assert_eq!(INITIAL_STATES.len() + REVIVED.len(), catalog.len());
+        // External notices are event-driven and have no idle initial-state scene.
+        assert_eq!(INITIAL_STATES.len() + REVIVED.len() + 1, catalog.len());
         for scene in INITIAL_STATES
             .into_iter()
             .chain(REVIVED.map(|(_, scene)| scene))

@@ -1032,7 +1032,11 @@ mod tests {
                 .iter()
                 .filter(|(_, kind, _, _, _)| !widgets::is_retired(kind))
                 .count(),
-            widgets::catalog().unwrap().len()
+            widgets::catalog()
+                .unwrap()
+                .iter()
+                .filter(|item| item.id != "external-notice")
+                .count()
         );
     }
 

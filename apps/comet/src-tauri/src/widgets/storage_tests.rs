@@ -404,7 +404,7 @@ fn widget_onboarding_is_read_compatible_and_installation_never_writes_it() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
     let before = storage::snapshot(&db).unwrap();
-    assert_eq!(before.catalog.len(), 21);
+    assert_eq!(before.catalog.len(), 22);
     assert!(before.widgets.is_empty());
     assert!(!before.onboarding_done);
     install(&db, directory.path(), &["memo"]);
