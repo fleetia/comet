@@ -2352,12 +2352,28 @@ fn advance_app_usage(state: &AppState, db: &rusqlite::Connection, at: i64) -> Re
             .map(|timer| timer.id.clone())
             .collect::<Vec<_>>(),
     );
+    let preferences = crate::behavior::preferences(db)?;
+    let instant = std::time::Instant::now();
+    if !preferences.activity_enabled {
+        lock(&state.life)?.activity.clear();
+    }
+    let activity_due = preferences.activity_enabled && lock(&state.life)?.activity.due(instant);
     if timers.is_empty() {
         tracker.clear();
-        return Ok(false);
+        if !activity_due {
+            return Ok(false);
+        }
     }
-    let sample = crate::app_usage::sample();
-    let instant = std::time::Instant::now();
+    let sample = if activity_due {
+        let sample = crate::app_usage::detailed_sample();
+        let focus_sample = sample.sample.clone();
+        lock(&state.life)?
+            .activity
+            .observe(sample, &preferences.activity_excluded_apps, instant);
+        focus_sample
+    } else {
+        crate::app_usage::sample()
+    };
     let mut changed = false;
     for timer in timers {
         if let Some(data) = tracker.observe(&timer.id, &timer.data, &sample, at, instant) {

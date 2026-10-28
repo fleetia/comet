@@ -132,17 +132,51 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
     if let Err(error) = add_touch_milestone_dialogue(&root) {
         crate::report_error!("talk_migration_touch_milestone", ".talk touch milestone dialogue: {error}");
     }
-    if let Err(error) = add_mood_dialogue(&root) {
-        crate::report_error!("talk_migration_mood", ".talk mood dialogue: {error}");
-    }
     if let Err(error) = upgrade_weather_dialogue(&root) {
         crate::report_error!("talk_migration_weather", ".talk weather dialogue: {error}");
     }
     if let Err(error) = add_recall_dialogue(&root) {
         crate::report_error!("talk_migration_recall", ".talk recall dialogue: {error}");
     }
+    if let Err(error) = add_activity_dialogue(&root) {
+        crate::report_error!("talk_migration_activity", ".talk activity dialogue: {error}");
+    }
+    if let Err(error) = add_mood_dialogue(&root) {
+        crate::report_error!("talk_migration_mood", ".talk mood dialogue: {error}");
+    }
     migrate_encryption(&root);
     Ok(root)
+}
+
+fn add_activity_dialogue(root: &Path) -> Result<(), String> {
+    let marker = app_data_of(root)?.join(".talk-byulkkori-activity-v1");
+    if marker.try_exists().map_err(|error| error.to_string())? || !root.exists() {
+        return Ok(());
+    }
+    let target = root
+        .join(PACKS_DIRECTORY)
+        .join(defaults::BYULKKORI)
+        .join("situations/solo.talk");
+    let current = match fs::read(&target) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.to_string()),
+    };
+    let previous = super::encryption::decode(include_bytes!(
+        "../../content/previous-byulkkori-solo-activity.talk"
+    ))?;
+    if let Some(original) = current {
+        if super::encryption::decode(&original)? == previous {
+            if fs::read(&target).map_err(|error| error.to_string())? != original {
+                return Err("기본 대본을 갱신하는 동안 파일이 바뀌었어요.".into());
+            }
+            super::files::atomic_write(
+                &target,
+                include_bytes!("../../content/previous-byulkkori-solo-v5.talk"),
+            )?;
+        }
+    }
+    super::files::atomic_write(&marker, b"1\n")
 }
 
 fn add_mood_dialogue(root: &Path) -> Result<(), String> {
@@ -156,7 +190,7 @@ fn add_mood_dialogue(root: &Path) -> Result<(), String> {
         .join(pack.id)
         .join("situations/solo.talk");
     let previous = super::encryption::decode(
-        include_str!("../../content/previous-byulkkori-solo-v4.talk").as_bytes(),
+        include_str!("../../content/previous-byulkkori-solo-v5.talk").as_bytes(),
     )?;
     match fs::read(&scene) {
         Ok(bytes) if super::encryption::decode(&bytes)? == previous => {
@@ -166,6 +200,9 @@ fn add_mood_dialogue(root: &Path) -> Result<(), String> {
                 .find(|(name, _)| *name == "situations/solo.talk")
                 .map(|(_, source)| *source)
                 .ok_or("기본 대본을 찾지 못했어요.")?;
+            if fs::read(&scene).map_err(|error| error.to_string())? != bytes {
+                return Err("기본 대본을 갱신하는 동안 파일이 바뀌었어요.".into());
+            }
             super::files::atomic_write(&scene, source.as_bytes())?;
         }
         Ok(_) => {}
@@ -1309,6 +1346,30 @@ mod dialogue_upgrade_tests {
     }
 
     #[test]
+    fn activity_and_mood_upgrade_in_order_without_overwriting_edits() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = initialize_files(directory.path()).unwrap();
+        let solo = root.join("packs/byulkkori/situations/solo.talk");
+        let shipped = source(&solo);
+        fs::write(&solo, include_bytes!("../../content/previous-byulkkori-solo-activity.talk")).unwrap();
+        fs::remove_file(directory.path().join(".talk-byulkkori-activity-v1")).unwrap();
+        fs::remove_file(directory.path().join(".talk-byulkkori-mood-v1")).unwrap();
+        initialize_files(directory.path()).unwrap();
+        assert_eq!(source(&solo), shipped);
+        let entry = root.join("packs/byulkkori/index.talk");
+        let program = super::super::load_pack(&entry, &super::super::context::registry(), "byulkkori").unwrap();
+        assert!(program.scenes.iter().any(|scene| scene.id == "activity.long-session"));
+        assert!(program.scenes.iter().any(|scene| scene.id == "solo.mood-high"));
+
+        let authored = "format: 1\n# 사용자 수정\n";
+        fs::write(&solo, super::super::encryption::encode(authored).unwrap()).unwrap();
+        fs::remove_file(directory.path().join(".talk-byulkkori-activity-v1")).unwrap();
+        fs::remove_file(directory.path().join(".talk-byulkkori-mood-v1")).unwrap();
+        initialize_files(directory.path()).unwrap();
+        assert_eq!(source(&solo), authored);
+    }
+
+    #[test]
     fn stock_sources_upgrade_without_changing_authored_files_or_history_keys() {
         let directory = tempfile::tempdir().unwrap();
         let root = initialize_files(directory.path()).unwrap();
@@ -1329,8 +1390,8 @@ mod dialogue_upgrade_tests {
         reset_upgrade(directory.path());
         initialize_files(directory.path()).unwrap();
         let after = super::super::load_bundle(&root, &super::super::context::registry()).unwrap();
-        // The two inputs contribute 20 solo scenes and 8 pair scenes in total.
-        assert_eq!(after.scenes.len(), before.scenes.len() + 28);
+        // The two inputs contribute 22 solo scenes and 8 pair scenes in total.
+        assert_eq!(after.scenes.len(), before.scenes.len() + 30);
         let added: std::collections::BTreeSet<_> = after
             .scenes
             .iter()
@@ -1360,6 +1421,8 @@ mod dialogue_upgrade_tests {
                 "solo.close-friend",
                 "solo.mood-high",
                 "solo.mood-low",
+                "activity.long-session",
+                "activity.idle-return",
                 "situation.unfinished-syllable",
                 "situation.small-game",
                 "situation.shared-quiet",

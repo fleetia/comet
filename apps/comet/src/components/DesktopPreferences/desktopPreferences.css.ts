@@ -13,6 +13,13 @@ export const toyChoices = style({
   gap: 6,
   alignItems: "center",
 });
+export const activityChoices = style({
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  gap: tokens["spacing/space-12"],
+  padding: tokens["spacing/space-12"],
+});
 export const toyPreview = style({
   display: "flex",
   alignItems: "center",

@@ -70,6 +70,9 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>,
         let _ = flush_positions(&state, false);
         let _ = advance_widgets(&app, &state);
         let _ = crate::widgets::mood::advance(&app, &state, &mut mood_event_cursor);
+        if crate::talk::host::play_activity_reaction(&app, &state).unwrap_or(false) {
+            continue;
+        }
         let _ = crate::diary::runtime::tick(&app, &state);
         if play_mood_reaction(&app, &state).unwrap_or(false) {
             continue;

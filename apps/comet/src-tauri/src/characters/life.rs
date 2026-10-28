@@ -23,6 +23,7 @@ pub(crate) struct Runtime {
     sleep_started: BTreeMap<String, i64>,
     mood_input: u64,
     mood_tick_at: i64,
+    pub(crate) activity: crate::app_usage::activity::Runtime,
 }
 
 const MOOD_DECAY_MS: i64 = 30 * 60 * 1000;

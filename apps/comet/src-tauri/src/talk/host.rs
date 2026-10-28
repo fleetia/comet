@@ -17,6 +17,8 @@ pub(crate) struct PreparedTalk {
     program: Arc<talk::Program>,
     text_values: BTreeMap<String, serde_json::Value>,
     pub(crate) event: Option<widgets::WidgetEvent>,
+    activity_event: Option<String>,
+    activity_id: Option<String>,
     seed: u64,
     pub(crate) recall_date: Option<String>,
     recall_day: Option<chrono::NaiveDate>,
@@ -49,20 +51,62 @@ pub(crate) fn prepare(
     db: &Connection,
     event: Option<&widgets::WidgetEvent>,
 ) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
-    prepare_with_trigger(state, db, event, false)
+    prepare_with_activity_event(state, db, event, None)
+}
+
+fn activity_context(
+    state: &AppState,
+    context: &mut talk::EvalContext,
+) -> Result<Option<String>, String> {
+    let life = lock(&state.life)?;
+    let activity = &life.activity;
+    context
+        .values
+        .insert("activity.ready".into(), serde_json::json!(activity.ready()));
+    if !activity.ready() {
+        return Ok(None);
+    }
+    if let Some(current) = &activity.current {
+        context
+            .values
+            .insert("activity.appName".into(), serde_json::json!(current.name));
+        context.values.insert(
+            "activity.category".into(),
+            serde_json::json!(current.category),
+        );
+    }
+    context.values.insert(
+        "activity.minutes".into(),
+        serde_json::json!(activity.minutes()),
+    );
+    context.values.insert(
+        "activity.idleMinutes".into(),
+        serde_json::json!(activity.idle_minutes()),
+    );
+    Ok(activity.current.as_ref().map(|current| current.id.clone()))
+}
+
+fn prepare_with_activity_event(
+    state: &AppState,
+    db: &Connection,
+    event: Option<&widgets::WidgetEvent>,
+    activity_event: Option<&str>,
+) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
+    prepare_with_triggers(state, db, event, activity_event, false)
 }
 
 pub(crate) fn prepare_recall(
     state: &AppState,
     db: &Connection,
 ) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
-    prepare_with_trigger(state, db, None, true)
+    prepare_with_triggers(state, db, None, None, true)
 }
 
-fn prepare_with_trigger(
+fn prepare_with_triggers(
     state: &AppState,
     db: &Connection,
     event: Option<&widgets::WidgetEvent>,
+    activity_event: Option<&str>,
     recall: bool,
 ) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
     let (program, generation) = {
@@ -80,6 +124,13 @@ fn prepare_with_trigger(
         uuid::Uuid::new_v4().as_u128() as u64,
     )?;
     add_moods(state, db, &mut context)?;
+    let activity_id = activity_context(state, &mut context)?;
+    if let Some(kind) = activity_event {
+        context.trigger = kind.into();
+        context
+            .values
+            .insert("event.kind".into(), serde_json::json!(kind));
+    }
     let recall_date = if recall {
         if context.values.get("recall.ready") != Some(&serde_json::json!(true)) {
             return Ok(None);
@@ -116,10 +167,14 @@ fn prepare_with_trigger(
         program.as_ref()
     };
     let (muted, event_muted) = muted_reactions(db, event, &context)?;
+    let mut history = talk::runtime::history(db)?;
+    for (key, at) in lock(&state.life)?.activity.private_history() {
+        history.entry(key.clone()).and_modify(|value| *value = (*value).max(*at)).or_insert(*at);
+    }
     let simulation = talk::simulate_with_policy(
         candidate_program,
         &context,
-        &talk::runtime::history(db)?,
+        &history,
         |selection| {
             if event_muted || muted_selection(selection, &muted) {
                 return Err("reaction_disabled".into());
@@ -174,6 +229,8 @@ fn prepare_with_trigger(
         program,
         text_values: context.values,
         event: event.cloned(),
+        activity_event: activity_event.map(str::to_owned),
+        activity_id,
         seed: context.seed,
         recall_day: recall_date
             .as_ref()
@@ -307,6 +364,24 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
     }
     let mut context = talk::context::build(db, prepared.event.as_ref(), now, prepared.seed)?;
     add_moods(state, db, &mut context)?;
+    let activity_id = activity_context(state, &mut context)?;
+    if let Some(kind) = &prepared.activity_event {
+        context.trigger = kind.clone();
+        context
+            .values
+            .insert("event.kind".into(), serde_json::json!(kind));
+    }
+    if (prepared.activity_event.is_some()
+        || prepared
+            .selection
+            .references
+            .iter()
+            .any(|name| name.starts_with("activity.")))
+        && (context.values["activity.ready"] != prepared.text_values["activity.ready"]
+            || activity_id != prepared.activity_id)
+    {
+        return Ok(false);
+    }
     if prepared.text_values.get("recall.ready") == Some(&serde_json::json!(true))
         && prepared.selection.references.iter().any(|name| name.starts_with("recall."))
         && !crate::store::settings(db)?.diary_recall_enabled
@@ -355,6 +430,74 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
                     },
                 )
         }))
+}
+
+pub(crate) fn activity_in_playback(state: &AppState) -> Result<bool, String> {
+    Ok(lock(&state.talk_playback)?
+        .as_ref()
+        .is_some_and(|prepared| {
+            prepared.activity_event.is_some()
+                || prepared
+                    .selection
+                    .references
+                    .iter()
+                    .any(|name| name.starts_with("activity."))
+        }))
+}
+
+pub(crate) fn play_activity_reaction(
+    app: &tauri::AppHandle,
+    state: &Arc<AppState>,
+) -> Result<bool, String> {
+    let pending = {
+        let _action = lock(&state.action)?;
+        if !lock(&state.life)?.activity.has_events() {
+            return Ok(false);
+        }
+        let status = lock(&state.runtime)?.clone();
+        let db = lock(&state.db)?;
+        let settings = crate::store::settings(&db)?;
+        if crate::app::unavailable(state)
+            || status.hidden
+            || status.paused
+            || !settings.autonomous_enabled
+            || crate::app::quiet_hours::automatic_blocked(state, &settings)?
+        {
+            lock(&state.life)?.activity.take_events();
+            return Ok(false);
+        }
+        if !lock(&state.life)?.activity.ready() {
+            return Ok(false);
+        }
+        if status.phase != "idle"
+            || state.launcher_open.load(Ordering::SeqCst)
+            || crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
+            || lock(&state.panel)?.is_some()
+            || lock(&state.pack_stories)?.run.is_some()
+            || crate::behavior::reactions_blocked(state)?
+            || crate::app::now() - state.last_input.load(Ordering::SeqCst) < 3
+        {
+            return Ok(false);
+        }
+        let events = lock(&state.life)?.activity.take_events();
+        if events.is_empty() {
+            return Ok(false);
+        }
+        let token = crate::app::interrupt_with_db(state, true, &db)?;
+        let mut selected = None;
+        for kind in events {
+            if let Some(lines) = prepare_with_activity_event(state, &db, None, Some(kind))? {
+                selected = Some((lines, token));
+                break;
+            }
+        }
+        selected
+    };
+    let Some((lines, token)) = pending else {
+        return Ok(false);
+    };
+    crate::app::scene::start_scene(app.clone(), state.clone(), lines, "talk", token, None);
+    Ok(true)
 }
 
 fn log_diagnostics(diagnostics: &[talk::Diagnostic]) {
@@ -512,6 +655,99 @@ mod tests {
             .unwrap()
             .apply(talk::load_bundle(&root, &talk::context::registry()));
         (directory, state)
+    }
+
+    #[test]
+    fn activity_scenes_keep_cooldown_without_persisting_observed_information() {
+        for (field, idle, activity_event) in [
+            ("activity.appName", false, None),
+            ("activity.category", false, None),
+            ("activity.minutes", false, None),
+            ("activity.idleMinutes", true, None),
+            ("", false, Some("activity.long-session")),
+        ] {
+            let state = crate::app::tests::state();
+            lock(&state.life).unwrap().activity.observe(
+                crate::app_usage::DetailedSample {
+                    sample: crate::app_usage::Sample {
+                        app_id: Some("private-app".into()),
+                        eligible: true,
+                        status: if idle { "idle" } else { "active" }.into(),
+                    },
+                    application: Some(crate::app_usage::Application {
+                        id: "private-app".into(), name: "비밀 작업 앱".into(),
+                    }),
+                    idle_seconds: Some(if idle { 120.0 } else { 0.0 }),
+                }, &[], Instant::now(),
+            );
+            let trigger = activity_event.unwrap_or("idle");
+            let line = if field.is_empty() { "활동 반응".to_string() } else { format!("${{{field}}}") };
+            let source = format!("format: 1\nscene: private\non: {trigger}\ncooldown: 1h\n---\nA: {line}\n===\n");
+            let program = talk::validate_source(
+                Path::new("private.talk"), &source, &talk::context::registry(),
+            ).unwrap();
+            lock(&state.talk).unwrap().apply(Ok(program));
+            let token = interrupt(&state, true).unwrap();
+            let (lines, revision) = {
+                let db = lock(&state.db).unwrap();
+                (prepare_with_activity_event(&state, &db, None, activity_event).unwrap().unwrap(),
+                 crate::store::revision(&db).unwrap())
+            };
+            assert!(crate::app::scene::present_line(
+                &state, &lines[0], "talk", "private-line", 0, 1, revision, token.0, &token.1, false,
+            ).unwrap());
+            let db = lock(&state.db).unwrap();
+            assert!(crate::store::messages(&db, 10).unwrap().is_empty(), "{field}");
+            assert!(talk::runtime::history(&db).unwrap().is_empty(), "{field}");
+            assert_eq!(lock(&state.life).unwrap().activity.private_history().len(), 1);
+            assert!(prepare_with_activity_event(&state, &db, None, activity_event).unwrap().is_none());
+            drop(db);
+            lock(&state.life).unwrap().activity.clear();
+            assert!(lock(&state.life).unwrap().activity.private_history().is_empty());
+        }
+    }
+
+    #[test]
+    fn activity_based_diary_recall_remains_private_and_records_only_its_date() {
+        let state = crate::app::tests::state();
+        lock(&state.life).unwrap().activity.observe(
+            crate::app_usage::DetailedSample {
+                sample: crate::app_usage::Sample { app_id: Some("private-app".into()), eligible: true, status: "active".into() },
+                application: Some(crate::app_usage::Application { id: "private-app".into(), name: "비밀 앱".into() }),
+                idle_seconds: Some(0.0),
+            }, &[], Instant::now(),
+        );
+        let date = (chrono::Local::now().date_naive() - chrono::Days::new(7)).to_string();
+        {
+            let db = lock(&state.db).unwrap();
+            let diary = serde_json::json!({"revision":1,"pages":[{"id":"page","title":"","date":date.clone(),"entries":[{"id":"note","kind":"note","text":"추억"}]}],"notes":[],"moves":[]});
+            db.execute("UPDATE diary_state SET data=?1 WHERE id=1", [diary.to_string()]).unwrap();
+            let mut settings = crate::store::settings(&db).unwrap();
+            settings.diary_recall_enabled = true;
+            crate::store::save_settings(&db, &settings).unwrap();
+        }
+        let program = talk::validate_source(
+            Path::new("private-recall.talk"),
+            "format: 1\nscene: private\non: diary.recall\n---\nA: ${activity.minutes}분과 ${recall.snippet}\n===\n",
+            &talk::context::registry(),
+        ).unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        let token = interrupt(&state, true).unwrap();
+        let (lines, revision) = {
+            let db = lock(&state.db).unwrap();
+            (prepare_recall(&state, &db).unwrap().unwrap(), crate::store::revision(&db).unwrap())
+        };
+        assert!(crate::app::scene::present_line(
+            &state, &lines[0], "talk", "private-recall", 0, 1, revision, token.0, &token.1, false,
+        ).unwrap());
+        let db = lock(&state.db).unwrap();
+        assert!(crate::store::messages(&db, 10).unwrap().is_empty());
+        record_recall_displayed(&state, &db, chrono::Utc::now().timestamp_millis()).unwrap();
+        let recorded: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM widget_preferences WHERE key=?1)",
+            [format!("recall:{date}")], |row| row.get(0),
+        ).unwrap();
+        assert!(recorded);
     }
 
     #[test]

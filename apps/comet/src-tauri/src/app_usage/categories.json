@@ -1,0 +1,9 @@
+{
+  "editor": ["code", "code - insiders", "cursor", "devenv", "idea64", "pycharm64", "webstorm64", "notepad++", "sublime_text", "zed"],
+  "terminal": ["windowsterminal", "cmd", "powershell", "pwsh", "conhost", "wezterm-gui", "alacritty", "mintty"],
+  "browser": ["chrome", "msedge", "firefox", "brave", "opera", "vivaldi", "arc"],
+  "chat": ["slack", "discord", "teams", "ms-teams", "telegram", "kakaotalk", "signal"],
+  "media": ["spotify", "vlc", "music", "itunes", "obs64", "wmplayer"],
+  "office": ["winword", "excel", "powerpnt", "onenote", "outlook", "notion", "acrord32", "acrobat"],
+  "game": ["steam", "steamwebhelper", "epicgameslauncher", "riotclientservices"]
+}
