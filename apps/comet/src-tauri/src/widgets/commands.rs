@@ -1432,6 +1432,7 @@ pub(crate) fn play_widget_reaction(
                 (
                     vec![SceneLine {
                         motion: Default::default(),
+                        widget: None,
                         persona: "a".into(),
                         expression: "평온".into(),
                         text: event.event.text.clone(),
