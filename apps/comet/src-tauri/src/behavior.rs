@@ -519,12 +519,7 @@ mod tests {
             let (event, token, revision) = {
                 let _action = lock(&state.action).unwrap();
                 let db = lock(&state.db).unwrap();
-                widgets::storage::install(
-                    &db,
-                    directory.path(),
-                    &["focus-timer".into(), "ball".into()],
-                )
-                .unwrap();
+                widgets::storage::verify_packages(&db, directory.path()).unwrap();
                 let timer = widgets::storage::instances(&db)
                     .unwrap()
                     .into_iter()

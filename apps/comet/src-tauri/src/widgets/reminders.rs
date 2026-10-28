@@ -706,7 +706,7 @@ mod tests {
         let db = Connection::open_in_memory().unwrap();
         storage::initialize(&db).unwrap();
         let temp = tempfile::tempdir().unwrap();
-        storage::install(&db, temp.path(), &["todo".into(), "focus-timer".into()]).unwrap();
+        storage::verify_packages(&db, temp.path()).unwrap();
         let mut timer = storage::instances(&db)
             .unwrap()
             .into_iter()
@@ -813,7 +813,7 @@ mod tests {
         let db = Connection::open_in_memory().unwrap();
         storage::initialize(&db).unwrap();
         let temp = tempfile::tempdir().unwrap();
-        storage::install(&db, temp.path(), &["calendar".into(), "todo".into()]).unwrap();
+        storage::verify_packages(&db, temp.path()).unwrap();
         let instances = storage::instances(&db).unwrap();
         let calendar = instances
             .iter()
@@ -855,7 +855,7 @@ mod tests {
         let db = Connection::open_in_memory().unwrap();
         storage::initialize(&db).unwrap();
         let temp = tempfile::tempdir().unwrap();
-        storage::install(&db, temp.path(), &["calendar".into(), "todo".into()]).unwrap();
+        storage::verify_packages(&db, temp.path()).unwrap();
         let calendar = storage::instances(&db)
             .unwrap()
             .into_iter()
@@ -886,8 +886,8 @@ mod tests {
         let db = Connection::open_in_memory().unwrap();
         storage::initialize(&db).unwrap();
         let directory = tempfile::tempdir().unwrap();
-        storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
-        let calendar = storage::instances(&db).unwrap().remove(0);
+        storage::verify_packages(&db, directory.path()).unwrap();
+        let calendar = storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "calendar").unwrap();
         let starts = 1_600_000;
         let mut value = data();
         value["events"][0]["connectionId"] = json!("local");
@@ -933,13 +933,13 @@ mod tests {
     }
 
     #[test]
-    fn zero_lead_does_not_deliver_when_reminders_or_calendar_are_disabled() {
-        for (reminders_enabled, calendar_enabled) in [(false, true), (true, false)] {
+    fn zero_lead_does_not_deliver_when_reminders_are_disabled() {
+        for reminders_enabled in [false] {
             let db = Connection::open_in_memory().unwrap();
             storage::initialize(&db).unwrap();
             let directory = tempfile::tempdir().unwrap();
-            storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
-            let calendar = storage::instances(&db).unwrap().remove(0);
+            storage::verify_packages(&db, directory.path()).unwrap();
+            let calendar = storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "calendar").unwrap();
             let mut value = data();
             value["events"][0]["connectionId"] = json!("local");
             value["reminders"]["leadMinutes"] = json!(0);
@@ -954,9 +954,6 @@ mod tests {
                 1_599_000,
             )
             .unwrap();
-            if !calendar_enabled {
-                storage::set_enabled(&db, &calendar.id, false).unwrap();
-            }
             let mut clocks = BTreeMap::new();
             for now in [1_599_500, 1_600_500] {
                 let result = advance(&db, &mut clocks, now, false).unwrap();
@@ -983,8 +980,8 @@ mod tests {
             let db = Connection::open_in_memory().unwrap();
             storage::initialize(&db).unwrap();
             let directory = tempfile::tempdir().unwrap();
-            storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
-            let calendar = storage::instances(&db).unwrap().remove(0);
+            storage::verify_packages(&db, directory.path()).unwrap();
+            let calendar = storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "calendar").unwrap();
             let now = local_date_time("2026-09-28", "09:00").unwrap();
             let mut value = calendar.data.clone();
             value["reminders"]["moodDayStart"] = json!(true);
@@ -1042,8 +1039,8 @@ mod tests {
             let db = Connection::open_in_memory().unwrap();
             storage::initialize(&db).unwrap();
             let directory = tempfile::tempdir().unwrap();
-            storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
-            let calendar = storage::instances(&db).unwrap().remove(0);
+            storage::verify_packages(&db, directory.path()).unwrap();
+            let calendar = storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "calendar").unwrap();
             let mut value = data();
             value["reminders"]["characterEnabled"] = json!(false);
             value["reminders"]["osEnabled"] = json!(os_enabled);

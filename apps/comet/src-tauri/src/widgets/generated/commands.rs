@@ -1878,8 +1878,8 @@ mod tests {
             runtime.paused = false;
         }
         let directory = tempfile::tempdir().unwrap();
-        crate::widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
-        let timer = crate::widgets::storage::instances(&db).unwrap().remove(0);
+        crate::widgets::storage::verify_packages(&db, directory.path()).unwrap();
+        let timer = crate::widgets::storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "focus-timer").unwrap();
         let at = chrono::Utc::now().timestamp_millis();
         let mut focus = timer.data.clone();
         focus["status"] = serde_json::json!("running");
@@ -1888,7 +1888,7 @@ mod tests {
             .unwrap();
         assert!(!automatic_allowed(&state, &db, &settings).unwrap());
         assert!(reactions_blocked(&state, &db).unwrap());
-        let mut idle = crate::widgets::storage::instances(&db).unwrap().remove(0);
+        let mut idle = crate::widgets::storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "focus-timer").unwrap();
         idle.data["status"] = serde_json::json!("idle");
         crate::widgets::storage::commit_data(&db, &idle.id, idle.revision, idle.data, vec![], at)
             .unwrap();
