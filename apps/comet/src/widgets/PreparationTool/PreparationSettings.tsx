@@ -21,9 +21,7 @@ export function PreparationSettings({
 }): ReactElement {
   const data = record(widget.data);
   const calendar = widgets.find((item) => item.kind === "calendar");
-  const reminders = record(
-    record(calendar?.installed && calendar.enabled ? calendar.data : null).reminders,
-  );
+  const reminders = record(record(calendar?.data).reminders);
   const channelLabel =
     reminders.characterEnabled !== false
       ? reminders.osEnabled === true
@@ -96,7 +94,6 @@ export function PreparationSettings({
       <Surface variant="card" className={s.connections}>
         {connections.map((item) => {
           const related = widgets.find((value) => value.kind === item.kind);
-          const enabled = related?.installed && related.enabled;
           return (
             <div className={s.connection} key={item.kind}>
               <SettingsSummary
@@ -112,9 +109,6 @@ export function PreparationSettings({
                 disabled={busy || !related || !onOpenRelated}
                 onClick={() => related && onOpenRelated?.(related)}
               />
-              <span className={s.status} data-enabled={enabled || undefined}>
-                {enabled ? "켜짐" : related?.installed ? "꺼짐" : "설치 안 됨"}
-              </span>
             </div>
           );
         })}

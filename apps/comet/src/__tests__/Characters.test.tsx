@@ -44,7 +44,7 @@ const pack: CharacterPack = {
 
 it("previews a pack before install and keeps assignment an explicit separate action", async () => {
   vi.mocked(command).mockImplementation(async (name) => {
-    if (name === "choose_character_pack") return pack;
+    if (name === "choose_character_pack") return { pack, warnings: [] };
     if (name === "import_character_pack") return [extra];
     return undefined;
   });
@@ -106,7 +106,7 @@ it("preserves all pack preview content, initial disclosure states, and verbatim 
       },
     ],
   };
-  vi.mocked(command).mockResolvedValue(previewPack);
+  vi.mocked(command).mockResolvedValue({ pack: previewPack, warnings: [] });
   render(<CharacterSharing snapshot={snapshot} selectedId="local-third" disabled={false} />);
   fireEvent.click(screen.getByRole("button", { name: "공유 파일 가져오기" }));
   const preview = within(await screen.findByLabelText("가져오기 미리보기"));
@@ -208,7 +208,7 @@ it.each([7, 8])("joins imported residents only and preserves a %i-member roster 
   const guest = { ...extra, id: "imported-guest", packId: "mixed-pack", definition: { ...extra.definition, sourceId: "mixed-guest", presenceRole: "npc" as const } };
   const current = Array.from({ length: count }, (_, index) => ({ ...extra, id: `current-${index}` }));
   vi.mocked(command).mockImplementation(async (name) => name === "choose_character_pack"
-    ? { ...pack, formatVersion: 8, characters: [resident.definition, guest.definition] }
+    ? { pack: { ...pack, formatVersion: 8, characters: [resident.definition, guest.definition] }, warnings: [] }
     : name === "import_character_pack" ? [resident, guest] : undefined);
   render(<CharacterSharing snapshot={{ ...snapshot, characters: { installed: current, active: current.map((actor) => actor.id) } }} selectedId={current[0].id} disabled={false} />);
   fireEvent.click(screen.getByRole("button", { name: "공유 파일 가져오기" }));
@@ -518,7 +518,7 @@ it("imports personal records from a shared file only when each is chosen", async
   };
   const shared = { ...pack, formatVersion: 8 as const, archive };
   vi.mocked(command).mockImplementation(async (name) => {
-    if (name === "choose_character_pack") return shared;
+    if (name === "choose_character_pack") return { pack: shared, warnings: [] };
     if (name === "import_character_pack") return [extra];
     return undefined;
   });

@@ -49,7 +49,7 @@ import * as s from "./widgetDisplay.css";
 
 export function desktopWidgets(widgets: readonly WidgetView[]): WidgetView[] {
   return widgets.filter(
-    (widget) => widget.installed && widget.enabled && desktopKind(widget.kind) !== undefined,
+    (widget) => desktopKind(widget.kind) !== undefined,
   );
 }
 export function focusRemaining(widget: WidgetView, now: number): number {
@@ -230,7 +230,7 @@ function preparationState(
   progress: ReturnType<typeof preparationProgress>;
 } {
   const envelope = rows(record(widget.data).envelopes).find((item) => item.archived !== true);
-  const todo = widgets.find((item) => item.kind === "todo" && item.installed && item.enabled);
+  const todo = widgets.find((item) => item.kind === "todo");
   return {
     envelope,
     progress: preparationProgress(
@@ -576,8 +576,8 @@ export function ExpandedDesktopWidget({
         act={(action, input, target = widget) => act(action, input, target)}
         embedded
         onCollapse={onCollapse}
-        busy={!widget.installed || !widget.enabled}
-        active={widget.installed && widget.enabled}
+        busy={false}
+        active
       />
     );
   }
@@ -590,14 +590,14 @@ export function ExpandedDesktopWidget({
       if (!envelope) return;
       try {
         const timer = widgets.find(
-          (item) => item.kind === "focus-timer" && item.installed && item.enabled,
+          (item) => item.kind === "focus-timer",
         );
         if (!timer) {
           await command("open_planner_settings", { kind: "focus-timer" });
           return;
         }
         const calendar = widgets.find(
-          (item) => item.kind === "calendar" && item.installed && item.enabled,
+          (item) => item.kind === "calendar",
         );
         const event = rows(record(calendar?.data).events).find(
           (item) => item.id === envelope.eventId,

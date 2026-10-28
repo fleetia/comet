@@ -67,7 +67,7 @@ export function PlannerPreparation({
     return <p className={s.caption}>일정을 선택하면 준비할 일과 자료를 확인할 수 있어요.</p>;
   const isLocalEvent = event.connectionId === "local";
   const linkedIds = Array.isArray(envelope?.todoIds) ? envelope.todoIds : [];
-  const todo = widgets.find((w) => w.kind === "todo" && w.installed && w.enabled);
+  const todo = widgets.find((w) => w.kind === "todo");
   const linkedTodos = rows(record(todo?.data).items).filter((item) =>
     linkedIds.includes(text(item.id)),
   );

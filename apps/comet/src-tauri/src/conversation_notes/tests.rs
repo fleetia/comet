@@ -168,10 +168,10 @@ fn saving_requires_a_message_in_that_users_session_and_visible_assistant_evidenc
 }
 
 #[test]
-fn desktop_memo_notes_are_found_and_disappear_with_their_widget() {
+fn desktop_memo_notes_remain_available_when_reactions_are_disabled() {
     let directory = tempfile::tempdir().unwrap();
     let db = store::open(&directory.path().join("memo.sqlite")).unwrap();
-    crate::widgets::storage::install(&db, directory.path(), &["memo".into()]).unwrap();
+    crate::widgets::storage::verify_packages(&db, directory.path()).unwrap();
     let widget = crate::widgets::storage::instances(&db)
         .unwrap()
         .into_iter()
@@ -185,6 +185,6 @@ fn desktop_memo_notes_are_found_and_disappear_with_their_widget() {
         .unwrap()
         .note_ref;
     assert_eq!(reference.widget_id.as_deref(), Some(widget.id.as_str()));
-    crate::widgets::storage::remove(&db, directory.path(), &widget.id, false).unwrap();
-    assert!(list_notes(&db).unwrap().is_empty());
+    crate::widgets::storage::set_reaction(&db, &widget.id, false).unwrap();
+    assert!(list_notes(&db).unwrap().iter().any(|note| note.note_ref == reference));
 }

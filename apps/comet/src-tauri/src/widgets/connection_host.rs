@@ -43,9 +43,6 @@ fn decode_calendar(value: &Value) -> Result<CalendarState, String> {
         .map_err(|_| "저장된 캘린더 상태를 읽지 못했습니다.".into())
 }
 fn active(instance: &WidgetInstance, kind: Option<&str>) -> Result<(), String> {
-    if !instance.installed || !instance.enabled {
-        return Err("위젯을 설치하고 켜 주세요.".into());
-    }
     if kind.is_some_and(|kind| kind != instance.kind) {
         return Err("위젯 종류가 일치하지 않습니다.".into());
     }
@@ -78,8 +75,6 @@ fn begin(
 fn is_current(state: &AppState, job: &Job, instance: &WidgetInstance) -> Result<bool, String> {
     Ok(!crate::unavailable(state)
         && !job.cancel.load(Ordering::SeqCst)
-        && instance.installed
-        && instance.enabled
         && instance.revision == job.instance.revision
         && lock(&state.widget_jobs)?
             .get(&instance.id)
@@ -628,8 +623,6 @@ fn pairing_id(data: &Value) -> Option<&str> {
 
 pub(crate) fn spotify_widget(instance: &WidgetInstance) -> bool {
     instance.kind == "music"
-        && instance.installed
-        && instance.enabled
         && instance.data["configured"] == true
         && (connections::uses_music_bridge(&instance.data["config"])
             || matches!(
@@ -1443,7 +1436,7 @@ pub(crate) fn start_due_widget_refreshes(app: &AppHandle, state: &Arc<AppState>)
         if available == 0 {
             break;
         }
-        if !instance.installed || !instance.enabled || occupied.contains(&instance.id) {
+        if occupied.contains(&instance.id) {
             continue;
         }
         let calendar_id = if instance.kind == "calendar" {
@@ -1481,7 +1474,7 @@ mod tests {
     fn installed_information(state: &AppState, kind: &str, configured: bool) -> String {
         let directory = tempfile::tempdir().unwrap();
         let db = lock(&state.db).unwrap();
-        storage::install(&db, directory.path(), &[kind.into()]).unwrap();
+        storage::verify_packages(&db, directory.path()).unwrap();
         let instance = storage::instances(&db)
             .unwrap()
             .into_iter()
@@ -1681,8 +1674,6 @@ mod tests {
             id: "music-test".into(),
             kind: "music".into(),
             version: 1,
-            installed: true,
-            enabled: true,
             revision: 7,
             error: None,
             data: json!({"configured":true,"status":"ready","config":{"provider":"spotify"},
@@ -1690,7 +1681,7 @@ mod tests {
         }
     }
     #[test]
-    fn only_configured_enabled_spotify_widgets_can_launch_and_restore() {
+    fn only_configured_spotify_widgets_can_launch_and_restore() {
         let mut instance = music_instance(1);
         assert!(spotify_widget(&instance));
         instance.data["config"]["provider"] = json!("spicetify");
@@ -1701,12 +1692,6 @@ mod tests {
         }
         instance.data["config"]["provider"] = json!("spicetify");
         instance.data["configured"] = json!(false);
-        assert!(!spotify_widget(&instance));
-        instance.data["configured"] = json!(true);
-        instance.enabled = false;
-        assert!(!spotify_widget(&instance));
-        instance.enabled = true;
-        instance.installed = false;
         assert!(!spotify_widget(&instance));
     }
     #[test]
@@ -1727,7 +1712,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let id = {
             let db = lock(&state.db).unwrap();
-            storage::install(&db, directory.path(), &["music".into()]).unwrap();
+            storage::verify_packages(&db, directory.path()).unwrap();
             storage::instances(&db)
                 .unwrap()
                 .into_iter()
@@ -1744,11 +1729,11 @@ mod tests {
         assert!(finish_music_preparation(&state, &launch, &Ok(())).is_err());
     }
     #[test]
-    fn unlink_removes_restore_authority_before_credential_cleanup_and_disable_preserves_it() {
+    fn unlink_removes_restore_authority_before_credential_cleanup() {
         let state = crate::lifecycle_tests::state();
         let directory = tempfile::tempdir().unwrap();
         let db = lock(&state.db).unwrap();
-        storage::install(&db, directory.path(), &["music".into()]).unwrap();
+        storage::verify_packages(&db, directory.path()).unwrap();
         let instance = storage::instances(&db)
             .unwrap()
             .into_iter()
@@ -1767,10 +1752,7 @@ mod tests {
             // Even a failed OS deletion leaves no DB permission to restore the orphan.
         })
         .unwrap();
-        storage::set_enabled(&db, &instance.id, false).unwrap();
-        storage::set_enabled(&db, &instance.id, true).unwrap();
-        assert!(pairing_id(&storage::get(&db, &instance.id).unwrap().data).is_none());
-        storage::remove(&db, directory.path(), &instance.id, false).unwrap();
+        storage::set_reaction(&db, &instance.id, false).unwrap();
         assert!(pairing_id(&storage::get(&db, &instance.id).unwrap().data).is_none());
     }
     #[test]
@@ -1786,16 +1768,14 @@ mod tests {
         instance.data["status"] = json!("offline");
         assert!(check_music_request(&instance, 7, "play", now).is_err());
         assert!(check_music_request(&instance, 7, "observe", now).is_ok());
-        instance.enabled = false;
-        assert!(check_music_request(&instance, 7, "observe", now).is_err());
     }
     #[test]
-    fn music_job_is_invalid_after_provider_change_or_disable_and_cannot_commit() {
+    fn music_job_is_invalid_after_provider_change_or_cancellation_and_cannot_commit() {
         let state = crate::lifecycle_tests::state();
         let directory = tempfile::tempdir().unwrap();
         let id = {
             let db = lock(&state.db).unwrap();
-            storage::install(&db, directory.path(), &["music".into()]).unwrap();
+            storage::verify_packages(&db, directory.path()).unwrap();
             storage::instances(&db)
                 .unwrap()
                 .into_iter()

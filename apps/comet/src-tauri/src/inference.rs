@@ -924,7 +924,9 @@ async fn completion_request(
             0.7
         }
     });
-    let mut payload = json!({"model":settings.api_model,"messages":messages,"stream":false,"temperature":temperature,"response_format":{"type":"json_schema","json_schema":{"name":"response","strict":true,"schema":schema}}});
+    let mut strict_schema = schema.clone();
+    crate::domain::require_follow_ups_in_strict_schema(&mut strict_schema);
+    let mut payload = json!({"model":settings.api_model,"messages":messages,"stream":false,"temperature":temperature,"response_format":{"type":"json_schema","json_schema":{"name":"response","strict":true,"schema":strict_schema}}});
     payload[token_parameter] = json!(budget.output_tokens + budget.reasoning_tokens);
     if settings.mode == "api" {
         providers::configure_compatible_payload(&mut payload, settings, messages, &schema, budget);
