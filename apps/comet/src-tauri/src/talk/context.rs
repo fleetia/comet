@@ -1141,14 +1141,13 @@ mod tests {
     }
 
     #[test]
-    fn disabled_dependency_prevents_projection_and_availability() {
+    fn disabling_reactions_keeps_completion_jar_data_available() {
         let mut state = snapshot("completion-jar", json!({"completed":[]}));
-        state.widgets[0].missing = vec!["todo".into()];
-        state.widgets[0].status = "setup".into();
+        state.widgets[0].reaction = false;
         let (values, available) = project(&state, 0);
-        assert_eq!(values["jar.count"], Value::Null);
-        assert_eq!(values["jar.ready"], false);
-        assert!(!available.contains("completion-jar"));
+        assert_eq!(values["jar.count"], 0);
+        assert_eq!(values["jar.ready"], true);
+        assert!(available.contains("completion-jar"));
     }
 
     #[test]
@@ -1176,10 +1175,6 @@ mod tests {
     #[test]
     fn build_projects_all_catalog_kinds_and_allowlisted_event_only() {
         let db = crate::store::open(std::path::Path::new(":memory:")).unwrap();
-        for manifest in widgets::catalog().unwrap() {
-            let data = widgets::initial(&manifest.id).unwrap();
-            db.execute("INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data,error) VALUES(?1,?1,1,1,1,0,?2,NULL)", rusqlite::params![manifest.id, serde_json::to_string(&data).unwrap()]).unwrap();
-        }
         let event = WidgetEvent {
             id: "test".into(),
             instance_id: "interaction".into(),

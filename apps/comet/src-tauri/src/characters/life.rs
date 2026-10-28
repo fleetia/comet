@@ -857,7 +857,7 @@ mod tests {
         lock(&state.db)
             .unwrap()
             .execute(
-                "INSERT INTO widget_instances VALUES('timer','focus-timer',1,1,1,0,?1,NULL)",
+                "UPDATE widget_instances SET data=?1 WHERE kind='focus-timer'",
                 [
                     serde_json::json!({"status":"running","mode":"focus","deadline":now + 60000})
                         .to_string(),
@@ -879,7 +879,7 @@ mod tests {
         lock(&state.db)
             .unwrap()
             .execute(
-                "INSERT INTO widget_instances VALUES('timer','focus-timer',1,1,1,0,?1,NULL)",
+                "UPDATE widget_instances SET data=?1 WHERE kind='focus-timer'",
                 [
                     serde_json::json!({"status":"running","mode":"focus","deadline":now + 60000})
                         .to_string(),
