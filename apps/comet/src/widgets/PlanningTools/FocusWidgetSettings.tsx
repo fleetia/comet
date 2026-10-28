@@ -180,7 +180,7 @@ export function FocusWidgetSettings({
     </>
   );
   return (
-    <section className={s.settingsRoot} aria-label="집중 타이머 설정">
+    <div className={s.settingsRoot}>
       <fieldset className={s.settingsFields} disabled={busy}>
         <FocusTimerSettings
           widget={widget}
@@ -191,6 +191,6 @@ export function FocusWidgetSettings({
           onBusyChange={setSettingsBusy}
         />
       </fieldset>
-    </section>
+    </div>
   );
 }
