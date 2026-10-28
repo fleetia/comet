@@ -186,7 +186,7 @@ export function FocusTimerNotes({
             text(note.title) || text(note.body).split(/\r?\n/)[0].slice(0, 80) || "바탕화면 메모",
           originalTitle: text(note.title),
           body: text(note.body),
-          available: widget.installed && widget.enabled,
+          available: true,
           widget,
         })),
       ),

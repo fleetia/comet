@@ -14,8 +14,7 @@ import type { WidgetView } from "../types";
 const timer: WidgetView = {
   id: "focus",
   kind: "focus-timer",
-  installed: true,
-  enabled: true,
+  reaction: true,
   revision: 1,
   version: 1,
   data: { mode: "rest", status: "running", durationMs: 300000, focusDurationMs: 1800000 },

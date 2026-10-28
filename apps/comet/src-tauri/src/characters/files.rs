@@ -1,4 +1,6 @@
-use crate::characters::{self, CharacterPack, MAX_PACK_BYTES};
+#[cfg(test)]
+use crate::characters::CharacterPack;
+use crate::characters::{self, MAX_PACK_BYTES};
 use std::{
     fs::{File, OpenOptions},
     io::{Read, Write},
@@ -6,7 +8,7 @@ use std::{
 };
 use tauri_plugin_dialog::DialogExt;
 
-pub fn read_pack(path: &Path) -> Result<CharacterPack, String> {
+fn read_pack_preview(path: &Path) -> Result<super::validation::PackPreview, String> {
     let file = File::open(path).map_err(|error| error.to_string())?;
     let metadata = file.metadata().map_err(|error| error.to_string())?;
     if !metadata.is_file() || metadata.len() > MAX_PACK_BYTES as u64 {
@@ -16,7 +18,12 @@ pub fn read_pack(path: &Path) -> Result<CharacterPack, String> {
     file.take(MAX_PACK_BYTES as u64 + 1)
         .read_to_string(&mut json)
         .map_err(|_| "UTF-8 캐릭터팩 파일을 읽지 못했어요.".to_string())?;
-    characters::parse_pack(&json)
+    super::validation::parse_pack_preview(&json)
+}
+
+#[cfg(test)]
+pub fn read_pack(path: &Path) -> Result<CharacterPack, String> {
+    Ok(read_pack_preview(path)?.pack)
 }
 
 pub fn write_pack(path: &Path, json: &str) -> Result<(), String> {
@@ -46,7 +53,9 @@ pub fn write_pack(path: &Path, json: &str) -> Result<(), String> {
     result
 }
 
-pub async fn choose(app: tauri::AppHandle) -> Result<Option<CharacterPack>, String> {
+pub async fn choose(
+    app: tauri::AppHandle,
+) -> Result<Option<super::validation::PackPreview>, String> {
     let (send, receive) = tokio::sync::oneshot::channel();
     app.dialog()
         .file()
@@ -59,7 +68,7 @@ pub async fn choose(app: tauri::AppHandle) -> Result<Option<CharacterPack>, Stri
         return Ok(None);
     };
     let path = path.into_path().map_err(|error| error.to_string())?;
-    tauri::async_runtime::spawn_blocking(move || read_pack(&path).map(Some))
+    tauri::async_runtime::spawn_blocking(move || read_pack_preview(&path).map(Some))
         .await
         .map_err(|error| error.to_string())?
 }

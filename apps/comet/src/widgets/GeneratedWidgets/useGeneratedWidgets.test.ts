@@ -75,7 +75,7 @@ it("keeps the latest event snapshot when initial reads resolve late and hides re
           state: {},
           revision: 1,
           installed: false,
-          enabled: false,
+          reaction: false,
           status: "ready",
           error: null,
           installation: null,

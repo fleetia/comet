@@ -37,6 +37,8 @@ fn fixture() -> (Connection, String, String, String) {
         keywords: vec!["이야기".into()],
         required_flags: vec![],
         min_affinity: 0,
+        reveal_affinity: None,
+        defer: vec![],
         intro: vec![line(&center, "  함께 걸어 볼까?\n원문  ")],
         accept: vec![line(&center, "함께 가자.")],
         decline: vec![line(&center, "다음에 이야기하자.")],
@@ -63,6 +65,27 @@ fn fixture() -> (Connection, String, String, String) {
         installed[1].id.clone(),
     )
 }
+#[test]
+fn new_story_fields_require_pack_format_12() {
+    let (db, _, center, guest) = fixture();
+    let original = characters::export_pack(&db, &[center, guest], &[]).unwrap();
+    for use_defer in [false, true] {
+        let mut pack = original.clone();
+        let scenario = &mut pack.scenarios[0];
+        scenario.min_affinity = 10;
+        if use_defer {
+            scenario.defer = scenario.intro.clone();
+        } else {
+            scenario.reveal_affinity = Some(0);
+        }
+        let target = store::open(Path::new(":memory:")).unwrap();
+        pack.format_version = 8;
+        assert!(characters::import_pack(&target, &pack).is_err());
+        pack.format_version = 12;
+        assert!(characters::import_pack(&target, &pack).is_ok());
+    }
+}
+
 fn input(db: &Connection, center: &str, content: &str, epoch: u64) -> InputContext {
     let id = uuid::Uuid::new_v4().to_string();
     store::insert_user_input(

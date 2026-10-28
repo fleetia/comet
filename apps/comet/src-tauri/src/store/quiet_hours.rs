@@ -98,7 +98,7 @@ mod tests {
             let directory = tempfile::tempdir().unwrap();
             let path = directory.path().join("session.sqlite");
             let db = store::open(&path).unwrap();
-            storage::install(&db, directory.path(), &["calendar".into(), "todo".into()]).unwrap();
+            storage::verify_packages(&db, directory.path()).unwrap();
             let calendar = storage::instances(&db)
                 .unwrap()
                 .into_iter()
@@ -196,8 +196,8 @@ mod tests {
             store::settings(&db).unwrap().quiet_hours,
             QuietHours::default()
         );
-        storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
-        let mut calendar = storage::instances(&db).unwrap().remove(0);
+        storage::verify_packages(&db, directory.path()).unwrap();
+        let mut calendar = storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "calendar").unwrap();
         calendar.data["reminders"]["moodDayStart"] = json!(true);
         calendar.data["reminders"]["quietStart"] = json!("21:00");
         calendar.data["reminders"]["quietEnd"] = json!("06:00");

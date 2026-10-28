@@ -487,6 +487,7 @@ fn scenario_conditions(
     input: &str,
     state: &AuthoringState,
     outcomes: (&BTreeSet<String>, &BTreeSet<String>),
+    deferred: &BTreeSet<String>,
     output: &mut AuthoringTrialStep,
 ) -> Result<bool> {
     let center = actor(request, &request.context.center_id)?;
@@ -526,9 +527,17 @@ fn scenario_conditions(
     condition(
         output,
         "affinity",
-        "이야기의 최소 친밀도",
-        request.context.affinity >= scene.min_affinity,
+        "이야기의 노출 친밀도",
+        request.context.affinity >= scene.reveal_affinity.unwrap_or(scene.min_affinity),
     );
+    if request.context.affinity < scene.min_affinity && scene.reveal_affinity.is_some() {
+        condition(
+            output,
+            "deferredToday",
+            "오늘 아직 유보하지 않은 이야기",
+            !deferred.contains(&scene.id),
+        );
+    }
     condition(
         output,
         "repeat",
@@ -637,6 +646,7 @@ pub(crate) fn authoring_trial(request: AuthoringTrialRequest) -> Result<Authorin
         .cloned()
         .collect::<BTreeSet<_>>();
     let mut running_scene_id: Option<String> = None;
+    let mut deferred = BTreeSet::new();
     let mut trace = AuthoringTrialTrace {
         blocked_reasons: vec![],
         steps: vec![],
@@ -699,6 +709,7 @@ pub(crate) fn authoring_trial(request: AuthoringTrialRequest) -> Result<Authorin
                             input,
                             &state,
                             (&completed, &incomplete),
+                            &deferred,
                             &mut output,
                         )?;
                         if !eligible && scene.id != *scenario_id {
@@ -720,6 +731,7 @@ pub(crate) fn authoring_trial(request: AuthoringTrialRequest) -> Result<Authorin
                                 input,
                                 &state,
                                 (&completed, &incomplete),
+                                &deferred,
                                 &mut fallback,
                             )?;
                             output.conditions.extend(fallback.conditions);
@@ -729,8 +741,13 @@ pub(crate) fn authoring_trial(request: AuthoringTrialRequest) -> Result<Authorin
                             state.pending_next_scenario_id = None;
                         }
                         if eligible {
-                            running_scene_id = Some(scene.id.clone());
-                            Some(Stage::Intro)
+                            if request.context.affinity < scene.min_affinity {
+                                deferred.insert(scene.id.clone());
+                                Some(Stage::Defer)
+                            } else {
+                                running_scene_id = Some(scene.id.clone());
+                                Some(Stage::Intro)
+                            }
                         } else {
                             if scene.keywords.is_empty()
                                 || !matches_keywords(&scene.keywords, input)
@@ -741,8 +758,12 @@ pub(crate) fn authoring_trial(request: AuthoringTrialRequest) -> Result<Authorin
                         }
                     };
                     if let Some(stage) = stage {
-                        let mut lines = mapped_lines(&request, lines_for(stage, scene))?;
-                        if stage == Stage::Intro {
+                        let mut lines = if stage == Stage::Defer {
+                            mapped_lines(&request, &defer_lines(scene))?
+                        } else {
+                            mapped_lines(&request, lines_for(stage, scene))?
+                        };
+                        if matches!(stage, Stage::Intro | Stage::Defer) {
                             let mut entries = vec![];
                             for source in &scene.participants {
                                 let actor = source_actor(&request, source)?;
@@ -752,14 +773,16 @@ pub(crate) fn authoring_trial(request: AuthoringTrialRequest) -> Result<Authorin
                                 if !state.present_ids.contains(&actor.id) {
                                     state.present_ids.push(actor.id.clone());
                                 }
-                                if let Some(npc) = &actor.definition.npc {
-                                    entries.extend(npc.entry_lines.iter().map(|line| SceneLine {
-                                        persona: actor.id.clone(),
-                                        expression: line.expression.clone(),
-                                        text: line.text.clone(),
-                                        widget: None,
-                                        motion: line.motion.clone(),
-                                    }));
+                                if stage == Stage::Intro {
+                                    if let Some(npc) = &actor.definition.npc {
+                                        entries.extend(npc.entry_lines.iter().map(|line| SceneLine {
+                                            persona: actor.id.clone(),
+                                            expression: line.expression.clone(),
+                                            text: line.text.clone(),
+                                            widget: None,
+                                            motion: line.motion.clone(),
+                                        }));
+                                    }
                                 }
                             }
                             entries.append(&mut lines);
@@ -768,13 +791,15 @@ pub(crate) fn authoring_trial(request: AuthoringTrialRequest) -> Result<Authorin
                         state.stage = Some(stage);
                         state.ready = true;
                         emit(&request, &mut output, stage, lines)?;
-                        if matches!(stage, Stage::Ending | Stage::Decline) {
+                        if matches!(stage, Stage::Ending | Stage::Decline | Stage::Defer) {
                             leave_scene_guests(&request, scene, &mut state)?;
                             running_scene_id = None;
                             state.pending_next_scenario_id = if stage == Stage::Ending {
                                 scene.accept_next_id.clone()
-                            } else {
+                            } else if stage == Stage::Decline {
                                 scene.decline_next_id.clone()
+                            } else {
+                                None
                             };
                             if stage == Stage::Ending {
                                 completed.insert(scene.id.clone());

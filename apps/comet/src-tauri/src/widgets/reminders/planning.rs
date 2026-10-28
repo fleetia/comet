@@ -8,14 +8,7 @@ use std::collections::BTreeMap;
 #[cfg(test)]
 mod tests;
 
-fn enabled(instance: &WidgetInstance) -> bool {
-    instance.installed && instance.enabled
-}
-
 fn event_target(calendar: &WidgetInstance, id: &Value, now: i64) -> Option<Value> {
-    if !enabled(calendar) {
-        return None;
-    }
     targets(
         &calendar.data,
         None,
@@ -34,7 +27,7 @@ fn focus_target(timer: &WidgetInstance, calendar: &WidgetInstance, now: i64) -> 
         .as_i64()
         .filter(|minutes| (0..=120).contains(minutes))?;
     let reference = &timer.data["eventRef"];
-    if !enabled(timer) || reference["calendarWidgetId"] != calendar.id {
+    if reference["calendarWidgetId"] != calendar.id {
         return None;
     }
     let target = event_target(calendar, &reference["id"], now)?;
@@ -96,7 +89,6 @@ pub(super) fn focus_completions(
         }
         let Some(timer) = instances.iter().find(|timer| {
             timer.kind == "focus-timer"
-                && enabled(timer)
                 && timer.id == event.instance_id
                 && timer.revision == event.revision
         }) else {
@@ -166,7 +158,7 @@ fn envelope_target(
     instances: &[WidgetInstance],
     now: i64,
 ) -> Option<Value> {
-    if !enabled(preparation) || envelope["archived"] == true {
+    if envelope["archived"] == true {
         return None;
     }
     let days = envelope["reminderDays"]
@@ -208,7 +200,6 @@ fn envelope_channels(
 ) -> Result<ReminderSettings, String> {
     let calendar = instances.iter().find(|instance| {
         instance.kind == "calendar"
-            && enabled(instance)
             && (target["calendarWidgetId"].is_null() || target["calendarWidgetId"] == instance.id)
     });
     calendar.map_or_else(
@@ -232,10 +223,6 @@ pub(super) fn advance_preparation(
         .filter(|instance| instance.kind == "preparation")
     {
         let key = format!("preparation:{}", preparation.id);
-        if !enabled(preparation) {
-            clocks.remove(&key);
-            continue;
-        }
         let previous = clocks.insert(key, now);
         let Some(previous) = previous else {
             continue;

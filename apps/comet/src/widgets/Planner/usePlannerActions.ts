@@ -54,7 +54,7 @@ export function usePlannerActions({
   }
   const act: ToolAction = (action, input = {}, target = todo) => {
     if (!target) {
-      setFailure({ message: "이 도구를 먼저 설치하고 켜 주세요.", saving: false });
+      setFailure({ message: "도구를 찾을 수 없어요. 다시 시도해 주세요.", saving: false });
       return Promise.resolve(false);
     }
     return run(

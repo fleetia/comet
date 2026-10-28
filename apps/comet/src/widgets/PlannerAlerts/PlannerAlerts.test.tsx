@@ -51,8 +51,7 @@ it("snoozes the notification without editing the source task and hides only the 
   const calendar: WidgetView = {
     id: "calendar",
     kind: "calendar",
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 1,
     version: 1,
     data: {

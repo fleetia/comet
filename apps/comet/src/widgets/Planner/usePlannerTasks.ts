@@ -51,7 +51,7 @@ export function usePlannerTasks({
     return run(async () => {
       const snapshot = await command<WidgetSnapshot>("get_widgets");
       const todo = snapshot.widgets.find(
-        (widget) => widget.kind === "todo" && widget.installed && widget.enabled,
+        (widget) => widget.kind === "todo",
       );
       const current = rows(record(todo?.data).items).find((value) => value.id === item.id);
       if (

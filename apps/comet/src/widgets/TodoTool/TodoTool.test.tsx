@@ -33,8 +33,7 @@ function widget(items = [task()], revision = 1): WidgetView {
   return {
     id: "todo-instance",
     kind: "todo",
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision,
     version: 1,
     data: { lists: [{ id: "default", name: "할 일" }], items },
