@@ -567,6 +567,8 @@ fn migrate_factory_dialogue(conn: &Connection) -> Result<()> {
 }
 
 fn migrate_official_birthdays(conn: &Connection) -> Result<()> {
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY,value TEXT NOT NULL);")
+        .map_err(|error| error.to_string())?;
     let done: bool = conn
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM kv WHERE key='character:official-birthdays:v1')",
