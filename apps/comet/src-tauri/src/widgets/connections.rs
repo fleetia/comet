@@ -348,6 +348,8 @@ struct WeatherResponse {
     daily: Option<Value>,
     #[serde(default)]
     timezone: Option<String>,
+    #[serde(default)]
+    utc_offset_seconds: Option<i32>,
 }
 #[derive(Deserialize)]
 struct CurrentWeather {
@@ -392,18 +394,18 @@ fn daily_value(daily: &Value, key: &str, index: usize) -> Option<f64> {
         .filter(|v| v.is_finite())
 }
 
-fn daily_day(daily: &Value, index: usize, timezone: chrono_tz::Tz) -> Option<String> {
+fn daily_day(daily: &Value, index: usize, offset: chrono::FixedOffset) -> Option<String> {
     let timestamp = daily["time"].as_array()?.get(index)?.as_i64()?;
     Some(
         chrono::DateTime::from_timestamp(timestamp, 0)?
-            .with_timezone(&timezone)
+            .with_timezone(&offset)
             .date_naive()
             .to_string(),
     )
 }
 
-fn daily_entry(daily: &Value, index: usize, timezone: chrono_tz::Tz) -> Option<Value> {
-    let date = daily_day(daily, index, timezone)?;
+fn daily_entry(daily: &Value, index: usize, offset: chrono::FixedOffset) -> Option<Value> {
+    let date = daily_day(daily, index, offset)?;
     let code = daily["weather_code"]
         .as_array()?
         .get(index)?
@@ -452,16 +454,18 @@ fn parse_weather_result(
     }
     let forecast = (|| {
         let timezone = response.timezone.as_ref()?.parse::<chrono_tz::Tz>().ok()?;
+        // Open-Meteo applies the request-time offset to all daily timestamps.
+        let offset = chrono::FixedOffset::east_opt(response.utc_offset_seconds?)?;
         let local_today = chrono::DateTime::from_timestamp_millis(now)?
             .with_timezone(&timezone)
             .date_naive();
         let today = response
             .daily
             .as_ref()
-            .and_then(|daily| daily_entry(daily, 0, timezone))
+            .and_then(|daily| daily_entry(daily, 0, offset))
             .filter(|entry| entry["date"].as_str() == Some(local_today.to_string().as_str()));
         let tomorrow = response.daily.as_ref().and_then(|daily| {
-            let mut entry = daily_entry(daily, 1, timezone)?;
+            let mut entry = daily_entry(daily, 1, offset)?;
             if entry["date"].as_str()? != local_today.succ_opt()?.to_string() {
                 return None;
             }
@@ -1145,6 +1149,29 @@ mod tests {
             1_100_000
         )
         .is_err());
+    }
+
+    #[test]
+    fn daily_forecast_uses_provider_offset_across_daylight_saving_changes() {
+        let config = WeatherConfig {
+            name: "New York".into(), latitude: 40.71, longitude: -74.01,
+            temperature_unit: temperature_unit(), show_apparent: true, show_details: false,
+            allow_talk: true, refresh_interval_minutes: weather_interval(),
+        };
+        let response = json!({
+            "timezone":"America/New_York", "utc_offset_seconds":-14400,
+            "current":{"time":1793509200,"temperature_2m":12.0,"weather_code":3},
+            "daily":{
+                "time":[1793505600,1793592000], "weather_code":[3,61],
+                "temperature_2m_max":[15,13], "temperature_2m_min":[8,7],
+                "precipitation_probability_max":[20,80]
+            }
+        });
+        let (_, forecast) = parse_weather_result(response, &config, 1793509200000).unwrap();
+        let forecast = forecast.unwrap();
+        assert_eq!(forecast["today"]["date"], "2026-11-01");
+        assert_eq!(forecast["tomorrow"]["date"], "2026-11-02");
+        assert_eq!(forecast["tomorrow"]["precipProb"], 80.0);
     }
 
     #[test]
