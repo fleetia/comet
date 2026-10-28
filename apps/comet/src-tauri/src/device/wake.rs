@@ -17,6 +17,7 @@ fn receive_wake(app: &tauri::AppHandle) {
         // threshold, snooze, or mood transition should be replayed on resume.
         lock(&state.widget_clocks)?.clear();
         lock(&state.app_usage_tracker)?.clear();
+        lock(&state.life)?.activity.clear();
         app.state::<crate::desktop::toys::Runtime>()
             .discard_pending_outcomes();
         Ok(())
