@@ -87,8 +87,14 @@ fn playback_link(
         }
         return Ok(None);
     }
-    let event = if matches!(source, "widget" | "reaction") {
-        lock(&state.widget_playback)?.clone()
+    let event = if matches!(source, "widget" | "reaction" | "talk") {
+        let event = lock(&state.widget_playback)?.clone();
+        if source == "talk" {
+            let talk_event = lock(&state.talk_playback)?.as_ref().and_then(|talk| talk.event.clone());
+            event.filter(|event| talk_event.as_ref().is_some_and(|talk| talk.id == event.id))
+        } else {
+            event
+        }
     } else {
         None
     };
@@ -1022,6 +1028,28 @@ pub(crate) fn character_script(db: &Connection, sequence: u64) -> Result<Vec<Sce
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn event_triggered_talk_links_to_its_originating_widget() {
+        let state = super::super::tests::state();
+        let db = lock(&state.db).unwrap();
+        let todo = widgets::storage::instances(&db).unwrap().into_iter()
+            .find(|widget| widget.kind == "todo").unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        let event = widgets::WidgetEvent {
+            id: "event".into(), instance_id: todo.id.clone(), widget_kind: todo.kind,
+            revision: todo.revision, created_at: now, expires_at: now + 30_000,
+            event: widgets::EventDraft { kind: "todo-completed".into(), text: String::new(), payload: serde_json::json!({}) },
+        };
+        let source = "format: 1\nscene: complete\non: todo-completed\n---\nA: 다 했구나!\n===\n";
+        lock(&state.talk).unwrap().apply(Ok(talk::validate_source(std::path::Path::new("event.talk"), source, &talk::context::registry()).unwrap()));
+        let lines = talk::host::prepare(&state, &db, Some(&event)).unwrap().unwrap();
+        *lock(&state.widget_playback).unwrap() = Some(event.clone());
+        let link = playback_link(&db, &state, "talk", "line", &lines[0]).unwrap().unwrap();
+        assert_eq!(link.instance_id, todo.id);
+        lock(&state.widget_playback).unwrap().as_mut().unwrap().id = "different".into();
+        assert!(playback_link(&db, &state, "talk", "line", &lines[0]).unwrap().is_none());
+    }
 
     #[test]
     fn official_widget_links_are_available_even_when_reactions_are_disabled() {
