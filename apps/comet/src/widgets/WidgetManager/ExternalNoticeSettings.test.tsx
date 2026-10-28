@@ -14,7 +14,7 @@ beforeEach(() => vi.mocked(command).mockReset());
 afterEach(cleanup);
 
 const widget: WidgetView = {
-  id: "external-notice", kind: "external-notice", installed: true, enabled: true,
+  id: "external-notice", kind: "external-notice", reaction: true,
   revision: 1, version: 1, data: { osNotifications: false }, error: null,
   missing: [], status: "enabled", packageBytes: 1,
 };
