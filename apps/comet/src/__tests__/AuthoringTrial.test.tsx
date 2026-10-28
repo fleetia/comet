@@ -133,7 +133,9 @@ it.each(["window-close", "document-hide"])(
     run();
     const preview = within(await screen.findByLabelText("선택한 대사 미리보기"));
     fireEvent.click(preview.getByRole("button", { name: "미리보기" }));
-    expect(preview.getByRole("button", { name: "정지" })).toHaveProperty("disabled", false);
+    await waitFor(() =>
+      expect(preview.getByRole("button", { name: "정지" })).toHaveProperty("disabled", false),
+    );
     close();
     reopen();
     expect(screen.queryByLabelText("NPC 등장 시험 결과")).toBeNull();
