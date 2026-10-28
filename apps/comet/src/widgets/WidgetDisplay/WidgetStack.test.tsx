@@ -632,6 +632,7 @@ it("binds embedded configure to the timer and preserves explicit linked todo tar
       remainingMs: 60000,
     },
   };
+  const eventStart = Date.now() + 60000;
   const calendar = {
     ...widget("calendar", "calendar"),
     data: {
@@ -639,8 +640,8 @@ it("binds embedded configure to the timer and preserves explicit linked todo tar
         {
           id: "event",
           title: "원고 쓰기",
-          startAt: Date.now() + 60000,
-          endAt: Date.now() + 31 * 60000,
+          startAt: eventStart,
+          endAt: eventStart + 30 * 60000,
           allDay: false,
           cancelled: false,
           connectionId: "local",

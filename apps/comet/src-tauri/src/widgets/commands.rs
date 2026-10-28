@@ -9,7 +9,9 @@ use crate::{
     types::SceneLine,
     widgets::{self, storage, WidgetEvent, WidgetRequest, WidgetSnapshot},
 };
-use serde_json::Value;
+use chrono::{Local, Timelike};
+use rusqlite::OptionalExtension;
+use serde_json::{json, Value};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -369,6 +371,7 @@ pub(crate) fn event_current(
     Ok(storage::reaction_enabled(db, &event.instance_id)?
         && event.expires_at > chrono::Utc::now().timestamp_millis()
         && widgets::reminders::event_current(db, event)?
+        && weather_event_current(db, event)?
         && !widgets::is_retired(&instance.kind)
         && instance.revision == event.revision)
 }
@@ -1325,24 +1328,41 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
                 timestamp,
                 quiet,
             )?;
-            let runtime = lock(&state.runtime)?;
-            if state.launcher_open.load(Ordering::SeqCst)
+            let runtime = lock(&state.runtime)?.clone();
+            let suspended = state.launcher_open.load(Ordering::SeqCst)
                 || runtime.hidden
-                || !store::settings(db)?.autonomous_enabled
-            {
+                || !store::settings(db)?.autonomous_enabled;
+            if suspended {
                 storage::discard_pending(db)?;
             }
-            drop(runtime);
-            hold_for_focus(state, db)?;
+            let blocked = hold_for_focus(state, db)?;
+            if !suspended
+                && !quiet
+                && !blocked
+                && runtime.phase == "idle"
+                && lock(&state.panel)?.is_none()
+                && lock(&state.pack_stories)?.run.is_none()
+                && now() - state.last_input.load(Ordering::SeqCst) >= 3
+                && !crate::behavior::reactions_blocked(state)?
+            {
+                let due = {
+                    let mut clocks = lock(&state.widget_clocks)?;
+                    let previous = clocks.get("weather-talk").copied();
+                    if previous.is_none_or(|at| timestamp < at || timestamp - at >= 60_000) {
+                        clocks.insert("weather-talk".into(), timestamp);
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if due {
+                    advance_weather_talk(db, timestamp)?;
+                }
+            }
             if changed || alerted.changed {
                 cancel_stale_widget_scene(state, db)?;
             }
-            Ok((
-                changed || alerted.changed,
-                usage_changed,
-                alerted.os,
-                timestamp,
-            ))
+            Ok((changed || alerted.changed, usage_changed, alerted.os, timestamp))
         },
         |(changed, usage_changed, deliveries, timestamp), epoch| {
             for delivery in deliveries {
@@ -1361,6 +1381,105 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
         let _ = app.emit("widgets-state", snapshot);
     }
     Ok(())
+}
+
+fn tomorrow_has_rain(values: &std::collections::BTreeMap<String, Value>) -> bool {
+    values.get("weather.tomorrowRainProb").and_then(Value::as_f64)
+        .is_some_and(|probability| probability >= 60.0)
+        && values.get("weather.tomorrowCode").and_then(Value::as_i64)
+            .is_some_and(|code| (51..=67).contains(&code) || (80..=82).contains(&code))
+}
+
+fn advance_weather_talk(db: &rusqlite::Connection, timestamp: i64) -> Result<(), String> {
+    let Some(local) = chrono::DateTime::from_timestamp_millis(timestamp)
+        .map(|instant| instant.with_timezone(&Local))
+    else {
+        return Ok(());
+    };
+    let (kind, text) = match local.hour() {
+        7..=11 => ("weather.last-year", "작년 오늘 날씨를 살펴볼까요?"),
+        18..=22 => (
+            "weather.rain-tomorrow",
+            "내일 비 예보가 있어요. 우산을 챙겨요.",
+        ),
+        _ => return Ok(()),
+    };
+    let day = local.date_naive().to_string();
+    let key = format!("weather-talk:{kind}");
+    let previous: Option<String> = db
+        .query_row(
+            "SELECT value FROM widget_preferences WHERE key=?1",
+            [&key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    if previous.as_deref() == Some(day.as_str()) {
+        return Ok(());
+    }
+    let snapshot = storage::snapshot(db)?;
+    let (values, _) = crate::talk::context::project(&snapshot, timestamp);
+    let eligible = values["weather.ready"] == true
+        && if kind == "weather.rain-tomorrow" {
+            tomorrow_has_rain(&values)
+        } else {
+            !values["weather.lastYearCode"].is_null()
+        };
+    if !eligible {
+        return Ok(());
+    }
+    if let Some(weather) = snapshot
+        .widgets
+        .iter()
+        .find(|widget| widget.instance.kind == "weather")
+    {
+        storage::record_daily_weather_event(
+            db,
+            &weather.instance,
+            widgets::EventDraft {
+                kind: kind.into(),
+                text: text.into(),
+                payload: json!({"day": &day}),
+            },
+            &day,
+            timestamp,
+        )?;
+    }
+    Ok(())
+}
+
+fn weather_event_current(db: &rusqlite::Connection, event: &WidgetEvent) -> Result<bool, String> {
+    if !matches!(
+        event.event.kind.as_str(),
+        "weather.rain-tomorrow" | "weather.last-year"
+    ) {
+        return Ok(true);
+    }
+    let timestamp = chrono::Utc::now().timestamp_millis();
+    let local = Local::now();
+    if event.event.payload["day"].as_str() != Some(local.date_naive().to_string().as_str())
+        || (event.event.kind == "weather.rain-tomorrow" && !(18..=22).contains(&local.hour()))
+        || (event.event.kind == "weather.last-year" && !(7..=11).contains(&local.hour()))
+    {
+        return Ok(false);
+    }
+    let (values, _) = crate::talk::context::project(&storage::snapshot(db)?, timestamp);
+    Ok(values["weather.ready"] == true
+        && if event.event.kind == "weather.rain-tomorrow" {
+            tomorrow_has_rain(&values)
+        } else {
+            !values["weather.lastYearCode"].is_null()
+        })
+}
+
+fn weather_reaction_pending(db: &rusqlite::Connection, event: &WidgetEvent) -> Result<bool, String> {
+    if !matches!(event.event.kind.as_str(), "weather.rain-tomorrow" | "weather.last-year") {
+        return Ok(true);
+    }
+    let Some(day) = event.event.payload["day"].as_str() else {
+        return Ok(false);
+    };
+    Ok(!storage::weather_reaction_started(db, &event.event.kind, day)?)
 }
 
 /// Caller holds action and db. Share eligibility and queue consumption with the scheduler tests.
@@ -1391,7 +1510,13 @@ pub(crate) fn take_pending_reaction(
     hold_for_focus(state, db)?;
     let event = storage::take_reaction(db, chrono::Utc::now().timestamp_millis())?;
     match event {
-        Some(event) if widgets::reminders::event_current(db, &event)? => Ok(Some(event)),
+        Some(event)
+            if widgets::reminders::event_current(db, &event)?
+                && weather_event_current(db, &event)?
+                && weather_reaction_pending(db, &event)? =>
+        {
+            Ok(Some(event))
+        }
         _ => Ok(None),
     }
 }
@@ -1513,6 +1638,44 @@ fn fallback_reaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rain_forecast_excludes_snow_clear_and_missing_codes() {
+        for (code, probability, expected) in [
+            (json!(61), json!(60), true),
+            (json!(82), json!(80), true),
+            (json!(71), json!(80), false),
+            (json!(86), json!(80), false),
+            (json!(3), json!(80), false),
+            (Value::Null, json!(80), false),
+            (json!(61), json!(59), false),
+        ] {
+            let values = std::collections::BTreeMap::from([
+                ("weather.tomorrowCode".into(), code),
+                ("weather.tomorrowRainProb".into(), probability),
+            ]);
+            assert_eq!(tomorrow_has_rain(&values), expected);
+        }
+    }
+
+    #[test]
+    fn queued_weather_rechecks_the_displayed_day() {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        storage::initialize(&db).unwrap();
+        let mut event = WidgetEvent {
+            id: "rain".into(), instance_id: "weather".into(), widget_kind: "weather".into(),
+            revision: 0, created_at: 0, expires_at: i64::MAX,
+            event: widgets::EventDraft {
+                kind: "weather.rain-tomorrow".into(), text: "비".into(),
+                payload: json!({"day": "2026-10-28"}),
+            },
+        };
+        assert!(weather_reaction_pending(&db, &event).unwrap());
+        storage::mark_weather_reaction_day(&db, "weather.rain-tomorrow", "2026-10-28").unwrap();
+        assert!(!weather_reaction_pending(&db, &event).unwrap());
+        event.event.payload = json!({"day": "2026-10-29"});
+        assert!(weather_reaction_pending(&db, &event).unwrap());
+    }
 
     #[test]
     fn memo_playback_open_finishes_before_the_new_revision_can_cancel_the_scene() {

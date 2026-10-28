@@ -346,6 +346,23 @@ pub(crate) fn present_line(
     Ok(true)
 }
 
+pub(crate) fn mark_displayed_weather_reaction(
+    state: &AppState,
+    db: &Connection,
+    line: &Playback,
+) -> Result<(), String> {
+    if line.line_index != 0
+        || line.display_started_at.is_none()
+        || state.widget_epoch.load(Ordering::SeqCst) != state.epoch.load(Ordering::SeqCst)
+    {
+        return Ok(());
+    }
+    if let Some(event) = lock(&state.widget_playback)?.as_ref() {
+        widgets::storage::mark_weather_reaction_started(db, event)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn mark_line_displayed(line: &mut Playback, now: i64) -> bool {
     if line.display_started_at.is_some() {
         return false;
