@@ -244,7 +244,7 @@ export function MemoNote({ id, noteId }: { id: string; noteId: string }): ReactE
   }, []);
   const widget = snapshot?.widgets.find((item) => item.id === id);
   const note = rows(record(widget?.data).notes).find((item) => item.id === noteId);
-  if (widget?.installed && widget.enabled && note) {
+  if (widget && note) {
     return <NoteEditor key={noteId} id={id} note={note} />;
   }
   return (

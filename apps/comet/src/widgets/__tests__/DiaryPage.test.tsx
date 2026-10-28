@@ -329,8 +329,7 @@ it("reads a linked memo from its live source, opens the same note, and only unli
   const memo: WidgetView = {
     id: "memo-widget",
     kind: "memo",
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 1,
     version: 1,
     data: { notes: [{ id: "memo-1", title: "여행 메모", body: "  원문\n둘째 줄  " }] },
@@ -377,8 +376,7 @@ it("keeps the saved reference label when its widget or memo disappears", () => {
   const memo: WidgetView = {
     id: "memo-widget",
     kind: "memo",
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 1,
     version: 1,
     data: { notes: [] },

@@ -1043,8 +1043,8 @@ pub(crate) fn execute(
         };
         let instance = storage::instances(&tx)?
             .into_iter()
-            .find(|v| v.kind == kind && v.enabled && v.installed)
-            .ok_or_else(|| format!("{kind} 위젯을 설치하고 켜 주세요."))?;
+            .find(|v| v.kind == kind)
+            .ok_or_else(|| format!("{kind} 위젯을 찾을 수 없습니다."))?;
         if instance.revision != action.expected_revision {
             return Err(format!("{kind} 위젯의 최신 revision은 {}예요. 이번 context.entities.widgets에서 kind={kind}인 항목의 revision을 expectedRevision에 넣어 다시 제안해 주세요.", instance.revision));
         }
@@ -1364,7 +1364,6 @@ pub(crate) fn entities(db: &Connection, query: &str) -> Result<Value> {
     let mut widgets = vec![];
     for widget in storage::instances(db)?
         .into_iter()
-        .filter(|widget| widget.installed && widget.enabled)
     {
         let domain = match widget.kind.as_str() {
             "todo" => "task_",
@@ -1413,8 +1412,6 @@ mod tests {
     fn a_reply_that_misses_or_denies_the_saved_change_is_replaced_by_the_receipt() {
         let db = store::open(std::path::Path::new(":memory:")).unwrap();
         let user = store::active_user_id(&db).unwrap();
-        let directory = tempfile::tempdir().unwrap();
-        crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
         assert_eq!(receipt_reply(&db, &user, "task", "안녕!").unwrap(), None);
         let revision = entities_for(&db, "task_add", "").unwrap()["revision"]
             .as_i64()
@@ -1805,11 +1802,9 @@ mod tests {
         ] {
             let db = store::open(std::path::Path::new(":memory:")).unwrap();
             let user = store::active_user_id(&db).unwrap();
-            let directory = tempfile::tempdir().unwrap();
             let widget = if kind == "diary" {
                 None
             } else {
-                storage::install(&db, directory.path(), &[kind.into()]).unwrap();
                 storage::instances(&db)
                     .unwrap()
                     .into_iter()
@@ -1931,8 +1926,6 @@ mod tests {
     fn undo_cannot_remove_a_linked_generated_task_and_stale_revisions_are_atomic() {
         let db = store::open(std::path::Path::new(":memory:")).unwrap();
         let user = store::active_user_id(&db).unwrap();
-        let directory = tempfile::tempdir().unwrap();
-        storage::install(&db, directory.path(), &["todo".into()]).unwrap();
         let widget = storage::instances(&db)
             .unwrap()
             .into_iter()
@@ -2015,8 +2008,6 @@ mod tests {
     fn changing_a_local_event_preserves_unrequested_fields_and_external_events() {
         let db = store::open(std::path::Path::new(":memory:")).unwrap();
         let user = store::active_user_id(&db).unwrap();
-        let directory = tempfile::tempdir().unwrap();
-        storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
         let widget = storage::instances(&db)
             .unwrap()
             .into_iter()

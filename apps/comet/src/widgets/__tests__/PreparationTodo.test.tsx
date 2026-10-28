@@ -14,8 +14,7 @@ function widget(kind: string, data: WidgetValue): WidgetView {
   return {
     id: kind,
     kind,
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 1,
     version: 1,
     data,

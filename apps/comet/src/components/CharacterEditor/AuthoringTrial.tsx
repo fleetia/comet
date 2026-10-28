@@ -16,7 +16,14 @@ import { CharacterLinePreview, type CharacterPreviewLine } from "./CharacterLine
 import * as s from "../characters.css";
 
 const EMPTY: PackStoryDefinition = { worldRules: "", storyFlags: [], knowledge: [], scenarios: [] };
-const STAGES = { entry: "등장", intro: "제안", accept: "수락", decline: "거절", ending: "마무리" };
+const STAGES = {
+  entry: "등장",
+  intro: "제안",
+  defer: "유보",
+  accept: "수락",
+  decline: "거절",
+  ending: "마무리",
+};
 
 export function AuthoringTrial({
   title,

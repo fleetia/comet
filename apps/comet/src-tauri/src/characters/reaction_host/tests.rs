@@ -80,7 +80,7 @@ fn rare_idle_start_rechecks_higher_priority_states_before_owning_the_body() {
 }
 
 #[test]
-fn common_body_talk_uses_the_existing_pack_without_installing_the_interaction_widget() {
+fn common_body_talk_uses_the_existing_pack_with_the_builtin_interaction_widget() {
     let state = crate::app::tests::state();
     let directory = tempfile::tempdir().unwrap();
     *lock(&state.talk).unwrap() = crate::talk::host::initialize(directory.path());
@@ -98,8 +98,7 @@ fn common_body_talk_uses_the_existing_pack_without_installing_the_interaction_wi
     assert!(widgets::storage::instances(&db)
         .unwrap()
         .iter()
-        .filter(|instance| instance.kind == "interaction")
-        .all(|instance| !instance.installed && !instance.enabled));
+        .any(|instance| instance.kind == "interaction"));
     let lines = crate::talk::host::prepare(&state, &db, Some(&event))
         .unwrap()
         .unwrap();
@@ -429,7 +428,7 @@ fn playback(source: &str, id: &str) -> Playback {
 fn timer_event(state: &AppState, owner: &str) -> widgets::WidgetEvent {
     let directory = tempfile::tempdir().unwrap();
     let db = lock(&state.db).unwrap();
-    widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+    widgets::storage::verify_packages(&db, directory.path()).unwrap();
     let instance = widgets::storage::instances(&db)
         .unwrap()
         .into_iter()
@@ -479,7 +478,7 @@ fn focus_preserves_physical_reactions_without_starting_speech() {
     let directory = tempfile::tempdir().unwrap();
     {
         let db = lock(&state.db).unwrap();
-        widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+        widgets::storage::verify_packages(&db, directory.path()).unwrap();
         let timer = widgets::storage::instances(&db)
             .unwrap()
             .into_iter()
