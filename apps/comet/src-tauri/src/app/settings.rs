@@ -167,6 +167,8 @@ pub(crate) fn apply_settings_with_keys(
     let mut settings = match scope {
         Some(SettingsScope::Automatic) => Settings {
             autonomous_enabled: settings.autonomous_enabled,
+            diary_recall_enabled: settings.diary_recall_enabled,
+            show_follow_ups: settings.show_follow_ups,
             random_presence_enabled: settings.random_presence_enabled,
             local_idle_enabled: settings.local_idle_enabled,
             api_idle_enabled: settings.api_idle_enabled,

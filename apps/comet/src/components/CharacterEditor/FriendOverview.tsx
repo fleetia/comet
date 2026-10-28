@@ -1,8 +1,11 @@
-import type { JSX, ReactNode } from "react";
+import { useEffect, useState, type JSX, type ReactNode } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Balloon, Button, CharacterArtwork, SettingsSummary, Switch } from "@comet/ui";
 import { ChatIcon, ChevLeftIcon, Icon, ShareIcon, RemoveIcon, type IconName } from "@comet/icon";
 import type { CharacterDefinition, InstalledCharacter } from "../../types";
+import { command, isDesktop } from "../../hooks/useSnapshot";
 import { FriendArtwork } from "../CharacterManager/FriendsLibrary";
+import { moodExpression } from "../characterIdentity";
 import * as styles from "./friendDetail.css";
 
 type Props = {
@@ -105,12 +108,109 @@ export function FriendOverview({
   presentIds = [],
   onOpenReaction,
 }: Props): JSX.Element {
+  const [touches, setTouches] = useState<{
+    characterId: string;
+    stroke: number;
+    poke: number;
+    snack: number;
+  } | null>(null);
+  const [touchesError, setTouchesError] = useState(false);
+  const [mood, setMood] = useState<{ characterId: string; value: number } | null>(null);
+  const [moodError, setMoodError] = useState(false);
+  const characterId = character?.id;
+  useEffect(() => {
+    if (!characterId || !isDesktop()) return;
+    let active = true;
+    let revision = 0;
+    let unlisten: (() => void) | undefined;
+    setMood(null);
+    setMoodError(false);
+    const refresh = (): void => {
+      const current = ++revision;
+      void command<number>("get_character_mood", { characterId })
+        .then((value) => {
+          if (active && current === revision) {
+            setMood({ characterId, value });
+            setMoodError(false);
+          }
+        })
+        .catch(() => {
+          if (active && current === revision) {
+            setMood(null);
+            setMoodError(true);
+          }
+        });
+    };
+    void listen<{ character: string }>("character-mood-changed", (event) => {
+      if (event.payload.character === characterId) refresh();
+    })
+      .then((cleanup) => {
+        if (active) {
+          unlisten = cleanup;
+          refresh();
+        } else cleanup();
+      })
+      .catch(() => {
+        if (active) setMoodError(true);
+      });
+    refresh();
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [characterId]);
+  useEffect(() => {
+    if (!characterId || !isDesktop()) return;
+    let active = true;
+    let revision = 0;
+    const unlisten: (() => void)[] = [];
+    setTouches(null);
+    setTouchesError(false);
+    const refresh = () => {
+      const current = ++revision;
+      void command<{ stroke: number; poke: number; snack: number }>("get_character_touches", {
+        characterId,
+      })
+        .then((result) => {
+          if (active && current === revision) {
+            setTouches({ characterId, ...result });
+            setTouchesError(false);
+          }
+        })
+        .catch(() => {
+          if (active && current === revision) {
+            setTouches(null);
+            setTouchesError(true);
+          }
+        });
+    };
+    for (const event of ["widgets-state", "app-state"]) {
+      void listen(event, refresh)
+        .then((cleanup) => {
+          if (active) unlisten.push(cleanup);
+          else cleanup();
+        })
+        .catch(() => {
+          if (active) setTouchesError(true);
+        });
+    }
+    refresh();
+    return () => {
+      active = false;
+      unlisten.forEach((cleanup) => cleanup());
+    };
+  }, [characterId]);
   const residents = installed.filter(
     (friend) =>
       friend.id !== character?.id &&
       friend.definition.presenceRole !== "npc" &&
       presentIds.includes(friend.id),
   );
+  const currentMood = mood && mood.characterId === characterId ? mood.value : undefined;
+  const moodFace =
+    currentMood === undefined
+      ? undefined
+      : moodExpression(character && { ...character, definition }, currentMood);
   const categories: { page: string; title: string; description: string; icon: IconName }[] = [
     { page: "profile", title: "프로필", description: "이름, 소개, 성격과 말투", icon: "sparkle" },
     {
@@ -172,6 +272,24 @@ export function FriendOverview({
         </span>
         <h1 className={styles.heroTitle}>{definition.name}</h1>
         <p className={styles.description}>{statusDescription}</p>
+        {character && currentMood !== undefined && (
+          <p className={styles.mood}>
+            <span>지금 기분</span>
+            {moodFace && (
+              <span className={styles.moodArtwork} aria-hidden="true">
+                <FriendArtwork
+                  character={{ ...character, definition }}
+                  compact
+                  expression={moodFace}
+                />
+              </span>
+            )}
+            <strong>{currentMood > 0 ? "좋음" : currentMood < 0 ? "가라앉음" : "보통"}</strong>
+          </p>
+        )}
+        {character && moodError && (
+          <p className={styles.caption} role="alert">기분을 불러오지 못했어요.</p>
+        )}
         <Button
           leadingIcon={<ChatIcon size={15} />}
           className={styles.talk}
@@ -226,6 +344,16 @@ export function FriendOverview({
         </section>
         <section className={styles.section} aria-label="함께한 기록">
           <h2 className={styles.sectionTitle}>함께한 기록</h2>
+          {touches && touches.characterId === characterId && (
+            <p className={styles.caption}>
+              쓰다듬기 {touches.stroke} · 찌르기 {touches.poke} · 간식 {touches.snack}
+            </p>
+          )}
+          {touchesError && (
+            <p className={styles.caption} role="alert">
+              교감 횟수를 불러오지 못했어요.
+            </p>
+          )}
           <div className={styles.categoryGrid}>
             <SettingsSummary
               aria-label="기억"

@@ -7,7 +7,7 @@ import type {
   Snapshot,
 } from "../types";
 import { animationAssetUrl, animationBinding } from "../components/characterAnimation";
-import { activeCharacter } from "../components/characterIdentity";
+import { activeCharacter, DEFAULT_EXPRESSION, moodExpression } from "../components/characterIdentity";
 import { command } from "./useSnapshot";
 import { useAnimationFrames } from "./useAnimationFrames";
 import { useAnimationPlayer } from "./useAnimationPlayer";
@@ -32,7 +32,9 @@ function motionBinding(motion: MotionOverride | undefined): AnimationBinding | n
   return undefined;
 }
 
-const SUSTAINED_STATES = ["sleep", "focus", "rest", "calendarOpen", "musicPlaying"] as const;
+const SUSTAINED_STATES = [
+  "sleep", "focus", "rest", "calendarOpen", "musicPlaying", "moodHigh", "moodLow",
+] as const;
 type SustainedState = (typeof SUSTAINED_STATES)[number];
 type SustainedRuns = {
   definitionKey: string;
@@ -79,6 +81,7 @@ export function useCharacterAnimation(
   cacheKey: string;
   hasAnimation: boolean;
   error: string | null;
+  expression: string;
 } {
   const reduced = useReducedMotion();
   const animation = character?.definition.animation;
@@ -92,6 +95,12 @@ export function useCharacterAnimation(
     rest: Boolean(snapshot.animationStates?.rest),
     calendarOpen: Boolean(snapshot.animationStates?.calendarOpen),
     musicPlaying: Boolean(snapshot.animationStates?.musicPlaying),
+    moodHigh: Boolean(
+      character && snapshot.animationStates?.moodHighCharacterIds?.includes(character.id),
+    ),
+    moodLow: Boolean(
+      character && snapshot.animationStates?.moodLowCharacterIds?.includes(character.id),
+    ),
   };
   const [storedRuns, setSustainedRuns] = useState(() =>
     nextSustainedRuns(undefined, definitionKey, conditions),
@@ -154,13 +163,21 @@ export function useCharacterAnimation(
       }
     }
   }
-  if (binding === undefined) binding = animationBinding(animation, expression, "idle");
+  const idleExpression =
+    available &&
+    !speaking &&
+    !reaction &&
+    (conditions.moodHigh || conditions.moodLow) &&
+    (!sustainedState || sustainedState === "moodHigh" || sustainedState === "moodLow")
+      ? moodExpression(character, conditions.moodHigh ? 1 : -1) ?? DEFAULT_EXPRESSION
+      : expression;
+  if (binding === undefined) binding = animationBinding(animation, idleExpression, "idle");
   if (!activeReaction && speaking)
     trigger = `speaking:${speakingLine ? playback?.id : snapshot.story?.id}`;
   const clip = animation?.clips.find((value) => value.id === binding?.clipId);
   const key = JSON.stringify([
     definitionKey,
-    activeReaction || sustainedState ? null : expression,
+    activeReaction || sustainedState ? null : idleExpression,
     trigger,
     activeReaction?.phaseGeneration,
     activeReaction?.definitionRevision,
@@ -305,5 +322,6 @@ export function useCharacterAnimation(
     cacheKey: JSON.stringify([clip?.frames, character?.definition.spriteSize]),
     hasAnimation: Boolean(animation?.clips.length),
     error: loaded.error,
+    expression: idleExpression,
   };
 }

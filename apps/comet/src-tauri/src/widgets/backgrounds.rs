@@ -248,6 +248,21 @@ mod tests {
     }
 
     #[test]
+    fn video_ranges_return_requested_bytes_and_reject_unsatisfiable_ranges() {
+        let background = Background { mime: "video/mp4".into(), data: b"0123456789".to_vec() };
+        let request = |range: &str| tauri::http::Request::builder().header("range", range).body(Vec::new()).unwrap();
+        let partial = media_response(&request("bytes=2-4"), background.clone());
+        assert_eq!(partial.status(), 206);
+        assert_eq!(partial.headers()["content-range"], "bytes 2-4/10");
+        assert_eq!(partial.body(), b"234");
+        let suffix = media_response(&request("bytes=-3"), background.clone());
+        assert_eq!(suffix.body(), b"789");
+        let invalid = media_response(&request("bytes=10-"), background);
+        assert_eq!(invalid.status(), 416);
+        assert_eq!(invalid.headers()["content-range"], "bytes */10");
+    }
+
+    #[test]
     fn rejects_unsupported_or_oversized_backgrounds() {
         assert!(validate(b"not an image").is_err());
         assert!(validate(&vec![0; MAX_BYTES + 1]).is_err());

@@ -49,7 +49,7 @@ import * as s from "./widgetDisplay.css";
 
 export function desktopWidgets(widgets: readonly WidgetView[]): WidgetView[] {
   return widgets.filter(
-    (widget) => widget.installed && widget.enabled && desktopKind(widget.kind) !== undefined,
+    (widget) => desktopKind(widget.kind) !== undefined,
   );
 }
 export function focusRemaining(widget: WidgetView, now: number): number {
@@ -60,6 +60,33 @@ export function focusRemaining(widget: WidgetView, now: number): number {
       ? Math.min(number(data.remainingMs), number(data.deadline) - now)
       : number(data.remainingMs),
   );
+}
+function tomorrowWeather(data: DataRecord, now: number): string {
+  const config = weatherConfig(data);
+  const forecast = record(data.forecast);
+  const tomorrow = record(forecast.tomorrow);
+  if (
+    !config.showTomorrow ||
+    data.status !== "ready" ||
+    typeof tomorrow.code !== "number" ||
+    typeof forecast.timezone !== "string"
+  ) {
+    return "";
+  }
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: forecast.timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date(now));
+    const part = (type: string): number => Number(parts.find((item) => item.type === type)?.value);
+    const nextDay = new Date(Date.UTC(part("year"), part("month") - 1, part("day") + 1));
+    if (tomorrow.date !== nextDay.toISOString().slice(0, 10)) return "";
+  } catch {
+    return "";
+  }
+  return `내일 ${weatherCondition(tomorrow.code)} · ${weatherTemperature(tomorrow.tMin, config)} / ${weatherTemperature(tomorrow.tMax, config)}`;
 }
 export function desktopSummary(
   widget: WidgetView,
@@ -146,7 +173,7 @@ export function desktopSummary(
         value: countdown(
           draft ? Math.round(Number(draft.minutes) * 60000) || 0 : focusRemaining(widget, now),
         ),
-        meta: "",
+        meta: rows(data.queue).length ? `다음 ${rows(data.queue).length}개` : "",
       };
     }
     case "music":
@@ -203,7 +230,7 @@ function preparationState(
   progress: ReturnType<typeof preparationProgress>;
 } {
   const envelope = rows(record(widget.data).envelopes).find((item) => item.archived !== true);
-  const todo = widgets.find((item) => item.kind === "todo" && item.installed && item.enabled);
+  const todo = widgets.find((item) => item.kind === "todo");
   return {
     envelope,
     progress: preparationProgress(
@@ -297,6 +324,7 @@ export function FreeformWidget({
               : "확인 필요"
           }
           location={[summary.description, apparent].filter(Boolean).join(" · ")}
+          tomorrow={tomorrowWeather(data, now)}
         />
       );
     }
@@ -304,7 +332,7 @@ export function FreeformWidget({
       return (
         <FocusTimerFreeform
           {...look}
-          label={summary.title}
+          label={[summary.title, summary.meta].filter(Boolean).join(" · ")}
           task={summary.description}
           time={summary.value}
         />
@@ -405,11 +433,22 @@ export function CollapsedDesktopWidget({
   if (widget.kind === "weather") {
     description = undefined;
     value = undefined;
+    const tomorrow = expanded ? tomorrowWeather(record(widget.data), now) : "";
     meta = (
       <>
         <strong>{[summary.description, summary.value].filter(Boolean).join(" · ")}</strong>
-        <br />
-        {summary.meta}
+        {summary.meta && (
+          <>
+            <br />
+            {summary.meta}
+          </>
+        )}
+        {tomorrow && (
+          <>
+            <br />
+            {tomorrow}
+          </>
+        )}
       </>
     );
   }
@@ -537,8 +576,8 @@ export function ExpandedDesktopWidget({
         act={(action, input, target = widget) => act(action, input, target)}
         embedded
         onCollapse={onCollapse}
-        busy={!widget.installed || !widget.enabled}
-        active={widget.installed && widget.enabled}
+        busy={false}
+        active
       />
     );
   }
@@ -551,14 +590,14 @@ export function ExpandedDesktopWidget({
       if (!envelope) return;
       try {
         const timer = widgets.find(
-          (item) => item.kind === "focus-timer" && item.installed && item.enabled,
+          (item) => item.kind === "focus-timer",
         );
         if (!timer) {
           await command("open_planner_settings", { kind: "focus-timer" });
           return;
         }
         const calendar = widgets.find(
-          (item) => item.kind === "calendar" && item.installed && item.enabled,
+          (item) => item.kind === "calendar",
         );
         const event = rows(record(calendar?.data).events).find(
           (item) => item.id === envelope.eventId,

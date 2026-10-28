@@ -167,6 +167,21 @@ export function ConversationSettings({
               />
               <SettingControlRow
                 className={styles.row}
+                title="지난 기록 회상"
+                description="지난 다이어리 기록을 가끔 함께 돌아봐요"
+                control={
+                  <Switch
+                    aria-label="지난 기록 회상"
+                    checked={settings.diaryRecallEnabled}
+                    disabled={!settings.autonomousEnabled}
+                    onChange={(event) =>
+                      draft.change("diaryRecallEnabled", event.target.checked)
+                    }
+                  />
+                }
+              />
+              <SettingControlRow
+                className={styles.row}
                 title="AI로 새 잡담 만들기"
                 description={`지금 연결: ${getAiProviderLabel(settings)}`}
                 control={
@@ -183,6 +198,22 @@ export function ConversationSettings({
                       }
                     />
                   </div>
+                }
+              />
+            </div>
+          </section>
+          <section className={styles.section}>
+            <h2 className={styles.sectionTitle}>직접 대화</h2>
+            <div className={styles.group}>
+              <SettingControlRow
+                className={styles.row}
+                title="답변 뒤 이어서 할 말 보여주기"
+                control={
+                  <Switch
+                    aria-label="답변 뒤 이어서 할 말 보여주기"
+                    checked={settings.showFollowUps}
+                    onChange={(event) => draft.change("showFollowUps", event.target.checked)}
+                  />
                 }
               />
             </div>

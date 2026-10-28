@@ -1,11 +1,137 @@
 #[cfg(test)]
 use super::interrupt;
-use super::{lock, now, phase, schedule_idle, unavailable, AppState};
+use super::{lock, now, phase, publish, schedule_idle, unavailable, AppState};
 use crate::{
     characters, store,
     types::{PanelState, RuntimePhase},
 };
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+
+pub(crate) fn offer_follow_ups(
+    state: &AppState,
+    input_id: &str,
+    reply_id: &str,
+    options: Vec<String>,
+    epoch: u64,
+    cancel: &AtomicBool,
+) -> Result<(), String> {
+    if options.is_empty() {
+        return Ok(());
+    }
+    let _action = lock(&state.action)?;
+    if !super::is_current(state, epoch, cancel)
+        || state.follow_up_dismissed_epoch.load(Ordering::SeqCst) == epoch
+        || lock(&state.runtime)?.hidden
+        || lock(&state.story)?.is_some()
+        || lock(&state.pack_stories)?
+            .run
+            .as_ref()
+            .is_some_and(|run| run.ready)
+    {
+        return Ok(());
+    }
+    let db = lock(&state.db)?;
+    if !store::settings(&db)?.show_follow_ups
+        || crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
+    {
+        return Ok(());
+    }
+    let Some(session) = store::conversation_for_message(&db, input_id)? else {
+        return Ok(());
+    };
+    if !session.draft.is_empty()
+        || store::active_conversation(&db)?.is_none_or(|active| active.id != session.id)
+    {
+        return Ok(());
+    }
+    let Some(panel) = lock(&state.panel)?
+        .clone()
+        .filter(|panel| matches!(panel.mode.as_str(), "input" | "history-input"))
+    else {
+        return Ok(());
+    };
+    let target: Option<String> = db
+        .query_row(
+            "SELECT json_extract(data,'$.persona') FROM messages WHERE id=?1",
+            [input_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    *lock(&state.follow_ups)? = Some(crate::types::FollowUpRequest {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        message_id: reply_id.into(),
+        session_id: session.id,
+        surface: panel.mode,
+        target: target.unwrap_or(panel.persona),
+        options: options
+            .into_iter()
+            .map(|label| crate::story::Choice {
+                id: uuid::Uuid::new_v4().to_string(),
+                label,
+            })
+            .collect(),
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn dismiss_follow_ups(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    session_id: String,
+    request_id: Option<String>,
+    epoch: Option<u64>,
+) -> Result<(), String> {
+    {
+        let _action = lock(&state.action)?;
+        let db = lock(&state.db)?;
+        if store::active_conversation(&db)?.is_none_or(|session| session.id != session_id) {
+            return Ok(());
+        }
+        let current_epoch = state.epoch.load(Ordering::SeqCst);
+        let matches_request = request_id.as_ref().is_some_and(|id| {
+            lock(&state.follow_ups).is_ok_and(|slot| {
+                slot.as_ref().is_some_and(|request| {
+                    &request.request_id == id && request.session_id == session_id
+                })
+            })
+        });
+        if !matches_request && epoch != Some(current_epoch) {
+            return Ok(());
+        }
+        state
+            .follow_up_dismissed_epoch
+            .store(current_epoch, Ordering::SeqCst);
+        *lock(&state.follow_ups)? = None;
+    }
+    publish(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn choose_follow_up(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    request_id: String,
+    option_id: String,
+) -> Result<(), String> {
+    let owner = state.inner().clone();
+    let result = super::conversation::send_message_inner(
+        app.clone(),
+        state,
+        String::new(),
+        String::new(),
+        uuid::Uuid::new_v4().to_string(),
+        None,
+        Some((request_id, option_id)),
+    )
+    .await;
+    publish(&app, &owner);
+    result
+}
 
 #[tauri::command]
 pub(crate) fn open_reply(
@@ -352,6 +478,10 @@ pub(super) fn release_history_editor_locked(
         return Ok(false);
     };
     ensure_editor(state, &db, session_id, "history-input")?;
+    state
+        .follow_up_dismissed_epoch
+        .store(state.epoch.load(Ordering::SeqCst), Ordering::SeqCst);
+    *lock(&state.follow_ups)? = None;
     if let Some(panel) = lock(&state.panel)?.as_mut() {
         panel.mode = "input".into();
     }
@@ -381,8 +511,6 @@ fn music_discussion_draft(
 ) -> Result<String, String> {
     let observation = &instance.data["observation"];
     if instance.kind != "music"
-        || !instance.installed
-        || !instance.enabled
         || instance.revision != revision
         || instance.data["configured"] != true
         || !matches!(instance.data["status"].as_str(), Some("ready" | "syncing"))
@@ -658,18 +786,19 @@ mod tests {
     fn music_discussion_creates_only_a_new_draft_and_preserves_existing_conversations() {
         let state = super::super::tests::state();
         let at = chrono::Utc::now().timestamp_millis();
-        let old = {
+        let (old, music_id) = {
             let db = lock(&state.db).unwrap();
             store::set_user_name(&db, "음악 검사", at).unwrap();
             let actor = characters::active_ids(&db).unwrap()[0].clone();
             let old = store::create_conversation(&db, &[actor], None, None, at).unwrap();
             store::save_conversation_draft(&db, &old.id, "쓰던 초안\n보존").unwrap();
             let data = serde_json::json!({"configured":true,"status":"ready","observation":{"observedAt":at,"title":"밤의 산책","artist":"별빛정원"}});
-            db.execute("INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data) VALUES('music-talk','music',1,1,1,7,?1)", [data.to_string()]).unwrap();
-            old
+            let music_id: String = db.query_row("SELECT id FROM widget_instances WHERE kind='music'", [], |row| row.get(0)).unwrap();
+            db.execute("UPDATE widget_instances SET revision=7,data=?1 WHERE id=?2", rusqlite::params![data.to_string(), music_id]).unwrap();
+            (old, music_id)
         };
-        assert!(begin_music_discussion(&state, "music-talk", 6).is_err());
-        begin_music_discussion(&state, "music-talk", 7).unwrap();
+        assert!(begin_music_discussion(&state, &music_id, 6).is_err());
+        begin_music_discussion(&state, &music_id, 7).unwrap();
         let db = lock(&state.db).unwrap();
         let current = store::active_conversation(&db).unwrap().unwrap();
         assert_ne!(current.id, old.id);
@@ -711,6 +840,7 @@ mod tests {
             text: "안녕!".into(),
             motion: Default::default(),
             source: "script".into(),
+            link: None,
             text_speed: 0,
             display_started_at: Some(1),
             ends_at: 100,
@@ -735,6 +865,7 @@ mod tests {
             text: "새로운 업데이트가 있어요!".into(),
             motion: Default::default(),
             source: "update".into(),
+            link: None,
             text_speed: 0,
             display_started_at: Some(1),
             ends_at: 100,
@@ -788,6 +919,7 @@ mod tests {
             text: "  원문\n그대로  ".into(),
             motion: Default::default(),
             source: "script".into(),
+            link: None,
             text_speed: 0,
             display_started_at: None,
             ends_at: 0,
@@ -850,6 +982,7 @@ mod tests {
                         persona: "a".into(),
                         text: "  원문\n보존  ".into(),
                         expression: "평온".into(),
+                        widget: None,
                         motion: Default::default(),
                     }],
                     enabled: true,
@@ -1128,9 +1261,13 @@ mod tests {
             .unwrap();
             store::save_conversation_draft(&db, &session.id, "다음 질문 초안").unwrap();
             store::pause_conversations(&db).unwrap();
-            crate::widgets::storage::install(&db, directory.path(), &["focus-timer".into()])
+            crate::widgets::storage::verify_packages(&db, directory.path())
                 .unwrap();
-            let timer = crate::widgets::storage::instances(&db).unwrap().remove(0);
+            let timer = crate::widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|instance| instance.kind == "focus-timer")
+                .unwrap();
             crate::widgets::storage::execute(
                 &db,
                 &crate::widgets::WidgetRequest {

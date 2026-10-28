@@ -281,8 +281,8 @@ pub fn definition<'a>(
     widget: &'a GeneratedWidget,
     action_id: &str,
 ) -> Result<&'a ActionDefinition> {
-    if !widget.installed || !widget.enabled || widget.status != "ready" {
-        return Err("실행 준비가 끝나고 켜진 위젯만 사용할 수 있어요.".into());
+    if !widget.installed || widget.status != "ready" {
+        return Err("실행 준비가 끝난 위젯만 사용할 수 있어요.".into());
     }
     widget
         .definition
@@ -302,7 +302,7 @@ pub fn validate_input(action: &ActionDefinition, input: &Value) -> Result<()> {
 }
 
 pub fn catalog(db: &Connection) -> Result<Vec<Value>> {
-    Ok(list(db)?.into_iter().filter(|w| w.installed && w.enabled && w.status == "ready")
+    Ok(list(db)?.into_iter().filter(|w| w.installed && w.status == "ready")
         .flat_map(|w| w.definition.actions.iter().map(|a| json!({
             "id":format!("generated:{}:{}",w.id,a.id),"title":w.definition.name,
             "description":a.description,"inputSchema":a.input_schema,
@@ -314,8 +314,8 @@ pub fn catalog(db: &Connection) -> Result<Vec<Value>> {
 
 pub fn context(db: &Connection, id: &str) -> Result<Value> {
     let widget = get(db, id)?;
-    if !widget.installed || !widget.enabled || widget.status != "ready" {
-        return Err("위젯을 먼저 켜 주세요.".into());
+    if !widget.installed || widget.status != "ready" {
+        return Err("위젯의 실행 준비를 먼저 확인해 주세요.".into());
     }
     Ok(
         json!({"id":widget.id,"name":widget.definition.name,"revision":widget.revision,"state":widget.state}),
@@ -366,7 +366,6 @@ pub fn visible_result(db: &Connection, user: &str, id: &str) -> Result<Option<Va
         return Ok(None);
     };
     if !current.installed
-        || !current.enabled
         || current.status != "ready"
         || current.revision != receipt.revision
     {
@@ -437,7 +436,7 @@ pub fn commit(
     let current = get(&tx, &request.widget_id)?;
     let action = definition(&current, &request.action_id)?;
     validate_input(action, &request.input)?;
-    if current.revision != request.expected_revision || current != *before {
+    if current.revision != request.expected_revision || !current.same_execution_source(before) {
         return Err("실행 중 위젯이 변경되어 결과를 저장하지 않았어요.".into());
     }
     if action.operation == "read" && state != current.state {
@@ -525,7 +524,6 @@ pub fn undo(db: &Connection, user: &str, id: &str) -> Result<GeneratedReceipt> {
     let current = get(&tx, &receipt.widget_id)?;
     let (definition,before,after):(String,String,String)=tx.query_row("SELECT definition,before_state,after_state FROM generated_action_receipts WHERE id=?1 AND user_id=?2",params![id,user],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(err)?;
     if !current.installed
-        || !current.enabled
         || current.status != "ready"
         || current.revision != receipt.revision
         || current.definition != serde_json::from_str::<Definition>(&definition).map_err(err)?
@@ -568,6 +566,7 @@ mod tests {
         let db = Connection::open_in_memory().unwrap();
         db.execute_batch("CREATE TABLE kv(key TEXT PRIMARY KEY,value TEXT NOT NULL)")
             .unwrap();
+        crate::widgets::storage::initialize(&db).unwrap();
         super::super::initialize(&db).unwrap();
         db
     }
@@ -634,8 +633,31 @@ mod tests {
         assert_eq!(tools[0]["id"], format!("generated:{}:add", widget.id));
         assert_eq!(tools[0]["automatic"], true);
         assert!(context(&db, &widget.id).unwrap().get("source").is_none());
-        super::super::set_enabled(&db, &widget.id, widget.revision, false).unwrap();
+        crate::widgets::storage::set_reaction(&db, &widget.id, false).unwrap();
+        assert_eq!(catalog(&db).unwrap().len(), 1);
+        assert_eq!(get(&db, &widget.id).unwrap().revision, widget.revision);
+        super::super::retire(&db, &widget.id, widget.revision).unwrap();
         assert!(catalog(&db).unwrap().is_empty());
+    }
+
+    #[test]
+    fn changing_reaction_does_not_cancel_an_in_flight_action() {
+        let db = database();
+        let widget = ready(&db, "create");
+        let request = request(&widget);
+        crate::widgets::storage::set_reaction(&db, &widget.id, false).unwrap();
+        let receipt = commit(
+            &db,
+            &request,
+            &widget,
+            added(),
+            json!([{"type":"text","value":"저장됨"}]),
+        ).unwrap();
+        let updated = get(&db, &widget.id).unwrap();
+        assert!(!updated.reaction);
+        assert_eq!(updated.state, added());
+        assert_eq!(updated.revision, widget.revision + 1);
+        assert_eq!(visible_result(&db, "legacy-user", &receipt.id).unwrap(), Some(receipt.result));
     }
 
     #[test]
@@ -788,7 +810,7 @@ mod tests {
     #[test]
     fn saved_results_are_visible_only_while_their_source_and_user_remain_current() {
         for change in [
-            "disabled",
+            "reaction-off",
             "retired",
             "edited",
             "definition",
@@ -815,8 +837,8 @@ mod tests {
                 .is_none());
             let current = get(&db, &widget.id).unwrap();
             match change {
-                "disabled" => {
-                    super::super::set_enabled(&db, &widget.id, current.revision, false).unwrap();
+                "reaction-off" => {
+                    crate::widgets::storage::set_reaction(&db, &widget.id, false).unwrap();
                 }
                 "retired" => {
                     super::super::retire(&db, &widget.id, current.revision).unwrap();
@@ -847,6 +869,8 @@ mod tests {
             let visible = visible_result(&db, "legacy-user", &saved.id);
             if change == "user" {
                 assert!(visible.is_err());
+            } else if change == "reaction-off" {
+                assert!(visible.unwrap().is_some());
             } else {
                 assert!(visible.unwrap().is_none(), "{change}");
             }

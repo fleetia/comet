@@ -159,6 +159,7 @@ fn advance_notice(state: &AppState, updates: &UpdateState, now: i64) -> Result<b
         text: "새로운 업데이트가 있어요!".into(),
         motion: Default::default(),
         source: "update".into(),
+        link: None,
         text_speed: 0,
         display_started_at: None,
         ends_at: 0,
@@ -599,12 +600,7 @@ mod tests {
                 "focus" => {
                     let directory = tempfile::tempdir().unwrap();
                     let db = lock(&state.db).unwrap();
-                    crate::widgets::storage::install(
-                        &db,
-                        directory.path(),
-                        &["focus-timer".into()],
-                    )
-                    .unwrap();
+                    crate::widgets::storage::verify_packages(&db, directory.path()).unwrap();
                     let timer = crate::widgets::storage::instances(&db)
                         .unwrap()
                         .into_iter()

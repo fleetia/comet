@@ -10,6 +10,7 @@ export function FocusPanel({
   period,
   onPeriodChange,
   onClose,
+  hideTabs = false,
   children,
   label = "집중 기록",
 }: {
@@ -18,6 +19,7 @@ export function FocusPanel({
   period?: string;
   onPeriodChange?: (period: string) => void;
   onClose?: () => void;
+  hideTabs?: boolean;
   children: ReactNode;
   label?: string;
 }): ReactElement {
@@ -27,17 +29,19 @@ export function FocusPanel({
       <header className={s.panelHeader}>
         <div className={s.panelTools}>
           <Icon name="timer" size={16} className={s.headerTimerIcon} />
-          <SegmentedControl
-            label="집중 기록 보기"
-            value={tab}
-            options={[
-              { value: "records", label: "기록" },
-              { value: "notes", label: "노트" },
-            ]}
-            onValueChange={(value) => {
-              if (value === "records" || value === "notes") onTabChange(value);
-            }}
-          />
+          {!hideTabs && (
+            <SegmentedControl
+              label="집중 기록 보기"
+              value={tab}
+              options={[
+                { value: "records", label: "기록" },
+                { value: "notes", label: "노트" },
+              ]}
+              onValueChange={(value) => {
+                if (value === "records" || value === "notes") onTabChange(value);
+              }}
+            />
+          )}
         </div>
         <div className={s.panelTools}>
           {tab === "records" && (

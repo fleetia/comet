@@ -1,8 +1,8 @@
 use super::{EvalContext, Registry, ValueType, Variable};
 pub use crate::widgets::WidgetEvent;
 use crate::widgets::{self, storage, WidgetSnapshot};
-use chrono::{DateTime, Local, NaiveDate, Timelike};
-use rusqlite::{Connection, OptionalExtension};
+use chrono::{DateTime, Datelike, Days, Local, Months, NaiveDate, TimeZone, Timelike};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -21,7 +21,13 @@ const FIELDS: &[(&str, &str, &str, &str, &str)] = &[
         "nextTitle",
         "nextAllDay",
     ),
-    ("timer", "focus-timer", "remainingMs", "state mode", ""),
+    (
+        "timer",
+        "focus-timer",
+        "remainingMs cycle queueCount",
+        "state mode",
+        "continuous",
+    ),
     (
         "preparation",
         "preparation",
@@ -38,7 +44,13 @@ const FIELDS: &[(&str, &str, &str, &str, &str)] = &[
         "",
     ),
     ("memo", "memo", "count", "", ""),
-    ("weather", "weather", "temperature code", "name", ""),
+    (
+        "weather",
+        "weather",
+        "temperature code tomorrowCode tomorrowMax tomorrowMin tomorrowRainProb lastYearCode lastYearMax lastYearMin todayMax todayMin",
+        "name tomorrowName lastYearName lastYearSource",
+        "",
+    ),
     ("music", "music", "", "title artist", "running playing"),
     (
         "device",
@@ -65,7 +77,12 @@ const FIELDS: &[(&str, &str, &str, &str, &str)] = &[
 fn description(prefix: &str, field: &str, nullable: bool) -> String {
     let text = match (prefix, field) {
         ("dialogue", "variant") => "한 대본 재생 동안 고정되는 0~4 변형 번호",
-        ("environment", "weatherReady") => "설치된 날씨 연결에 2시간 이내의 유효한 관측이 있는지 여부. 미설치·비활성·실패·오래됨에는 false",
+        ("activity", "ready") => "전경 앱 관측이 켜져 있고 유효한 샘플이 있는지 여부",
+        ("activity", "appName") => "현재 전경 앱의 표시 이름. 제외 앱과 무입력 상태에는 null",
+        ("activity", "category") => "현재 앱 범주: editor, terminal, browser, chat, media, office, game, other",
+        ("activity", "minutes") => "현재 앱을 연속 사용한 분",
+        ("activity", "idleMinutes") => "입력이 없었던 연속 시간(분)",
+        ("environment", "weatherReady") => "날씨 연결에 2시간 이내의 유효한 관측이 있는지 여부. 연결 실패·오래됨에는 false",
         ("environment", "weatherStatus") => "날씨 연결 상태. not-installed·disabled·offline·stale을 관측 성공과 구분",
         ("environment", "weatherTemperature") => "날씨 연결의 최신 관측 기온(섭씨)",
         ("environment", "weatherCode") => "날씨 연결의 최신 WMO weatherCode 숫자",
@@ -74,13 +91,32 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         ("character", "count") => "지금 바탕화면에 함께 지내는 캐릭터 수(1~8). speakers: random 장면의 화자 수 조건에 사용",
         (_, "sourceId") if prefix.starts_with("character.") => "현재 자리에 설치된 캐릭터의 원본 sourceId. 표시 이름·로컬 ID와 구분",
         (_, "affinity") if prefix.starts_with("character.") => "해당 캐릭터의 현재 친밀도 점수",
+        (_, "mood") if prefix.starts_with("character.") => "해당 캐릭터의 현재 단기 기분(-2~2)",
+        ("event", "from") => "기분 변경 전 값(-2~2)",
+        ("event", "to") => "기분 변경 후 값(-2~2)",
+        ("event", "source") => "기분 변경을 일으킨 사건의 종류",
+        (_, "total") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "현재 사용자와 해당 캐릭터의 누적 교감 횟수",
+        (_, "stroke") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "현재 사용자와 해당 캐릭터의 누적 쓰다듬기 횟수",
+        (_, "poke") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "현재 사용자와 해당 캐릭터의 누적 찌르기 횟수",
+        (_, "cheek") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "현재 사용자와 해당 캐릭터의 누적 볼 잡기 횟수",
+        (_, "snack") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "현재 사용자와 해당 캐릭터의 누적 간식 횟수",
+        (_, "today") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "기기 현지 오늘의 교감 횟수",
+        ("interaction", "milestone") => "이번 교감에서 달성한 기념 횟수. 기념이 없으면 null",
+        ("interaction", "milestoneAction") => "기념 횟수를 달성한 누적 종류: total, stroke, poke, cheek 또는 snack",
 
         ("travel", "count") => "끝나지 않은 여행 수. 다녀와서 정리 중인 여행도 포함",
         ("travel", "daysUntil") => "가장 가까운 여행의 첫날까지 남은 일수(그곳 날짜 기준). 이미 시작했으면 0 이하",
         ("travel", "title") => "가장 가까운 여행의 이름. 여행이 없으면 null",
         ("travel", "stage") => "가장 가까운 여행의 단계: planning, before, traveling, wrapping",
-        (_, "ready") => "설치·활성·의존성과 데이터 최신성 검사를 통과했는지 여부",
-        (_, "status") => "설치 상태 또는 연결 상태. unavailable·실패·stale은 성공한 빈 값과 구분",
+        ("recall", "ready") => "오늘 회상할 날짜 페이지가 있는지 여부",
+        ("recall", "kind") => "회상 시점: year, month, week",
+        ("recall", "date") => "회상할 날짜(YYYY-MM-DD)",
+        ("recall", "daysAgo") => "회상 날짜부터 오늘까지의 일수",
+        ("recall", "snippet") => "날짜 페이지의 한 줄 기록 또는 한 줄 평",
+        ("recall", "rating") => "날짜 페이지에 저장된 별점",
+        ("recall", "focusMinutes") => "그날의 실제 집중 시간(분)",
+        (_, "ready") => "연결과 데이터 최신성 검사를 통과했는지 여부",
+        (_, "status") => "연결 상태. unavailable·실패·stale은 성공한 빈 값과 구분",
         (_, "openCount") => "완료하지 않은 할 일 수",
         (_, "completedCount") => "완료한 할 일 수",
         (_, "overdueCount") => "미완료이며 지정 시각 또는 날짜를 지난 할 일 수. 날짜 비교는 기기 현지 날짜 기준",
@@ -90,6 +126,9 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         (_, "remainingMs") => "타이머 남은 시간(밀리초). 실행 중에는 deadline에서 현재 시각을 뺀 값",
         ("timer", "state") => "타이머 상태: idle, running, paused, finished",
         ("timer", "mode") => "타이머 모드: focus 또는 rest",
+        ("timer", "cycle") => "긴 휴식 이후 완료한 집중 횟수",
+        ("timer", "queueCount") => "대기 중인 다음 집중 수",
+        ("timer", "continuous") => "휴식 후 다음 집중 자동 시작 여부",
         ("preparation", "count") => "저장된 준비 봉투 수",
         (_, "checkCount") => "모든 준비 봉투에 등록된 체크 항목 수",
         (_, "uncheckedCount") => "모든 준비 봉투에서 아직 체크하지 않은 항목 수",
@@ -102,6 +141,18 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         (_, "temperature") => "최근 관측 기온(섭씨). 관측·조회 성공 시각 모두 2시간 이내일 때만 제공",
         (_, "code") => "날씨 제공자의 WMO weatherCode 숫자",
         ("weather", "name") => "관측 대상 지역 이름",
+        ("weather", "tomorrowCode") => "내일 예보의 WMO weatherCode 숫자",
+        ("weather", "tomorrowName") => "내일 예보의 날씨 이름",
+        ("weather", "tomorrowMax") => "내일 예보 최고 기온(섭씨)",
+        ("weather", "tomorrowMin") => "내일 예보 최저 기온(섭씨)",
+        ("weather", "tomorrowRainProb") => "내일 예보 최대 강수 확률(%)",
+        ("weather", "lastYearCode") => "작년 오늘 날씨의 WMO weatherCode 숫자",
+        ("weather", "lastYearName") => "작년 오늘 날씨 이름",
+        ("weather", "lastYearMax") => "작년 오늘 최고 기온(섭씨)",
+        ("weather", "lastYearMin") => "작년 오늘 최저 기온(섭씨)",
+        ("weather", "lastYearSource") => "작년 날씨의 출처: live(직접 관측) 또는 archive(보충 자료)",
+        ("weather", "todayMax") => "오늘 예보 최고 기온(섭씨)",
+        ("weather", "todayMin") => "오늘 예보 최저 기온(섭씨)",
         (_, "running") => "음악 제공 앱이 실행 중인지 여부",
         (_, "playing") if prefix == "music" => "현재 음악을 재생 중인지 여부. 중지·일시정지는 false",
         ("music", "title") => "현재 재생 중인 곡 제목. 비재생 시 null",
@@ -155,7 +206,7 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         return format!("{text}. 해당 캐릭터가 없으면 null.");
     }
     if nullable {
-        format!("{text}. 미설치·비활성·자료 없음·오래됨에는 null(별도 명시된 독립 관측값 제외).")
+        format!("{text}. 자료 없음·오래됨에는 null(별도 명시된 독립 관측값 제외).")
     } else {
         text.to_owned()
     }
@@ -200,7 +251,27 @@ pub fn registry() -> Registry {
     ] {
         add("event", name, ValueType::String, true, None);
     }
+    add("event", "source", ValueType::String, true, None);
+    for name in ["from", "to"] {
+        add("event", name, ValueType::Number, true, None);
+    }
+    add("recall", "ready", ValueType::Boolean, false, None);
+    for name in ["kind", "date", "snippet"] {
+        add("recall", name, ValueType::String, true, None);
+    }
+    for name in ["daysAgo", "rating", "focusMinutes"] {
+        add("recall", name, ValueType::Number, true, None);
+    }
+    add("interaction", "milestone", ValueType::Number, true, None);
+    add("interaction", "milestoneAction", ValueType::String, true, None);
     add("dialogue", "variant", ValueType::Number, false, None);
+    add("activity", "ready", ValueType::Boolean, false, None);
+    for field in ["appName", "category"] {
+        add("activity", field, ValueType::String, true, None);
+    }
+    for field in ["minutes", "idleMinutes"] {
+        add("activity", field, ValueType::Number, true, None);
+    }
     add("environment", "hour", ValueType::Number, true, None);
     add(
         "environment",
@@ -221,6 +292,15 @@ pub fn registry() -> Registry {
     }
     add("environment", "weatherName", ValueType::String, true, None);
     for persona in crate::characters::SLOTS {
+        for field in ["total", "stroke", "poke", "cheek", "snack", "today"] {
+            add(
+                &format!("character.{persona}.touches"),
+                field,
+                ValueType::Number,
+                true,
+                None,
+            );
+        }
         add(
             &format!("character.{persona}"),
             "sourceId",
@@ -235,6 +315,13 @@ pub fn registry() -> Registry {
             true,
             None,
         );
+        add(
+            &format!("character.{persona}"),
+            "mood",
+            ValueType::Number,
+            true,
+            None,
+        );
     }
     add(
         "character.nadir",
@@ -244,11 +331,15 @@ pub fn registry() -> Registry {
         None,
     );
     add("character.nadir", "affinity", ValueType::Number, true, None);
+    add("character.nadir", "mood", ValueType::Number, true, None);
     add("character", "count", ValueType::Number, false, None);
     Registry {
         variables,
         events: [
             "idle",
+            "activity.long-session",
+            "activity.idle-return",
+            "diary.recall",
             "todo-completed",
             "todo-undone",
             "timer-finished",
@@ -256,7 +347,11 @@ pub fn registry() -> Registry {
             "planner-reminder",
             "planner-mood",
             "device-woke",
+            "weather.rain-tomorrow",
+            "weather.last-year",
             "interaction.touch",
+            "interaction.milestone",
+            "mood.changed",
             "ball.stopped",
             "paper-plane.landed",
             "bubbles.streak",
@@ -278,19 +373,165 @@ pub fn registry() -> Registry {
 fn rows(value: &Value) -> &[Value] {
     value.as_array().map(Vec::as_slice).unwrap_or(&[])
 }
+
+fn recalled_recently(db: &Connection, date: &str, now_ms: i64) -> Result<bool, String> {
+    let value: Option<String> = db
+        .query_row(
+            "SELECT value FROM widget_preferences WHERE key=?1",
+            [format!("recall:{date}")],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    Ok(value
+        .and_then(|value| value.parse::<i64>().ok())
+        .is_some_and(|at| now_ms.saturating_sub(at) < 30 * 24 * 60 * 60 * 1000))
+}
+
+/// Store only a date and the display time, after a recall line was actually shown.
+pub(crate) fn record_recall(db: &Connection, date: &str, now_ms: i64) -> Result<(), String> {
+    let parsed = NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|error| error.to_string())?;
+    if parsed.format("%Y-%m-%d").to_string() != date {
+        return Err("회상 날짜가 올바르지 않습니다.".into());
+    }
+    db.execute(
+        "INSERT INTO widget_preferences(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        params![format!("recall:{date}"), now_ms.to_string()],
+    ).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn focus_minutes(snapshot: &WidgetSnapshot, date: NaiveDate, now_ms: i64) -> Option<i64> {
+    let start = Local
+        .from_local_datetime(&date.and_hms_opt(0, 0, 0)?)
+        .earliest()?
+        .timestamp_millis();
+    let end = Local
+        .from_local_datetime(&date.succ_opt()?.and_hms_opt(0, 0, 0)?)
+        .earliest()?
+        .timestamp_millis();
+    let mut elapsed = 0_i64;
+    for widget in snapshot
+        .widgets
+        .iter()
+        .filter(|widget| widget.instance.kind == "focus-timer")
+    {
+        let data = &widget.instance.data;
+        for session in rows(&data["sessions"])
+            .iter()
+            .chain(std::iter::once(&data["activeSession"]))
+        {
+            for segment in rows(&session["segments"]) {
+                if let (Some(from), Some(to)) =
+                    (segment["startAt"].as_i64(), segment["endAt"].as_i64())
+                {
+                    elapsed =
+                        elapsed.saturating_add(to.min(end).saturating_sub(from.max(start)).max(0));
+                }
+            }
+        }
+        if data["status"] == "running" && data["mode"] != "rest" {
+            if let Some(from) = data["activeSession"]["runningSince"].as_i64() {
+                let to = data["deadline"].as_i64().unwrap_or(now_ms).min(now_ms);
+                elapsed =
+                    elapsed.saturating_add(to.min(end).saturating_sub(from.max(start)).max(0));
+            }
+        }
+    }
+    (elapsed > 0).then_some(elapsed / 60_000)
+}
+
+fn project_recall(
+    db: &Connection,
+    snapshot: &WidgetSnapshot,
+    values: &mut BTreeMap<String, Value>,
+    now_ms: i64,
+) -> Result<(), String> {
+    values.insert("recall.ready".into(), json!(false));
+    if !crate::store::settings(db)?.diary_recall_enabled {
+        return Ok(());
+    }
+    let Some(today) =
+        DateTime::from_timestamp_millis(now_ms).map(|time| time.with_timezone(&Local).date_naive())
+    else {
+        return Ok(());
+    };
+    let today_text = today.format("%Y-%m-%d").to_string();
+    let diary = crate::diary::read(db)?;
+    let cached: Option<String> = db
+        .query_row(
+            "SELECT value FROM widget_preferences WHERE key='recall:daily'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    let cached = cached
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .filter(|value| value["today"] == today_text);
+    let choice = if let Some(cached) = cached {
+        cached
+    } else {
+        let mut choice = json!({"today": today_text, "date": null, "kind": null});
+        for (kind, date) in [
+            ("year", today.checked_sub_months(Months::new(12))),
+            ("month", today.checked_sub_months(Months::new(1))),
+            ("week", today.checked_sub_days(Days::new(7))),
+        ] {
+            let Some(date) = date else {
+                continue;
+            };
+            let date = date.format("%Y-%m-%d").to_string();
+            if diary.recall(&date).is_some() && !recalled_recently(db, &date, now_ms)? {
+                choice["date"] = json!(date);
+                choice["kind"] = json!(kind);
+                break;
+            }
+        }
+        db.execute("INSERT INTO widget_preferences(key,value) VALUES('recall:daily',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [choice.to_string()]).map_err(|error| error.to_string())?;
+        choice
+    };
+    let (Some(date_text), Some(kind)) = (choice["date"].as_str(), choice["kind"].as_str()) else {
+        return Ok(());
+    };
+    if recalled_recently(db, date_text, now_ms)? {
+        return Ok(());
+    }
+    let Some((snippet, rating)) = diary.recall(date_text) else {
+        return Ok(());
+    };
+    let date =
+        NaiveDate::parse_from_str(date_text, "%Y-%m-%d").map_err(|error| error.to_string())?;
+    values.insert("recall.ready".into(), json!(true));
+    values.insert("recall.kind".into(), json!(kind));
+    values.insert("recall.date".into(), json!(date_text));
+    values.insert("recall.daysAgo".into(), json!((today - date).num_days()));
+    values.insert("recall.snippet".into(), json!(snippet));
+    values.insert("recall.rating".into(), json!(rating));
+    values.insert(
+        "recall.focusMinutes".into(),
+        json!(focus_minutes(snapshot, date, now_ms)),
+    );
+    Ok(())
+}
+
 fn fresh(data: &Value, now: i64, age: i64) -> bool {
     matches!(data["status"].as_str(), Some("ready" | "syncing"))
         && data["lastSuccessAt"]
             .as_i64()
             .is_some_and(|at| now >= at && now - at <= age)
 }
-fn project(snapshot: &WidgetSnapshot, now: i64) -> (BTreeMap<String, Value>, BTreeSet<String>) {
+pub(crate) fn project(
+    snapshot: &WidgetSnapshot,
+    now: i64,
+) -> (BTreeMap<String, Value>, BTreeSet<String>) {
     let mut values = registry()
         .variables
         .keys()
         .map(|name| (name.clone(), Value::Null))
         .collect::<BTreeMap<_, _>>();
     let mut available = BTreeSet::new();
+    values.insert("activity.ready".into(), json!(false));
     let instant = DateTime::from_timestamp_millis(now).map(|time| time.with_timezone(&Local));
     let today = instant.map(|time| time.date_naive());
     for &(prefix, kind, numbers, strings, booleans) in FIELDS {
@@ -311,10 +552,10 @@ fn project(snapshot: &WidgetSnapshot, now: i64) -> (BTreeMap<String, Value>, BTr
         let Some(widget) = widget else {
             continue;
         };
-        if !widget.instance.installed || !widget.instance.enabled || !widget.missing.is_empty() {
+        available.insert(kind.to_owned());
+        if widget.status == "install-error" {
             continue;
         }
-        available.insert(kind.to_owned());
         let d = &widget.instance.data;
         let external = matches!(kind, "weather" | "music" | "device");
         let mut ready = widget.status == "enabled";
@@ -448,6 +689,12 @@ fn project(snapshot: &WidgetSnapshot, now: i64) -> (BTreeMap<String, Value>, BTr
             }
             "focus-timer" => {
                 set("state", d["status"].clone());
+                set("cycle", json!(d["cycle"].as_u64().unwrap_or(0)));
+                set("queueCount", json!(rows(&d["queue"]).len()));
+                set(
+                    "continuous",
+                    json!(d["settings"]["continuous"].as_bool().unwrap_or(false)),
+                );
                 if d["status"] == "running" {
                     set(
                         "remainingMs",
@@ -513,6 +760,55 @@ fn project(snapshot: &WidgetSnapshot, now: i64) -> (BTreeMap<String, Value>, BTr
                 set("temperature", o["temperature"].clone());
                 set("code", o["weatherCode"].clone());
                 set("name", o["name"].clone());
+                let forecast = &d["forecast"];
+                let weather_today = DateTime::from_timestamp_millis(now).and_then(|instant| {
+                    forecast["timezone"]
+                        .as_str()
+                        .and_then(|name| name.parse::<chrono_tz::Tz>().ok())
+                        .map(|zone| instant.with_timezone(&zone).date_naive())
+                });
+                if weather_today.is_some_and(|day| {
+                    forecast["today"]["date"].as_str() == Some(day.to_string().as_str())
+                }) {
+                    for (field, source) in [("todayMax", "tMax"), ("todayMin", "tMin")] {
+                        set(field, forecast["today"][source].clone());
+                    }
+                }
+                if weather_today
+                    .and_then(|day| day.succ_opt())
+                    .is_some_and(|day| {
+                        forecast["tomorrow"]["date"].as_str() == Some(day.to_string().as_str())
+                    })
+                {
+                    for (field, source) in [
+                        ("tomorrowCode", "code"),
+                        ("tomorrowName", "name"),
+                        ("tomorrowMax", "tMax"),
+                        ("tomorrowMin", "tMin"),
+                        ("tomorrowRainProb", "precipProb"),
+                    ] {
+                        set(field, forecast["tomorrow"][source].clone());
+                    }
+                }
+                let last_year = &d["lastYear"];
+                let last_year_day = last_year["date"]
+                    .as_str()
+                    .and_then(|date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok());
+                let expected_last_year = weather_today.and_then(|day| {
+                    day.with_year(day.year() - 1)
+                        .or_else(|| day.pred_opt()?.with_year(day.year() - 1))
+                });
+                if expected_last_year.is_some() && expected_last_year == last_year_day {
+                    for (field, source) in [
+                        ("lastYearCode", "code"),
+                        ("lastYearName", "name"),
+                        ("lastYearMax", "tMax"),
+                        ("lastYearMin", "tMin"),
+                        ("lastYearSource", "source"),
+                    ] {
+                        set(field, last_year[source].clone());
+                    }
+                }
             }
             "music" => {
                 if d["config"]["allowTalk"] == false {
@@ -584,7 +880,10 @@ fn body_interaction_data<'a>(
 ) -> Result<Option<&'a Value>, String> {
     let Some(event) = event.filter(|event| {
         event.widget_kind == "interaction"
-            && event.event.kind == "interaction.touch"
+            && matches!(
+                event.event.kind.as_str(),
+                "interaction.touch" | "interaction.milestone"
+            )
             && event.event.payload["source"] == "body"
             && event.created_at <= now
             && now.saturating_sub(event.created_at) < 30_000
@@ -639,6 +938,7 @@ pub fn build(
 ) -> Result<EvalContext, String> {
     let snapshot = storage::snapshot(db)?;
     let (mut values, mut available) = project(&snapshot, now_ms);
+    project_recall(db, &snapshot, &mut values, now_ms)?;
     let characters = crate::characters::active_members(db)?;
     let active = characters
         .iter()
@@ -687,9 +987,27 @@ pub fn build(
             values.insert("journal.recentKind".into(), json!(kind));
         }
     }
+    let is_body_receipt = if let Some(event) = event.filter(|event| {
+        event.widget_kind == "interaction"
+            && matches!(event.event.kind.as_str(), "interaction.touch" | "interaction.milestone")
+    }) {
+        let receipt: Option<String> = db
+            .query_row(
+                "SELECT fingerprint FROM widget_requests WHERE id=?",
+                [&event.id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        receipt.is_some_and(|value| value.starts_with("body:"))
+    } else {
+        false
+    };
     let event = event.filter(|event| {
         !widgets::is_retired(&event.widget_kind)
-            && (event.event.payload["source"] != "body" || body_data.is_some())
+            && (event.event.kind != "interaction.milestone" || body_data.is_some())
+            && ((event.event.payload["source"] != "body" && !is_body_receipt)
+                || body_data.is_some())
     });
     if let Some(event) = event {
         values.insert("event.kind".into(), json!(event.event.kind));
@@ -700,6 +1018,7 @@ pub fn build(
             ("outcome", "outcome"),
             ("mode", "mode"),
             ("itemName", "name"),
+            ("source", "source"),
         ] {
             let value = event.event.payload[source]
                 .as_str()
@@ -707,8 +1026,23 @@ pub fn build(
                 .unwrap_or(Value::Null);
             values.insert(format!("event.{field}"), value);
         }
+        for field in ["from", "to"] {
+            values.insert(format!("event.{field}"), event.event.payload[field].clone());
+        }
         if body_data.is_some() && event.event.payload["action"] == "cheek-grab" {
             values.insert("event.action".into(), json!("stroke"));
+        }
+        if body_data.is_some() {
+            if let Some(milestone) = event.event.payload["milestone"].as_i64() {
+                values.insert("interaction.milestone".into(), json!(milestone));
+                let counter = match event.event.payload["counter"].as_str() {
+                    Some(counter @ ("total" | "stroke" | "poke" | "cheek" | "snack")) => {
+                        Some(counter)
+                    }
+                    _ => None,
+                };
+                values.insert("interaction.milestoneAction".into(), json!(counter));
+            }
         }
     }
     let relationships = crate::store::relationships(db)?;
@@ -716,6 +1050,26 @@ pub fn build(
     values.insert("character.nadir.present".into(), json!(false));
     values.insert("character.count".into(), json!(characters.len()));
     for (persona, character) in crate::characters::SLOTS.into_iter().zip(&characters) {
+        if event.is_some_and(|event| {
+            event.event.kind == "mood.changed"
+                && event.event.payload["character"].as_str() == Some(&character.id)
+        }) {
+            values.insert("event.character".into(), json!(persona));
+        }
+        let touches = storage::character_touches(db, &character.id, now_ms)?;
+        for (field, count) in [
+            ("total", touches.total),
+            ("stroke", touches.stroke),
+            ("poke", touches.poke),
+            ("cheek", touches.cheek),
+            ("snack", touches.snack),
+            ("today", touches.today),
+        ] {
+            values.insert(
+                format!("character.{persona}.touches.{field}"),
+                json!(count),
+            );
+        }
         let score = relationships
             .iter()
             .find(|item| item.persona == character.id)
@@ -749,6 +1103,35 @@ mod tests {
     use crate::widgets::{WidgetInstance, WidgetView};
 
     #[test]
+    fn disabling_recall_hides_diary_values_from_all_talk_contexts() {
+        let db = crate::store::open(std::path::Path::new(":memory:")).unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        let date = (chrono::Local::now().date_naive() - chrono::Days::new(7)).to_string();
+        let diary = json!({"revision":1,"pages":[{"id":"page","title":"","date":date,"entries":[{"id":"note","kind":"note","text":"private diary"}]}],"notes":[],"moves":[]});
+        db.execute("UPDATE diary_state SET data=?1 WHERE id=1", [diary.to_string()]).unwrap();
+        let mut settings = crate::store::settings(&db).unwrap();
+        settings.diary_recall_enabled = false;
+        crate::store::save_settings(&db, &settings).unwrap();
+        let event = crate::widgets::WidgetEvent {
+            id: "event".into(), instance_id: "widget".into(), widget_kind: "weather".into(),
+            revision: 1, created_at: now, expires_at: now + 1000,
+            event: crate::widgets::EventDraft { kind: "weather.changed".into(), text: "".into(), payload: json!({}) },
+        };
+        for event in [None, Some(&event)] {
+            let context = build(&db, event, now, 0).unwrap();
+            assert_eq!(context.values["recall.ready"], false);
+            for name in ["kind", "date", "daysAgo", "snippet", "rating", "focusMinutes"] {
+                assert_eq!(context.values[&format!("recall.{name}")], Value::Null);
+            }
+        }
+        settings.diary_recall_enabled = true;
+        crate::store::save_settings(&db, &settings).unwrap();
+        let context = build(&db, None, now, 0).unwrap();
+        assert_eq!(context.values["recall.ready"], true);
+        assert_eq!(context.values["recall.snippet"], "private diary");
+    }
+
+    #[test]
     fn body_interaction_context_requires_a_fresh_owned_receipt_and_keeps_widget_gates() {
         let db = crate::store::open(std::path::Path::new(":memory:")).unwrap();
         let owner = crate::characters::active_ids(&db).unwrap()[1].clone();
@@ -775,10 +1158,9 @@ mod tests {
                 .selected
                 .is_some()
         );
-        assert!(!build(&db, None, 1001, 0)
-            .unwrap()
-            .available
-            .contains("interaction"));
+        let idle = build(&db, None, 1001, 0).unwrap();
+        assert!(idle.available.contains("interaction"));
+        assert_eq!(idle.values["event.action"], Value::Null);
         for kind in 0..6 {
             let mut invalid = event.clone();
             match kind {
@@ -790,7 +1172,8 @@ mod tests {
                 _ => invalid.event.payload["character"] = json!("A"),
             }
             let context = build(&db, Some(&invalid), 1001, 0).unwrap();
-            assert!(!context.available.contains("interaction"), "case {kind}");
+            assert!(context.available.contains("interaction"), "case {kind}");
+            assert_eq!(context.values["event.action"], Value::Null, "case {kind}");
             assert!(
                 super::super::simulate(&program, &context, &super::super::History::new())
                     .selected
@@ -811,14 +1194,26 @@ mod tests {
             build(&db, Some(&cheek), 6002, 0).unwrap().values["event.action"],
             "stroke"
         );
-        assert!(!build(&db, Some(&event), 6002, 0)
-            .unwrap()
-            .available
-            .contains("interaction"));
+        let stale = build(&db, Some(&event), 6002, 0).unwrap();
+        assert!(stale.available.contains("interaction"));
+        assert_eq!(stale.values["event.action"], Value::Null);
+
+        let widget = storage::instances(&db).unwrap().into_iter()
+            .find(|instance| instance.kind == "interaction").unwrap();
+        storage::execute(&db, &crate::widgets::WidgetRequest {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            instance_id: widget.id,
+            expected_revision: widget.revision,
+            action: "stroke".into(),
+            input: json!({"character":"B", "owner":owner}),
+        }, 12_000, 0).unwrap();
+        let normal_event = storage::take_reaction(&db, 12_001).unwrap().unwrap();
+        let normal_context = build(&db, Some(&normal_event), 12_001, 0).unwrap();
+        assert_eq!(normal_context.values["event.action"], "stroke");
     }
 
     #[test]
-    fn core_context_is_typed_and_time_available_without_optional_widgets() {
+    fn core_context_is_typed_and_time_available_before_weather_setup() {
         let db = crate::store::open(std::path::Path::new(":memory:")).unwrap();
         let now = 1_000_000;
         let context = build(&db, None, now, 14).unwrap();
@@ -830,7 +1225,7 @@ mod tests {
                 .hour()
         );
         assert_eq!(context.values["environment.weatherReady"], false);
-        assert_eq!(context.values["environment.weatherStatus"], "not-installed");
+        assert_eq!(context.values["environment.weatherStatus"], "permission-needed");
         assert_eq!(
             context.values["environment.weatherTemperature"],
             Value::Null
@@ -865,13 +1260,12 @@ mod tests {
         assert_eq!(fresh["environment.weatherTemperature"], 0);
         assert_eq!(fresh["environment.weatherCode"], 3);
         assert_eq!(fresh["environment.weatherName"], "서울");
-        for failure in ["stale", "offline", "missing", "disabled"] {
+        for failure in ["stale", "offline", "missing"] {
             let mut state = snapshot("weather", source.clone());
             match failure {
                 "stale" => state.widgets[0].instance.data["observation"]["observedAt"] = json!(0),
                 "offline" => state.widgets[0].instance.data["status"] = json!("offline"),
                 "missing" => state.widgets[0].instance.data["observation"] = Value::Null,
-                "disabled" => state.widgets[0].instance.enabled = false,
                 _ => unreachable!(),
             }
             let (values, _) = project(&state, now);
@@ -895,18 +1289,31 @@ mod tests {
                     id: "test".into(),
                     kind: kind.into(),
                     version: 1,
-                    installed: true,
-                    enabled: true,
                     revision: 1,
                     data,
                     error: None,
                 },
                 status: "enabled".into(),
                 missing: vec![],
+                reaction: true,
                 package_bytes: 0,
                 background_updated_at: None,
             }],
         }
+    }
+
+    #[test]
+    fn disabling_reactions_keeps_weather_context_available() {
+        let now = 1_000_000;
+        let mut state = snapshot(
+            "weather",
+            json!({"status":"ready","lastSuccessAt":now,"observation":{"temperature":0,"observedAt":now}}),
+        );
+        state.widgets[0].reaction = false;
+        let (values, available) = project(&state, now);
+        assert!(available.contains("weather"));
+        assert_eq!(values["weather.ready"], true);
+        assert_eq!(values["weather.temperature"], 0);
     }
 
     #[test]
@@ -1025,14 +1432,13 @@ mod tests {
     }
 
     #[test]
-    fn disabled_dependency_prevents_projection_and_availability() {
+    fn disabling_reactions_keeps_completion_jar_data_available() {
         let mut state = snapshot("completion-jar", json!({"completed":[]}));
-        state.widgets[0].missing = vec!["todo".into()];
-        state.widgets[0].status = "setup".into();
+        state.widgets[0].reaction = false;
         let (values, available) = project(&state, 0);
-        assert_eq!(values["jar.count"], Value::Null);
-        assert_eq!(values["jar.ready"], false);
-        assert!(!available.contains("completion-jar"));
+        assert_eq!(values["jar.count"], 0);
+        assert_eq!(values["jar.ready"], true);
+        assert!(available.contains("completion-jar"));
     }
 
     #[test]
@@ -1060,10 +1466,6 @@ mod tests {
     #[test]
     fn build_projects_all_catalog_kinds_and_allowlisted_event_only() {
         let db = crate::store::open(std::path::Path::new(":memory:")).unwrap();
-        for manifest in widgets::catalog().unwrap() {
-            let data = widgets::initial(&manifest.id).unwrap();
-            db.execute("INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data,error) VALUES(?1,?1,1,1,1,0,?2,NULL)", rusqlite::params![manifest.id, serde_json::to_string(&data).unwrap()]).unwrap();
-        }
         let event = WidgetEvent {
             id: "test".into(),
             instance_id: "interaction".into(),
@@ -1143,22 +1545,16 @@ mod tests {
     #[test]
     fn installation_failures_and_missing_success_cache_remain_distinct() {
         let now = 1000;
-        for (installed, enabled, status) in
-            [(false, false, "install-error"), (true, false, "disabled")]
-        {
-            let mut state = snapshot(
-                "weather",
-                json!({"status":"ready","lastSuccessAt":now,"observation":{"temperature":0,"observedAt":now}}),
-            );
-            state.widgets[0].instance.installed = installed;
-            state.widgets[0].instance.enabled = enabled;
-            state.widgets[0].status = status.into();
-            let (values, available) = project(&state, now);
-            assert_eq!(values["weather.status"], status);
-            assert_eq!(values["weather.ready"], false);
-            assert_eq!(values["weather.temperature"], Value::Null);
-            assert!(!available.contains("weather"));
-        }
+        let mut state = snapshot(
+            "weather",
+            json!({"status":"ready","lastSuccessAt":now,"observation":{"temperature":0,"observedAt":now}}),
+        );
+        state.widgets[0].status = "install-error".into();
+        let (values, available) = project(&state, now);
+        assert_eq!(values["weather.status"], "install-error");
+        assert_eq!(values["weather.ready"], false);
+        assert_eq!(values["weather.temperature"], Value::Null);
+        assert!(available.contains("weather"));
         for kind in ["weather", "music", "device"] {
             let (values, _) = project(
                 &snapshot(

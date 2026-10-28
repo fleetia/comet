@@ -530,7 +530,7 @@ pub(crate) fn interact_locked(
     action: &str,
     request_id: &str,
     now: i64,
-) -> Result<Option<crate::widgets::WidgetEvent>> {
+) -> Result<crate::widgets::storage::BodyInteraction> {
     let actor = actor(state, db, id)?;
     let slot = display_ids(state, db)?
         .iter()
@@ -882,6 +882,7 @@ mod tests {
             persona: id.clone(),
             text: "  그대로\n남겨요.  ".into(),
             expression: "평온".into(),
+            widget: None,
             motion: Default::default(),
         };
         assert_eq!(
@@ -897,6 +898,7 @@ mod tests {
                 persona: id.clone(),
                 text: " ".into(),
                 expression: "평온".into(),
+                widget: None,
                 motion: Default::default()
             }]
         )
@@ -1138,7 +1140,7 @@ mod tests {
             store::set_window_position(&db, &label, &WindowPosition { x: 10.0, y: 20.0 }).unwrap();
             let ticket = capture(&state, &db, &request.guest_ids, 0).unwrap();
             if focus {
-                db.execute("INSERT INTO widget_instances VALUES('timer','focus-timer',1,1,1,0,?1,NULL)", [serde_json::json!({"status":"running","mode":"focus","deadline":chrono::Utc::now().timestamp_millis()+60000}).to_string()]).unwrap();
+                db.execute("UPDATE widget_instances SET data=?1 WHERE kind='focus-timer'", [serde_json::json!({"status":"running","mode":"focus","deadline":chrono::Utc::now().timestamp_millis()+60000}).to_string()]).unwrap();
             } else {
                 lock(&state.runtime).unwrap().hidden = true;
             }
@@ -1228,6 +1230,7 @@ mod tests {
             text: "반가워".into(),
             motion: Default::default(),
             source: "scenario".into(),
+            link: None,
             text_speed: 1,
             display_started_at: Some(now + 1000),
             ends_at: now + 2000,
@@ -1269,11 +1272,11 @@ mod tests {
         let gesture = uuid::Uuid::new_v4().to_string();
         assert!(interact_locked(&state, &db, id, "poke", &gesture, 10000)
             .unwrap()
-            .is_some());
+            .event.is_some());
         assert!(interact_locked(&state, &db, id, "poke", &gesture, 11000)
             .unwrap()
-            .is_none());
-        assert!(interact_locked(
+            .event.is_none());
+        let milestone = interact_locked(
             &state,
             &db,
             &request.center_id,
@@ -1282,7 +1285,9 @@ mod tests {
             11000
         )
         .unwrap()
-        .is_none());
+        .event.unwrap();
+        assert_eq!(milestone.event.kind, "interaction.milestone");
+        assert_eq!(milestone.event.payload["milestone"], 1);
         assert_eq!(
             characters::active_ids(&db).unwrap(),
             vec![request.center_id]

@@ -93,6 +93,8 @@ export type ScenarioDefinition = {
   keywords: string[];
   requiredFlags: string[];
   minAffinity: number;
+  revealAffinity?: number | null;
+  defer?: SceneLine[];
   intro: SceneLine[];
   accept: SceneLine[];
   decline: SceneLine[];
@@ -123,7 +125,7 @@ export type AuthoringSubject =
   | { kind: "npc"; actorId: string }
   | { kind: "relation"; actorId: string; targetId: string }
   | { kind: "scenario"; scenarioId: string };
-export type AuthoringStage = "entry" | "intro" | "accept" | "decline" | "ending";
+export type AuthoringStage = "entry" | "intro" | "defer" | "accept" | "decline" | "ending";
 export type AuthoringState = {
   stage: AuthoringStage | null;
   ready: boolean;
@@ -168,7 +170,16 @@ export type AnimationClip = { id: string; name: string; fps: number; frames: Ani
 export type AnimationBinding = { clipId: string; repeat: boolean; intervalMs: number };
 export type AnimationBindings = Partial<
   Record<
-    "idle" | "speaking" | "click" | "musicPlaying" | "calendarOpen" | "sleep" | "focus" | "rest",
+    | "idle"
+    | "speaking"
+    | "click"
+    | "musicPlaying"
+    | "calendarOpen"
+    | "sleep"
+    | "focus"
+    | "rest"
+    | "moodHigh"
+    | "moodLow",
     AnimationBinding | null
   >
 >;
@@ -252,7 +263,7 @@ export type CharacterArchive = {
   }[];
 };
 export type CharacterPack = Partial<PackStoryDefinition> & {
-  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 12 | 13;
   name: string;
   author: string;
   sourceUrl?: string;
@@ -298,6 +309,12 @@ export type Playback = SceneLine & {
     | "npc"
     | "scenario";
   endsAt: number;
+  link?: {
+    instanceId: string;
+    kind: string;
+    label: string;
+    item?: { entity: string; id: string } | null;
+  } | null;
   textSpeed?: number;
   displayStartedAt?: number | null;
   lineIndex: number;
@@ -310,6 +327,13 @@ export type StoryRequest = {
   title: string;
   prompt: string;
   choices: { id: string; label: string }[];
+};
+export type FollowUpRequest = {
+  requestId: string;
+  messageId: string;
+  sessionId: string;
+  surface: string;
+  options: { id: string; label: string }[];
 };
 export type PanelState = {
   persona: Persona;
@@ -397,6 +421,8 @@ export type Settings = {
   apiProvider: ApiProvider;
   apiProfiles: Partial<Record<ApiProvider, ApiProfile>>;
   autonomousEnabled: boolean;
+  diaryRecallEnabled: boolean;
+  showFollowUps: boolean;
   randomPresenceEnabled: boolean;
   localModel: LocalModel;
   localModelPath: string;
@@ -567,6 +593,8 @@ export type Snapshot = {
     focus?: boolean;
     rest?: boolean;
     sleepingCharacterIds?: string[];
+    moodHighCharacterIds?: string[];
+    moodLowCharacterIds?: string[];
   };
   reactions?: Record<string, CharacterReactionRun>;
   user: UserIdentity | null;
@@ -577,6 +605,7 @@ export type Snapshot = {
   settings: Settings;
   playback: Playback | null;
   story: StoryRequest | null;
+  followUps?: FollowUpRequest | null;
   panel: PanelState | null;
   conversation?: ConversationView | null;
   wordbook: WordbookEntry[];

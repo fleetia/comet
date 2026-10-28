@@ -7,7 +7,7 @@ use std::{
     collections::BTreeMap,
     sync::{atomic::Ordering, Arc},
 };
-use tauri::{AppHandle, Manager, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 pub(crate) mod wandering;
 type Result<T> = std::result::Result<T, String>;
@@ -17,6 +17,254 @@ pub(crate) struct Runtime {
     sleeping: BTreeMap<String, String>,
     idle: BTreeMap<String, IdlePeriod>,
     pub(crate) wandering: wandering::Runtime,
+    mood: BTreeMap<String, Mood>,
+    mood_changes: std::collections::VecDeque<MoodChange>,
+    mood_idle: BTreeMap<String, MoodIdle>,
+    sleep_started: BTreeMap<String, i64>,
+    mood_input: u64,
+    mood_tick_at: i64,
+    pub(crate) activity: crate::app_usage::activity::Runtime,
+}
+
+const MOOD_DECAY_MS: i64 = 30 * 60 * 1000;
+const MOOD_COOLDOWN_MS: i64 = 5 * 60 * 1000;
+const MOOD_IDLE_MS: i64 = 2 * 60 * 60 * 1000;
+
+#[derive(Default)]
+struct Mood {
+    value: i8,
+    updated_at: i64,
+    last_source: BTreeMap<String, i64>,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub(crate) struct MoodChange {
+    pub character: String,
+    pub from: i8,
+    pub to: i8,
+    pub source: String,
+    #[serde(skip)]
+    pub at: i64,
+    #[serde(skip)]
+    pub epoch: u64,
+    #[serde(skip)]
+    interaction_id: Option<String>,
+}
+
+struct MoodIdle {
+    last_tick: i64,
+    last_input: u64,
+    last_touch: i64,
+    was_allowed: bool,
+    elapsed: i64,
+    day: chrono::NaiveDate,
+    count: u8,
+}
+
+impl Runtime {
+    fn record_mood(
+        &mut self,
+        id: &str,
+        from: i8,
+        to: i8,
+        source: &str,
+        now: i64,
+        epoch: u64,
+    ) -> MoodChange {
+        let change = MoodChange {
+            character: id.into(),
+            from,
+            to,
+            source: source.into(),
+            at: now,
+            epoch,
+            interaction_id: None,
+        };
+        if self.mood_changes.len() == 32 {
+            self.mood_changes.pop_front();
+        }
+        self.mood_changes.push_back(change.clone());
+        change
+    }
+
+    fn decay_mood(&mut self, id: &str, now: i64, epoch: u64) -> Option<MoodChange> {
+        if self.is_sleeping(id) {
+            return None;
+        }
+        let mood = self.mood.get_mut(id)?;
+        if mood.value == 0 {
+            return None;
+        }
+        let steps = now.saturating_sub(mood.updated_at) / MOOD_DECAY_MS;
+        if steps == 0 {
+            return None;
+        }
+        let from = mood.value;
+        let amount = steps.min(i64::from(from.unsigned_abs())) as i8;
+        mood.value -= from.signum() * amount;
+        mood.updated_at += i64::from(amount) * MOOD_DECAY_MS;
+        let to = mood.value;
+        Some(self.record_mood(id, from, to, "decay", now, epoch))
+    }
+
+    pub(crate) fn apply_interaction(
+        &mut self,
+        id: &str,
+        action: &str,
+        accepted: bool,
+        request_id: &str,
+        now: i64,
+        epoch: u64,
+    ) -> Vec<MoodChange> {
+        if !accepted || !matches!(action, "stroke" | "snack") {
+            return Vec::new();
+        }
+        let mut changes = self.apply_mood(id, action, 1, now, epoch);
+        for (queued, change) in self.mood_changes.iter_mut().rev().zip(changes.iter_mut().rev()) {
+            queued.interaction_id = Some(request_id.into());
+            change.interaction_id = queued.interaction_id.clone();
+        }
+        changes
+    }
+
+    fn apply_mood(
+        &mut self,
+        id: &str,
+        source: &str,
+        delta: i8,
+        now: i64,
+        epoch: u64,
+    ) -> Vec<MoodChange> {
+        let mut changes = Vec::new();
+        if let Some(change) = self.decay_mood(id, now, epoch) {
+            changes.push(change);
+        }
+        let mood = self.mood.entry(id.into()).or_default();
+        if !mood
+            .last_source
+            .get(source)
+            .is_some_and(|at| now.saturating_sub(*at) < MOOD_COOLDOWN_MS)
+        {
+            mood.last_source.insert(source.into(), now);
+            let from = mood.value;
+            let to = (i16::from(from) + i16::from(delta)).clamp(-2, 2) as i8;
+            if from != to {
+                mood.value = to;
+                mood.updated_at = now;
+                changes.push(self.record_mood(id, from, to, source, now, epoch));
+            }
+        }
+        changes
+    }
+}
+
+fn emit_mood(app: &AppHandle, change: &MoodChange) {
+    let _ = app.emit("character-mood-changed", change);
+}
+
+pub(crate) fn mood(state: &AppState, character_id: &str) -> Result<i8> {
+    Ok(lock(&state.life)?
+        .mood
+        .get(character_id)
+        .map_or(0, |mood| mood.value))
+}
+
+// Caller may hold action or DB locks; publishing the full snapshot happens on the maintenance clock.
+pub(crate) fn change_mood(
+    app: &AppHandle,
+    state: &AppState,
+    character_id: &str,
+    source: &str,
+    delta: i8,
+) -> Result<()> {
+    let now = chrono::Utc::now().timestamp_millis();
+    let changes = lock(&state.life)?.apply_mood(
+        character_id,
+        source,
+        delta,
+        now,
+        state.epoch.load(Ordering::SeqCst),
+    );
+    for change in &changes {
+        emit_mood(app, change);
+    }
+    Ok(())
+}
+
+pub(crate) fn change_interaction_mood(
+    app: &AppHandle,
+    state: &AppState,
+    character_id: &str,
+    action: &str,
+    accepted: bool,
+    request_id: &str,
+) -> Result<()> {
+    let changes = lock(&state.life)?.apply_interaction(
+        character_id,
+        action,
+        accepted,
+        request_id,
+        chrono::Utc::now().timestamp_millis(),
+        state.epoch.load(Ordering::SeqCst),
+    );
+    for change in &changes {
+        emit_mood(app, change);
+    }
+    Ok(())
+}
+
+pub(crate) fn pop_mood_change(state: &AppState) -> Result<Option<MoodChange>> {
+    let now = chrono::Utc::now().timestamp_millis();
+    let mut life = lock(&state.life)?;
+    while let Some(change) = life.mood_changes.pop_front() {
+        if now.saturating_sub(change.at) <= 60_000 {
+            return Ok(Some(change));
+        }
+    }
+    Ok(None)
+}
+
+pub(crate) fn discard_mood_changes(state: &AppState) -> Result<()> {
+    lock(&state.life)?.mood_changes.clear();
+    Ok(())
+}
+
+pub(crate) fn advance_mood_changes_epoch(state: &AppState, previous: u64, next: u64) -> Result<()> {
+    for change in &mut lock(&state.life)?.mood_changes {
+        if change.epoch == previous {
+            change.epoch = next;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn advance_interaction_mood_epoch(
+    state: &AppState,
+    request_id: &str,
+    previous: u64,
+    next: u64,
+) -> Result<()> {
+    for change in &mut lock(&state.life)?.mood_changes {
+        if change.epoch == previous && change.interaction_id.as_deref() == Some(request_id) {
+            change.epoch = next;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn note_mood_input(state: &AppState) -> Result<()> {
+    let mut life = lock(&state.life)?;
+    life.mood_input = life.mood_input.wrapping_add(1);
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn get_character_mood(
+    state: tauri::State<'_, Arc<AppState>>,
+    character_id: String,
+) -> Result<i8> {
+    characters::get(&*lock(&state.db)?, &character_id)?;
+    mood(&state, &character_id)
 }
 
 struct IdlePeriod {
@@ -27,6 +275,22 @@ struct IdlePeriod {
 impl Runtime {
     pub(crate) fn is_sleeping(&self, character_id: &str) -> bool {
         self.sleeping.contains_key(character_id)
+    }
+
+    pub(crate) fn mood_ids(&self) -> (Vec<String>, Vec<String>) {
+        let high = self
+            .mood
+            .iter()
+            .filter(|(_, mood)| mood.value > 0)
+            .map(|(id, _)| id.clone())
+            .collect();
+        let low = self
+            .mood
+            .iter()
+            .filter(|(_, mood)| mood.value < 0)
+            .map(|(id, _)| id.clone())
+            .collect();
+        (high, low)
     }
 
     pub(crate) fn sleeping_ids(&self) -> Vec<String> {
@@ -58,7 +322,15 @@ impl Runtime {
 
 // The caller owns action. Wake does not grant permission to speak or spend items.
 pub(crate) fn wake(state: &AppState, character_id: &str) -> Result<bool> {
-    Ok(lock(&state.life)?.sleeping.remove(character_id).is_some())
+    let now = chrono::Utc::now().timestamp_millis();
+    let mut life = lock(&state.life)?;
+    let woke = life.sleeping.remove(character_id).is_some();
+    if let Some(started) = life.sleep_started.remove(character_id) {
+        if let Some(mood) = life.mood.get_mut(character_id) {
+            mood.updated_at += now.saturating_sub(started.max(mood.updated_at));
+        }
+    }
+    Ok(woke)
 }
 
 pub(crate) fn sleeping(state: &AppState, character_id: &str) -> Result<bool> {
@@ -81,6 +353,25 @@ pub(crate) fn reconcile(state: &AppState) -> Result<bool> {
     life.sleeping
         .retain(|id, revision| definitions.get(id) == Some(revision));
     life.idle.retain(|id, _| definitions.contains_key(id));
+    let sleeping = life
+        .sleeping
+        .keys()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let now = chrono::Utc::now().timestamp_millis();
+    let ended = life
+        .sleep_started
+        .keys()
+        .filter(|id| !sleeping.contains(*id))
+        .cloned()
+        .collect::<Vec<_>>();
+    for id in ended {
+        if let Some(started) = life.sleep_started.remove(&id) {
+            if let Some(mood) = life.mood.get_mut(&id) {
+                mood.updated_at += now.saturating_sub(started.max(mood.updated_at));
+            }
+        }
+    }
     Ok(before != life.sleeping.len())
 }
 
@@ -114,6 +405,7 @@ pub(crate) fn ambient_allowed(state: &AppState, character_id: &str) -> Result<bo
 }
 
 pub(crate) fn tick(app: &AppHandle, state: &Arc<AppState>) -> Result<()> {
+    tick_mood(app, state)?;
     wandering::tick(app, state)?;
     let ids = characters::active_ids(&*lock(&state.db)?)?;
     for id in ids {
@@ -147,6 +439,94 @@ pub(crate) fn tick(app: &AppHandle, state: &Arc<AppState>) -> Result<()> {
     Ok(())
 }
 
+fn tick_mood(app: &AppHandle, state: &AppState) -> Result<()> {
+    let now = chrono::Utc::now().timestamp_millis();
+    {
+        let mut life = lock(&state.life)?;
+        if now.saturating_sub(life.mood_tick_at) < 5_000 {
+            return Ok(());
+        }
+        life.mood_tick_at = now;
+    }
+    let action = lock(&state.action)?;
+    let status = lock(&state.runtime)?.clone();
+    let (ids, blocked, touches) = {
+        let db = lock(&state.db)?;
+        let ids = characters::active_ids(&db)?;
+        let settings = store::settings(&db)?;
+        let blocked = status.hidden
+            || status.paused
+            || app::unavailable(state)
+            || app::quiet_hours::automatic_blocked(state, &settings)?
+            || crate::widgets::storage::focus_active(&db, now)?;
+        let mut touches = BTreeMap::new();
+        for id in &ids {
+            let count = crate::widgets::storage::character_touches(&db, id, now)?.total;
+            touches.insert(id.clone(), count);
+        }
+        (ids, blocked, touches)
+    };
+    let today = chrono::Local::now().date_naive();
+    let changes = {
+        let mut life = lock(&state.life)?;
+        let mut changes = Vec::new();
+        let mut idle_ids = Vec::new();
+        let last_input = life.mood_input;
+        let mood_ids = life.mood.keys().cloned().collect::<Vec<_>>();
+        for id in mood_ids {
+            if let Some(change) = life.decay_mood(&id, now, state.epoch.load(Ordering::SeqCst)) {
+                changes.push(change);
+            }
+        }
+        for id in ids {
+            let asleep = life.is_sleeping(&id);
+            let touch = touches.get(&id).copied().unwrap_or(0);
+            let idle = life.mood_idle.entry(id.clone()).or_insert(MoodIdle {
+                last_tick: now,
+                last_input,
+                last_touch: touch,
+                was_allowed: false,
+                elapsed: 0,
+                day: today,
+                count: 0,
+            });
+            if idle.day != today {
+                idle.day = today;
+                idle.count = 0;
+            }
+            if idle.last_input != last_input || idle.last_touch != touch {
+                idle.elapsed = 0;
+                idle.last_input = last_input;
+                idle.last_touch = touch;
+            } else if idle.was_allowed && !blocked && !asleep {
+                idle.elapsed += now.saturating_sub(idle.last_tick).min(30_000);
+            }
+            idle.last_tick = now;
+            idle.was_allowed = !blocked && !asleep;
+            if idle.was_allowed && idle.elapsed >= MOOD_IDLE_MS && idle.count < 2 {
+                idle.elapsed = 0;
+                idle.count += 1;
+                idle_ids.push(id);
+            }
+        }
+        for id in idle_ids {
+            changes.extend(life.apply_mood(
+                &id,
+                "idle",
+                -1,
+                now,
+                state.epoch.load(Ordering::SeqCst),
+            ));
+        }
+        changes
+    };
+    drop(action);
+    for change in &changes {
+        emit_mood(app, change);
+    }
+    Ok(())
+}
+
 fn owner(state: &AppState, character_id: &str) -> Result<()> {
     if app::unavailable(state) || lock(&state.runtime)?.hidden {
         return Err("지금은 캐릭터를 조작할 수 없어요.".into());
@@ -162,10 +542,17 @@ pub(crate) fn set_sleep(state: &AppState, character_id: &str, sleeping: bool) ->
     }
     let definition = characters::get(&*lock(&state.db)?, character_id)?.definition;
     let revision = characters::reaction_host::definition_revision(&definition);
-    Ok(lock(&state.life)?
+    let now = chrono::Utc::now().timestamp_millis();
+    let mut life = lock(&state.life)?;
+    let _ = life.decay_mood(character_id, now, state.epoch.load(Ordering::SeqCst));
+    let was_awake = life
         .sleeping
         .insert(character_id.into(), revision)
-        .is_none())
+        .is_none();
+    if was_awake {
+        life.sleep_started.insert(character_id.into(), now);
+    }
+    Ok(was_awake)
 }
 
 fn apply_sleep(state: &AppState, character_id: &str, sleeping: bool) -> Result<()> {
@@ -204,6 +591,7 @@ pub(crate) fn begin_character_contact(
         }
         owner(&state, id)?;
         state.last_input.store(app::now(), Ordering::SeqCst);
+        note_mood_input(&state)?;
         lock(&state.reactions)?.clear_ambient(id);
         wake(&state, id)?
     };
@@ -229,9 +617,23 @@ pub(crate) fn set_character_sleep(
     character_id: String,
     sleeping: bool,
 ) -> Result<()> {
-    {
+    let change = {
         let _action = lock(&state.action)?;
+        let from = mood(&state, &character_id)?;
         apply_sleep(&state, &character_id, sleeping)?;
+        let to = mood(&state, &character_id)?;
+        (from != to).then(|| MoodChange {
+            character: character_id.clone(),
+            from,
+            to,
+            source: "decay".into(),
+            at: chrono::Utc::now().timestamp_millis(),
+            epoch: state.epoch.load(Ordering::SeqCst),
+            interaction_id: None,
+        })
+    };
+    if let Some(change) = change {
+        emit_mood(&app, &change);
     }
     wandering::cancel(&app, state.inner(), &character_id)?;
     if sleeping {
@@ -287,7 +689,7 @@ pub(crate) fn give_character_item(
         event
     };
     wandering::cancel(&app, state.inner(), &character_id)?;
-    let reaction_started = event.is_some()
+    let reaction_started = event.event.is_some()
         && characters::reaction_host::direct_start(
             &app,
             state.inner().clone(),
@@ -307,6 +709,39 @@ pub(crate) fn give_character_item(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accepted_interactions_change_mood_without_a_reaction_and_ignore_retries() {
+        let state = app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let id = characters::active_ids(&db).unwrap()[0].clone();
+        let actor = characters::get(&db, &id).unwrap();
+        crate::widgets::storage::body_interaction_with_actor(
+            &db, &actor, 0, "stroke", &uuid::Uuid::new_v4().to_string(), 500,
+        ).unwrap();
+        let first = uuid::Uuid::new_v4().to_string();
+        let accepted = crate::widgets::storage::body_interaction_with_actor(
+            &db, &actor, 0, "stroke", &first, 1_000,
+        ).unwrap();
+        assert!(accepted.accepted && accepted.event.is_none());
+        let mut life = Runtime::default();
+        life.apply_interaction(&id, "stroke", accepted.accepted, &first, 1_000, 0);
+        assert_eq!(life.mood[&id].value, 1);
+        let retry = crate::widgets::storage::body_interaction_with_actor(
+            &db, &actor, 0, "stroke", &first, 400_000,
+        ).unwrap();
+        assert!(!retry.accepted);
+        life.apply_interaction(&id, "stroke", retry.accepted, &first, 400_000, 0);
+        assert_eq!(life.mood[&id].value, 1);
+        let second = crate::widgets::storage::body_interaction_with_actor(
+            &db, &actor, 0, "snack", &uuid::Uuid::new_v4().to_string(), 1_001,
+        ).unwrap();
+        assert!(second.accepted);
+        life.apply_interaction(&id, "snack", second.accepted, "snack", 1_001, 0);
+        assert_eq!(life.mood[&id].value, 2);
+        life.apply_interaction(&id, "poke", true, "poke", 1_002, 0);
+        assert_eq!(life.mood[&id].value, 2);
+    }
 
     #[test]
     fn idle_variations_do_not_queue_while_a_higher_priority_state_is_active() {
@@ -423,7 +858,7 @@ mod tests {
         lock(&state.db)
             .unwrap()
             .execute(
-                "INSERT INTO widget_instances VALUES('timer','focus-timer',1,1,1,0,?1,NULL)",
+                "UPDATE widget_instances SET data=?1 WHERE kind='focus-timer'",
                 [
                     serde_json::json!({"status":"running","mode":"focus","deadline":now + 60000})
                         .to_string(),
@@ -445,7 +880,7 @@ mod tests {
         lock(&state.db)
             .unwrap()
             .execute(
-                "INSERT INTO widget_instances VALUES('timer','focus-timer',1,1,1,0,?1,NULL)",
+                "UPDATE widget_instances SET data=?1 WHERE kind='focus-timer'",
                 [
                     serde_json::json!({"status":"running","mode":"focus","deadline":now + 60000})
                         .to_string(),

@@ -25,8 +25,8 @@ fn label(id: &str, image_id: &str) -> String {
     format!("widget-{id}-image-{image_id}")
 }
 fn active(instance: &WidgetInstance) -> Result<()> {
-    if instance.kind != "image" || !instance.installed || !instance.enabled {
-        return Err("이미지 위젯을 설치하고 켜 주세요.".into());
+    if instance.kind != "image" {
+        return Err("이미지 위젯을 찾지 못했어요.".into());
     }
     Ok(())
 }
@@ -50,7 +50,7 @@ fn mutate(
     change(state, |db| {
         let tx = db.unchecked_transaction().map_err(err)?;
         let mut instance = storage::get(&tx, id)?;
-        if instance.kind != "image" || !instance.installed {
+        if instance.kind != "image" {
             return Err("이미지 위젯을 찾지 못했어요.".into());
         }
         update(&mut instance)?;
@@ -87,14 +87,14 @@ fn reconcile(app: &tauri::AppHandle) -> Result<()> {
     let mut desired = BTreeSet::new();
     let mut occupied: Vec<Rect> = instances
         .iter()
-        .filter(|item| item.kind == "image" && item.installed && item.enabled)
+        .filter(|item| item.kind == "image")
         .flat_map(|item| item.data["images"].as_array().into_iter().flatten())
         .filter(|image| image["isOpen"] == true)
         .filter_map(|image| position(image).map(|point| Rect::at(&point, size(image))))
         .collect();
     for instance in instances
         .iter()
-        .filter(|item| item.kind == "image" && item.installed && item.enabled)
+        .filter(|item| item.kind == "image")
     {
         let Some(items) = instance.data["images"].as_array() else {
             continue;
@@ -152,8 +152,7 @@ fn reconcile(app: &tauri::AppHandle) -> Result<()> {
                 let _action = lock(&state.action)?;
                 let db = lock(&state.db)?;
                 storage::get(&db, &instance.id).ok().is_some_and(|current| {
-                    current.installed
-                        && current.enabled
+                    current.kind == "image"
                         && current.data["images"].as_array().is_some_and(|items| {
                             items
                                 .iter()
@@ -211,8 +210,7 @@ fn reconcile(app: &tauri::AppHandle) -> Result<()> {
                 let _action = lock(&state.action)?;
                 let db = lock(&state.db)?;
                 let current = storage::get(&db, &instance.id)?;
-                if !current.installed
-                    || !current.enabled
+                if current.kind != "image"
                     || !current.data["images"].as_array().is_some_and(|items| {
                         items
                             .iter()
@@ -292,25 +290,20 @@ async fn add_expected(
     expected_uninstalled: Option<Option<i64>>,
     expected_installed: Option<i64>,
 ) -> Result<WidgetSnapshot> {
-    let expected = change(state, |db| {
-        if let Some(id) = &id {
-            let instance = storage::get(db, id)?;
-            active(&instance)?;
-            Ok(Some(instance.revision))
-        } else {
-            let instance = storage::instances(db)?
+    let (id, expected) = change(state, |db| {
+        let instance = match &id {
+            Some(id) => storage::get(db, id)?,
+            None => storage::instances(db)?
                 .into_iter()
-                .find(|instance| instance.kind == "image");
-            if instance.as_ref().is_some_and(|instance| instance.installed) {
-                return Err("위젯이 변경됐어요. 다시 시도해 주세요.".into());
-            }
-            Ok(instance.map(|instance| instance.revision))
-        }
+                .find(|instance| instance.kind == "image")
+                .ok_or("이미지 위젯을 찾지 못했어요.")?,
+        };
+        active(&instance)?;
+        Ok((instance.id, instance.revision))
     })?;
-    if expected_uninstalled.is_some_and(|expected_uninstalled| expected_uninstalled != expected) {
-        return Err("위젯이 변경됐어요. 다시 시도해 주세요.".into());
-    }
-    if expected_installed.is_some_and(|revision| Some(revision) != expected) {
+    if expected_uninstalled.is_some_and(|revision| revision != Some(expected))
+        || expected_installed.is_some_and(|revision| revision != expected)
+    {
         return Err("위젯이 변경됐어요. 다시 시도해 주세요.".into());
     }
     let (send, receive) = tokio::sync::oneshot::channel();
@@ -333,37 +326,10 @@ async fn add_expected(
         .map_err(err)??;
     let image_id = uuid::Uuid::new_v4().to_string();
     let snapshot = change(state, |db| {
-        let already_installed = id.is_some();
-        let id = match &id {
-            Some(id) => id.clone(),
-            None => {
-                let current = storage::instances(db)?
-                    .into_iter()
-                    .find(|instance| instance.kind == "image");
-                if current.as_ref().is_some_and(|instance| instance.installed)
-                    || current.as_ref().map(|instance| instance.revision) != expected
-                {
-                    return Err("위젯이 변경됐어요. 다시 시도해 주세요.".into());
-                }
-                if current
-                    .as_ref()
-                    .and_then(|instance| instance.data["images"].as_array())
-                    .is_some_and(|items| items.len() >= 20)
-                {
-                    return Err("이미지는 20장까지 띄울 수 있어요.".into());
-                }
-                storage::install(db, &state.app_data, &["image".into()])?;
-                storage::instances(db)?
-                    .into_iter()
-                    .find(|instance| instance.kind == "image")
-                    .ok_or("이미지 위젯을 찾지 못했어요.")?
-                    .id
-            }
-        };
         let tx = db.unchecked_transaction().map_err(err)?;
         let mut instance = storage::get(&tx, &id)?;
         active(&instance)?;
-        if already_installed && expected.is_some_and(|revision| instance.revision != revision) {
+        if instance.revision != expected {
             return Err("위젯이 변경됐어요. 다시 시도해 주세요.".into());
         }
         let items = images(&mut instance)?;
@@ -456,7 +422,7 @@ pub(crate) async fn remove_widget_image(
     let snapshot = change(&state, |db| {
         let tx = db.unchecked_transaction().map_err(err)?;
         let mut instance = storage::get(&tx, &id)?;
-        if instance.kind != "image" || !instance.installed {
+        if instance.kind != "image" {
             return Err("이미지 위젯을 찾지 못했어요.".into());
         }
         let items = images(&mut instance)?;

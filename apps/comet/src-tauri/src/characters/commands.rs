@@ -18,6 +18,16 @@ use tauri_plugin_dialog::DialogExt;
 
 pub(crate) const SPRITE_SCHEME: &str = "sprite";
 
+#[tauri::command]
+pub(crate) fn get_character_touches(
+    state: tauri::State<'_, Arc<AppState>>,
+    character_id: String,
+) -> Result<crate::widgets::storage::CharacterTouches, String> {
+    let db = lock(&state.db)?;
+    characters::get(&db, &character_id)?;
+    crate::widgets::storage::character_touches(&db, &character_id, chrono::Utc::now().timestamp_millis())
+}
+
 pub(crate) fn sprite_response(
     status: u16,
     mime: &str,
@@ -372,15 +382,17 @@ pub(crate) async fn save_character_dialogue(
     Ok(())
 }
 #[tauri::command]
-pub(crate) async fn preview_character_pack(json: String) -> Result<CharacterPack, String> {
-    tauri::async_runtime::spawn_blocking(move || characters::parse_pack(&json))
+pub(crate) async fn preview_character_pack(
+    json: String,
+) -> Result<characters::validation::PackPreview, String> {
+    tauri::async_runtime::spawn_blocking(move || characters::validation::parse_pack_preview(&json))
         .await
         .map_err(|error| error.to_string())?
 }
 #[tauri::command]
 pub(crate) async fn choose_character_pack(
     app: tauri::AppHandle,
-) -> Result<Option<CharacterPack>, String> {
+) -> Result<Option<characters::validation::PackPreview>, String> {
     characters::files::choose(app).await
 }
 #[tauri::command]

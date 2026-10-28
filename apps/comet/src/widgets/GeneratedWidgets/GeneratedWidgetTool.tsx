@@ -54,11 +54,7 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
   const loading = useRef(false);
   const pendingActions = useRef<WidgetValue[]>([]);
   function accept(value: GeneratedWidget): void {
-    if (
-      !value.installed ||
-      !value.enabled ||
-      value.definition.source !== current.current?.definition.source
-    ) {
+    if (!value.installed || value.definition.source !== current.current?.definition.source) {
       pendingActions.current = [];
       if (mounted.current) {
         setView([]);
@@ -90,7 +86,6 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
       (!userAction && document.hidden) ||
       !before ||
       !before.installed ||
-      !before.enabled ||
       suspended.current
     ) {
       return;
@@ -405,7 +400,6 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
                   variant="primary"
                   disabled={
                     widget?.status !== "ready" ||
-                    !widget.enabled ||
                     suspended.current ||
                     (busy && error !== null)
                   }

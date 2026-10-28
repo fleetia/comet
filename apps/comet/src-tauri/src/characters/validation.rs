@@ -117,7 +117,8 @@ pub(super) fn validate_pack(pack: &CharacterPack) -> Result<()> {
     super::prepare_pack(pack.clone()).map(|_| ())
 }
 pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
-    if ![1, 2, 3, 4, 5, 6, 7, 8].contains(&pack.format_version)
+    // 9~11 are reserved for parts formats; stories use 12 and mood uses 13.
+    if ![1, 2, 3, 4, 5, 6, 7, 8, 12, 13].contains(&pack.format_version)
         || !(1..=if pack.format_version == 1 {
             2
         } else {
@@ -135,6 +136,13 @@ pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
         return Err("지원하지 않는 팩 버전 또는 잘못된 팩 구성입니다.".into());
     }
     crate::pack_stories::validate_pack(&pack.characters, &pack.story_definition())?;
+    if pack.format_version < 12
+        && pack.scenarios.iter().any(|scenario| {
+            scenario.reveal_affinity.is_some() || !scenario.defer.is_empty()
+        })
+    {
+        return Err("이야기 노출·유보 정보는 캐릭터팩 버전 12 이상이 필요해요.".into());
+    }
     if pack.format_version < 8
         && (!pack.story_definition().is_empty()
             || pack.characters.iter().any(|definition| {
@@ -152,6 +160,9 @@ pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
         || (pack.format_version == 4 && pack.archive.is_none())
     {
         return Err("개인 기록이 포함된 캐릭터팩은 버전 4 이상이어야 합니다.".into());
+    }
+    if pack.format_version < 13 && has_mood_bindings(pack) {
+        return Err("기분 동작이 포함된 캐릭터팩은 버전 13 이상이어야 합니다.".into());
     }
     if pack.format_version < 6 && has_state_bindings(pack) {
         return Err("지속 상태 동작이 포함된 캐릭터팩은 버전 6 이상이어야 합니다.".into());
@@ -276,13 +287,23 @@ fn strict_scene(value: &serde_json::Value) -> Result<()> {
     }
     Ok(())
 }
+#[derive(serde::Serialize)]
+pub(crate) struct PackPreview {
+    pub pack: CharacterPack,
+    pub warnings: Vec<String>,
+}
+
 pub fn parse_pack(json: &str) -> Result<CharacterPack> {
+    Ok(parse_pack_preview(json)?.pack)
+}
+
+pub(crate) fn parse_pack_preview(json: &str) -> Result<PackPreview> {
     if json.len() > MAX_PACK_BYTES {
         return Err("캐릭터팩은 32 MiB 이하여야 합니다.".into());
     }
     let mut value: serde_json::Value =
         serde_json::from_str(json).map_err(|_| "캐릭터팩 JSON을 읽을 수 없습니다.")?;
-    if matches!(value["formatVersion"].as_u64(), Some(2..=8)) {
+    if matches!(value["formatVersion"].as_u64(), Some(2..=8 | 12 | 13)) {
         convert_pack_speakers(&mut value, false)?;
     }
     if let Some(scenes) = value.get("pairScenes").and_then(|v| v.as_array()) {
@@ -309,7 +330,7 @@ pub fn parse_pack(json: &str) -> Result<CharacterPack> {
             }
         }
     }
-    let pack: CharacterPack =
+    let mut pack: CharacterPack =
         serde_json::from_value(value).map_err(|_| "캐릭터팩 필드 형식이 올바르지 않습니다.")?;
     if pack
         .characters
@@ -318,8 +339,21 @@ pub fn parse_pack(json: &str) -> Result<CharacterPack> {
     {
         return Err("캐릭터팩 필드 형식이 올바르지 않습니다.".into());
     }
+    let mut warnings = Vec::new();
+    for scenario in &mut pack.scenarios {
+        if scenario
+            .reveal_affinity
+            .is_some_and(|value| value > scenario.min_affinity)
+        {
+            scenario.reveal_affinity = Some(scenario.min_affinity);
+            warnings.push(format!(
+                "‘{}’의 노출 친밀도가 최소 친밀도보다 높아 최소 친밀도로 조정했어요.",
+                scenario.title
+            ));
+        }
+    }
     validate_pack(&pack)?;
-    Ok(pack)
+    Ok(PackPreview { pack, warnings })
 }
 
 fn valid_expression_key(key: &str) -> bool {
@@ -491,7 +525,16 @@ pub(super) fn validate_attribution(author: &str, source_url: &str) -> Result<()>
 pub(super) fn has_state_bindings(pack: &CharacterPack) -> bool {
     pack.characters.iter().any(|definition| {
         definition.animation.as_ref().is_some_and(|animation| {
-            animation.bindings.music_playing.is_some() || animation.bindings.calendar_open.is_some()
+            animation.bindings.music_playing.is_some()
+                || animation.bindings.calendar_open.is_some()
+        })
+    })
+}
+
+pub(super) fn has_mood_bindings(pack: &CharacterPack) -> bool {
+    pack.characters.iter().any(|definition| {
+        definition.animation.as_ref().is_some_and(|animation| {
+            animation.bindings.mood_high.is_some() || animation.bindings.mood_low.is_some()
         })
     })
 }

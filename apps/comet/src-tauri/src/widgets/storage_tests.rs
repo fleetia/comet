@@ -6,16 +6,59 @@ use std::path::Path;
 fn database() -> Connection {
     let db = Connection::open_in_memory().unwrap();
     storage::initialize(&db).unwrap();
+    super::generated::initialize(&db).unwrap();
     db
 }
 
-fn install(db: &Connection, path: &Path, kinds: &[&str]) {
-    storage::install(
-        db,
-        path,
-        &kinds.iter().map(|kind| (*kind).into()).collect::<Vec<_>>(),
-    )
-    .unwrap();
+#[test]
+fn package_migration_repairs_existing_invalid_manifests_without_resetting_data() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
+    let before = instance(&db, "small-match");
+    let path = directory.path().join("widgets/small-match/manifest.json");
+    std::fs::write(&path, "unsupported manifest").unwrap();
+    db.execute("DELETE FROM widget_preferences WHERE key='package-init-migration-v1'", []).unwrap();
+
+    storage::initialize(&db).unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
+    let after = instance(&db, "small-match");
+    assert_eq!(after.id, before.id);
+    assert_eq!(after.data, before.data);
+    assert_eq!(after.revision, before.revision);
+    assert!(after.error.is_none());
+    assert_eq!(std::fs::read(&path).unwrap(), serde_json::to_vec(&super::manifest("small-match").unwrap()).unwrap());
+
+    std::fs::write(&path, "later corruption").unwrap();
+    storage::initialize(&db).unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), b"later corruption");
+    assert!(instance(&db, "small-match").error.is_some());
+}
+
+#[test]
+fn failed_package_migration_is_retried_after_the_obstruction_is_removed() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("widgets/small-match");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "not a directory").unwrap();
+    let id = instance(&db, "small-match").id;
+    storage::verify_packages(&db, directory.path()).unwrap();
+    let pending_key = format!("package-init:{id}");
+    let pending = || db.query_row("SELECT count(*) FROM widget_preferences WHERE key=?1", [&pending_key], |row| row.get::<_, i64>(0)).unwrap();
+    assert_eq!(pending(), 1);
+    std::fs::remove_file(path).unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
+    assert_eq!(pending(), 0);
+    assert!(instance(&db, "small-match").error.is_none());
+}
+
+fn prepare_widgets(db: &Connection, path: &Path, kinds: &[&str]) {
+    storage::verify_packages(db, path).unwrap();
+    for kind in kinds {
+        assert!(storage::instances(db).unwrap().iter().any(|entry| entry.kind == *kind));
+    }
 }
 
 fn instance(db: &Connection, kind: &str) -> WidgetInstance {
@@ -50,7 +93,7 @@ fn guessing_commits_survive_process_exit_without_cleanup() {
         let db = Connection::open(&path).unwrap();
         storage::initialize(&db).unwrap();
         let assets = Path::new(&path).parent().unwrap().join("assets");
-        install(&db, &assets, &["guessing"]);
+        prepare_widgets(&db, &assets, &["guessing"]);
         act(&db, "guessing", "start", json!({"mode":mode}), 1000, 49);
         let mut wrong = request(
             &db,
@@ -153,7 +196,7 @@ fn guessing_commits_survive_process_exit_without_cleanup() {
 fn calendar_colors_are_scoped_atomic_and_preserved_by_reminder_changes() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["calendar"]);
+    prepare_widgets(&db, directory.path(), &["calendar"]);
     let calendar = instance(&db, "calendar");
     let connected = super::calendar::connect_ics(super::calendar::IcsConnectInput {
         name: "구독".into(),
@@ -250,7 +293,7 @@ fn calendar_colors_are_scoped_atomic_and_preserved_by_reminder_changes() {
 fn planner_batch_is_atomic_and_frequency_records_are_idempotent() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["todo"]);
+    prepare_widgets(&db, directory.path(), &["todo"]);
     let before = instance(&db, "todo");
     let invalid = request(
         &db,
@@ -302,12 +345,12 @@ fn planner_batch_is_atomic_and_frequency_records_are_idempotent() {
 fn completion_jar_counts_direct_completions_and_follows_undo() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["todo"]);
+    prepare_widgets(&db, directory.path(), &["todo"]);
     act(&db, "todo", "add", json!({"title":"메일 정리하기"}), 1, 1);
     let item_id = instance(&db, "todo").data["items"][0]["id"].clone();
     act(&db, "todo", "complete", json!({"id":item_id}), 2, 2);
     // Installing later still counts what was already completed.
-    install(&db, directory.path(), &["completion-jar"]);
+    prepare_widgets(&db, directory.path(), &["completion-jar"]);
     let completed = instance(&db, "completion-jar").data["completed"].clone();
     assert_eq!(completed.as_array().unwrap().len(), 1);
     assert_eq!(completed[0]["title"], "메일 정리하기");
@@ -323,15 +366,12 @@ fn previously_retired_play_widgets_install_again_with_their_data() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
     db.execute(
-        "INSERT INTO widget_instances VALUES('old-plant','plant',1,0,0,3,?1,NULL)",
+        "UPDATE widget_instances SET id='old-plant',installed=0,enabled=0,revision=3,data=?1 WHERE kind='plant'",
         [json!({"stage":2,"water":0,"updatedAt":0}).to_string()],
     )
     .unwrap();
-    install(
-        &db,
-        directory.path(),
-        &["plant", "device", "guessing", "fishing", "pet"],
-    );
+    storage::initialize(&db).unwrap();
+    prepare_widgets(&db, directory.path(), &["plant", "device", "guessing", "fishing", "pet"]);
     let snapshot = storage::snapshot(&db).unwrap();
     let plant = snapshot
         .widgets
@@ -344,7 +384,7 @@ fn previously_retired_play_widgets_install_again_with_their_data() {
         assert!(snapshot
             .widgets
             .iter()
-            .any(|view| view.instance.kind == kind && view.instance.installed));
+            .any(|view| view.instance.kind == kind));
     }
 }
 
@@ -354,9 +394,9 @@ fn widget_onboarding_is_read_compatible_and_installation_never_writes_it() {
     let directory = tempfile::tempdir().unwrap();
     let before = storage::snapshot(&db).unwrap();
     assert_eq!(before.catalog.len(), 21);
-    assert!(before.widgets.is_empty());
+    assert_eq!(before.widgets.len(), before.catalog.len());
     assert!(!before.onboarding_done);
-    install(&db, directory.path(), &["memo"]);
+    prepare_widgets(&db, directory.path(), &["memo"]);
     let count: i64 = db
         .query_row(
             "SELECT COUNT(*) FROM widget_preferences WHERE key='onboarding'",
@@ -371,7 +411,7 @@ fn widget_onboarding_is_read_compatible_and_installation_never_writes_it() {
     )
     .unwrap();
     assert!(storage::snapshot(&db).unwrap().onboarding_done);
-    install(&db, directory.path(), &["todo"]);
+    prepare_widgets(&db, directory.path(), &["todo"]);
     assert!(storage::snapshot(&db).unwrap().onboarding_done);
 }
 
@@ -379,7 +419,7 @@ fn widget_onboarding_is_read_compatible_and_installation_never_writes_it() {
 fn desktop_outcomes_preserve_legacy_data_and_reject_removed_revisions() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["ball"]);
+    prepare_widgets(&db, directory.path(), &["ball"]);
     let original = instance(&db, "ball");
     let draft = || super::EventDraft {
         kind: "desktop.ball.stopped".into(),
@@ -412,7 +452,7 @@ fn desktop_outcomes_preserve_legacy_data_and_reject_removed_revisions() {
     let stored: super::WidgetEvent = serde_json::from_str(&stored).unwrap();
     assert_eq!(stored.event.text, draft().text);
     assert_eq!(stored.event.payload, draft().payload);
-    storage::set_enabled(&db, &original.id, false).unwrap();
+    storage::bump_revision(&db, &original.id, original.revision).unwrap();
     assert!(!storage::record_desktop_result(
         &db,
         &original.id,
@@ -422,23 +462,20 @@ fn desktop_outcomes_preserve_legacy_data_and_reject_removed_revisions() {
         true
     )
     .unwrap());
-    storage::remove(&db, directory.path(), &original.id, true).unwrap();
     let count: i64 = db
         .query_row("SELECT COUNT(*) FROM desktop_toy_results", [], |row| {
             row.get(0)
         })
         .unwrap();
-    assert_eq!(count, 0);
-    assert!(storage::journal(&db, None, i64::MIN, i64::MAX)
-        .unwrap()
-        .is_empty());
+    assert_eq!(count, 1);
+    assert_eq!(storage::journal(&db, None, i64::MIN, i64::MAX).unwrap().len(), 1);
 }
 
 #[test]
 fn clearing_automatic_desktop_reactions_preserves_manual_timer_and_journal() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["ball", "focus-timer"]);
+    prepare_widgets(&db, directory.path(), &["ball", "focus-timer"]);
     let ball = instance(&db, "ball");
     for automatic in [true, false] {
         storage::record_desktop_result(
@@ -503,74 +540,29 @@ fn clearing_automatic_desktop_reactions_preserves_manual_timer_and_journal() {
 }
 
 #[test]
-fn preserve_reinstall_and_delete_leave_companion_data_untouched() {
+fn restarting_widgets_preserves_companion_data() {
     let directory = tempfile::tempdir().unwrap();
     let db_path = directory.path().join("app.sqlite");
     let db = crate::store::open(&db_path).unwrap();
     db.execute("INSERT INTO memories(id,content,source,updated) VALUES('memory','사용자가 남긴 기억','manual',1)", []).unwrap();
-    crate::store::insert_message(
-        &db,
-        &crate::types::Message {
-            id: "message".into(),
-            role: "user".into(),
-            persona: Some("both".into()),
-            content: "원문 대화 보존".into(),
-            expression: None,
-            created_at: 1,
-            status: "complete".into(),
-        },
-    )
-    .unwrap();
-    install(&db, directory.path(), &["interaction"]);
-    act(
-        &db,
-        "interaction",
-        "snack",
-        json!({"character":"A"}),
-        100,
-        0,
-    );
+    prepare_widgets(&db, directory.path(), &["interaction"]);
+    act(&db, "interaction", "snack", json!({"character":"A"}), 100, 0);
     let original = instance(&db, "interaction");
-    storage::remove(&db, directory.path(), &original.id, false).unwrap();
-    assert!(!directory.path().join("widgets/interaction").exists());
-    assert_eq!(instance(&db, "interaction").data, original.data);
     drop(db);
-
     let db = crate::store::open(&db_path).unwrap();
     storage::verify_packages(&db, directory.path()).unwrap();
-    assert!(!instance(&db, "interaction").installed);
-    install(&db, directory.path(), &["interaction"]);
     let restored = instance(&db, "interaction");
     assert_eq!(restored.id, original.id);
     assert_eq!(restored.data, original.data);
-    assert!(storage::take_reaction(&db, 101).unwrap().is_none());
-    storage::remove(&db, directory.path(), &restored.id, true).unwrap();
-    install(&db, directory.path(), &["interaction"]);
-    assert_eq!(instance(&db, "interaction").data["snacks"], 6);
-    let memory: String = db
-        .query_row(
-            "SELECT content FROM memories WHERE id='memory'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    let message: String = db
-        .query_row("SELECT data FROM messages WHERE id='message'", [], |row| {
-            row.get(0)
-        })
-        .unwrap();
+    let memory: String = db.query_row("SELECT content FROM memories WHERE id='memory'", [], |row| row.get(0)).unwrap();
     assert_eq!(memory, "사용자가 남긴 기억");
-    assert_eq!(
-        serde_json::from_str::<Value>(&message).unwrap()["content"],
-        "원문 대화 보존"
-    );
 }
 
 #[test]
 fn duplicate_request_is_noop_but_changed_replay_and_stale_revision_fail() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["small-match"]);
+    prepare_widgets(&db, directory.path(), &["small-match"]);
     let first = request(&db, "small-match", "dice", json!({}));
     let stale = request(&db, "small-match", "dice", json!({}));
     storage::execute(&db, &first, 100, 19).unwrap();
@@ -587,39 +579,25 @@ fn duplicate_request_is_noop_but_changed_replay_and_stale_revision_fail() {
 }
 
 #[test]
-fn standalone_preparation_installs_without_calendar_and_keeps_data_after_disconnect() {
+fn preparation_is_available_alongside_the_official_calendar() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["preparation"]);
-    assert_eq!(storage::instances(&db).unwrap().len(), 1);
-    act(
-        &db,
-        "preparation",
-        "create",
-        json!({"title":"  여행 준비  ","date":"2026-10-03"}),
-        100,
-        1,
-    );
-    install(&db, directory.path(), &["calendar"]);
+    prepare_widgets(&db, directory.path(), &["preparation", "calendar"]);
+    act(&db, "preparation", "create", json!({"title":"여행 준비","date":"2026-10-03"}), 100, 1);
     let preparation = instance(&db, "preparation");
-    storage::remove(&db, directory.path(), &instance(&db, "calendar").id, false).unwrap();
     let snapshot = storage::snapshot(&db).unwrap();
-    let view = snapshot
-        .widgets
-        .iter()
-        .find(|view| view.instance.kind == "preparation")
-        .unwrap();
+    let view = snapshot.widgets.iter().find(|view| view.instance.kind == "preparation").unwrap();
     assert_eq!(view.status, "enabled");
     assert!(view.missing.is_empty());
     assert_eq!(view.instance.data, preparation.data);
-    assert!(view.instance.installed);
+    assert!(snapshot.widgets.iter().any(|widget| widget.instance.kind == "calendar"));
 }
 
 #[test]
 fn preparation_create_with_template_tasks_is_atomic_and_replay_safe() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["preparation", "todo"]);
+    prepare_widgets(&db, directory.path(), &["preparation", "todo"]);
     let before = instance(&db, "todo");
     let invalid = request(
         &db,
@@ -663,7 +641,7 @@ fn preparation_create_with_template_tasks_is_atomic_and_replay_safe() {
 fn preparation_attachment_validation_and_check_promotion_are_atomic() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["preparation", "todo"]);
+    prepare_widgets(&db, directory.path(), &["preparation", "todo"]);
     act(
         &db,
         "preparation",
@@ -743,7 +721,7 @@ fn preparation_attachment_validation_and_check_promotion_are_atomic() {
 fn preparation_schedule_update_only_accepts_live_calendar_events_and_keeps_other_fields() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["preparation", "calendar"]);
+    prepare_widgets(&db, directory.path(), &["preparation", "calendar"]);
     act(
         &db,
         "preparation",
@@ -822,7 +800,7 @@ fn preparation_schedule_update_only_accepts_live_calendar_events_and_keeps_other
 fn old_preparation_package_is_upgraded_without_disabling_or_losing_content() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["preparation"]);
+    prepare_widgets(&db, directory.path(), &["preparation"]);
     act(
         &db,
         "preparation",
@@ -839,7 +817,7 @@ fn old_preparation_package_is_upgraded_without_disabling_or_losing_content() {
     std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
     storage::verify_packages(&db, directory.path()).unwrap();
     let after = instance(&db, "preparation");
-    assert!(after.enabled);
+    assert!(after.error.is_none());
     assert_eq!(after.data, before.data);
     assert_eq!(
         std::fs::read(&path).unwrap(),
@@ -848,40 +826,30 @@ fn old_preparation_package_is_upgraded_without_disabling_or_losing_content() {
 }
 
 #[test]
-fn incompatible_preserved_data_does_not_replace_existing_package() {
+fn failed_manifest_verification_preserves_widget_data() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["interaction"]);
+    prepare_widgets(&db, directory.path(), &["interaction"]);
     let manifest = directory.path().join("widgets/interaction/manifest.json");
-    let previous = br#"{"version":2,"previous":"verified package"}"#;
+    let previous = b"invalid manifest";
     std::fs::write(&manifest, previous).unwrap();
-    db.execute(
-        "UPDATE widget_instances SET version=2 WHERE kind='interaction'",
-        [],
-    )
-    .unwrap();
     let data = instance(&db, "interaction").data;
-    assert!(storage::install(&db, directory.path(), &["interaction".into()]).is_err());
-    assert_eq!(std::fs::read(&manifest).unwrap(), previous);
+    storage::verify_packages(&db, directory.path()).unwrap();
+    assert_eq!(std::fs::read(&manifest).unwrap().as_slice(), previous);
     assert_eq!(instance(&db, "interaction").data, data);
+    assert!(instance(&db, "interaction").error.is_some());
 }
 
 #[test]
-fn failed_batch_leaves_no_partially_installed_package() {
+fn package_failure_does_not_prevent_other_official_widgets() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(directory.path().join("widgets")).unwrap();
-    std::fs::write(
-        directory.path().join("widgets/fortune"),
-        "installation obstacle",
-    )
-    .unwrap();
-    assert!(storage::install(&db, directory.path(), &["ball".into(), "fortune".into()]).is_err());
-    assert!(!directory.path().join("widgets/ball").exists());
-    assert!(storage::instances(&db)
-        .unwrap()
-        .iter()
-        .all(|entry| !entry.installed));
+    std::fs::write(directory.path().join("widgets/fortune"), "installation obstacle").unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
+    assert!(instance(&db, "fortune").error.is_some());
+    assert!(instance(&db, "ball").error.is_none());
+    assert!(directory.path().join("widgets/ball/manifest.json").is_file());
 }
 
 #[cfg(unix)]
@@ -891,79 +859,58 @@ fn package_root_symlink_cannot_write_outside_install_directory() {
     let directory = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
     std::os::unix::fs::symlink(outside.path(), directory.path().join("widgets")).unwrap();
-    assert!(storage::install(&db, directory.path(), &["ball".into()]).is_err());
+    storage::verify_packages(&db, directory.path()).unwrap();
+    assert!(instance(&db, "ball").error.is_some());
     assert!(!outside.path().join("ball").exists());
 }
 
 #[test]
-fn disabled_and_restarted_widgets_do_not_replay_pending_reactions() {
+fn reaction_off_discards_pending_without_disabling_the_widget() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["small-match"]);
+    prepare_widgets(&db, directory.path(), &["small-match"]);
     act(&db, "small-match", "dice", json!({}), 100, 1);
-    storage::set_enabled(&db, &instance(&db, "small-match").id, false).unwrap();
-    storage::set_enabled(&db, &instance(&db, "small-match").id, true).unwrap();
+    let before_toggle = instance(&db, "small-match");
+    let id = before_toggle.id.clone();
+    storage::set_reaction(&db, &id, false).unwrap();
+    let after_toggle = instance(&db, "small-match");
+    assert_eq!(after_toggle.revision, before_toggle.revision);
+    assert_eq!(after_toggle.data, before_toggle.data);
     assert!(storage::take_reaction(&db, 101).unwrap().is_none());
+    storage::initialize(&db).unwrap();
+    assert!(!storage::reaction_enabled(&db, &id).unwrap());
     act(&db, "small-match", "dice", json!({}), 200, 2);
-    storage::verify_packages(&db, directory.path()).unwrap();
     assert!(storage::take_reaction(&db, 201).unwrap().is_none());
     assert_eq!(instance(&db, "small-match").data["rounds"], 2);
+    storage::set_reaction(&db, &id, true).unwrap();
+    act(&db, "small-match", "dice", json!({}), 300, 3);
+    assert!(storage::take_reaction(&db, 301).unwrap().is_some());
 }
 
 #[test]
-fn focus_statistics_stop_on_disable_and_keep_intervals_after_remove_and_reinstall() {
-    for resume in [false, true] {
-        let db = database();
-        let directory = tempfile::tempdir().unwrap();
-        install(&db, directory.path(), &["focus-timer"]);
-        let now = chrono::Utc::now().timestamp_millis();
-        act(
-            &db,
-            "focus-timer",
-            "start",
-            json!({"durationMs":20*60000}),
-            now - 5 * 60000,
-            1,
-        );
-        let id = instance(&db, "focus-timer").id;
-        storage::set_enabled(&db, &id, false).unwrap();
-        let disabled = instance(&db, "focus-timer");
-        assert_eq!(disabled.data["status"], "paused");
-        assert!(disabled.data["activeSession"]["runningSince"].is_null());
-        let elapsed = disabled.data["activeSession"]["elapsedMs"]
-            .as_i64()
-            .unwrap();
-        assert!((5 * 60000..6 * 60000).contains(&elapsed));
-        storage::set_enabled(&db, &id, true).unwrap();
-        let later = now + 10 * 60000;
-        if resume {
-            act(&db, "focus-timer", "resume", json!({}), later, 2);
-        }
-        act(&db, "focus-timer", "cancel", json!({}), later + 1000, 3);
-        let recorded = instance(&db, "focus-timer");
-        assert_eq!(
-            recorded.data["sessions"][0]["elapsedMs"],
-            elapsed + if resume { 1000 } else { 0 }
-        );
-        let fresh = chrono::Utc::now().timestamp_millis();
-        act(&db, "focus-timer", "start", json!({}), fresh - 1000, 4);
-        storage::remove(&db, directory.path(), &id, false).unwrap();
-        let removed = instance(&db, "focus-timer");
-        assert_eq!(removed.data["status"], "paused");
-        assert!(removed.data["activeSession"]["runningSince"].is_null());
-        install(&db, directory.path(), &["focus-timer"]);
-        let reinstalled = instance(&db, "focus-timer");
-        assert_eq!(reinstalled.id, id);
-        assert_eq!(reinstalled.data, removed.data);
-        assert_eq!(reinstalled.data["sessions"], recorded.data["sessions"]);
-    }
+fn focus_statistics_survive_explicit_pause_and_resume() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    prepare_widgets(&db, directory.path(), &["focus-timer"]);
+    let now = chrono::Utc::now().timestamp_millis();
+    act(&db, "focus-timer", "start", json!({"durationMs":20*60000}), now - 5 * 60000, 1);
+    act(&db, "focus-timer", "pause", json!({}), now, 2);
+    let paused = instance(&db, "focus-timer");
+    assert_eq!(paused.data["status"], "paused");
+    let elapsed = paused.data["activeSession"]["elapsedMs"].as_i64().unwrap();
+    assert_eq!(elapsed, 5 * 60000);
+    act(&db, "focus-timer", "resume", json!({}), now + 10 * 60000, 3);
+    act(&db, "focus-timer", "cancel", json!({}), now + 25 * 60000, 4);
+    let finished = instance(&db, "focus-timer");
+    assert_eq!(finished.data["sessions"][0]["elapsedMs"], 20 * 60000);
+    assert_eq!(finished.data["sessions"][0]["segments"].as_array().unwrap().len(), 2);
 }
 
 #[test]
 fn focus_statistics_survive_restart_and_expired_sessions_are_not_replayed() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["focus-timer"]);
+    prepare_widgets(&db, directory.path(), &["focus-timer"]);
     let now = chrono::Utc::now().timestamp_millis();
     act(
         &db,
@@ -985,9 +932,9 @@ fn focus_statistics_survive_restart_and_expired_sessions_are_not_replayed() {
         restarted.data["activeSession"]["runningSince"],
         now - 5 * 60000
     );
-    act(&db, "focus-timer", "cancel", json!({}), now + 1000, 2);
+    act(&db, "focus-timer", "cancel", json!({}), now + 15 * 60000, 2);
     let recorded = instance(&db, "focus-timer");
-    assert_eq!(recorded.data["sessions"][0]["elapsedMs"], 5 * 60000 + 1000);
+    assert_eq!(recorded.data["sessions"][0]["elapsedMs"], 20 * 60000);
     act(
         &db,
         "focus-timer",
@@ -1012,10 +959,10 @@ fn focus_statistics_survive_restart_and_expired_sessions_are_not_replayed() {
 }
 
 #[test]
-fn invalid_focus_package_disables_and_closes_the_current_statistical_interval() {
+fn invalid_focus_package_preserves_the_running_session_and_its_history() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["focus-timer"]);
+    prepare_widgets(&db, directory.path(), &["focus-timer"]);
     let now = chrono::Utc::now().timestamp_millis();
     act(
         &db,
@@ -1031,20 +978,15 @@ fn invalid_focus_package_disables_and_closes_the_current_statistical_interval() 
     )
     .unwrap();
     storage::verify_packages(&db, directory.path()).unwrap();
-    let disabled = instance(&db, "focus-timer");
-    assert!(!disabled.enabled);
-    assert!(disabled.error.is_some());
-    assert_eq!(disabled.data["status"], "paused");
-    assert!(disabled.data["activeSession"]["runningSince"].is_null());
-    let elapsed = disabled.data["activeSession"]["elapsedMs"]
-        .as_i64()
-        .unwrap();
-    assert!((5 * 60000..6 * 60000).contains(&elapsed));
-    install(&db, directory.path(), &["focus-timer"]);
-    act(&db, "focus-timer", "cancel", json!({}), now + 10 * 60000, 2);
+    let current = instance(&db, "focus-timer");
+    assert!(current.error.is_some());
+    assert_eq!(current.data["status"], "running");
+    assert_eq!(current.data["activeSession"]["runningSince"], now - 5 * 60000);
+    prepare_widgets(&db, directory.path(), &["focus-timer"]);
+    act(&db, "focus-timer", "cancel", json!({}), now + 15 * 60000, 2);
     assert_eq!(
         instance(&db, "focus-timer").data["sessions"][0]["elapsedMs"],
-        elapsed
+        20 * 60000
     );
 }
 
@@ -1052,7 +994,7 @@ fn invalid_focus_package_disables_and_closes_the_current_statistical_interval() 
 fn event_cleanup_preserves_diary_history_without_a_journal_widget_and_request_deduplication() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["small-match"]);
+    prepare_widgets(&db, directory.path(), &["small-match"]);
     let old = request(&db, "small-match", "dice", json!({}));
     storage::execute(&db, &old, 100, 1).unwrap();
     storage::take_reaction(&db, 101).unwrap();
@@ -1082,9 +1024,9 @@ fn retired_plane_description_upgrades_only_the_known_manifest_and_preserves_enab
     for (enabled, tampered) in [(true, false), (false, false), (true, true)] {
         let db = database();
         let directory = tempfile::tempdir().unwrap();
-        install(&db, directory.path(), &["paper-plane"]);
+        prepare_widgets(&db, directory.path(), &["paper-plane"]);
         let before = instance(&db, "paper-plane");
-        storage::set_enabled(&db, &before.id, enabled).unwrap();
+        if !enabled { db.execute("INSERT INTO widget_preferences(key,value) VALUES(?1,'0')", [format!("reaction:{}", before.id)]).unwrap(); }
         let mut old = super::manifest("paper-plane").unwrap();
         old.description = "드래그로 날리고 비행 기록을 남겨요".into();
         if tampered {
@@ -1094,7 +1036,7 @@ fn retired_plane_description_upgrades_only_the_known_manifest_and_preserves_enab
         std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
         storage::verify_packages(&db, directory.path()).unwrap();
         let after = instance(&db, "paper-plane");
-        assert_eq!(after.enabled, enabled && !tampered);
+        assert_eq!(storage::reaction_enabled(&db, &before.id).unwrap(), enabled);
         assert_eq!(after.error.is_some(), tampered);
         assert_eq!(after.id, before.id);
         for field in ["x", "y", "vx", "vy", "startX", "startY"] {
@@ -1116,7 +1058,7 @@ fn retired_plane_description_upgrades_only_the_known_manifest_and_preserves_enab
 fn damaged_package_is_disabled_without_blocking_other_widgets_or_losing_data() {
     let db = crate::store::open(Path::new(":memory:")).unwrap();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["interaction", "fortune"]);
+    prepare_widgets(&db, directory.path(), &["interaction", "fortune"]);
     act(
         &db,
         "interaction",
@@ -1131,10 +1073,9 @@ fn damaged_package_is_disabled_without_blocking_other_widgets_or_losing_data() {
     std::fs::write(&damaged, "not a package directory").unwrap();
     storage::verify_packages(&db, directory.path()).unwrap();
     let after = instance(&db, "interaction");
-    assert!(!after.enabled);
     assert!(after.error.is_some());
     assert_eq!(after.data, before.data);
-    assert!(instance(&db, "fortune").enabled);
+    assert!(instance(&db, "fortune").error.is_none());
     assert!(storage::snapshot(&db).is_ok());
     assert!(storage::take_reaction(&db, 101).unwrap().is_none());
 }
@@ -1143,7 +1084,7 @@ fn damaged_package_is_disabled_without_blocking_other_widgets_or_losing_data() {
 fn interaction_rejects_a_removed_slot_before_spending_snacks_or_recording_events() {
     let db = crate::store::open(Path::new(":memory:")).unwrap();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["interaction"]);
+    prepare_widgets(&db, directory.path(), &["interaction"]);
     let requested = request(&db, "interaction", "snack", json!({"character":"B"}));
     let before = instance(&db, "interaction");
     let first = crate::characters::active_ids(&db).unwrap()[0].clone();
@@ -1180,7 +1121,7 @@ fn interaction_rejects_a_removed_slot_before_spending_snacks_or_recording_events
 fn interaction_accepts_all_eight_slots_and_rejects_a_changed_owner_without_side_effects() {
     let db = crate::store::open(Path::new(":memory:")).unwrap();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["interaction"]);
+    prepare_widgets(&db, directory.path(), &["interaction"]);
     let mut ids = crate::characters::active_ids(&db).unwrap();
     while ids.len() < 8 {
         ids.push(crate::characters::clone_character(&db, &ids[0]).unwrap().id);
@@ -1243,7 +1184,7 @@ fn timely_calendar_and_timer_alerts_survive_a_burst_of_ordinary_events() {
         ];
         let mut kinds = ordinary.to_vec();
         kinds.push(kind);
-        install(&db, directory.path(), &kinds);
+        prepare_widgets(&db, directory.path(), &kinds);
         for (index, source) in std::iter::once(kind).chain(ordinary).enumerate() {
             let current = instance(&db, source);
             storage::commit_data(
@@ -1275,7 +1216,7 @@ fn timely_calendar_and_timer_alerts_survive_a_burst_of_ordinary_events() {
 fn changing_a_source_discards_its_prepared_reaction() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["small-match"]);
+    prepare_widgets(&db, directory.path(), &["small-match"]);
     act(&db, "small-match", "dice", json!({}), 100, 49);
     let current = instance(&db, "small-match");
     storage::commit_data(
@@ -1321,21 +1262,29 @@ fn retired_widgets_keep_saved_data_but_cannot_resume_or_reinstall() {
         .unwrap();
         db.execute("INSERT INTO widget_journal VALUES(?1)", [event.id])
             .unwrap();
-        assert!(storage::install(&db, directory.path(), &[(*kind).into()]).is_err());
-        assert!(storage::set_enabled(&db, kind, true).is_err());
         assert!(storage::commit_data(&db, kind, 7, json!({}), vec![], 1).is_err());
-        assert!(storage::execute(&db, &request(&db, kind, "start", json!({})), 1, 0).is_err());
+        let request = super::WidgetRequest {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            instance_id: (*kind).into(),
+            expected_revision: 7,
+            action: "start".into(),
+            input: json!({}),
+        };
+        assert!(storage::execute(&db, &request, 1, 0).is_err());
     }
-    assert!(storage::snapshot(&db).unwrap().widgets.is_empty());
+    assert!(storage::snapshot(&db).unwrap().widgets.iter().all(|view| !super::is_retired(&view.instance.kind)));
     assert!(!storage::advance(&db, 1).unwrap());
     assert!(storage::take_reaction(&db, 1).unwrap().is_none());
     storage::initialize(&db).unwrap();
     storage::verify_packages(&db, directory.path()).unwrap();
     for kind in super::RETIRED_KINDS {
-        let saved = instance(&db, kind);
-        assert!(!saved.installed && !saved.enabled);
-        assert_eq!(saved.revision, 8);
-        assert_eq!(saved.data, data);
+        let (installed, enabled, revision, saved): (bool, bool, i64, String) = db.query_row(
+            "SELECT installed,enabled,revision,data FROM widget_instances WHERE id=?1", [kind],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).unwrap();
+        assert!(!installed && !enabled);
+        assert_eq!(revision, 8);
+        assert_eq!(serde_json::from_str::<Value>(&saved).unwrap(), data);
     }
     assert_eq!(
         storage::journal(&db, None, i64::MIN, i64::MAX)
@@ -1343,12 +1292,12 @@ fn retired_widgets_keep_saved_data_but_cannot_resume_or_reinstall() {
             .len(),
         super::RETIRED_KINDS.len()
     );
-    assert!(storage::snapshot(&db).unwrap().widgets.is_empty());
+    assert!(storage::snapshot(&db).unwrap().widgets.iter().all(|view| !super::is_retired(&view.instance.kind)));
     storage::initialize(&db).unwrap();
-    assert!(storage::instances(&db)
-        .unwrap()
-        .iter()
-        .all(|saved| saved.revision == 8));
+    for kind in super::RETIRED_KINDS {
+        let revision: i64 = db.query_row("SELECT revision FROM widget_instances WHERE kind=?1", [kind], |row| row.get(0)).unwrap();
+        assert_eq!(revision, 8);
+    }
 }
 
 #[test]
@@ -1441,7 +1390,7 @@ fn body_and_widget_share_inventory_and_cooldown_without_installing_the_widget() 
             .is_some()
     );
     let body = instance(&db, "interaction");
-    assert!(!body.installed && !body.enabled);
+    assert!(body.error.is_none());
     assert_eq!(body.data["snacks"], 6);
     assert_eq!(body.data["touches"], 1);
     assert!(
@@ -1454,7 +1403,7 @@ fn body_and_widget_share_inventory_and_cooldown_without_installing_the_widget() 
     assert!(storage::take_reaction(&db, 1003).unwrap().is_none());
 
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["interaction"]);
+    prepare_widgets(&db, directory.path(), &["interaction"]);
     let installed = instance(&db, "interaction");
     assert_eq!(installed.id, body.id);
     assert_eq!(installed.data, body.data);
@@ -1476,11 +1425,11 @@ fn body_and_widget_share_inventory_and_cooldown_without_installing_the_widget() 
     );
     assert_eq!(instance(&db, "interaction").data["snacks"], 5);
     let cheek = uuid::Uuid::new_v4().to_string();
-    assert!(
-        !storage::body_interaction(&db, &character, "cheek-grab", &cheek, 6001)
-            .unwrap()
-            .is_some()
-    );
+    let milestone = storage::body_interaction(&db, &character, "cheek-grab", &cheek, 6001)
+        .unwrap()
+        .unwrap();
+    assert_eq!(milestone.event.kind, "interaction.milestone");
+    assert_eq!(milestone.event.payload["milestone"], 1);
     assert_eq!(instance(&db, "interaction").data["snacks"], 5);
     assert_eq!(instance(&db, "interaction").data["touches"], 4);
 }
@@ -1490,12 +1439,13 @@ fn body_interaction_rejects_a_departed_owner_before_creating_data() {
     let db = crate::store::open(Path::new(":memory:")).unwrap();
     let active = crate::characters::active_ids(&db).unwrap();
     crate::characters::apply_roster(&db, vec![active[0].clone()]).unwrap();
+    let before = instance(&db, "interaction");
     let rejected = uuid::Uuid::new_v4().to_string();
     assert!(storage::body_interaction(&db, "not-present", "snack", &rejected, 1000).is_err());
-    assert!(!storage::instances(&db)
-        .unwrap()
-        .iter()
-        .any(|item| item.kind == "interaction"));
+    let after = instance(&db, "interaction");
+    assert_eq!(after.id, before.id);
+    assert_eq!(after.data, before.data);
+    assert_eq!(after.revision, before.revision);
 }
 
 #[test]
@@ -1525,7 +1475,7 @@ fn drink_and_gift_share_body_cooldown_without_spending_items_or_creating_rewards
     let shared = instance(&db, "interaction");
     assert_eq!(shared.data["snacks"], 6);
     assert_eq!(shared.data["touches"], 0);
-    assert!(!shared.installed && !shared.enabled);
+    assert!(shared.error.is_none());
     assert!(storage::body_interaction(
         &db,
         &owner,
@@ -1535,7 +1485,7 @@ fn drink_and_gift_share_body_cooldown_without_spending_items_or_creating_rewards
     )
     .unwrap()
     .is_some());
-    assert!(storage::body_interaction(
+    let milestone = storage::body_interaction(
         &db,
         &owner,
         "poke",
@@ -1543,7 +1493,9 @@ fn drink_and_gift_share_body_cooldown_without_spending_items_or_creating_rewards
         6001
     )
     .unwrap()
-    .is_none());
+    .unwrap();
+    assert_eq!(milestone.event.kind, "interaction.milestone");
+    assert_eq!(milestone.event.payload["milestone"], 1);
     assert_eq!(instance(&db, "interaction").data["touches"], 1);
     assert!(storage::take_reaction(&db, 6002).unwrap().is_none());
     assert_eq!(
@@ -1559,7 +1511,7 @@ fn drink_and_gift_share_body_cooldown_without_spending_items_or_creating_rewards
 fn selected_play_owner_is_revalidated_inside_the_widget_transaction() {
     let db = crate::store::open(Path::new(":memory:")).unwrap();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["small-match", "fortune"]);
+    prepare_widgets(&db, directory.path(), &["small-match", "fortune"]);
     let ids = crate::characters::active_ids(&db).unwrap();
     for (kind, action) in [("small-match", "dice"), ("fortune", "draw")] {
         let selected = request(&db, kind, action, json!({"character":"A","owner":ids[0]}));
@@ -1571,4 +1523,67 @@ fn selected_play_owner_is_revalidated_inside_the_widget_transaction() {
         storage::execute(&db, &current, 1001, 19).unwrap();
         crate::characters::apply_roster(&db, ids.clone()).unwrap();
     }
+}
+
+#[test]
+fn discarded_weather_reaction_can_be_queued_again_until_started() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    prepare_widgets(&db, directory.path(), &["weather"]);
+    let weather = instance(&db, "weather");
+    let draft = || super::EventDraft {
+        kind: "weather.last-year".into(),
+        text: "작년 날씨".into(),
+        payload: json!({"day":"1970-01-01"}),
+    };
+    storage::set_reaction(&db, &weather.id, false).unwrap();
+    for now in [0, 60_000, 120_000] {
+        assert!(!storage::record_daily_weather_event(&db, &weather, draft(), "1970-01-01", now).unwrap());
+    }
+    let counts: (i64, i64) = db.query_row(
+        "SELECT (SELECT COUNT(*) FROM widget_events), (SELECT COUNT(*) FROM widget_journal)",
+        [], |row| Ok((row.get(0)?, row.get(1)?)),
+    ).unwrap();
+    assert_eq!(counts, (0, 0));
+    storage::set_reaction(&db, &weather.id, true).unwrap();
+    assert!(storage::record_daily_weather_event(&db, &weather, draft(), "1970-01-01", 0).unwrap());
+    assert!(!storage::record_daily_weather_event(&db, &weather, draft(), "1970-01-01", 1).unwrap());
+    storage::discard_pending(&db).unwrap();
+    assert!(storage::record_daily_weather_event(&db, &weather, draft(), "1970-01-01", 2).unwrap());
+    let event = storage::take_reaction(&db, 3).unwrap().unwrap();
+    storage::mark_weather_reaction_started(&db, &event).unwrap();
+    assert!(!storage::record_daily_weather_event(&db, &weather, draft(), "1970-01-01", 4).unwrap());
+}
+
+#[test]
+fn weather_history_updates_later_live_forecasts() {
+    let db = database();
+    let mut data = json!({"config":{"latitude":37.5,"longitude":127.0},"forecast":{"timezone":"UTC","today":{"date":"1970-01-01","code":1,"tMax":10.0,"tMin":2.0}},"observation":{"temperature":5.0}});
+    super::connections::save_weather_history(&db, &mut data, 0, None).unwrap();
+    data["forecast"]["today"]["code"] = json!(3);
+    data["forecast"]["today"]["tMax"] = json!(15.0);
+    data["forecast"]["today"]["tMin"] = json!(1.0);
+    super::connections::save_weather_history(&db, &mut data, 1, None).unwrap();
+    let summary: (i64, f64, f64) = db.query_row(
+        "SELECT code,tMax,tMin FROM weather_history WHERE day='1970-01-01'",
+        [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).unwrap();
+    assert_eq!(summary, (3, 15.0, 1.0));
+}
+
+#[test]
+fn disabled_official_widget_migrates_reaction_preference_once() {
+    let db = database();
+    let id = instance(&db, "plant").id;
+    db.execute("UPDATE widget_instances SET enabled=0 WHERE id=?1", [&id]).unwrap();
+    storage::initialize(&db).unwrap();
+    assert!(!storage::reaction_enabled(&db, &id).unwrap());
+    let enabled: i64 = db.query_row(
+        "SELECT enabled FROM widget_instances WHERE id=?1", [&id], |row| row.get(0),
+    ).unwrap();
+    assert_eq!(enabled, 1);
+    db.execute("DELETE FROM widget_preferences WHERE key=?1", [format!("reaction:{id}")]).unwrap();
+    storage::initialize(&db).unwrap();
+    assert!(storage::reaction_enabled(&db, &id).unwrap());
+
 }

@@ -642,8 +642,7 @@ pub(crate) async fn execute_launcher(
                     let current = widgets::storage::instances(&*lock(&state.db)?)?
                         .into_iter()
                         .find(|widget| widget.kind == "image");
-                    if current.as_ref().is_some_and(|widget| widget.installed)
-                        || current.as_ref().map(|widget| widget.revision) != expected_revision
+                    if current.as_ref().map(|widget| widget.revision) != expected_revision
                     {
                         return Err("위젯이 변경됐어요. 다시 확인해 주세요.".into());
                     }
@@ -995,12 +994,7 @@ mod tests {
     fn launcher_todo_requires_current_session_kind_and_revision() {
         let state = crate::app::tests::state();
         let directory = tempfile::tempdir().unwrap();
-        widgets::storage::install(
-            &lock(&state.db).unwrap(),
-            directory.path(),
-            &["todo".into(), "memo".into()],
-        )
-        .unwrap();
+        widgets::storage::verify_packages(&lock(&state.db).unwrap(), directory.path()).unwrap();
         let (todo, memo) = (installed(&state, "todo"), installed(&state, "memo"));
         let session = {
             let _action = lock(&state.action).unwrap();
@@ -1019,21 +1013,16 @@ mod tests {
         assert!(commit(session + 1, &todo.id, todo.revision).is_err());
         assert!(commit(session, &memo.id, memo.revision).is_err());
         assert!(commit(session, &todo.id, todo.revision - 1).is_err());
-        widgets::storage::set_enabled(&lock(&state.db).unwrap(), &todo.id, false).unwrap();
-        assert!(commit(session, &todo.id, installed(&state, "todo").revision).is_err());
-        assert!(todo_items(&state).is_empty());
+        widgets::storage::set_reaction(&lock(&state.db).unwrap(), &todo.id, false).unwrap();
+        assert!(commit(session, &todo.id, installed(&state, "todo").revision).is_ok());
+        assert_eq!(todo_items(&state).len(), 1);
     }
 
     #[test]
     fn launcher_todo_stores_verbatim_inbox_once() {
         let state = crate::app::tests::state();
         let directory = tempfile::tempdir().unwrap();
-        widgets::storage::install(
-            &lock(&state.db).unwrap(),
-            directory.path(),
-            &["todo".into()],
-        )
-        .unwrap();
+        widgets::storage::verify_packages(&lock(&state.db).unwrap(), directory.path()).unwrap();
         let todo = installed(&state, "todo");
         let session = {
             let _action = lock(&state.action).unwrap();

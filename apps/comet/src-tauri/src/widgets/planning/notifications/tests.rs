@@ -5,7 +5,7 @@ use serde_json::json;
 fn silent_finish(state: &crate::AppState) -> WidgetEvent {
     let db = crate::lock(&state.db).unwrap();
     let directory = tempfile::tempdir().unwrap();
-    storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
     let timer = storage::instances(&db)
         .unwrap()
         .into_iter()
@@ -60,7 +60,7 @@ fn permission_fallback_cannot_revive_events_after_input_settings_changes_or_hidi
     for branch in [
         "epoch",
         "revision",
-        "disabled",
+        "reaction-off",
         "hidden",
         "launcher",
         "automatic",
@@ -87,12 +87,8 @@ fn permission_fallback_cannot_revive_events_after_input_settings_changes_or_hidi
                 )
                 .unwrap();
             }
-            "disabled" => {
-                db.execute(
-                    "UPDATE widget_instances SET enabled=0 WHERE id=?1",
-                    [&event.instance_id],
-                )
-                .unwrap();
+            "reaction-off" => {
+                storage::set_reaction(&db, &event.instance_id, false).unwrap();
             }
             "hidden" => {
                 crate::lock(&state.runtime).unwrap().hidden = true;

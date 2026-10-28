@@ -1122,7 +1122,7 @@ fn preparation(
                     let ids: Vec<String> = decode(value)?;
                     capacity(ids.len())?;
                     let todos: TodoState =
-                        decode(related.get("todo").ok_or("할 일 위젯을 켜 주세요.")?)?;
+                        decode(related.get("todo").ok_or("할 일 위젯을 찾을 수 없습니다.")?)?;
                     if ids
                         .iter()
                         .any(|id| !todos.items.iter().any(|item| item.id == *id))
@@ -1191,7 +1191,7 @@ fn preparation(
                 return Err("완료한 준비 항목은 먼저 완료를 취소해 주세요.".into());
             }
             let todo_id = text(input, "todoId", 200)?;
-            let todos: TodoState = decode(related.get("todo").ok_or("할 일 위젯을 켜 주세요.")?)?;
+            let todos: TodoState = decode(related.get("todo").ok_or("할 일 위젯을 찾을 수 없습니다.")?)?;
             if !todos.items.iter().any(|todo| todo.id == todo_id) {
                 return Err(missing());
             }
@@ -1256,7 +1256,7 @@ fn preparation(
         }
         "todo-link" => {
             let key = text(input, "todoId", 200)?;
-            let todos: TodoState = decode(related.get("todo").ok_or("할 일 위젯을 켜 주세요.")?)?;
+            let todos: TodoState = decode(related.get("todo").ok_or("할 일 위젯을 찾을 수 없습니다.")?)?;
             if !todos.items.iter().any(|x| x.id == key) {
                 return Err(missing());
             }
@@ -1335,6 +1335,14 @@ pub fn tick(kind: &str, data: &Value, now: i64) -> Result<Option<WidgetEffect>, 
         return Ok(None);
     }
     focus::tick(data, now)
+}
+
+pub(super) fn tick_timer(
+    data: &Value,
+    now: i64,
+    related: &BTreeMap<String, Value>,
+) -> Result<Option<WidgetEffect>, String> {
+    focus::tick_with_related(data, now, related)
 }
 
 pub(super) fn suspend_timer(data: &Value, now: i64, restarting: bool) -> Result<Value, String> {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { Icon } from "@comet/icon";
-import { Button, Checkbox, FormField, Select, TextInput } from "@comet/ui";
+import { Button, Checkbox, FormField, SegmentedControl, Select, TextInput } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import {
   localDay,
@@ -18,6 +18,7 @@ import { FrequencyRecordAction } from "./FrequencyRecordAction";
 import { FocusTimerCalendar } from "./FocusTimerCalendar";
 import { FocusTimerAppUsage } from "./FocusTimerAppUsage";
 import { FocusTimerNotes } from "./FocusTimerNotes";
+import { FocusTimerQueue } from "./FocusTimerQueue";
 import { FocusTimerStats } from "./FocusTimerStats";
 import { FocusTimerView } from "./FocusTimerView";
 import { countdown, elapsedWithin, focusDuration, focusSessions } from "./FocusTimerData";
@@ -55,6 +56,43 @@ function savedDraft(widget: WidgetView): Draft {
     memo: text(data.memo),
   };
 }
+function pendingMemo(widget: WidgetView): { memo: string; base: string; owner: string; show: boolean } | null {
+  try {
+    const value: unknown = JSON.parse(
+      localStorage.getItem(`comet.focus.draft:${widget.id}`) || "null",
+    );
+    if (
+      !value ||
+      typeof value !== "object" ||
+      !("draft" in value) ||
+      !value.draft ||
+      typeof value.draft !== "object" ||
+      !("memo" in value.draft) ||
+      typeof value.draft.memo !== "string" ||
+      !("memoBase" in value) ||
+      typeof value.memoBase !== "string" ||
+      !("memoOwner" in value) ||
+      typeof value.memoOwner !== "string" ||
+      !value.memoOwner ||
+      (value.draft.memo === value.memoBase && !("showPreviousMemo" in value && value.showPreviousMemo === true))
+    )
+      return null;
+    const data = record(widget.data);
+    if (
+      value.memoOwner === currentMemoOwner(data) ||
+      !rows(data.sessions).some((session) => session.id === value.memoOwner)
+    )
+      return null;
+    return {
+      memo: value.draft.memo,
+      base: value.memoBase,
+      owner: value.memoOwner,
+      show: "showPreviousMemo" in value && value.showPreviousMemo === true,
+    };
+  } catch {
+    return null;
+  }
+}
 export function readDraft(widget: WidgetView): Draft {
   const saved = savedDraft(widget);
   try {
@@ -70,7 +108,7 @@ export function readDraft(widget: WidgetView): Draft {
       !value.draft ||
       typeof value.draft !== "object"
     )
-      return saved;
+      return { ...saved, memo: pendingMemo(widget)?.memo ?? saved.memo };
     const draft = value.draft;
     if (
       !("title" in draft) ||
@@ -95,6 +133,8 @@ export function readDraft(widget: WidgetView): Draft {
   }
 }
 function readMemoBase(widget: WidgetView): string {
+  const pending = pendingMemo(widget);
+  if (pending) return pending.base;
   try {
     const value: unknown = JSON.parse(
       localStorage.getItem(`comet.focus.draft:${widget.id}`) || "null",
@@ -112,6 +152,32 @@ function readMemoBase(widget: WidgetView): string {
     /* The current source is the fallback baseline. */
   }
   return text(record(widget.data).memo);
+}
+function currentMemoOwner(data: DataRecord): string {
+  return data.status === "idle"
+    ? ""
+    : text(record(data.activeSession).id) || text(rows(data.sessions).at(-1)?.id);
+}
+function readMemoOwner(widget: WidgetView): string {
+  const pending = pendingMemo(widget);
+  if (pending) return pending.owner;
+  try {
+    const value: unknown = JSON.parse(
+      localStorage.getItem(`comet.focus.draft:${widget.id}`) || "null",
+    );
+    if (
+      value &&
+      typeof value === "object" &&
+      "base" in value &&
+      value.base === JSON.stringify(savedDraft(widget)) &&
+      "memoOwner" in value &&
+      typeof value.memoOwner === "string"
+    )
+      return value.memoOwner;
+  } catch {
+    /* The current session is the fallback owner. */
+  }
+  return currentMemoOwner(record(widget.data));
 }
 
 export function TimerTool({
@@ -141,7 +207,18 @@ export function TimerTool({
   const [now, setNow] = useState(Date.now());
   const [draft, setDraft] = useState(() => readDraft(widget));
   const [memoBase, setMemoBase] = useState(() => readMemoBase(widget));
+  const [showPreviousMemo, setShowPreviousMemo] = useState(() => pendingMemo(widget)?.show ?? false);
   const memoSave = useRef<{ memo: string; promise: Promise<boolean> } | null>(null);
+  const memoOwner = useRef(readMemoOwner(widget));
+  const memoWidget = useRef(widget.id);
+  if (memoWidget.current !== widget.id) {
+    memoWidget.current = widget.id;
+    memoOwner.current = readMemoOwner(widget);
+  }
+  const latestDraft = useRef(draft);
+  latestDraft.current = draft;
+  const latestData = useRef(data);
+  latestData.current = data;
   const presentation = data.presentation === "digits" ? "digits" : "dial";
   const [custom, setCustom] = useState(() => ![15, 25, 50].includes(Number(draft.minutes)));
   const [expanded, setExpanded] = useState(!embedded);
@@ -190,11 +267,12 @@ export function TimerTool({
     const next = savedDraft(widget);
     if (previous.current.id !== widget.id) {
       setDraft(readDraft(widget));
-      setMemoBase(next.memo);
+      setMemoBase(readMemoBase(widget));
+      setShowPreviousMemo(pendingMemo(widget)?.show ?? false);
       setCustom(![15, 25, 50].includes(Number(next.minutes)));
     } else {
       const before = previous.current.draft;
-      if (draft.memo === before.memo) setMemoBase(next.memo);
+      if (!showPreviousMemo && draft.memo === before.memo) setMemoBase(next.memo);
       setDraft((current) => ({
         title: current.title === before.title ? next.title : current.title,
         minutes: current.minutes === before.minutes ? next.minutes : current.minutes,
@@ -203,7 +281,7 @@ export function TimerTool({
           ? next.eventRef
           : current.eventRef,
         noteRef: sameReference(current.noteRef, before.noteRef) ? next.noteRef : current.noteRef,
-        memo: current.memo === before.memo ? next.memo : current.memo,
+        memo: !showPreviousMemo && current.memo === before.memo ? next.memo : current.memo,
       }));
     }
     previous.current = { id: widget.id, draft: next };
@@ -212,19 +290,19 @@ export function TimerTool({
     try {
       localStorage.setItem(
         `comet.focus.draft:${widget.id}`,
-        JSON.stringify({ base: savedKey, draft, memoBase }),
+        JSON.stringify({ base: savedKey, draft, memoBase, memoOwner: memoOwner.current, showPreviousMemo }),
       );
     } catch {
       /* Explicit save actions remain available when draft storage is unavailable. */
     }
-  }, [widget.id, savedKey, draft, memoBase]);
+  }, [widget.id, savedKey, draft, memoBase, showPreviousMemo]);
   const status = text(data.status) || "idle";
   const idle = status === "idle";
   const completionPending = data.completedFocusPending === true;
   const rest = data.mode === "rest";
-  const todo = widgets.find((item) => item.kind === "todo" && item.installed && item.enabled);
+  const todo = widgets.find((item) => item.kind === "todo");
   const calendar = widgets.find(
-    (item) => item.kind === "calendar" && item.installed && item.enabled,
+    (item) => item.kind === "calendar",
   );
   const allTasks = rows(record(todo?.data).items);
   const tasks = allTasks.filter((item) => item.completedAt === null);
@@ -242,7 +320,16 @@ export function TimerTool({
   const duration = idle ? Math.round(Number(draft.minutes) * 60000) : number(data.durationMs);
   const progress = duration > 0 ? Math.max(0, Math.min(1, remaining / duration)) : 0;
   const sessions = focusSessions(data, now);
+  const owner = currentMemoOwner(data);
+  if (draft.memo === memoBase && !memoSave.current && !showPreviousMemo) memoOwner.current = owner;
+  const previousMemoPending =
+    (draft.memo !== memoBase || showPreviousMemo) && Boolean(memoOwner.current) && memoOwner.current !== owner;
+  const previousMemoSession = rows(data.sessions).find(
+    (session) => session.id === memoOwner.current,
+  );
   const restDuration = number(record(data.settings).restDurationMs) || 300000;
+  const longRestDuration = number(record(data.settings).longRestDurationMs) || 900000;
+  const queue = rows(data.queue);
   const statusLabel =
     status === "running"
       ? rest
@@ -256,7 +343,9 @@ export function TimerTool({
           ? rest
             ? "쉬는 시간이 끝났어요."
             : "집중 시간이 끝났어요."
-          : "시작할 준비가 됐어요.";
+          : queue.length
+            ? `다음 집중 '${text(queue[0].title)}'가 기다리고 있어요.`
+            : "시작할 준비가 됐어요.";
   const lastSession = sessions.at(-1);
   const today = localDay(new Date(now));
   const dayStart = new Date(`${today}T00:00:00`).getTime();
@@ -305,8 +394,8 @@ export function TimerTool({
     if (draft.title || text(data.title)) input.title = draft.title;
     if (draft.eventRef || data.eventRef) input.eventRef = draft.eventRef;
     if (draft.noteRef || data.noteRef) input.noteRef = draft.noteRef;
-    if (draft.memo || text(data.memo)) input.memo = draft.memo;
-    await act("start", input);
+    if (!previousMemoPending && (draft.memo || text(data.memo))) input.memo = draft.memo;
+    if ((await act("start", input)) && !previousMemoPending) setMemoBase(draft.memo);
   }
   async function prepareEvent(event: DataRecord): Promise<boolean> {
     if (!idle || !calendar) return false;
@@ -353,6 +442,42 @@ export function TimerTool({
       if (memoSave.current.memo !== draft.memo) return false;
       return memoSave.current.promise;
     }
+    if (previousMemoPending) {
+      if (!memoOwner.current) {
+        setError("이전 집중의 메모를 저장할 기록을 찾을 수 없어요. 초안은 남아 있어요.");
+        return false;
+      }
+      const promise = (async (): Promise<boolean> => {
+        try {
+          const ok = await act("update-session-memo", {
+            id: memoOwner.current,
+            memo: draft.memo,
+            expectedMemo: memoBase,
+          });
+          if (memoWidget.current !== widget.id) return ok;
+          if (ok) {
+            if (latestDraft.current.memo === draft.memo) {
+              const nextMemo = text(latestData.current.memo);
+              setDraft((current) => ({ ...current, memo: nextMemo }));
+              setMemoBase(nextMemo);
+              memoOwner.current = currentMemoOwner(latestData.current);
+              setShowPreviousMemo(false);
+            } else {
+              setMemoBase(draft.memo);
+            }
+            setError("");
+          } else setError("이전 집중 메모를 저장하지 못했어요. 입력한 초안은 남아 있어요.");
+          return ok;
+        } catch (cause: unknown) {
+          setError(errorText(cause));
+          return false;
+        } finally {
+          memoSave.current = null;
+        }
+      })();
+      memoSave.current = { memo: draft.memo, promise };
+      return promise;
+    }
     if (draft.memo !== memoBase && text(data.memo) !== memoBase) {
       setError("다른 화면에서 집중 메모가 바뀌었어요. 입력한 초안은 남아 있어요.");
       return false;
@@ -374,19 +499,37 @@ export function TimerTool({
     memoSave.current = { memo: draft.memo, promise };
     return promise;
   }
-  async function transition(action: string): Promise<void> {
+  async function transition(action: string, input: DataRecord = {}): Promise<void> {
     setError("");
     try {
-      if (draft.memo !== memoBase) {
-        if (await act(action, { memo: draft.memo, expectedMemo: memoBase }))
-          setMemoBase(draft.memo);
-        else setError("메모와 타이머 변경을 저장하지 못했어요. 입력한 초안은 남아 있어요.");
+      if (previousMemoPending) {
+        await act(action, input);
+      } else if (draft.memo !== memoBase) {
+        if (await act(action, { ...input, memo: draft.memo, expectedMemo: memoBase })) {
+          if (action === "continue" && rows(data.queue).length > 0 && latestDraft.current.memo === draft.memo) {
+            setDraft((current) => ({ ...current, memo: "" }));
+            setMemoBase("");
+          } else {
+            setMemoBase(draft.memo);
+          }
+        } else setError("메모와 타이머 변경을 저장하지 못했어요. 입력한 초안은 남아 있어요.");
       } else {
-        await act(action);
+        await act(action, input);
       }
     } catch (cause: unknown) {
       setError(errorText(cause));
     }
+  }
+  function changeMemo(memo: string): void {
+    if (previousMemoPending && memo === memoBase) {
+      const current = text(data.memo);
+      memoOwner.current = owner;
+      setShowPreviousMemo(false);
+      setMemoBase(current);
+      setDraft((value) => ({ ...value, memo: current }));
+      return;
+    }
+    setDraft((value) => ({ ...value, memo }));
   }
   async function resize(nextExpanded: boolean, nextCollapsed = false): Promise<void> {
     if (resizing.current) return;
@@ -539,7 +682,7 @@ export function TimerTool({
             timeDescription={timeDescription}
             progress={progress}
             duration={Number(draft.minutes)}
-            startDisabled={!validDuration}
+            startDisabled={!validDuration && !(phase === "rest-complete" && queue.length > 0)}
             paused={status === "paused"}
             onTaskChange={(title) => setDraft({ ...draft, title })}
             onDurationChange={(minutes) => {
@@ -562,9 +705,16 @@ export function TimerTool({
               phase === "complete" && !completionPending ? () => void transition("rest") : undefined
             }
             restLabel={`${focusDuration(restDuration)} 쉬기`}
+            onLongRest={
+              phase === "complete" && !completionPending
+                ? () => void transition("rest", { kind: "long" })
+                : undefined
+            }
+            longRestLabel={`길게 쉬기 (${focusDuration(longRestDuration)})`}
+            nextTitle={text(queue[0]?.title)}
             note={draft.memo}
-            noteLabel="완료한 집중 메모"
-            onNoteChange={(memo) => setDraft({ ...draft, memo })}
+            noteLabel={previousMemoPending ? "이전 집중 메모" : "완료한 집중 메모"}
+            onNoteChange={changeMemo}
             setup={
               <>
                 <details className={s.sessionOptions}>
@@ -733,6 +883,17 @@ export function TimerTool({
             }
             afterControls={
               <>
+                {previousMemoPending && (
+                  <div className={s.row}>
+                    <p className={s.quiet}>이전 집중의 저장하지 않은 메모가 있어요.</p>
+                    <Button variant="ghost" size="small" onClick={() => void saveMemo()}>
+                      이전 집중 메모 저장
+                    </Button>
+                  </div>
+                )}
+                {status !== "running" && queue.length > 0 && (
+                  <p className={s.quiet}>다음 집중 '{text(queue[0].title)}'가 기다리고 있어요.</p>
+                )}
                 <p className={s.timerStatus} role="status">
                   {statusLabel}
                 </p>
@@ -761,6 +922,20 @@ export function TimerTool({
           inert={!expanded}
         >
           <fieldset disabled={busy} className={s.controlFields}>
+            <SegmentedControl
+              label="집중 패널"
+              value={tab}
+              options={[
+                { value: "calendar", label: "일정" },
+                { value: "stats", label: "기록" },
+                { value: "notes", label: "노트" },
+                { value: "queue", label: "다음 집중" },
+              ]}
+              onValueChange={setTab}
+            />
+            {tab === "queue" && (
+              <FocusTimerQueue data={data} tasks={tasks} act={act} defaultMinutes={draft.minutes} />
+            )}
             {tab === "calendar" && (
               <div className={s.tabPanel}>
                 <Button variant="ghost" size="small" onClick={() => setTab("stats")}>
@@ -786,6 +961,7 @@ export function TimerTool({
             {tab === "stats" && (
               <div className={s.tabPanel}>
                 <FocusTimerStats
+                  hideTabs
                   sessions={sessions}
                   day={localDay(new Date(now))}
                   selectedId={selectedSession}
@@ -813,19 +989,38 @@ export function TimerTool({
             {tab === "notes" && (
               <div className={s.tabPanel}>
                 <FocusTimerNotes
+                  hideTabs
                   active={active}
                   widgets={widgets}
                   noteRef={draft.noteRef}
                   memo={draft.memo}
                   memoBase={memoBase}
-                  sessionTitle={idle ? draft.title : text(data.title)}
-                  sessionTime={countdown(remaining)}
+                  sessionLabel={previousMemoPending ? "이전 집중" : undefined}
+                  sessionTitle={
+                    previousMemoPending
+                      ? text(previousMemoSession?.title)
+                      : idle
+                        ? draft.title
+                        : text(data.title)
+                  }
+                  sessionTime={previousMemoPending ? undefined : countdown(remaining)}
                   act={act}
                   onClose={() => void resize(false)}
-                  memoConflict={draft.memo !== memoBase && text(data.memo) !== memoBase}
+                  memoConflict={
+                    draft.memo !== memoBase &&
+                    (previousMemoPending
+                      ? !previousMemoSession || text(previousMemoSession.memo) !== memoBase
+                      : text(data.memo) !== memoBase)
+                  }
                   onReloadMemo={() => {
-                    setDraft({ ...draft, memo: text(data.memo) });
-                    setMemoBase(text(data.memo));
+                    if (previousMemoPending && !previousMemoSession) {
+                      setError("이전 집중 기록을 찾지 못했어요. 입력한 초안은 남아 있어요.");
+                      return;
+                    }
+                    const memo = previousMemoPending ? text(previousMemoSession?.memo) : text(data.memo);
+                    setDraft({ ...draft, memo });
+                    setMemoBase(memo);
+                    setShowPreviousMemo(previousMemoPending);
                     setError("");
                   }}
                   canConnect={idle && active}
@@ -841,7 +1036,7 @@ export function TimerTool({
                     setRestoreRecordFocus(origin);
                   }}
                   onConnect={connectNote}
-                  onMemoChange={(memo) => setDraft({ ...draft, memo })}
+                  onMemoChange={changeMemo}
                   onSaveMemo={saveMemo}
                   onRecords={() => setTab("stats")}
                 />

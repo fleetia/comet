@@ -1,6 +1,33 @@
 {
   "cases": [
     {
+      "id": "recall.year",
+      "path": "situations/recall.talk",
+      "trigger": "diary.recall",
+      "available": [],
+      "active": ["fixture-a"],
+      "values": {"recall.ready": true, "recall.kind": "year", "recall.snippet": "지난 기록"},
+      "expectedScene": "recall.year"
+    },
+    {
+      "id": "recall.month",
+      "path": "situations/recall.talk",
+      "trigger": "diary.recall",
+      "available": [],
+      "active": ["fixture-a"],
+      "values": {"recall.ready": true, "recall.kind": "month", "recall.snippet": "지난 기록"},
+      "expectedScene": "recall.month"
+    },
+    {
+      "id": "recall.week",
+      "path": "situations/recall.talk",
+      "trigger": "diary.recall",
+      "available": [],
+      "active": ["fixture-a"],
+      "values": {"recall.ready": true, "recall.kind": "week", "recall.snippet": "지난 기록"},
+      "expectedScene": "recall.week"
+    },
+    {
       "id": "time.morning",
       "path": "situations/time.talk",
       "trigger": "idle",
@@ -131,6 +158,54 @@
       "expectedScene": "weather.rain"
     },
     {
+      "id": "weather.tomorrow-rain-idle",
+      "path": "situations/weather.talk",
+      "trigger": "idle",
+      "available": [
+        "weather"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "weather.tomorrowRainProb": 65,
+        "weather.tomorrowCode": 61
+      },
+      "expectedScene": "weather.tomorrow-rain-idle"
+    },
+    {
+      "id": "weather.rain-tomorrow",
+      "path": "situations/weather.talk",
+      "trigger": "weather.rain-tomorrow",
+      "available": [
+        "weather"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "weather.tomorrowRainProb": 65,
+        "weather.tomorrowCode": 61
+      },
+      "expectedScene": "weather.rain-tomorrow"
+    },
+    {
+      "id": "weather.last-year",
+      "path": "situations/weather.talk",
+      "trigger": "weather.last-year",
+      "available": [
+        "weather"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "weather.lastYearName": "맑음",
+        "weather.temperature": 17
+      },
+      "expectedScene": "weather.last-year"
+    },
+    {
       "id": "weather.snow",
       "path": "situations/weather.talk",
       "trigger": "idle",
@@ -198,6 +273,24 @@
         "environment.weatherName": null
       },
       "expectedScene": null
+    },
+    {
+      "id": "solo.mood-high",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": ["fixture-a"],
+      "values": {"character.a.mood": 1},
+      "expectedScene": "solo.mood-high"
+    },
+    {
+      "id": "solo.mood-low",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": ["fixture-a"],
+      "values": {"character.a.mood": -1},
+      "expectedScene": "solo.mood-low"
     },
     {
       "id": "solo.stretch",
@@ -3038,6 +3131,160 @@
         "pet.status": "enabled"
       },
       "expectedScene": "pet.arrived"
+    },
+    {
+      "id": "interaction.milestone-1",
+      "path": "widgets/interaction-milestone.talk",
+      "trigger": "interaction.milestone",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.character": "A",
+        "interaction.milestone": 1
+      },
+      "expectedScene": "interaction.milestone-1"
+    },
+    {
+      "id": "interaction.milestone-10",
+      "path": "widgets/interaction-milestone.talk",
+      "trigger": "interaction.milestone",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.character": "A",
+        "interaction.milestone": 10
+      },
+      "expectedScene": "interaction.milestone-10"
+    },
+    {
+      "id": "interaction.milestone-100",
+      "path": "widgets/interaction-milestone.talk",
+      "trigger": "interaction.milestone",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.character": "A",
+        "interaction.milestone": 100
+      },
+      "expectedScene": "interaction.milestone-100"
+    },
+    {
+      "id": "interaction.milestone-500",
+      "path": "widgets/interaction-milestone.talk",
+      "trigger": "interaction.milestone",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.character": "A",
+        "interaction.milestone": 500
+      },
+      "expectedScene": "interaction.milestone-500"
+    },
+    {
+      "id": "interaction.milestone-1000",
+      "path": "widgets/interaction-milestone.talk",
+      "trigger": "interaction.milestone",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.character": "A",
+        "interaction.milestone": 1000
+      },
+      "expectedScene": "interaction.milestone-1000"
+    },
+    {
+      "id": "activity.long-session.editor",
+      "path": "situations/solo.talk",
+      "trigger": "activity.long-session",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "activity.ready": true,
+        "activity.category": "editor"
+      },
+      "expectedScene": "activity.long-session"
+    },
+    {
+      "id": "activity.long-session.browser",
+      "path": "situations/solo.talk",
+      "trigger": "activity.long-session",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "activity.ready": true,
+        "activity.category": "browser"
+      },
+      "expectedScene": "activity.long-session"
+    },
+    {
+      "id": "activity.long-session.other",
+      "path": "situations/solo.talk",
+      "trigger": "activity.long-session",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "activity.ready": true,
+        "activity.category": "other"
+      },
+      "expectedScene": "activity.long-session"
+    },
+    {
+      "id": "activity.idle-return.editor",
+      "path": "situations/solo.talk",
+      "trigger": "activity.idle-return",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "activity.ready": true,
+        "activity.category": "editor"
+      },
+      "expectedScene": "activity.idle-return"
+    },
+    {
+      "id": "activity.idle-return.browser",
+      "path": "situations/solo.talk",
+      "trigger": "activity.idle-return",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "activity.ready": true,
+        "activity.category": "browser"
+      },
+      "expectedScene": "activity.idle-return"
+    },
+    {
+      "id": "activity.idle-return.other",
+      "path": "situations/solo.talk",
+      "trigger": "activity.idle-return",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "activity.ready": true,
+        "activity.category": "other"
+      },
+      "expectedScene": "activity.idle-return"
     }
   ]
 }

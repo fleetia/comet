@@ -31,8 +31,7 @@ function widget(kind: string, data: DataRecord): WidgetView {
   return {
     id: `${kind}-id`,
     kind,
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 1,
     version: 1,
     data,
@@ -572,7 +571,7 @@ it("shows automatic rest behind the focus completion card and keeps todo complet
   await reactAct(async () =>
     fireEvent.click(screen.getByRole("button", { name: /휴식 5분 시작/ })),
   );
-  expect(action).toHaveBeenLastCalledWith("show-rest");
+  expect(action).toHaveBeenLastCalledWith("show-rest", {});
   view.rerender(
     <TimerTool
       widget={{
@@ -586,7 +585,7 @@ it("shows automatic rest behind the focus completion card and keeps todo complet
   );
   expect(screen.getByText("잠깐 쉬어 가요")).toBeTruthy();
   await click("휴식 건너뛰기");
-  expect(action).toHaveBeenLastCalledWith("continue");
+  expect(action).toHaveBeenLastCalledWith("continue", {});
 });
 
 it("submits todo completion once while saving and retries only after a failed attempt", async () => {
@@ -667,4 +666,63 @@ it("submits the completion memo and transition atomically while retaining reject
   expect(screen.getByLabelText("완료한 집중 메모")).toHaveProperty("value", "다음 단계");
   await click("오늘은 여기까지");
   expect(action).toHaveBeenLastCalledWith("cancel", { memo: "다음 단계", expectedMemo: "" });
+});
+
+it("starts a queued focus with an empty memo after saving the completed session", async () => {
+  const timer = widget("focus-timer", {
+    status: "finished", mode: "focus", durationMs: 1500000, remainingMs: 0,
+    memo: "", queue: [{ id: "next", title: "다음 집중", focusDurationMs: 1500000 }],
+    sessions: [{ id: "previous", title: "이전 집중", startedAt: Date.now() - 1500000,
+      endedAt: Date.now(), elapsedMs: 1500000, memo: "", segments: [] }],
+  });
+  const view = render(<TimerTool widget={timer} widgets={[]} act={action} />);
+  fireEvent.change(screen.getByLabelText("완료한 집중 메모"), { target: { value: "마친 메모" } });
+  await click("계속 집중");
+  expect(action).toHaveBeenCalledWith("continue", { memo: "마친 메모", expectedMemo: "" });
+  view.rerender(<TimerTool widget={{ ...timer, revision: 2, data: {
+    ...(timer.data as DataRecord), status: "running", memo: "", queue: [],
+    title: "다음 집중", deadline: Date.now() + 1500000, remainingMs: 1500000,
+    activeSession: { id: "next-session" },
+    sessions: [{ id: "previous", title: "이전 집중", startedAt: Date.now() - 1500000,
+      endedAt: Date.now(), elapsedMs: 1500000, memo: "마친 메모", segments: [] }],
+  } }} widgets={[]} act={action} />);
+  await click("노트", "radio");
+  const memo = screen.getByLabelText("이번 집중 메모");
+  expect(memo).toHaveProperty("value", "");
+  fireEvent.change(memo, { target: { value: "새 집중 메모" } });
+  await reactAct(async () => fireEvent.blur(memo));
+  expect(action).toHaveBeenLastCalledWith("update-memo", { memo: "새 집중 메모", expectedMemo: "" });
+});
+
+it("reloads and saves a conflicted draft against its previous session", async () => {
+  const timer = widget("focus-timer", {
+    status: "running", mode: "focus", durationMs: 1500000, remainingMs: 1500000,
+    deadline: Date.now() + 1500000, memo: "다른 창에서 저장",
+    activeSession: { id: "current" },
+    sessions: [{ id: "previous", title: "이전 집중", startedAt: Date.now() - 1500000,
+      endedAt: Date.now(), elapsedMs: 1500000, memo: "다른 창에서 저장", segments: [] }],
+  });
+  localStorage.setItem(`comet.focus.draft:${timer.id}`, JSON.stringify({
+    draft: { memo: "이전 집중 초안" }, memoBase: "이전 원문", memoOwner: "previous",
+  }));
+  const view = render(<TimerTool widget={timer} widgets={[]} act={action} />);
+  await click("노트", "radio");
+  const memo = screen.getByLabelText("이번 집중 메모");
+  expect(memo).toHaveProperty("value", "이전 집중 초안");
+  await click("최신 집중 메모 불러오기");
+  expect(memo).toHaveProperty("value", "다른 창에서 저장");
+  const changed = { ...timer, revision: 2, data: { ...(timer.data as DataRecord), memo: "현재 세션 메모" } };
+  view.rerender(<TimerTool widget={changed} widgets={[]} act={action} />);
+  expect(memo).toHaveProperty("value", "다른 창에서 저장");
+  view.unmount();
+  render(<TimerTool widget={changed} widgets={[]} act={action} />);
+  await click("노트", "radio");
+  const reloaded = screen.getByLabelText("이번 집중 메모");
+  expect(reloaded).toHaveProperty("value", "다른 창에서 저장");
+  fireEvent.change(reloaded, { target: { value: "이전 기록 수정" } });
+  await reactAct(async () => fireEvent.blur(reloaded));
+  expect(action).toHaveBeenLastCalledWith("update-session-memo", {
+    id: "previous", memo: "이전 기록 수정", expectedMemo: "다른 창에서 저장",
+  });
+  expect(reloaded).toHaveProperty("value", "현재 세션 메모");
 });

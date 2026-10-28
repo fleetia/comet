@@ -227,8 +227,8 @@ fn validate_generation(
     }
     if let Some(id) = target {
         let widget = generated::get(db, id)?;
-        if !widget.installed || !widget.enabled {
-            return Err("위젯이 중지되거나 제거됐어요.".into());
+        if !widget.installed {
+            return Err("위젯이 제거됐어요.".into());
         }
     }
     Ok(())
@@ -317,6 +317,15 @@ fn observe_generated_state(
     db: &rusqlite::Connection,
     widget: &generated::GeneratedWidget,
 ) -> Result<()> {
+    if !storage::reaction_enabled(db, &widget.id)? {
+        if reactions_blocked(state, db)? {
+            generated::discard_pending(db)?;
+        } else {
+            db.execute("DELETE FROM widget_state_pending WHERE widget_id=?1", [&widget.id])
+                .map_err(|error| error.to_string())?;
+        }
+        return Ok(());
+    }
     generated::evaluate_rules(
         db,
         &widget.id,
@@ -377,7 +386,7 @@ pub(crate) async fn generate_widget(
         }
         let previous = if let Some(id) = &id {
             let current = generated::get(&db, id)?;
-            if Some(current.revision) != expected_revision || !current.installed || !current.enabled
+            if Some(current.revision) != expected_revision || !current.installed
             {
                 return Err("위젯이 변경되었어요. 최신 상태에서 다시 요청해 주세요.".into());
             }
@@ -418,7 +427,7 @@ pub(crate) async fn generate_widget(
             app::phase(&worker_app, &owner, epoch, RuntimePhase::Idle, None, None);
             if let Ok(widget) = &result {
                 publish(&worker_app);
-                let _ = open_generated_at(&worker_app, &owner, &widget.id, Some(epoch));
+                let _ = open_generated_at(&worker_app, &owner, &widget.id, Some(epoch), None);
             }
             if let Ok(db) = lock(&owner.db) {
                 let _ = clear_binding(&db, epoch);
@@ -509,7 +518,10 @@ async fn generate_definition(
                 )
                 .is_err()
                 {
-                    crate::report_error!("widget_context_record", "Widget context recording deferred");
+                    crate::report_error!(
+                        "widget_context_record",
+                        "Widget context recording deferred"
+                    );
                 }
                 return Ok(widget);
             }
@@ -533,8 +545,8 @@ fn replace_current_definition(
     definition: generated::Definition,
 ) -> Result<generated::GeneratedWidget> {
     let current = generated::get(db, &previous.id)?;
-    if !current.installed || !current.enabled || current.definition != previous.definition {
-        return Err("위젯 코드가 변경되거나 중지됐어요. 최신 상태에서 다시 요청해 주세요.".into());
+    if !current.installed || current.definition != previous.definition {
+        return Err("위젯 코드가 변경되거나 제거됐어요. 최신 상태에서 다시 요청해 주세요.".into());
     }
     generated::replace(db, &current.id, current.revision, definition)
 }
@@ -657,7 +669,7 @@ fn record_action_failure(
     crate::widgets::commands::change(state, |db| {
         check_execution_current(state, epoch, cancel)?;
         if store::active_user_id(db)? != request.user_id
-            || generated::get(db, &request.widget_id)? != *before
+            || !generated::get(db, &request.widget_id)?.same_execution_source(before)
         {
             return Err("실행 중 위젯이나 사용자가 변경되어 오류 결과를 적용하지 않았어요.".into());
         }
@@ -726,27 +738,41 @@ async fn execute_registered_action(
             });
         }
     };
-    let receipt = crate::widgets::commands::change(state, |db| {
-        check_current()?;
-        if let Some(receipt) = generated::actions::replay(db, &request)? {
+    let receipt = finish_registered_action(state, &request, &before, epoch, &cancel, output)?;
+    publish(app);
+    Ok(receipt)
+}
+
+fn finish_registered_action(
+    state: &AppState,
+    request: &generated::actions::ActionRequest,
+    before: &generated::GeneratedWidget,
+    epoch: Option<u64>,
+    cancel: &Arc<AtomicBool>,
+    output: generated::execution::ExecutionOutput,
+) -> Result<generated::actions::GeneratedReceipt> {
+    crate::widgets::commands::change(state, |db| {
+        check_execution_current(state, epoch, cancel)?;
+        if let Some(receipt) = generated::actions::replay(db, request)? {
             return Ok(receipt);
         }
-        if generated::get(db, &request.widget_id)? != before {
+        if !generated::get(db, &request.widget_id)?.same_execution_source(before) {
             return Err("실행 중 위젯이 변경되어 결과를 저장하지 않았어요.".into());
         }
         // Observe the old state before the transaction so only the committed transition can react.
         sync_epoch(state, db)?;
-        observe_generated_state(state, db, &before)?;
-        let receipt = generated::actions::commit(db, &request, &before, output.state, output.view)?;
+        observe_generated_state(state, db, before)?;
+        let receipt = generated::actions::commit(db, request, before, output.state, output.view)?;
         if let Ok(current) = generated::get(db, &request.widget_id) {
             if observe_generated_state(state, db, &current).is_err() {
-                crate::report_error!("widget_reaction_refresh", "Saved generated widget action; reaction refresh deferred");
+                crate::report_error!(
+                    "widget_reaction_refresh",
+                    "Saved generated widget action; reaction refresh deferred"
+                );
             }
         }
         Ok(receipt)
-    })?;
-    publish(app);
-    Ok(receipt)
+    })
 }
 
 #[derive(Serialize)]
@@ -836,30 +862,6 @@ pub(crate) fn report_generated_result(
 }
 
 #[tauri::command]
-pub(crate) fn set_generated_widget_enabled(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<AppState>>,
-    id: String,
-    expected_revision: i64,
-    enabled: bool,
-) -> Result<()> {
-    crate::widgets::commands::change(&state, |db| {
-        let widget = generated::set_enabled(db, &id, expected_revision, enabled)?;
-        if !enabled {
-            cancel_bound(&state, db, Some(&id), false, None)?;
-        }
-        observe_generated_state(&state, db, &widget)?;
-        Ok(widget)
-    })?;
-    if !enabled {
-        close_generated_inner(&app, &id)?;
-    }
-    crate::widgets::commands::cancel_widget_scene(&app, &state)?;
-    publish(&app);
-    Ok(())
-}
-
-#[tauri::command]
 pub(crate) fn restore_previous_generated_widget(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
@@ -943,7 +945,16 @@ pub(crate) async fn open_generated_widget(
 }
 
 fn open_generated_inner(app: &tauri::AppHandle, state: &AppState, id: &str) -> Result<()> {
-    open_generated_at(app, state, id, None)
+    open_generated_at(app, state, id, None, None)
+}
+
+pub(crate) fn open_generated_for_playback(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    id: &str,
+    playback: &str,
+) -> Result<()> {
+    open_generated_at(app, state, id, None, Some(playback))
 }
 
 fn open_generated_at(
@@ -951,12 +962,16 @@ fn open_generated_at(
     state: &AppState,
     id: &str,
     epoch: Option<u64>,
+    playback: Option<&str>,
 ) -> Result<()> {
-    let widget =
-        crate::widgets::commands::change(state, |db| validate_open(state, db, id, None, epoch))?;
+    let widget = crate::widgets::commands::change(state, |db| {
+        crate::widgets::commands::validate_playback_open(state, playback)?;
+        validate_open(state, db, id, None, epoch)
+    })?;
     let label = format!("generated-widget-{id}");
     if let Some(window) = app.get_webview_window(&label) {
         return crate::widgets::commands::change(state, |db| {
+            crate::widgets::commands::validate_playback_open(state, playback)?;
             validate_open(state, db, id, Some(widget.revision), epoch)?;
             window.show().map_err(|e| e.to_string())?;
             window.set_focus().map_err(|e| e.to_string())
@@ -978,6 +993,7 @@ fn open_generated_at(
     .map_err(|e| e.to_string())?;
     generated::execution::bind_ui_window(&window);
     let result = crate::widgets::commands::change(state, |db| {
+        crate::widgets::commands::validate_playback_open(state, playback)?;
         validate_open(state, db, id, Some(widget.revision), epoch)?;
         window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())
@@ -999,7 +1015,6 @@ fn validate_open(
     if epoch.is_some_and(|e| state.epoch.load(Ordering::SeqCst) != e)
         || crate::unavailable(state)
         || !widget.installed
-        || !widget.enabled
         || revision.is_some_and(|r| widget.revision != r)
     {
         return Err("위젯이 변경되거나 제작을 취소했어요.".into());
@@ -1009,8 +1024,8 @@ fn validate_open(
 
 fn source_state(db: &rusqlite::Connection, id: &str) -> Result<(Value, i64)> {
     if let Ok(widget) = generated::get(db, id) {
-        if !widget.installed || !widget.enabled || widget.status != "ready" {
-            return Err("위젯을 켜고 실행을 확인해 주세요.".into());
+        if !widget.installed || widget.status != "ready" {
+            return Err("위젯 실행을 확인해 주세요.".into());
         }
         return Ok((widget.state, widget.revision));
     }
@@ -1018,7 +1033,7 @@ fn source_state(db: &rusqlite::Connection, id: &str) -> Result<(Value, i64)> {
         .widgets
         .into_iter()
         .find(|widget| {
-            widget.instance.id == id && widget.instance.installed && widget.instance.enabled
+            widget.instance.id == id
         })
         .ok_or("현재 사용할 수 없는 위젯이에요.")?;
     Ok((widget.instance.data, widget.instance.revision))
@@ -1047,8 +1062,8 @@ fn editable_state(db: &rusqlite::Connection, id: &str) -> Result<Value> {
     let widget = storage::snapshot(db)?
         .widgets
         .into_iter()
-        .find(|w| w.instance.id == id && w.instance.installed)
-        .ok_or("현재 설치되지 않은 위젯이에요.")?;
+        .find(|w| w.instance.id == id)
+        .ok_or("현재 사용할 수 없는 위젯이에요.")?;
     Ok(widget.instance.data)
 }
 
@@ -1322,6 +1337,9 @@ pub(crate) fn close_widget_state_rules(app: tauri::AppHandle, id: String) -> Res
 pub(crate) fn event_current(db: &rusqlite::Connection, event: &WidgetEvent) -> Result<bool> {
     let pending: generated::PendingReaction =
         serde_json::from_value(event.event.payload.clone()).map_err(|e| e.to_string())?;
+    if !storage::reaction_enabled(db, &pending.widget_id)? {
+        return Ok(false);
+    }
     let Ok((data, revision)) = source_state(db, &pending.widget_id) else {
         return Ok(false);
     };
@@ -1351,7 +1369,12 @@ fn observe_official_rules(db: &rusqlite::Connection, timestamp: i64) -> Result<(
         }
         match source_state(db, &id) {
             Ok((data, revision)) => {
-                let _ = generated::evaluate_rules(db, &id, &data, revision, timestamp);
+                if storage::reaction_enabled(db, &id)? {
+                    let _ = generated::evaluate_rules(db, &id, &data, revision, timestamp);
+                } else {
+                    db.execute("DELETE FROM widget_state_pending WHERE widget_id=?1", [&id])
+                        .map_err(|error| error.to_string())?;
+                }
             }
             Err(_) => {
                 reset_rule_baseline(db, &id)?;
@@ -1394,6 +1417,7 @@ fn reaction_line(
         persona: character.id.clone(),
         expression,
         text: pending.text.clone(),
+        widget: None,
         motion,
     })
 }
@@ -1433,6 +1457,9 @@ pub(crate) fn advance_reactions(app: &tauri::AppHandle, state: &Arc<AppState>) -
         let Some(pending) = generated::take_pending(&db, timestamp)? else {
             return Ok(false);
         };
+        if !storage::reaction_enabled(&db, &pending.widget_id)? {
+            return Ok(false);
+        }
         let Ok((data, revision)) = source_state(&db, &pending.widget_id) else {
             return Ok(false);
         };
@@ -1548,7 +1575,7 @@ pub(crate) async fn maybe_create(
         db.execute("INSERT INTO kv VALUES('generated.last-at',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[app::now().to_string()]).map_err(|e|e.to_string())?;
         let names: Vec<String> = generated::list(&db)?
             .iter()
-            .filter(|widget| widget.installed && widget.enabled)
+            .filter(|widget| widget.installed)
             .map(|w| format!("{}: {}", w.definition.name, w.definition.description))
             .chain(
                 widgets::catalog()?
@@ -1578,7 +1605,7 @@ pub(crate) async fn maybe_create(
     let widget =
         generate_definition(state, settings, request, None, None, epoch, cancel, true).await?;
     publish(app);
-    open_generated_at(app, state, &widget.id, Some(epoch))?;
+    open_generated_at(app, state, &widget.id, Some(epoch), None)?;
     Ok(true)
     }.await;
     {
@@ -1642,6 +1669,77 @@ mod tests {
     }
 
     #[test]
+    fn completed_action_survives_reaction_change_at_the_caller_boundary() {
+        let state = app::tests::state();
+        let (before, request) = ready_action_fixture(&state);
+        let cancel = Arc::new(AtomicBool::new(false));
+        storage::set_reaction(&lock(&state.db).unwrap(), &before.id, false).unwrap();
+        let receipt = finish_registered_action(
+            &state,
+            &request,
+            &before,
+            Some(state.epoch.load(Ordering::SeqCst)),
+            &cancel,
+            generated::execution::ExecutionOutput {
+                state: json!({"n":1}),
+                view: json!([]),
+            },
+        ).unwrap();
+        let db = lock(&state.db).unwrap();
+        let current = generated::get(&db, &before.id).unwrap();
+        assert_eq!(current.state, json!({"n":1}));
+        assert_eq!(current.revision, before.revision + 1);
+        assert!(!current.reaction);
+        assert_eq!(generated::actions::replay(&db, &request).unwrap().unwrap().id, receipt.id);
+    }
+
+    #[test]
+    fn completed_action_rejects_cancelled_or_changed_work_at_the_caller_boundary() {
+        for mutation in ["cancel", "epoch", "user", "state", "definition", "retired"] {
+            let state = app::tests::state();
+            let (before, request) = ready_action_fixture(&state);
+            let epoch = state.epoch.load(Ordering::SeqCst);
+            let cancel = Arc::new(AtomicBool::new(false));
+            {
+                let db = lock(&state.db).unwrap();
+                match mutation {
+                    "cancel" => cancel.store(true, Ordering::SeqCst),
+                    "epoch" => { state.epoch.fetch_add(1, Ordering::SeqCst); }
+                    "user" => {
+                        db.execute("INSERT INTO kv VALUES('active_user_id','someone-else') ON CONFLICT(key) DO UPDATE SET value=excluded.value", []).unwrap();
+                    }
+                    "state" => { generated::save_state(&db, &before.id, before.revision, json!({"n":7})).unwrap(); }
+                    "definition" => {
+                        generated::replace(&db, &before.id, before.revision, generated::Definition {
+                            source: "function render(){return []} function reduce(s){return s}".into(),
+                            ..before.definition.clone()
+                        }).unwrap();
+                    }
+                    "retired" => { generated::retire(&db, &before.id, before.revision).unwrap(); }
+                    _ => unreachable!(),
+                }
+            }
+            let current = generated::get(&lock(&state.db).unwrap(), &before.id).unwrap();
+            assert!(finish_registered_action(
+                &state,
+                &request,
+                &before,
+                Some(epoch),
+                &cancel,
+                generated::execution::ExecutionOutput { state: json!({"n":1}), view: json!([]) },
+            ).is_err(), "{mutation}");
+            let db = lock(&state.db).unwrap();
+            assert_eq!(generated::get(&db, &before.id).unwrap(), current, "{mutation}");
+            let receipts: i64 = db.query_row(
+                "SELECT COUNT(*) FROM generated_action_receipts WHERE id=?1",
+                [&request.request_id],
+                |row| row.get(0),
+            ).unwrap();
+            assert_eq!(receipts, 0, "{mutation}");
+        }
+    }
+
+    #[test]
     fn action_interpreter_failure_removes_ready_capability_without_state_or_receipt_changes() {
         let state = app::tests::state();
         let (before, request) = ready_action_fixture(&state);
@@ -1682,6 +1780,24 @@ mod tests {
     }
 
     #[test]
+    fn reaction_toggle_does_not_discard_in_flight_action_errors() {
+        let state = app::tests::state();
+        let (before, request) = ready_action_fixture(&state);
+        crate::widgets::storage::set_reaction(&lock(&state.db).unwrap(), &before.id, false).unwrap();
+        let failed = record_action_failure(
+            &state,
+            &request,
+            &before,
+            Some(state.epoch.load(Ordering::SeqCst)),
+            &Arc::new(AtomicBool::new(false)),
+            "reducer failed",
+        ).unwrap();
+        assert_eq!(failed.status, "error");
+        assert!(!failed.reaction);
+        assert_eq!(failed.state, before.state);
+    }
+
+    #[test]
     fn action_interpreter_failure_cannot_overwrite_cancelled_or_changed_work() {
         for mutation in [
             "cancel",
@@ -1689,7 +1805,6 @@ mod tests {
             "user",
             "state",
             "definition",
-            "disabled",
             "retired",
         ] {
             let state = app::tests::state();
@@ -1722,9 +1837,6 @@ mod tests {
                             },
                         )
                         .unwrap();
-                    }
-                    "disabled" => {
-                        generated::set_enabled(&db, &before.id, before.revision, false).unwrap();
                     }
                     "retired" => {
                         generated::retire(&db, &before.id, before.revision).unwrap();
@@ -1894,8 +2006,8 @@ mod tests {
             runtime.paused = false;
         }
         let directory = tempfile::tempdir().unwrap();
-        crate::widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
-        let timer = crate::widgets::storage::instances(&db).unwrap().remove(0);
+        crate::widgets::storage::verify_packages(&db, directory.path()).unwrap();
+        let timer = crate::widgets::storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "focus-timer").unwrap();
         let at = chrono::Utc::now().timestamp_millis();
         let mut focus = timer.data.clone();
         focus["status"] = serde_json::json!("running");
@@ -1904,7 +2016,7 @@ mod tests {
             .unwrap();
         assert!(!automatic_allowed(&state, &db, &settings).unwrap());
         assert!(reactions_blocked(&state, &db).unwrap());
-        let mut idle = crate::widgets::storage::instances(&db).unwrap().remove(0);
+        let mut idle = crate::widgets::storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "focus-timer").unwrap();
         idle.data["status"] = serde_json::json!("idle");
         crate::widgets::storage::commit_data(&db, &idle.id, idle.revision, idle.data, vec![], at)
             .unwrap();
@@ -2175,7 +2287,6 @@ mod tests {
             "description",
             "source",
             "initialState",
-            "disabled",
             "retired",
         ] {
             let state = app::tests::state();
@@ -2190,7 +2301,6 @@ mod tests {
             .unwrap();
             let mut changed = previous.definition.clone();
             let latest = match field {
-                "disabled" => generated::set_enabled(&db, &previous.id, previous.revision, false),
                 "retired" => generated::retire(&db, &previous.id, previous.revision),
                 _ => {
                     match field {
@@ -2295,27 +2405,29 @@ mod tests {
     }
 
     #[test]
-    fn disabled_official_widget_resets_baseline_without_replaying_on_reactivation() {
+    fn official_reaction_off_discards_state_changes_without_replaying_on_reactivation() {
         let state = app::tests::state();
         let db = lock(&state.db).unwrap();
-        let id = uuid::Uuid::new_v4().to_string();
+        let id: String = db
+            .query_row("SELECT id FROM widget_instances WHERE kind='memo'", [], |row| row.get(0))
+            .unwrap();
         db.execute(
-            "INSERT INTO widget_instances VALUES(?1,'memo',1,1,1,1,'{\"count\":0}',NULL)",
+            "UPDATE widget_instances SET data='{\"count\":0}',revision=1 WHERE id=?1",
             [&id],
         )
         .unwrap();
-        generated::save_rules(&db, &id, vec![rule(&id)], &json!({"count":0})).unwrap();
+        let mut condition = rule(&id);
+        condition.cooldown_ms = 10_000;
+        generated::save_rules(&db, &id, vec![condition], &json!({"count":0})).unwrap();
+        storage::set_reaction(&db, &id, false).unwrap();
         db.execute(
-            "UPDATE widget_instances SET enabled=0,data='{\"count\":1}',revision=2 WHERE id=?1",
+            "UPDATE widget_instances SET data='{\"count\":1}',revision=2 WHERE id=?1",
             [&id],
         )
         .unwrap();
         observe_official_rules(&db, 1000).unwrap();
-        db.execute(
-            "UPDATE widget_instances SET enabled=1,revision=3 WHERE id=?1",
-            [&id],
-        )
-        .unwrap();
+        assert!(generated::take_pending(&db, 1000).unwrap().is_none());
+        storage::set_reaction(&db, &id, true).unwrap();
         observe_official_rules(&db, 1100).unwrap();
         assert!(generated::take_pending(&db, 1100).unwrap().is_none());
         db.execute(
@@ -2331,6 +2443,45 @@ mod tests {
         .unwrap();
         observe_official_rules(&db, 1300).unwrap();
         assert!(generated::take_pending(&db, 1300).unwrap().is_some());
+
+        db.execute(
+            "UPDATE widget_instances SET data='{\"count\":0}',revision=6 WHERE id=?1",
+            [&id],
+        )
+        .unwrap();
+        observe_official_rules(&db, 1400).unwrap();
+        storage::set_reaction(&db, &id, false).unwrap();
+        db.execute(
+            "UPDATE widget_instances SET data='{\"count\":1}',revision=7 WHERE id=?1",
+            [&id],
+        )
+        .unwrap();
+        storage::set_reaction(&db, &id, true).unwrap();
+        observe_official_rules(&db, 1500).unwrap();
+        assert!(generated::take_pending(&db, 1500).unwrap().is_none());
+    }
+
+    #[test]
+    fn generated_reaction_off_does_not_consume_rule_cooldown() {
+        let state = app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let widget = generated::create(
+            &db,
+            definition(),
+            generated::InstallationOrigin::Import,
+            None,
+        )
+        .unwrap();
+        let mut widget = generated::mark_ready(&db, &widget.id, widget.revision).unwrap();
+        let mut condition = rule(&widget.id);
+        condition.cooldown_ms = 60_000;
+        generated::save_rules(&db, &widget.id, vec![condition], &widget.state).unwrap();
+        storage::set_reaction(&db, &widget.id, false).unwrap();
+        widget = save_observed_state(&state, &db, &widget.id, widget.revision, json!({"count":1})).unwrap();
+        storage::set_reaction(&db, &widget.id, true).unwrap();
+        widget = save_observed_state(&state, &db, &widget.id, widget.revision, json!({"count":0})).unwrap();
+        save_observed_state(&state, &db, &widget.id, widget.revision, json!({"count":1})).unwrap();
+        assert!(generated::take_pending(&db, chrono::Utc::now().timestamp_millis()).unwrap().is_some());
     }
 
     #[test]
@@ -2420,6 +2571,22 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_ne!(next.rule_revision, pending.rule_revision);
+        let event = WidgetEvent {
+            id: next.id.clone(),
+            instance_id: widget.id.clone(),
+            widget_kind: "state-rule".into(),
+            revision: next.revision,
+            created_at: next.created_at,
+            expires_at: next.expires_at,
+            event: EventDraft {
+                kind: "state-rule".into(),
+                text: next.text.clone(),
+                payload: serde_json::to_value(&next).unwrap(),
+            },
+        };
+        assert!(event_current(&db, &event).unwrap());
+        storage::set_reaction(&db, &widget.id, false).unwrap();
+        assert!(!event_current(&db, &event).unwrap());
         assert!(generated::reaction_current(
             &db,
             &next,
@@ -2431,17 +2598,19 @@ mod tests {
     }
 
     #[test]
-    fn official_state_rule_survives_unrelated_updates_but_not_disable_and_reenable() {
+    fn official_state_rule_survives_unrelated_updates_but_not_baseline_reset() {
         let state = app::tests::state();
         let db = lock(&state.db).unwrap();
-        let id = uuid::Uuid::new_v4().to_string();
+        let id: String = db
+            .query_row("SELECT id FROM widget_instances WHERE kind='memo'", [], |row| row.get(0))
+            .unwrap();
         db.execute(
-            "INSERT INTO widget_instances VALUES(?1,'memo',1,1,1,1,'{\"count\":0}',NULL)",
+            "UPDATE widget_instances SET data='{\"count\":0}',revision=1 WHERE id=?1",
             [&id],
         )
         .unwrap();
         let condition = rule(&id);
-        generated::save_rules(&db, &id, vec![condition.clone()], &json!({"count":0})).unwrap();
+        generated::save_rules(&db, &id, vec![condition], &json!({"count":0})).unwrap();
         db.execute(
             "UPDATE widget_instances SET data='{\"count\":1,\"ticks\":0}',revision=2 WHERE id=?1",
             [&id],
@@ -2457,37 +2626,8 @@ mod tests {
         let pending = generated::take_pending(&db, 1100).unwrap().unwrap();
         let (data, revision) = source_state(&db, &id).unwrap();
         assert!(generated::reaction_current(&db, &pending, &data, revision, 1100).unwrap());
-        db.execute(
-            "UPDATE widget_instances SET enabled=0,revision=4 WHERE id=?1",
-            [&id],
-        )
-        .unwrap();
         reset_rule_baseline(&db, &id).unwrap();
-        let current: i64 = db
-            .query_row(
-                "SELECT revision FROM widget_state_rules WHERE id=?1",
-                [&condition.id],
-                |row| row.get(0),
-            )
-            .unwrap();
         observe_official_rules(&db, 1200).unwrap();
-        let repeated: i64 = db
-            .query_row(
-                "SELECT revision FROM widget_state_rules WHERE id=?1",
-                [&condition.id],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(
-            current, repeated,
-            "inactive polling must not repeatedly bump rule versions"
-        );
-        db.execute(
-            "UPDATE widget_instances SET enabled=1,revision=5 WHERE id=?1",
-            [&id],
-        )
-        .unwrap();
-        reset_rule_baseline(&db, &id).unwrap();
         let (data, revision) = source_state(&db, &id).unwrap();
         assert!(!generated::reaction_current(&db, &pending, &data, revision, 1300).unwrap());
         assert!(generated::take_pending(&db, 1300).unwrap().is_none());

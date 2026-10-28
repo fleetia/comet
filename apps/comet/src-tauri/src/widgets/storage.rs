@@ -21,11 +21,145 @@ CREATE TABLE IF NOT EXISTS widget_events(seq INTEGER PRIMARY KEY AUTOINCREMENT,
 id TEXT UNIQUE NOT NULL,instance_id TEXT NOT NULL,data TEXT NOT NULL,pending INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS widget_journal(event_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS widget_preferences(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS weather_history(day TEXT NOT NULL,lat REAL NOT NULL,lon REAL NOT NULL,code INTEGER NOT NULL,tMax REAL NOT NULL,tMin REAL NOT NULL,tObserved REAL,source TEXT NOT NULL DEFAULT 'live',PRIMARY KEY(day,lat,lon));
+CREATE TABLE IF NOT EXISTS character_touches(character_id TEXT NOT NULL,user_id TEXT NOT NULL,action TEXT NOT NULL,count INTEGER NOT NULL,last_at INTEGER NOT NULL,PRIMARY KEY(character_id,user_id,action));
+CREATE TABLE IF NOT EXISTS character_touch_events(character_id TEXT NOT NULL,user_id TEXT NOT NULL,created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS character_touch_events_lookup ON character_touch_events(character_id,user_id,created_at);
+CREATE INDEX IF NOT EXISTS character_touch_events_expiry ON character_touch_events(created_at);
+
 CREATE TABLE IF NOT EXISTS desktop_toy_results(id TEXT PRIMARY KEY,widget_id TEXT NOT NULL,kind TEXT NOT NULL,created_at INTEGER NOT NULL,data TEXT NOT NULL);",
     )
     .map_err(err)?;
     retire_removed_widgets(db)?;
+    let tx = db.unchecked_transaction().map_err(err)?;
+    let package_migration_done = tx
+        .query_row(
+            "SELECT 1 FROM widget_preferences WHERE key='package-init-migration-v1'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()
+        .map_err(err)?
+        .is_some();
+    for manifest in super::catalog()? {
+        let existing = tx
+            .query_row(
+                "SELECT id,installed,enabled FROM widget_instances WHERE kind=?1",
+                [&manifest.id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, bool>(1)?,
+                        row.get::<_, bool>(2)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(err)?;
+        if let Some((id, installed, enabled)) = existing {
+            if !installed || !package_migration_done {
+                tx.execute(
+                    "INSERT OR IGNORE INTO widget_preferences(key,value) VALUES(?1,'1')",
+                    [format!("package-init:{id}")],
+                )
+                .map_err(err)?;
+            }
+            if !installed || !enabled {
+                tx.execute(
+                    "INSERT OR REPLACE INTO widget_preferences(key,value) VALUES(?1,'1')",
+                    [format!("widget-migrated:{id}")],
+                )
+                .map_err(err)?;
+            }
+            if !enabled {
+                tx.execute(
+                    "INSERT OR IGNORE INTO widget_preferences(key,value) VALUES(?1,'0')",
+                    [format!("reaction:{id}")],
+                )
+                .map_err(err)?;
+            }
+            if manifest.id == "plant" && !enabled {
+                tx.execute(
+                    "UPDATE widget_instances SET data=json_set(data,'$.updatedAt',?1) WHERE id=?2",
+                    params![chrono::Utc::now().timestamp_millis(), id],
+                )
+                .map_err(err)?;
+            }
+            tx.execute(
+                "UPDATE widget_instances SET installed=1,enabled=1 WHERE id=?1",
+                [id],
+            )
+            .map_err(err)?;
+        } else {
+            let id = uuid::Uuid::new_v4().to_string();
+            tx.execute(
+                "INSERT INTO widget_instances VALUES(?1,?2,?3,1,1,0,?4,NULL)",
+                params![
+                    id,
+                    manifest.id,
+                    manifest.version,
+                    serde_json::to_string(&super::initial(&manifest.id)?).map_err(err)?
+                ],
+            )
+            .map_err(err)?;
+            tx.execute(
+                "INSERT INTO widget_preferences(key,value) VALUES(?1,'1')",
+                [format!("package-init:{id}")],
+            )
+            .map_err(err)?;
+            tx.execute(
+                "INSERT INTO widget_preferences(key,value) VALUES(?1,'1')",
+                [format!("widget-migrated:{id}")],
+            )
+            .map_err(err)?;
+        }
+    }
+    tx.execute(
+        "INSERT OR IGNORE INTO widget_preferences(key,value) VALUES('package-init-migration-v1','1')",
+        [],
+    )
+    .map_err(err)?;
+    tx.commit().map_err(err)?;
     super::backgrounds::initialize(db)
+}
+
+#[derive(Default, serde::Serialize)]
+pub(crate) struct CharacterTouches {
+    pub total: i64,
+    pub stroke: i64,
+    pub poke: i64,
+    pub cheek: i64,
+    pub snack: i64,
+    pub today: i64,
+}
+
+pub(crate) fn character_touches(db: &Connection, character_id: &str, now: i64) -> Result<CharacterTouches> {
+    use chrono::TimeZone;
+    let user_id = crate::store::active_user_id(db)?;
+    let mut counts = CharacterTouches::default();
+    let mut statement = db.prepare("SELECT action,count FROM character_touches WHERE character_id=?1 AND user_id=?2").map_err(err)?;
+    let rows = statement.query_map(params![character_id, user_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))).map_err(err)?;
+    for row in rows {
+        let (action, count) = row.map_err(err)?;
+        counts.total += count;
+        match action.as_str() {
+            "stroke" => counts.stroke = count,
+            "poke" => counts.poke = count,
+            "cheek-grab" => counts.cheek = count,
+            "snack" => counts.snack = count,
+            _ => {}
+        }
+    }
+    let today = chrono::Local.timestamp_millis_opt(now).single().ok_or("시각이 올바르지 않아요.")?.date_naive();
+    // UTC timestamps let today's count follow the device timezone even after it changes.
+    let mut statement = db.prepare("SELECT created_at FROM character_touch_events WHERE character_id=?1 AND user_id=?2 AND created_at>=?3 AND created_at<=?4").map_err(err)?;
+    let rows = statement.query_map(params![character_id, user_id, now.saturating_sub(172_800_000), now.saturating_add(172_800_000)], |row| row.get::<_, i64>(0)).map_err(err)?;
+    for row in rows {
+        if chrono::Local.timestamp_millis_opt(row.map_err(err)?).single().is_some_and(|at| at.date_naive() == today) {
+            counts.today += 1;
+        }
+    }
+    Ok(counts)
 }
 
 fn retire_removed_widgets(db: &Connection) -> Result<()> {
@@ -45,11 +179,7 @@ fn retire_removed_widgets(db: &Connection) -> Result<()> {
 
 pub fn bump_revision(db: &Connection, id: &str, expected_revision: i64) -> Result<WidgetInstance> {
     let mut instance = get(db, id)?;
-    if super::is_retired(&instance.kind)
-        || !instance.installed
-        || !instance.enabled
-        || instance.revision != expected_revision
-    {
+    if super::is_retired(&instance.kind) || instance.revision != expected_revision {
         return Err(
             "다른 화면에서 위젯이 변경됐어요. 최신 상태를 확인하고 다시 시도해 주세요.".into(),
         );
@@ -60,55 +190,57 @@ pub fn bump_revision(db: &Connection, id: &str, expected_revision: i64) -> Resul
 }
 
 pub fn instances(db: &Connection) -> Result<Vec<WidgetInstance>> {
-    let mut statement = db.prepare("SELECT id,kind,version,installed,enabled,revision,data,error FROM widget_instances ORDER BY rowid").map_err(err)?;
+    let mut statement = db
+        .prepare("SELECT id,kind,version,revision,data,error FROM widget_instances ORDER BY rowid")
+        .map_err(err)?;
     let rows = statement
         .query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, u32>(2)?,
-                row.get::<_, bool>(3)?,
-                row.get::<_, bool>(4)?,
-                row.get::<_, i64>(5)?,
-                row.get::<_, String>(6)?,
-                row.get::<_, Option<String>>(7)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
             ))
         })
         .map_err(err)?;
     rows.map(|row| {
-        let (id, kind, version, installed, enabled, revision, data, error) = row.map_err(err)?;
+        let (id, kind, version, revision, data, error) = row.map_err(err)?;
         Ok(WidgetInstance {
             id,
             kind,
             version,
-            installed,
-            enabled,
             revision,
             data: serde_json::from_str(&data).map_err(err)?,
             error,
         })
     })
-    .collect()
+    .collect::<Result<Vec<_>>>()
+    .map(|instances| {
+        instances
+            .into_iter()
+            .filter(|instance| !super::is_retired(&instance.kind))
+            .collect()
+    })
 }
 
 pub fn get(db: &Connection, id: &str) -> Result<WidgetInstance> {
     instances(db)?
         .into_iter()
         .find(|instance| instance.id == id)
-        .ok_or_else(|| "설치된 위젯을 찾지 못했어요.".into())
+        .ok_or_else(|| "위젯을 찾지 못했어요.".into())
 }
 
-pub(crate) fn put(db: &Connection, instance: &WidgetInstance) -> Result<()> {
+fn put(db: &Connection, instance: &WidgetInstance) -> Result<()> {
     db.execute(
-        "INSERT INTO widget_instances VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
+        "INSERT INTO widget_instances VALUES(?1,?2,?3,1,1,?4,?5,?6)
 ON CONFLICT(id) DO UPDATE SET version=excluded.version,installed=excluded.installed,
 enabled=excluded.enabled,revision=excluded.revision,data=excluded.data,error=excluded.error",
         params![
             instance.id,
             instance.kind,
             instance.version,
-            instance.installed,
-            instance.enabled,
             instance.revision,
             serde_json::to_string(&instance.data).map_err(err)?,
             instance.error
@@ -129,7 +261,11 @@ pub fn snapshot(db: &Connection) -> Result<WidgetSnapshot> {
             .map(|instance| {
                 let background_updated_at = super::backgrounds::info(db, &instance.id)?
                     .map(|background| background.updated_at);
-                super::project_with_background(instance, &all, background_updated_at)
+                let reaction = reaction_enabled(db, &instance.id)?;
+                let mut view =
+                    super::project_with_background(instance, &all, background_updated_at)?;
+                view.reaction = reaction;
+                Ok(view)
             })
             .collect::<Result<_>>()?,
         onboarding_done: db
@@ -191,103 +327,6 @@ fn write_package(path: &Path, kind: &str) -> Result<()> {
     result
 }
 
-pub fn install(db: &Connection, directory: &Path, kinds: &[String]) -> Result<()> {
-    if kinds.is_empty() || kinds.len() > super::catalog()?.len() {
-        return Err("설치할 위젯을 선택해 주세요.".into());
-    }
-    let before = instances(db)?;
-    let mut selected = std::collections::BTreeSet::new();
-    for kind in kinds {
-        super::manifest(kind)?;
-        if !selected.insert(kind.as_str()) {
-            return Err("같은 위젯을 두 번 선택했어요.".into());
-        }
-    }
-    for kind in kinds {
-        for dependency in super::manifest(kind)?.required {
-            if !selected.contains(dependency.as_str())
-                && !before
-                    .iter()
-                    .any(|entry| entry.kind == dependency && entry.installed && entry.enabled)
-            {
-                return Err(format!(
-                    "{}도 설치 항목에 선택하거나 먼저 켜 주세요.",
-                    super::manifest(&dependency)?.name
-                ));
-            }
-        }
-    }
-    for kind in kinds {
-        package_path(directory, kind)?;
-        if before
-            .iter()
-            .any(|entry| entry.kind == *kind && entry.version != 1)
-        {
-            return Err("남아 있는 위젯 데이터의 버전이 호환되지 않아요.".into());
-        }
-    }
-    let staging = directory
-        .join("widgets")
-        .join(format!(".install-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&staging).map_err(err)?;
-    let mut published: Vec<(std::path::PathBuf, Option<std::path::PathBuf>)> = Vec::new();
-    let result = (|| {
-        for kind in kinds {
-            write_package(&staging.join(kind), kind)?;
-        }
-        let tx = db.unchecked_transaction().map_err(err)?;
-        for kind in kinds {
-            let path = package_path(directory, kind)?;
-            let old = if path.try_exists().map_err(err)? {
-                let backup = staging.join(format!("previous-{kind}"));
-                std::fs::rename(&path, &backup).map_err(err)?;
-                Some(backup)
-            } else {
-                None
-            };
-            published.push((path.clone(), old));
-            std::fs::rename(staging.join(kind), &path).map_err(err)?;
-            let mut instance = before
-                .iter()
-                .find(|entry| entry.kind == *kind)
-                .cloned()
-                .unwrap_or(WidgetInstance {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    kind: kind.clone(),
-                    version: 1,
-                    installed: false,
-                    enabled: false,
-                    revision: 0,
-                    data: super::initial(kind)?,
-                    error: None,
-                });
-            if !instance.enabled {
-                suspend(&mut instance, chrono::Utc::now().timestamp_millis(), true)?;
-            }
-            instance.installed = true;
-            instance.enabled = true;
-            instance.error = None;
-            instance.revision += 1;
-            put(&tx, &instance)?;
-        }
-        synchronize_jar(&tx)?;
-        discard_pending(&tx)?;
-        tx.commit().map_err(err)
-    })();
-    if result.is_err() {
-        for (path, old) in published.into_iter().rev() {
-            if path.exists() {
-                std::fs::remove_dir_all(&path).map_err(err)?;
-            }
-            if let Some(old) = old {
-                std::fs::rename(old, path).map_err(err)?;
-            }
-        }
-    }
-    std::fs::remove_dir_all(staging).map_err(err)?;
-    result
-}
-
 fn suspend(instance: &mut WidgetInstance, now: i64, restarting: bool) -> Result<()> {
     match instance.kind.as_str() {
         "focus-timer" if instance.data["status"] == "running" => {
@@ -313,77 +352,36 @@ fn suspend(instance: &mut WidgetInstance, now: i64, restarting: bool) -> Result<
     Ok(())
 }
 
-pub fn set_enabled(db: &Connection, id: &str, enabled: bool) -> Result<()> {
-    let tx = db.unchecked_transaction().map_err(err)?;
-    let mut instance = get(&tx, id)?;
-    super::manifest(&instance.kind)?;
-    if !instance.installed {
-        return Err("위젯을 먼저 설치해 주세요.".into());
-    }
-    if !enabled {
-        suspend(&mut instance, chrono::Utc::now().timestamp_millis(), false)?;
-    }
-    if enabled && !instance.enabled && instance.kind == "plant" {
-        instance.data["updatedAt"] = json!(chrono::Utc::now().timestamp_millis());
-    }
-    instance.enabled = enabled;
-    instance.revision += 1;
-    put(&tx, &instance)?;
-    discard_pending(&tx)?;
-    tx.commit().map_err(err)
-}
-
-pub fn remove(db: &Connection, directory: &Path, id: &str, delete_data: bool) -> Result<()> {
-    let mut instance = get(db, id)?;
-    let path = package_path(directory, &instance.kind)?;
-    // Move to a non-executable staging name so a DB failure can restore the package.
-    let staged = path.with_extension(format!("removed-{}", uuid::Uuid::new_v4()));
-    let existed = path.try_exists().map_err(err)?;
-    if existed {
-        std::fs::rename(&path, &staged).map_err(err)?;
-    }
-    let result = (|| {
-        let tx = db.unchecked_transaction().map_err(err)?;
-        instance.installed = false;
-        instance.enabled = false;
-        instance.revision += 1;
-        instance.error = None;
-        suspend(&mut instance, chrono::Utc::now().timestamp_millis(), false)?;
-        if delete_data && instance.kind != "image" {
-            instance.data = super::initial(&instance.kind)?;
-            super::backgrounds::remove(&tx, id)?;
-            tx.execute("DELETE FROM widget_journal WHERE event_id IN (SELECT id FROM desktop_toy_results WHERE widget_id=?1)",[id]).map_err(err)?;
-            tx.execute("DELETE FROM widget_events WHERE id IN (SELECT id FROM desktop_toy_results WHERE widget_id=?1)",[id]).map_err(err)?;
-            tx.execute("DELETE FROM desktop_toy_results WHERE widget_id=?1", [id])
-                .map_err(err)?;
-        }
-        if delete_data && instance.kind == "journal" {
-            tx.execute("DELETE FROM widget_journal", []).map_err(err)?;
-        }
-        put(&tx, &instance)?;
-        discard_pending(&tx)?;
-        tx.commit().map_err(err)
-    })();
-    if result.is_err() {
-        if existed {
-            let _ = std::fs::rename(&staged, &path);
-        }
-        return result;
-    }
-    if existed {
-        let metadata = staged.symlink_metadata().map_err(err)?;
-        if metadata.file_type().is_symlink() {
-            std::fs::remove_file(&staged).map_err(err)?;
-        } else {
-            std::fs::remove_dir_all(&staged).map_err(err)?;
-        }
-    }
-    Ok(())
-}
-
 pub fn verify_packages(db: &Connection, directory: &Path) -> Result<()> {
     retire_removed_widgets(db)?;
-    for mut instance in instances(db)?.into_iter().filter(|entry| entry.installed) {
+    for mut instance in instances(db)?
+        .into_iter()
+        .filter(|entry| !super::is_retired(&entry.kind))
+    {
+        let pending_key = format!("package-init:{}", instance.id);
+        let pending = db
+            .query_row(
+                "SELECT 1 FROM widget_preferences WHERE key=?1",
+                [&pending_key],
+                |_| Ok(()),
+            )
+            .optional()
+            .map_err(err)?
+            .is_some();
+        if pending {
+            let prepared = (|| -> Result<()> {
+                let path = package_path(directory, &instance.kind)?;
+                write_package(&path, &instance.kind)?;
+                Ok(())
+            })();
+            if prepared.is_ok() {
+                db.execute(
+                    "DELETE FROM widget_preferences WHERE key=?1",
+                    [&pending_key],
+                )
+                .map_err(err)?;
+            }
+        }
         let valid = (|| -> Result<bool> {
             let path = package_path(directory, &instance.kind)?;
             let mut definition = super::manifest(&instance.kind)?;
@@ -421,19 +419,23 @@ pub fn verify_packages(db: &Connection, directory: &Path) -> Result<()> {
         })()
         .unwrap_or(false);
         if !valid {
-            instance.enabled = false;
-            instance.error = Some(
-                "설치 파일을 확인하지 못했어요. 다시 설치해 주세요. 데이터는 보존했어요.".into(),
-            );
+            instance.error = Some("위젯 파일을 확인하지 못했어요. 데이터는 보존했어요.".into());
+            put(db, &instance)?;
+        } else if super::is_package_error(instance.error.as_deref()) {
+            instance.error = None;
             put(db, &instance)?;
         }
         let before = instance.data.clone();
-        let restarting = instance.enabled;
-        suspend(
-            &mut instance,
-            chrono::Utc::now().timestamp_millis(),
-            restarting,
-        )?;
+        let migrated = db
+            .execute(
+                "DELETE FROM widget_preferences WHERE key=?1",
+                [format!("widget-migrated:{}", instance.id)],
+            )
+            .map_err(err)?
+            > 0;
+        if !migrated {
+            suspend(&mut instance, chrono::Utc::now().timestamp_millis(), true)?;
+        }
         if instance.data != before {
             instance.revision += 1;
             put(db, &instance)?;
@@ -445,13 +447,12 @@ pub fn verify_packages(db: &Connection, directory: &Path) -> Result<()> {
 fn active_data(db: &Connection) -> Result<BTreeMap<String, Value>> {
     Ok(instances(db)?
         .into_iter()
-        .filter(|entry| entry.installed && entry.enabled && !super::is_retired(&entry.kind))
+        .filter(|entry| !super::is_retired(&entry.kind))
         .map(|entry| (entry.kind, entry.data))
         .collect())
 }
 
-// Body and widget gestures own the same inventory and reaction cooldown. Creating
-// dormant data here does not install or enable the optional interaction widget.
+// Body and widget gestures own the same inventory and reaction cooldown.
 #[cfg(test)]
 pub(crate) fn body_interaction(
     db: &Connection,
@@ -464,7 +465,12 @@ pub(crate) fn body_interaction(
         .iter()
         .position(|id| id == character_id)
         .ok_or("활성 캐릭터가 아니에요.")?;
-    body_interaction_at(db, character_id, slot, action, request_id, now)
+    Ok(body_interaction_at(db, character_id, slot, action, request_id, now)?.event)
+}
+
+pub(crate) struct BodyInteraction {
+    pub accepted: bool,
+    pub event: Option<WidgetEvent>,
 }
 
 // A runtime actor ticket is validated by the caller under action before this
@@ -476,7 +482,7 @@ pub(crate) fn body_interaction_with_actor(
     action: &str,
     request_id: &str,
     now: i64,
-) -> Result<Option<WidgetEvent>> {
+) -> Result<BodyInteraction> {
     if slot >= crate::characters::MAX_ROSTER
         || crate::characters::get(db, &actor.id)?.definition != actor.definition
     {
@@ -492,7 +498,7 @@ fn body_interaction_at(
     action: &str,
     request_id: &str,
     now: i64,
-) -> Result<Option<WidgetEvent>> {
+) -> Result<BodyInteraction> {
     uuid::Uuid::parse_str(request_id)
         .map_err(|_| "교감 요청 식별자가 올바르지 않아요.".to_string())?;
     if !matches!(
@@ -515,7 +521,10 @@ fn body_interaction_at(
         if previous != fingerprint {
             return Err("이미 사용한 교감 요청의 내용이 달라졌어요.".into());
         }
-        return Ok(None);
+        return Ok(BodyInteraction {
+            accepted: false,
+            event: None,
+        });
     }
     let mut instance = instances(&tx)?
         .into_iter()
@@ -524,18 +533,44 @@ fn body_interaction_at(
             id: uuid::Uuid::new_v4().to_string(),
             kind: "interaction".into(),
             version: 1,
-            installed: false,
-            enabled: false,
             revision: 0,
             data: super::toys::initial("interaction"),
             error: None,
         });
     let input = json!({"character":((b'A' + slot as u8) as char).to_string(),"owner":character_id});
     let effect = super::toys::act("interaction", &instance.data, action, &input, now, 0)?;
-    let draft = effect.events.into_iter().next().map(|mut event| {
+    let mut draft = effect.events.into_iter().next().map(|mut event| {
         event.payload["source"] = json!("body");
         event
     });
+    if matches!(action, "poke" | "stroke" | "cheek-grab" | "snack") {
+        let user_id = crate::store::active_user_id(&tx)?;
+        tx.execute("INSERT INTO character_touches(character_id,user_id,action,count,last_at) VALUES(?1,?2,?3,1,?4) ON CONFLICT(character_id,user_id,action) DO UPDATE SET count=count+1,last_at=excluded.last_at", params![character_id, user_id, action, now]).map_err(err)?;
+        tx.execute("INSERT INTO character_touch_events(character_id,user_id,created_at) VALUES(?1,?2,?3)", params![character_id, user_id, now]).map_err(err)?;
+        tx.execute("DELETE FROM character_touch_events WHERE created_at<?1", [now.saturating_sub(172_800_000)]).map_err(err)?;
+        let (total, action_count): (i64, i64) = tx.query_row(
+            "SELECT SUM(count),SUM(CASE WHEN action=?3 THEN count ELSE 0 END) FROM character_touches WHERE character_id=?1 AND user_id=?2",
+            params![character_id, user_id, action],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).map_err(err)?;
+        const MILESTONES: [i64; 9] = [1, 10, 50, 100, 200, 500, 1000, 2000, 5000];
+        let milestone = if MILESTONES.contains(&total) {
+            Some((total, "total"))
+        } else if MILESTONES.contains(&action_count) {
+            Some((action_count, if action == "cheek-grab" { "cheek" } else { action }))
+        } else {
+            None
+        };
+        if let Some((number, counter)) = milestone {
+            let event = draft.get_or_insert_with(|| EventDraft {
+                kind: "interaction.milestone".into(),
+                text: String::new(),
+                payload: json!({"source":"body","character":((b'A' + slot as u8) as char).to_string(),"owner":character_id,"action":action}),
+            });
+            event.payload["milestone"] = json!(number);
+            event.payload["counter"] = json!(counter);
+        }
+    }
     instance.data = effect.data;
     instance.revision += 1;
     put(&tx, &instance)?;
@@ -545,15 +580,18 @@ fn body_interaction_at(
     )
     .map_err(err)?;
     tx.commit().map_err(err)?;
-    Ok(draft.map(|event| WidgetEvent {
-        id: request_id.into(),
-        instance_id: instance.id,
-        widget_kind: "interaction".into(),
-        revision: instance.revision,
-        created_at: now,
-        expires_at: now + 30_000,
-        event,
-    }))
+    Ok(BodyInteraction {
+        accepted: true,
+        event: draft.map(|event| WidgetEvent {
+            id: request_id.into(),
+            instance_id: instance.id,
+            widget_kind: "interaction".into(),
+            revision: instance.revision,
+            created_at: now,
+            expires_at: now + 30_000,
+            event,
+        }),
+    })
 }
 
 pub fn execute(db: &Connection, request: &WidgetRequest, now: i64, entropy: u64) -> Result<()> {
@@ -588,9 +626,6 @@ pub(crate) fn execute_in_transaction(
         };
     }
     let instance = get(tx, &request.instance_id)?;
-    if !instance.installed || !instance.enabled {
-        return Err("설치하고 켠 위젯만 사용할 수 있어요.".into());
-    }
     if instance.revision != request.expected_revision {
         return Err(
             "다른 화면에서 위젯이 변경됐어요. 최신 상태를 확인하고 다시 시도해 주세요.".into(),
@@ -614,6 +649,17 @@ pub(crate) fn execute_in_transaction(
         }
     }
     let mut related = active_data(tx)?;
+    if instance.kind == "focus-timer"
+        && matches!(request.action.as_str(), "continue" | "pause")
+        && !related.contains_key("todo")
+    {
+        if let Some(todo) = instances(tx)?
+            .into_iter()
+            .find(|entry| entry.kind == "todo")
+        {
+            related.insert("todo".into(), todo.data);
+        }
+    }
     if instance.kind == "preparation"
         && matches!(request.action.as_str(), "create" | "update")
         && request.input["eventId"]
@@ -679,8 +725,8 @@ fn create_preparation_with_tasks(
     }
     let todo = instances(db)?
         .into_iter()
-        .find(|item| item.kind == "todo" && item.installed && item.enabled)
-        .ok_or("할 일 위젯을 켜 주세요.")?;
+        .find(|item| item.kind == "todo")
+        .ok_or("할 일 위젯을 찾지 못했어요.")?;
     let todo_effect = super::planning::act(
         "todo",
         &todo.data,
@@ -749,8 +795,8 @@ fn promote_preparation_check(
         .ok_or("계획할 날짜를 선택해 주세요.")?;
     let todo = instances(db)?
         .into_iter()
-        .find(|item| item.kind == "todo" && item.installed && item.enabled)
-        .ok_or("할 일 위젯을 켜 주세요.")?;
+        .find(|item| item.kind == "todo")
+        .ok_or("할 일 위젯을 찾지 못했어요.")?;
     let todo_effect = super::planning::act(
         "todo",
         &todo.data,
@@ -791,8 +837,8 @@ pub(crate) fn move_diary_todo(
 ) -> Result<()> {
     let todo = instances(db)?
         .into_iter()
-        .find(|item| item.kind == "todo" && item.installed && item.enabled)
-        .ok_or("할 일 위젯을 켜 주세요.")?;
+        .find(|item| item.kind == "todo")
+        .ok_or("할 일 위젯을 찾지 못했어요.")?;
     let item = todo.data["items"]
         .as_array()
         .and_then(|items| items.iter().find(|item| item["id"] == todo_id))
@@ -842,7 +888,9 @@ fn apply_effect(
     }
     instance.data = effect.data;
     instance.revision += 1;
-    instance.error = None;
+    if !super::is_package_error(instance.error.as_deref()) {
+        instance.error = None;
+    }
     put(db, &instance)?;
     for draft in effect.events {
         if draft.text.chars().count() > 2000 || draft.kind.len() > 80 {
@@ -878,7 +926,7 @@ fn apply_effect(
     if instance.kind == "todo" {
         synchronize_jar(db)?;
     }
-    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND (json_extract(data,'$.expiresAt')<=?1 OR NOT EXISTS(SELECT 1 FROM widget_instances i WHERE i.id=widget_events.instance_id AND i.installed=1 AND i.enabled=1 AND i.revision=json_extract(widget_events.data,'$.revision')))",[now]).map_err(err)?;
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND (json_extract(data,'$.expiresAt')<=?1 OR NOT EXISTS(SELECT 1 FROM widget_instances i WHERE i.id=widget_events.instance_id AND i.revision=json_extract(widget_events.data,'$.revision')))",[now]).map_err(err)?;
     db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND seq NOT IN (SELECT seq FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8)",[]).map_err(err)?;
     Ok(())
 }
@@ -893,15 +941,100 @@ pub fn commit_data(
 ) -> Result<()> {
     let tx = db.unchecked_transaction().map_err(err)?;
     let instance = get(&tx, id)?;
-    if super::is_retired(&instance.kind)
-        || !instance.installed
-        || !instance.enabled
-        || instance.revision != expected_revision
-    {
+    if super::is_retired(&instance.kind) || instance.revision != expected_revision {
         return Err("이미 변경되거나 중지된 위젯의 결과는 적용하지 않았어요.".into());
     }
     apply_effect(&tx, instance, WidgetEffect { data, events }, now)?;
     tx.commit().map_err(err)
+}
+
+pub(crate) fn record_daily_weather_event(
+    db: &Connection,
+    instance: &WidgetInstance,
+    draft: EventDraft,
+    day: &str,
+    now: i64,
+) -> Result<bool> {
+    let tx = db.unchecked_transaction().map_err(err)?;
+    let key = format!("weather-talk:{}", draft.kind);
+    let previous: Option<String> = tx
+        .query_row(
+            "SELECT value FROM widget_preferences WHERE key=?1",
+            [&key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(err)?;
+    if previous.as_deref() == Some(day) {
+        return Ok(false);
+    }
+    let pending: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM widget_events WHERE pending=1 AND json_extract(data,'$.kind')=?1 AND json_extract(data,'$.payload.day')=?2 AND json_extract(data,'$.expiresAt')>?3)",
+        params![draft.kind, day, now],
+        |row| row.get(0),
+    ).map_err(err)?;
+    if pending {
+        return Ok(false);
+    }
+    let current = get(&tx, &instance.id)?;
+    if super::is_retired(&current.kind)
+        || current.revision != instance.revision
+        || !reaction_enabled(&tx, &current.id)?
+    {
+        return Ok(false);
+    }
+    let event = WidgetEvent {
+        id: uuid::Uuid::new_v4().to_string(),
+        instance_id: instance.id.clone(),
+        widget_kind: instance.kind.clone(),
+        revision: instance.revision,
+        created_at: now,
+        expires_at: now.saturating_add(30_000),
+        event: draft,
+    };
+    tx.execute(
+        "INSERT INTO widget_events(id,instance_id,data,pending) VALUES(?1,?2,?3,1)",
+        params![
+            event.id,
+            event.instance_id,
+            serde_json::to_string(&event).map_err(err)?
+        ],
+    )
+    .map_err(err)?;
+    tx.execute(
+        "INSERT OR IGNORE INTO widget_journal VALUES(?1)",
+        [&event.id],
+    )
+    .map_err(err)?;
+    tx.commit().map_err(err)?;
+    Ok(true)
+}
+
+pub(crate) fn weather_reaction_started(db: &Connection, kind: &str, day: &str) -> Result<bool> {
+    let previous: Option<String> = db.query_row(
+        "SELECT value FROM widget_preferences WHERE key=?1",
+        [format!("weather-talk:{kind}")],
+        |row| row.get(0),
+    ).optional().map_err(err)?;
+    Ok(previous.as_deref() == Some(day))
+}
+
+pub(crate) fn mark_weather_reaction_day(db: &Connection, kind: &str, day: &str) -> Result<()> {
+    db.execute(
+        "INSERT INTO widget_preferences(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        params![format!("weather-talk:{kind}"), day],
+    ).map_err(err)?;
+    Ok(())
+}
+
+pub(crate) fn mark_weather_reaction_started(db: &Connection, event: &WidgetEvent) -> Result<()> {
+    if !matches!(event.event.kind.as_str(), "weather.last-year" | "weather.rain-tomorrow") {
+        return Ok(());
+    }
+    let Some(day) = event.event.payload["day"].as_str() else {
+        return Ok(());
+    };
+    mark_weather_reaction_day(db, &event.event.kind, day)
 }
 
 pub(crate) fn record_desktop_result(
@@ -914,11 +1047,7 @@ pub(crate) fn record_desktop_result(
 ) -> Result<bool> {
     let tx = db.unchecked_transaction().map_err(err)?;
     let instance = get(&tx, id)?;
-    if super::is_retired(&instance.kind)
-        || !instance.installed
-        || !instance.enabled
-        || instance.revision != revision
-    {
+    if super::is_retired(&instance.kind) || instance.revision != revision {
         return Ok(false);
     }
     let event = WidgetEvent {
@@ -951,7 +1080,7 @@ pub(crate) fn record_desktop_result(
 fn collect_item(db: &Connection, event: &EventDraft) -> Result<()> {
     let Some(mut collection) = instances(db)?
         .into_iter()
-        .find(|entry| entry.kind == "collection" && entry.installed && entry.enabled)
+        .find(|entry| entry.kind == "collection")
     else {
         return Ok(());
     };
@@ -986,7 +1115,7 @@ fn synchronize_jar(db: &Connection) -> Result<()> {
     let all = instances(db)?;
     let Some(mut jar) = all
         .iter()
-        .find(|entry| entry.kind == "completion-jar" && entry.installed)
+        .find(|entry| entry.kind == "completion-jar")
         .cloned()
     else {
         return Ok(());
@@ -1026,9 +1155,15 @@ pub fn advance(db: &Connection, now: i64) -> Result<bool> {
 pub fn advance_with_continuity(db: &Connection, now: i64, continuous: bool) -> Result<bool> {
     let tx = db.unchecked_transaction().map_err(err)?;
     let mut changed = false;
-    for instance in instances(&tx)?
+    let all = instances(&tx)?;
+    let related = all
+        .iter()
+        .filter(|entry| entry.kind == "todo")
+        .map(|entry| (entry.kind.clone(), entry.data.clone()))
+        .collect();
+    for instance in all
         .into_iter()
-        .filter(|entry| entry.installed && entry.enabled && !super::is_retired(&entry.kind))
+        .filter(|entry| !super::is_retired(&entry.kind))
     {
         let effect = if instance.kind == "focus-timer" && !continuous {
             super::planning::suspend_timer(&instance.data, now, true).map(|data| {
@@ -1037,6 +1172,8 @@ pub fn advance_with_continuity(db: &Connection, now: i64, continuous: bool) -> R
                     events: vec![],
                 })
             })
+        } else if instance.kind == "focus-timer" {
+            super::planning::tick_timer(&instance.data, now, &related)
         } else {
             super::tick(&instance, now)
         };
@@ -1048,7 +1185,9 @@ pub fn advance_with_continuity(db: &Connection, now: i64, continuous: bool) -> R
             Ok(None) => {}
             Err(error) => {
                 let mut failed = instance;
-                if failed.error.as_deref() != Some(&error) {
+                if !super::is_package_error(failed.error.as_deref())
+                    && failed.error.as_deref() != Some(&error)
+                {
                     failed.error = Some(error);
                     put(&tx, &failed)?;
                     changed = true;
@@ -1067,6 +1206,44 @@ pub(crate) fn discard_automatic_desktop_pending(db: &Connection) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn reaction_enabled(db: &Connection, id: &str) -> Result<bool> {
+    let value: Option<String> = db
+        .query_row(
+            "SELECT value FROM widget_preferences WHERE key=?1",
+            [format!("reaction:{id}")],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(err)?;
+    Ok(value.as_deref() != Some("0"))
+}
+
+pub(crate) fn set_reaction(db: &Connection, id: &str, enabled: bool) -> Result<()> {
+    let tx = db.unchecked_transaction().map_err(err)?;
+    if reaction_enabled(&tx, id)? == enabled {
+        return tx.commit().map_err(err);
+    }
+    tx.execute(
+        "UPDATE widget_events SET pending=0 WHERE pending=1 AND instance_id=?1",
+        [id],
+    )
+    .map_err(err)?;
+    tx.execute("DELETE FROM widget_state_pending WHERE widget_id=?1", [id])
+        .map_err(err)?;
+    if enabled {
+        // Changes made while reactions were off become the next observation baseline.
+        super::generated::invalidate_rule_source(&tx, id)?;
+        tx.execute(
+            "DELETE FROM widget_preferences WHERE key=?1",
+            [format!("reaction:{id}")],
+        )
+        .map_err(err)?;
+    } else {
+        tx.execute("INSERT INTO widget_preferences(key,value) VALUES(?1,'0') ON CONFLICT(key) DO UPDATE SET value='0'", [format!("reaction:{id}")]).map_err(err)?;
+    }
+    tx.commit().map_err(err)
+}
+
 pub fn discard_pending(db: &Connection) -> Result<()> {
     db.execute("UPDATE widget_events SET pending=0 WHERE pending=1", [])
         .map_err(err)?;
@@ -1076,7 +1253,7 @@ pub fn discard_pending(db: &Connection) -> Result<()> {
 /// A paused or finished timer is not focus; `now` is in milliseconds like the timer deadline.
 pub fn focus_active(db: &Connection, now: i64) -> Result<bool> {
     db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM widget_instances WHERE kind='focus-timer' AND installed=1 AND enabled=1 AND json_extract(data,'$.status')='running' AND json_extract(data,'$.mode')='focus' AND json_extract(data,'$.deadline')>?1)",
+        "SELECT EXISTS(SELECT 1 FROM widget_instances WHERE kind='focus-timer' AND json_extract(data,'$.status')='running' AND json_extract(data,'$.mode')='focus' AND json_extract(data,'$.deadline')>?1)",
         [now],
         |row| row.get(0),
     )
@@ -1085,12 +1262,13 @@ pub fn focus_active(db: &Connection, now: i64) -> Result<bool> {
 
 /// Focus drops balloon reactions; OS notifications are delivered independently.
 pub(crate) fn discard_pending_during_focus(db: &Connection) -> Result<()> {
-    discard_pending(db)
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND NOT COALESCE(json_extract(data,'$.widgetKind')='focus-timer' AND json_extract(data,'$.kind')='timer-finished' AND json_extract(data,'$.payload.mode')='rest' AND json_type(data,'$.payload.nextTitle')='text', 0)", []).map_err(err)?;
+    Ok(())
 }
 
 /// Silence preserves important reminders and an explicitly requested greeting preview.
 pub(crate) fn discard_pending_during_quiet(db: &Connection) -> Result<()> {
-    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.kind') NOT IN ('timer-finished','calendar-reminder','planner-reminder') AND NOT (json_extract(data,'$.kind')='planner-mood' AND COALESCE(json_extract(data,'$.payload.preview'),0)=1)", [])
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.kind') NOT IN ('timer-finished','focus-long-rest-started','calendar-reminder','planner-reminder') AND NOT (json_extract(data,'$.kind')='planner-mood' AND COALESCE(json_extract(data,'$.payload.preview'),0)=1)", [])
         .map_err(err)?;
     Ok(())
 }
@@ -1126,6 +1304,7 @@ pub fn take_reaction(db: &Connection, now: i64) -> Result<Option<WidgetEvent>> {
         "UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.payload.bubbleEnabled')=0",
         [],
     ).map_err(err)?;
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND EXISTS(SELECT 1 FROM widget_preferences WHERE key='reaction:' || widget_events.instance_id AND value='0')", []).map_err(err)?;
     let mut statement = db.prepare("SELECT data FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8").map_err(err)?;
     let events = statement
         .query_map([], |row| row.get::<_, String>(0))
@@ -1137,18 +1316,9 @@ pub fn take_reaction(db: &Connection, now: i64) -> Result<Option<WidgetEvent>> {
     let result = events.into_iter().find(|event| {
         event.expires_at > now
             && all.iter().any(|instance| {
-                instance.id == event.instance_id
-                    && instance.installed
-                    && instance.enabled
-                    && instance.revision == event.revision
+                instance.id == event.instance_id && instance.revision == event.revision
             })
-            && super::manifest(&event.widget_kind).is_ok_and(|manifest| {
-                manifest.required.iter().all(|kind| {
-                    all.iter().any(|instance| {
-                        instance.kind == *kind && instance.installed && instance.enabled
-                    })
-                })
-            })
+            && super::manifest(&event.widget_kind).is_ok()
     });
     discard_pending(db)?;
     Ok(result.map(without_toy_statistics))

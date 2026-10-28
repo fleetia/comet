@@ -20,7 +20,7 @@ use std::{
     time::Duration,
 };
 
-pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>) {
+pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>, mut mood_event_cursor: i64) {
     let mut interval = tokio::time::interval(Duration::from_millis(500));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
@@ -31,6 +31,7 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         if state.update_installing.load(Ordering::SeqCst) {
             continue;
         }
+        let _ = skip_blocked_recall_opportunity(&state);
         if super::windows::expire_pause(&state, chrono::Utc::now().timestamp_millis())
             .unwrap_or(false)
         {
@@ -68,7 +69,14 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         });
         let _ = flush_positions(&state, false);
         let _ = advance_widgets(&app, &state);
+        let _ = crate::widgets::mood::advance(&app, &state, &mut mood_event_cursor);
+        if crate::talk::host::play_activity_reaction(&app, &state).unwrap_or(false) {
+            continue;
+        }
         let _ = crate::diary::runtime::tick(&app, &state);
+        if play_mood_reaction(&app, &state).unwrap_or(false) {
+            continue;
+        }
         if crate::widgets::generated::commands::advance_reactions(&app, &state).unwrap_or(false) {
             continue;
         }
@@ -140,6 +148,111 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
             );
         }
     }
+}
+
+fn play_mood_reaction(app: &tauri::AppHandle, state: &Arc<AppState>) -> Result<bool, String> {
+    let pending = {
+        let _action = lock(&state.action)?;
+        let status = lock(&state.runtime)?.clone();
+        let db = lock(&state.db)?;
+        let settings = store::settings(&db)?;
+        if unavailable(state) || status.hidden || status.paused || !settings.autonomous_enabled
+            || storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
+            || super::quiet_hours::automatic_blocked(state, &settings)?
+        {
+            crate::characters::life::discard_mood_changes(state)?;
+            return Ok(false);
+        }
+        if status.phase != "idle" || state.launcher_open.load(Ordering::SeqCst)
+            || lock(&state.panel)?.is_some() || lock(&state.pack_stories)?.run.is_some()
+            || behavior::reactions_blocked(state)?
+        {
+            return Ok(false);
+        }
+        let Some(change) = crate::characters::life::pop_mood_change(state)? else {
+            return Ok(false);
+        };
+        if change.epoch != state.epoch.load(Ordering::SeqCst)
+            || !characters::active_ids(&db)?.contains(&change.character)
+        {
+            return Ok(false);
+        }
+        let previous_epoch = change.epoch;
+        let event = crate::widgets::WidgetEvent {
+            id: uuid::Uuid::new_v4().to_string(),
+            instance_id: String::new(), widget_kind: "mood".into(), revision: 0,
+            created_at: change.at, expires_at: change.at.saturating_add(60_000),
+            event: crate::widgets::EventDraft {
+                kind: "mood.changed".into(), text: String::new(),
+                payload: serde_json::json!({"character": change.character, "from": change.from, "to": change.to, "source": change.source}),
+            },
+        };
+        match crate::talk::host::prepare(state, &db, Some(&event))? {
+            Some(lines) => {
+                let prepared = lock(&state.talk_playback)?.take();
+                let token = super::interrupt_with_db(state, true, &db)?;
+                crate::characters::life::advance_mood_changes_epoch(state, previous_epoch, token.0)?;
+                *lock(&state.talk_playback)? = prepared;
+                Some((token, lines))
+            }
+            None => None,
+        }
+    };
+    if let Some((token, lines)) = pending {
+        super::scene::start_scene(app.clone(), state.clone(), lines, "talk", token, None);
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+fn claim_recall_opportunity(db: &Connection) -> Result<bool, String> {
+    let today = chrono::Local::now().date_naive().to_string();
+    let previous: Option<String> = db
+        .query_row(
+            "SELECT value FROM widget_preferences WHERE key='recall:opportunity'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    if previous.as_deref() == Some(today.as_str()) {
+        return Ok(false);
+    }
+    db.execute(
+        "INSERT INTO widget_preferences(key,value) VALUES('recall:opportunity',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        [&today],
+    ).map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+fn skip_blocked_recall_opportunity(state: &AppState) -> Result<(), String> {
+    if now() < state.next_idle.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    let _action = lock(&state.action)?;
+    let status = lock(&state.runtime)?.clone();
+    let db = lock(&state.db)?;
+    let settings = store::settings(&db)?;
+    if settings.autonomous_enabled
+        && settings.diary_recall_enabled
+        && (status.hidden
+            || status.paused
+            || super::quiet_hours::automatic_blocked(state, &settings)?
+            || storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
+            || behavior::reactions_blocked(state)?)
+    {
+        claim_recall_opportunity(&db)?;
+    }
+    Ok(())
+}
+
+fn defer_recent_recall(state: &AppState, enabled: bool, at: i64) -> bool {
+    let ready_at = state.last_input.load(Ordering::SeqCst).saturating_add(15);
+    if !enabled || at >= ready_at {
+        return false;
+    }
+    state.next_idle.store(ready_at, Ordering::SeqCst);
+    true
 }
 
 pub(crate) fn expire_idle_recall(state: &AppState, at: i64) -> Result<bool, String> {
@@ -236,9 +349,24 @@ pub(crate) async fn run_background(
             if !is_current(state, epoch, &cancel) {
                 return Ok(());
             }
+            if defer_recent_recall(state, settings.diary_recall_enabled, now()) {
+                return Ok(());
+            }
             schedule_idle(state, settings.idle_minutes);
             state.last_scene.store(now(), Ordering::SeqCst);
-            next_scene(state)?
+            let recall = {
+                let db = lock(&state.db)?;
+                if settings.diary_recall_enabled && claim_recall_opportunity(&db)? {
+                    crate::talk::host::prepare_recall(state, &db)?
+                } else {
+                    None
+                }
+            };
+            if let Some(lines) = recall {
+                (lines, "talk")
+            } else {
+                next_scene(state)?
+            }
         };
         return run_scene(
             app,
@@ -427,7 +555,7 @@ pub(crate) async fn run_background(
         if question { "question:" } else { "" },
         uuid::Uuid::new_v4()
     );
-    let prompt = {
+    let mut prompt = {
         let db = lock(&state.db)?;
         if !is_current(state, epoch, &cancel) || store::revision(&db)? != revision {
             return Ok(());
@@ -438,7 +566,7 @@ pub(crate) async fn run_background(
             &memories,
             chrono::Utc::now().timestamp_millis(),
         )?;
-        domain::with_user_context(
+        let mut prompt = domain::with_user_context(
             domain::roster_scene_prompt(
                 &characters,
                 &memories,
@@ -447,25 +575,38 @@ pub(crate) async fn run_background(
                 &installed,
             ),
             store::current_user(&db)?.as_ref(),
-        )
+        );
+        let moods = characters.iter().map(|character| {
+            Ok((character.id.clone(), crate::characters::life::mood(state, &character.id)?))
+        }).collect::<Result<std::collections::BTreeMap<_, _>, String>>()?;
+        let small = settings.mode == "apple" || (settings.mode == "local" && models::selected_small(&settings));
+        domain::with_moods(&mut prompt, &moods, !small, 7200);
+        prompt
     };
     let expressions =
         domain::generated_expressions(characters.iter().map(|member| &member.definition));
+    let mut schema = domain::scene_schema_for(
+        &targets,
+        if targets.len() == 1 { 1 } else { 2 },
+        if targets.len() == 1 { 1 } else { 4 },
+        &expressions,
+    );
+    let widget_kinds = domain::configure_widget_replies(
+        &*lock(&state.db)?,
+        &mut prompt,
+        &mut schema,
+        settings.mode == "apple",
+    )?;
     let result = background_generate(
         state,
         &settings,
         &prompt,
-        domain::scene_schema_for(
-            &targets,
-            if targets.len() == 1 { 1 } else { 2 },
-            if targets.len() == 1 { 1 } else { 4 },
-            &expressions,
-        ),
+        schema,
         512,
         cancel.clone(),
     )
     .await?;
-    let lines = domain::parse_lines_for(
+    let mut lines = domain::parse_lines_for(
         result,
         &targets,
         if targets.len() == 1 { 1 } else { 2 },
@@ -473,6 +614,7 @@ pub(crate) async fn run_background(
         false,
     )?;
     domain::validate_generated_expressions(&lines, &expressions)?;
+    domain::validate_generated_widgets(&mut lines, &widget_kinds);
     let _action = lock(&state.action)?;
     let db = lock(&state.db)?;
     if !is_current(state, epoch, &cancel)
@@ -553,4 +695,24 @@ pub(crate) fn reserve_api_idle(db: &Connection, at: i64) -> Result<bool, String>
     tx.execute("INSERT INTO kv(key,value) VALUES('api_idle_times',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[serde_json::to_string(&times).map_err(|e|e.to_string())?]).map_err(|e|e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(true)
+}
+
+#[cfg(test)]
+mod recall_opportunity_tests {
+    use super::*;
+
+    #[test]
+    fn recent_input_defers_recall_without_claiming_the_daily_opportunity() {
+        let state = super::super::tests::state();
+        state.last_input.store(100, Ordering::SeqCst);
+        state.next_idle.store(105, Ordering::SeqCst);
+        assert!(defer_recent_recall(&state, true, 105));
+        assert_eq!(state.next_idle.load(Ordering::SeqCst), 115);
+        let db = lock(&state.db).unwrap();
+        assert!(claim_recall_opportunity(&db).unwrap());
+        assert!(!claim_recall_opportunity(&db).unwrap());
+        drop(db);
+        assert!(!defer_recent_recall(&state, true, 115));
+        assert!(!defer_recent_recall(&state, false, 105));
+    }
 }

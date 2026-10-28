@@ -137,6 +137,8 @@ beforeEach(() => {
   vi.mocked(command).mockReset();
   vi.mocked(command).mockImplementation(async (name) => {
     switch (name) {
+      case "get_character_touches":
+        return { stroke: 0, poke: 0, snack: 0 };
       case "get_character_dialogue":
         return { pairScenes: [], wordbook: [] };
       case "get_character_packs":
@@ -296,6 +298,8 @@ it.each([
         .mock.calls.filter(
           ([name]) =>
             ![
+              "get_character_touches",
+              "get_character_mood",
               "get_character_dialogue",
               "get_character_packs",
               "get_character_reaction_events",

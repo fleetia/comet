@@ -8,8 +8,7 @@ function widget(kind: string, data: WidgetValue, revision = 8): WidgetView {
   return {
     id: `${kind}-instance-uuid`,
     kind,
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision,
     version: 1,
     data,
@@ -229,7 +228,7 @@ describe("frequency goals linked to a timer", () => {
       const target = todo(goal({ frequencyRecords: [{ id: "record", date: "2026-10-02" }] }));
       const view = render(<TimerTool widget={timer()} widgets={[target]} act={act} />);
       await click(name);
-      expect(act).toHaveBeenCalledExactlyOnceWith(name === "계속 집중" ? "continue" : "rest");
+      expect(act).toHaveBeenCalledExactlyOnceWith(name === "계속 집중" ? "continue" : "rest", {});
       view.rerender(<TimerTool widget={timer("running")} widgets={[target]} act={act} />);
       view.rerender(<TimerTool widget={timer()} widgets={[target]} act={act} />);
       expect(screen.getByRole("button", { name: "읽기 기록됨" })).toHaveProperty("disabled", true);

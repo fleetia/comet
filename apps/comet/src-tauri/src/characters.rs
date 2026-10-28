@@ -1336,6 +1336,7 @@ fn export_pack_contents(
                 .iter_mut()
                 .chain(&mut scenario.accept)
                 .chain(&mut scenario.decline)
+                .chain(&mut scenario.defer)
                 .chain(&mut scenario.ending)
             {
                 line.motion = line.motion.without_images();
@@ -1368,7 +1369,17 @@ fn export_pack_contents(
                 || d.relationships.iter().any(|r| !r.reply_lines.is_empty())
         })
     {
-        pack.format_version = 8;
+        pack.format_version = pack.format_version.max(8);
+    }
+    if validation::has_mood_bindings(&pack) {
+        pack.format_version = pack.format_version.max(13);
+    }
+    if pack
+        .scenarios
+        .iter()
+        .any(|scene| scene.reveal_affinity.is_some() || !scene.defer.is_empty())
+    {
+        pack.format_version = pack.format_version.max(12);
     }
     validation::validate_pack_metadata(&pack)?;
     Ok(pack)
@@ -1393,6 +1404,7 @@ pub fn resolve_lines(conn: &Connection, lines: &[SceneLine]) -> Result<Vec<Scene
                 persona: owner.id,
                 expression: line.expression.clone(),
                 text: line.text.clone(),
+                widget: line.widget.clone(),
                 motion: line.motion.clone(),
             })
         })

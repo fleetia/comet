@@ -28,8 +28,6 @@ export function CompanionBox({
   const name = character?.definition.name ?? persona?.toUpperCase() ?? "친구";
   const reaction = !snapshot.runtime.hidden ? snapshot.reactions?.[id] : undefined;
   const expressionKey = reaction?.expression ?? currentExpression(snapshot, persona);
-  const expression = expressionLabel(character, expressionKey);
-  const sprite = spriteSource(character, expressionKey);
   const size = character?.definition.spriteSize ?? 64;
   const animation = useCharacterAnimation(
     character,
@@ -38,6 +36,8 @@ export function CompanionBox({
     !preview && persona !== null,
     dispatch,
   );
+  const expression = expressionLabel(character, animation.expression);
+  const sprite = spriteSource(character, animation.expression);
   const imageBody = Boolean(sprite) || animation.hasAnimation;
   const transparent = imageBody && !preview;
   const animated = animation.frameIndex !== null && animation.frames !== null;

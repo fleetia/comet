@@ -192,6 +192,7 @@ export const messageBlock = style({
   width: "100%",
   flexShrink: 0,
 });
+export const followUps = style({ paddingLeft: 46, maxWidth: "100%", overflowX: "auto" });
 export const memoryReceipts = style({
   display: "flex",
   flexDirection: "column",

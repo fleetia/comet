@@ -129,8 +129,120 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
     if let Err(error) = add_revived_widget_dialogue(&root) {
         crate::report_error!("talk_migration_revived_widget", ".talk revived widget dialogue: {error}");
     }
+    if let Err(error) = add_touch_milestone_dialogue(&root) {
+        crate::report_error!("talk_migration_touch_milestone", ".talk touch milestone dialogue: {error}");
+    }
+    if let Err(error) = upgrade_weather_dialogue(&root) {
+        crate::report_error!("talk_migration_weather", ".talk weather dialogue: {error}");
+    }
+    if let Err(error) = add_recall_dialogue(&root) {
+        crate::report_error!("talk_migration_recall", ".talk recall dialogue: {error}");
+    }
+    if let Err(error) = add_activity_dialogue(&root) {
+        crate::report_error!("talk_migration_activity", ".talk activity dialogue: {error}");
+    }
+    if let Err(error) = add_mood_dialogue(&root) {
+        crate::report_error!("talk_migration_mood", ".talk mood dialogue: {error}");
+    }
     migrate_encryption(&root);
     Ok(root)
+}
+
+fn add_activity_dialogue(root: &Path) -> Result<(), String> {
+    let marker = app_data_of(root)?.join(".talk-byulkkori-activity-v1");
+    if marker.try_exists().map_err(|error| error.to_string())? || !root.exists() {
+        return Ok(());
+    }
+    let target = root
+        .join(PACKS_DIRECTORY)
+        .join(defaults::BYULKKORI)
+        .join("situations/solo.talk");
+    let current = match fs::read(&target) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.to_string()),
+    };
+    let previous = super::encryption::decode(include_bytes!(
+        "../../content/previous-byulkkori-solo-activity.talk"
+    ))?;
+    if let Some(original) = current {
+        if super::encryption::decode(&original)? == previous {
+            if fs::read(&target).map_err(|error| error.to_string())? != original {
+                return Err("기본 대본을 갱신하는 동안 파일이 바뀌었어요.".into());
+            }
+            super::files::atomic_write(
+                &target,
+                include_bytes!("../../content/previous-byulkkori-solo-v5.talk"),
+            )?;
+        }
+    }
+    super::files::atomic_write(&marker, b"1\n")
+}
+
+fn add_mood_dialogue(root: &Path) -> Result<(), String> {
+    let marker = app_data_of(root)?.join(".talk-byulkkori-mood-v1");
+    if marker.try_exists().map_err(|error| error.to_string())? || !root.exists() {
+        return Ok(());
+    }
+    let pack = defaults::pack(defaults::BYULKKORI).ok_or("기본 대본을 찾지 못했어요.")?;
+    let scene = root
+        .join(PACKS_DIRECTORY)
+        .join(pack.id)
+        .join("situations/solo.talk");
+    let previous = super::encryption::decode(
+        include_str!("../../content/previous-byulkkori-solo-v5.talk").as_bytes(),
+    )?;
+    match fs::read(&scene) {
+        Ok(bytes) if super::encryption::decode(&bytes)? == previous => {
+            let source = pack
+                .files
+                .iter()
+                .find(|(name, _)| *name == "situations/solo.talk")
+                .map(|(_, source)| *source)
+                .ok_or("기본 대본을 찾지 못했어요.")?;
+            if fs::read(&scene).map_err(|error| error.to_string())? != bytes {
+                return Err("기본 대본을 갱신하는 동안 파일이 바뀌었어요.".into());
+            }
+            super::files::atomic_write(&scene, source.as_bytes())?;
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.to_string()),
+    }
+    super::files::atomic_write(&marker, b"1\n")
+}
+
+fn upgrade_weather_dialogue(root: &Path) -> Result<(), String> {
+    let marker = app_data_of(root)?.join(".talk-byulkkori-weather-v1");
+    if marker.try_exists().map_err(|error| error.to_string())? || !root.exists() {
+        return Ok(());
+    }
+    let name = "situations/weather.talk";
+    let path = root
+        .join(PACKS_DIRECTORY)
+        .join(defaults::BYULKKORI)
+        .join(name);
+    match fs::read(&path) {
+        Ok(bytes) => {
+            let source = super::encryption::decode(&bytes)?;
+            if hex::encode(Sha256::digest(source.as_bytes()))
+                == "5daac9d1b9bcada63486755104054ae2489aa3beab952cc781d0d01e7f14fa3e"
+            {
+                let pack =
+                    defaults::pack(defaults::BYULKKORI).ok_or("기본 대본을 찾지 못했어요.")?;
+                let bundled = pack
+                    .files
+                    .iter()
+                    .find(|(file, _)| *file == name)
+                    .map(|(_, source)| *source)
+                    .ok_or("기본 대본을 찾지 못했어요.")?;
+                super::files::atomic_write(&path, bundled.as_bytes())?;
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.to_string()),
+    }
+    super::files::atomic_write(&marker, b"1\n")
 }
 
 const REVIVED_WIDGET_FILES: [&str; 6] = [
@@ -175,7 +287,121 @@ fn add_revived_widget_dialogue(root: &Path) -> Result<(), String> {
             }
         }
         // The entry goes last: until it imports them, the added files stay inert.
-        super::files::atomic_write(&entry, bundled("index.talk")?.as_bytes())?;
+        super::files::atomic_write(
+            &entry,
+            include_str!("../../content/previous-byulkkori-index-v5.talk").as_bytes(),
+        )?;
+    }
+    super::files::atomic_write(&marker, b"1\n")
+}
+
+fn add_touch_milestone_dialogue(root: &Path) -> Result<(), String> {
+    let marker = app_data_of(root)?.join(".talk-byulkkori-touch-milestone-v1");
+    if marker.try_exists().map_err(|error| error.to_string())? || !root.exists() {
+        return Ok(());
+    }
+    let pack = defaults::pack(defaults::BYULKKORI).ok_or("기본 대본을 찾지 못했어요.")?;
+    let target = root.join(PACKS_DIRECTORY).join(pack.id);
+    let entry = target.join("index.talk");
+    let previous = super::encryption::decode(
+        include_str!("../../content/previous-byulkkori-index-v5.talk").as_bytes(),
+    )?;
+    let current = match fs::read(&entry) {
+        Ok(bytes) => Some(super::encryption::decode(&bytes)?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.to_string()),
+    };
+    let scene = target.join("widgets/interaction-milestone.talk");
+    if current.as_deref() == Some(previous.as_str()) {
+        let program = super::load_pack(&entry, &super::context::registry(), pack.id)
+            .map_err(|errors| serde_json::to_string(&errors).unwrap_or_default())?;
+        if program.scenes.iter().any(|scene| {
+            [1, 10, 100, 500, 1000]
+                .iter()
+                .any(|count| scene.id == format!("interaction.milestone-{count}"))
+        }) {
+            return super::files::atomic_write(&marker, b"1\n");
+        }
+        let bundled = |name: &str| {
+            pack.files
+                .iter()
+                .find(|(path, _)| *path == name)
+                .map(|(_, source)| *source)
+                .ok_or("기본 대본을 찾지 못했어요.")
+        };
+        let source = bundled("widgets/interaction-milestone.talk")?;
+        let ready = match fs::read(&scene) {
+            Ok(bytes) => {
+                super::encryption::decode(&bytes)?
+                    == super::encryption::decode(source.as_bytes())?
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                super::files::atomic_write(&scene, source.as_bytes())?;
+                true
+            }
+            Err(error) => return Err(error.to_string()),
+        };
+        if ready {
+            super::files::atomic_write(
+                &entry,
+                include_str!("../../content/previous-byulkkori-index-v6.talk").as_bytes(),
+            )?;
+        }
+    }
+    super::files::atomic_write(&marker, b"1\n")
+}
+
+/// Add recall scenes only when the installed index is the known previous factory index.
+fn add_recall_dialogue(root: &Path) -> Result<(), String> {
+    let marker = app_data_of(root)?.join(".talk-byulkkori-recall-v1");
+    if marker.try_exists().map_err(|error| error.to_string())? || !root.exists() {
+        return Ok(());
+    }
+    let pack = defaults::pack(defaults::BYULKKORI).ok_or("기본 대본을 찾지 못했어요.")?;
+    let target = root.join(PACKS_DIRECTORY).join(pack.id);
+    let entry = target.join("index.talk");
+    let previous = super::encryption::decode(
+        include_str!("../../content/previous-byulkkori-index-v6.talk").as_bytes(),
+    )?;
+    let current = match fs::read(&entry) {
+        Ok(bytes) => Some(super::encryption::decode(&bytes)?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.to_string()),
+    };
+    if current.as_deref() == Some(previous.as_str()) {
+        let bundled = |name: &str| {
+            pack.files
+                .iter()
+                .find(|(path, _)| *path == name)
+                .map(|(_, source)| *source)
+                .ok_or("기본 대본을 찾지 못했어요.")
+        };
+        let scene = target.join("situations/recall.talk");
+        let bundled_scene = bundled("situations/recall.talk")?;
+        let missing = match fs::symlink_metadata(&scene) {
+            Ok(metadata) if metadata.file_type().is_file() => {
+                let current = fs::read(&scene)
+                    .ok()
+                    .and_then(|bytes| super::encryption::decode(&bytes).ok());
+                let expected = super::encryption::decode(bundled_scene.as_bytes())?;
+                if current.as_deref() != Some(expected.as_str()) {
+                    return super::files::atomic_write(&marker, b"1\n");
+                }
+                false
+            }
+            Ok(_) => return super::files::atomic_write(&marker, b"1\n"),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+            Err(error) => return Err(error.to_string()),
+        };
+        if missing {
+            super::files::atomic_write(&scene, bundled_scene.as_bytes())?;
+        }
+        if let Err(error) = super::files::atomic_write(&entry, bundled("index.talk")?.as_bytes()) {
+            if missing {
+                let _ = fs::remove_file(&scene);
+            }
+            return Err(error);
+        }
     }
     super::files::atomic_write(&marker, b"1\n")
 }
@@ -1120,6 +1346,30 @@ mod dialogue_upgrade_tests {
     }
 
     #[test]
+    fn activity_and_mood_upgrade_in_order_without_overwriting_edits() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = initialize_files(directory.path()).unwrap();
+        let solo = root.join("packs/byulkkori/situations/solo.talk");
+        let shipped = source(&solo);
+        fs::write(&solo, include_bytes!("../../content/previous-byulkkori-solo-activity.talk")).unwrap();
+        fs::remove_file(directory.path().join(".talk-byulkkori-activity-v1")).unwrap();
+        fs::remove_file(directory.path().join(".talk-byulkkori-mood-v1")).unwrap();
+        initialize_files(directory.path()).unwrap();
+        assert_eq!(source(&solo), shipped);
+        let entry = root.join("packs/byulkkori/index.talk");
+        let program = super::super::load_pack(&entry, &super::super::context::registry(), "byulkkori").unwrap();
+        assert!(program.scenes.iter().any(|scene| scene.id == "activity.long-session"));
+        assert!(program.scenes.iter().any(|scene| scene.id == "solo.mood-high"));
+
+        let authored = "format: 1\n# 사용자 수정\n";
+        fs::write(&solo, super::super::encryption::encode(authored).unwrap()).unwrap();
+        fs::remove_file(directory.path().join(".talk-byulkkori-activity-v1")).unwrap();
+        fs::remove_file(directory.path().join(".talk-byulkkori-mood-v1")).unwrap();
+        initialize_files(directory.path()).unwrap();
+        assert_eq!(source(&solo), authored);
+    }
+
+    #[test]
     fn stock_sources_upgrade_without_changing_authored_files_or_history_keys() {
         let directory = tempfile::tempdir().unwrap();
         let root = initialize_files(directory.path()).unwrap();
@@ -1140,8 +1390,8 @@ mod dialogue_upgrade_tests {
         reset_upgrade(directory.path());
         initialize_files(directory.path()).unwrap();
         let after = super::super::load_bundle(&root, &super::super::context::registry()).unwrap();
-        // The two inputs contribute 18 solo scenes and 8 pair scenes in total.
-        assert_eq!(after.scenes.len(), before.scenes.len() + 26);
+        // The two inputs contribute 22 solo scenes and 8 pair scenes in total.
+        assert_eq!(after.scenes.len(), before.scenes.len() + 30);
         let added: std::collections::BTreeSet<_> = after
             .scenes
             .iter()
@@ -1169,6 +1419,10 @@ mod dialogue_upgrade_tests {
                 "solo.staying-near",
                 "solo.new-friend",
                 "solo.close-friend",
+                "solo.mood-high",
+                "solo.mood-low",
+                "activity.long-session",
+                "activity.idle-return",
                 "situation.unfinished-syllable",
                 "situation.small-game",
                 "situation.shared-quiet",
@@ -1330,6 +1584,35 @@ mod byulkkori_replacement_tests {
     }
 
     #[test]
+    fn recall_upgrade_preserves_milestones_and_user_edits() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = initialize_files(directory.path()).unwrap();
+        let pack = root.join("packs/byulkkori");
+        let entry = pack.join("index.talk");
+        let shipped = source(&entry);
+        let previous = include_str!("../../content/previous-byulkkori-index-v6.talk");
+        fs::write(&entry, previous).unwrap();
+        fs::remove_file(pack.join("situations/recall.talk")).unwrap();
+        fs::remove_file(directory.path().join(".talk-byulkkori-recall-v1")).unwrap();
+        initialize_files(directory.path()).unwrap();
+        assert_eq!(source(&entry), shipped);
+        let program =
+            super::super::load_pack(&entry, &super::super::context::registry(), "byulkkori")
+                .unwrap();
+        assert!(program
+            .scenes
+            .iter()
+            .any(|scene| scene.id == "interaction.milestone-1"));
+        assert!(program.scenes.iter().any(|scene| scene.trigger == "diary.recall"));
+
+        let authored = "format: 1\n# 사용자 수정\n";
+        fs::write(&entry, super::super::encryption::encode(authored).unwrap()).unwrap();
+        fs::remove_file(directory.path().join(".talk-byulkkori-recall-v1")).unwrap();
+        initialize_files(directory.path()).unwrap();
+        assert_eq!(source(&entry), authored);
+    }
+
+    #[test]
     fn revived_widget_scripts_join_only_a_factory_entry_once() {
         let directory = tempfile::tempdir().unwrap();
         let root = initialize_files(directory.path()).unwrap();
@@ -1343,6 +1626,8 @@ mod byulkkori_replacement_tests {
                 let _ = fs::remove_file(pack.join(name));
             }
             fs::remove_file(directory.path().join(".talk-byulkkori-revived-widgets-v1")).unwrap();
+            fs::remove_file(directory.path().join(".talk-byulkkori-touch-milestone-v1")).unwrap();
+            fs::remove_file(directory.path().join(".talk-byulkkori-recall-v1")).unwrap();
             initialize_files(directory.path()).unwrap();
         };
 

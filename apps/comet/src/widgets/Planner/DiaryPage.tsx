@@ -45,6 +45,7 @@ export type DiaryPageProps = {
   onToggleTask: (item: DataRecord) => void;
   onEditTask: (item: DataRecord) => void;
   onFocusTask?: (item: DataRecord) => void;
+  onQueueTask?: (item: DataRecord) => void;
   onMoveTask: (item: DataRecord, toDate: string) => Promise<boolean>;
   onOpenEnvelope: (id: string) => void;
   onCreatePage: () => Promise<string | null>;
@@ -227,6 +228,7 @@ export function DiaryPage({
   onToggleTask,
   onEditTask,
   onFocusTask,
+  onQueueTask,
   onMoveTask,
   onOpenEnvelope,
   onCreatePage,
@@ -501,7 +503,7 @@ export function DiaryPage({
 
   function renderEntry(entry: DiaryEntry): ReactElement {
     if (entry.kind === "widget") {
-      const widget = widgets.find((value) => value.id === entry.refId && value.installed);
+      const widget = widgets.find((value) => value.id === entry.refId);
       const note = entry.itemId
         ? rows(record(widget?.data).notes).find((value) => value.id === entry.itemId)
         : null;
@@ -517,7 +519,7 @@ export function DiaryPage({
               <Button
                 variant="ghost"
                 size="small"
-                disabled={!available || !widget?.enabled || disabled}
+                disabled={!available || disabled}
                 onClick={() => onOpenWidgetEntry?.(entry)}
               >
                 {title} 열기 ↗
@@ -538,9 +540,6 @@ export function DiaryPage({
               </p>
             )}
             {!available && <p className={s.meta}>{entry.text} · 원본을 찾을 수 없어요.</p>}
-            {available && !widget?.enabled && (
-              <p className={s.meta}>위젯 설정에서 이 도구를 켜 주세요.</p>
-            )}
             {errors[entry.id] && (
               <p role="alert" className={s.error}>
                 {errors[entry.id]}
@@ -580,6 +579,7 @@ export function DiaryPage({
               onToggle={onToggleTask}
               onEdit={onEditTask}
               onFocus={onFocusTask}
+              onQueue={onQueueTask}
               onMove={onMoveTask}
               onRemove={() => void removeEntry(entry)}
             />
@@ -799,6 +799,7 @@ export function DiaryPage({
                   onToggle={onToggleTask}
                   onEdit={onEditTask}
                   onFocus={onFocusTask}
+                  onQueue={onQueueTask}
                   onMove={onMoveTask}
                 />
               </div>
@@ -989,6 +990,7 @@ function TaskLine({
   onToggle,
   onEdit,
   onFocus,
+  onQueue,
   onMove,
   onRemove,
 }: {
@@ -998,6 +1000,7 @@ function TaskLine({
   onToggle: (item: DataRecord) => void;
   onEdit: (item: DataRecord) => void;
   onFocus?: (item: DataRecord) => void;
+  onQueue?: (item: DataRecord) => void;
   onMove: (item: DataRecord, toDate: string) => Promise<boolean>;
   onRemove?: () => void;
 }): ReactElement {
@@ -1085,6 +1088,16 @@ function TaskLine({
               onClick={() => onFocus(item)}
             >
               25분 집중 시작
+            </Button>
+          )}
+          {onQueue && !done && (
+            <Button
+              variant="ghost"
+              size="small"
+              disabled={busy || saving}
+              onClick={() => onQueue(item)}
+            >
+              다음 집중에 추가
             </Button>
           )}
         </>

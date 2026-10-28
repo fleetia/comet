@@ -31,6 +31,7 @@ fn fixture(subject: AuthoringSubject) -> AuthoringTrialRequest {
         persona: source.into(),
         expression: "평온".into(),
         text: text.into(),
+        widget: None,
         motion: Default::default(),
     };
     AuthoringTrialRequest {
@@ -67,6 +68,8 @@ fn fixture(subject: AuthoringSubject) -> AuthoringTrialRequest {
                 keywords: vec!["이야기".into()],
                 required_flags: vec![],
                 min_affinity: 20,
+                reveal_affinity: None,
+                defer: vec![],
                 intro: vec![line(&center_source, "  같이 할까?\n원문  ")],
                 accept: vec![line(&center_source, "좋아.")],
                 decline: vec![line(&center_source, "다음에.")],

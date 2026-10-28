@@ -193,6 +193,10 @@ pub struct Settings {
     pub apple_idle_enabled: bool,
     #[serde(default = "default_autonomous_enabled")]
     pub autonomous_enabled: bool,
+    #[serde(default = "default_autonomous_enabled")]
+    pub diary_recall_enabled: bool,
+    #[serde(default = "default_autonomous_enabled")]
+    pub show_follow_ups: bool,
     #[serde(default)]
     pub random_presence_enabled: bool,
     pub local_idle_enabled: bool,
@@ -223,6 +227,8 @@ impl Default for Settings {
             chatgpt_idle_enabled: false,
             apple_idle_enabled: false,
             autonomous_enabled: true,
+            diary_recall_enabled: true,
+            show_follow_ups: true,
             random_presence_enabled: false,
             local_idle_enabled: false,
             api_idle_enabled: false,
@@ -319,6 +325,8 @@ pub struct SceneLine {
     pub persona: String,
     pub expression: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub widget: Option<String>,
     #[serde(
         default,
         skip_serializing_if = "crate::characters::reactions::MotionOverride::is_inherit"
@@ -361,6 +369,8 @@ pub struct Playback {
     )]
     pub motion: crate::characters::reactions::MotionOverride,
     pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<PlaybackLink>,
     #[serde(default)]
     pub text_speed: u32,
     #[serde(default)]
@@ -368,6 +378,23 @@ pub struct Playback {
     pub ends_at: i64,
     pub line_index: usize,
     pub line_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybackLink {
+    pub instance_id: String,
+    pub kind: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item: Option<PlaybackLinkItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybackLinkItem {
+    pub entity: String,
+    pub id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -490,6 +517,10 @@ pub struct CharacterAnimationStates {
     pub rest: bool,
     #[serde(default)]
     pub sleeping_character_ids: Vec<String>,
+    #[serde(default)]
+    pub mood_high_character_ids: Vec<String>,
+    #[serde(default)]
+    pub mood_low_character_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -500,6 +531,18 @@ pub struct ActiveRequest {
     pub session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FollowUpRequest {
+    pub request_id: String,
+    pub message_id: String,
+    pub session_id: String,
+    pub surface: String,
+    pub options: Vec<crate::story::Choice>,
+    #[serde(skip)]
+    pub target: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -544,6 +587,8 @@ pub struct Snapshot {
     pub wordbook: Vec<WordbookEntry>,
     #[serde(default, skip_deserializing)]
     pub story: Option<crate::story::Request>,
+    #[serde(default, skip_deserializing)]
+    pub follow_ups: Option<FollowUpRequest>,
 }
 
 #[cfg(test)]

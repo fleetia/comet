@@ -36,8 +36,7 @@ function widget(kind: string, data: WidgetValue): WidgetView {
   return {
     id: kind,
     kind,
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 8,
     version: 1,
     data,
@@ -60,7 +59,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("shows and opens the original focus companion rows using only enabled widget sources", async () => {
+it("keeps focus companion rows usable when character reactions are off", async () => {
   const timer = widget("focus-timer", {
     status: "running",
     mode: "focus",
@@ -83,12 +82,6 @@ it("shows and opens the original focus companion rows using only enabled widget 
     }),
     widget("music", { observation: { title: "밤의 산책", artist: "별빛정원" } }),
     widget("preparation", { envelopes: [{ id: "trip", title: "가족 여행", checks: [] }] }),
-    { ...widget("clock", { anniversaries: [] }), id: "disabled-clock", enabled: false },
-    {
-      ...widget("weather", { observation: { name: "부산", temperature: 30 } }),
-      id: "removed-weather",
-      installed: false,
-    },
   ];
   const current = {
     snapshot: { ...PREVIEW_WIDGETS, widgets: values },
@@ -111,11 +104,11 @@ it("shows and opens the original focus companion rows using only enabled widget 
     ...current,
     snapshot: {
       ...current.snapshot,
-      widgets: values.map((item) => (item.id === "weather" ? { ...item, enabled: false } : item)),
+      widgets: values.map((item) => (item.id === "weather" ? { ...item, reaction: false } : item)),
     },
   });
   view.rerender(<WidgetTool id="focus-timer" />);
-  expect(companions.queryByRole("button", { name: /23°C/ })).toBeNull();
+  expect(companions.getByRole("button", { name: /23°C/ })).toBeTruthy();
   expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
   view.unmount();
   expect(document.documentElement.classList.contains(transparentDocument)).toBe(false);
@@ -261,7 +254,7 @@ it("only completes a linked todo after an explicit completion click", async () =
   );
   expect(act).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "5분 쉬기" }));
-  expect(act).toHaveBeenCalledWith("rest");
+  expect(act).toHaveBeenCalledWith("rest", {});
   fireEvent.click(screen.getByRole("checkbox", { name: "읽기 완료로 표시" }));
   expect(act).toHaveBeenCalledWith("complete", { id: "task" }, todo);
 });
@@ -662,32 +655,19 @@ it("replaces loading with a retry action after a widget snapshot failure", () =>
   expect(reload).toHaveBeenCalledTimes(1);
 });
 
-it("directs unavailable tools to the body menu and closes without disabling the widget", async () => {
+it("keeps a tool usable when reactions are off and reports an absent tool", async () => {
   vi.mocked(useWidgets).mockReturnValue({
-    snapshot: { ...PREVIEW_WIDGETS, widgets: [{ ...widget("memo", {}), enabled: false }] },
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [{ ...widget("memo", {}), reaction: false }] },
     error: null,
     reload: vi.fn(),
   });
   const view = render(<WidgetTool id="memo" />);
-  expect(screen.getByText("꺼진 도구입니다. 본체 메뉴의 위젯 관리에서 켜 주세요.")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "위젯 관리" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "+ 새 메모" })).toBeNull();
-  expect(screen.queryByText("생활 도구")).toBeNull();
-  vi.mocked(useWidgets).mockReturnValue({
-    snapshot: PREVIEW_WIDGETS,
-    error: null,
-    reload: vi.fn(),
-  });
+  expect(screen.queryByText("도구를 찾을 수 없어요.")).toBeNull();
+  vi.mocked(useWidgets).mockReturnValue({ snapshot: PREVIEW_WIDGETS, error: null, reload: vi.fn() });
   view.rerender(<WidgetTool id="memo" />);
-  expect(
-    screen.getByText(
-      "설치되지 않았거나 제거한 도구입니다. 본체 메뉴의 위젯 관리에서 설치해 주세요.",
-    ),
-  ).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "위젯 관리" })).toBeNull();
+  expect(screen.getByText("도구를 찾을 수 없어요.")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "위젯 닫기" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("close_widget", { id: "memo" }));
-  expect(vi.mocked(command).mock.calls).toEqual([["close_widget", { id: "memo" }]]);
 });
 it("offers every friend on the desktop as an interaction target and names the person", () => {
   const third = {

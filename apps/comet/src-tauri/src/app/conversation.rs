@@ -1,6 +1,6 @@
 pub(crate) mod pack_context;
 
-use super::scene::{present_line, start_scene, wait_for_line};
+use super::scene::{clear_line_if_current, present_line, start_scene, wait_for_completed_line};
 use super::unavailable;
 use super::{is_current, lock, now, phase, publish, schedule_idle, AppState};
 use crate::{
@@ -596,10 +596,27 @@ pub(crate) async fn send_message(
     client_message_id: String,
     session_id: Option<String>,
 ) -> Result<(), String> {
-    let content = content.trim();
-    if content.is_empty() || content.chars().count() > 2000 {
-        return Err("대화는 1~2,000자로 입력해 주세요.".into());
-    }
+    send_message_inner(
+        app,
+        state,
+        content,
+        target,
+        client_message_id,
+        session_id,
+        None,
+    )
+    .await
+}
+
+pub(crate) async fn send_message_inner(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    content: String,
+    target: String,
+    client_message_id: String,
+    session_id: Option<String>,
+    choice: Option<(String, String)>,
+) -> Result<(), String> {
     uuid::Uuid::parse_str(&client_message_id)
         .map_err(|_| "메시지 식별자가 올바르지 않아요.".to_string())?;
     let (token, registered, targets, source, admitted) = {
@@ -608,6 +625,51 @@ pub(crate) async fn send_message(
             return Err("앱을 종료하고 있어요.".into());
         }
         let db = lock(&state.db)?;
+        let (content, target, session_id) = if let Some((request_id, option_id)) = &choice {
+            let mut slot = lock(&state.follow_ups)?;
+            let Some(request) = slot
+                .as_ref()
+                .filter(|request| &request.request_id == request_id)
+            else {
+                return Ok(());
+            };
+            if store::active_conversation(&db)?
+                .is_none_or(|session| session.id != request.session_id || !session.draft.is_empty())
+                || lock(&state.panel)?
+                    .as_ref()
+                    .is_none_or(|panel| panel.mode != request.surface)
+                || lock(&state.runtime)?.hidden
+                || lock(&state.story)?.is_some()
+                || lock(&state.pack_stories)?
+                    .run
+                    .as_ref()
+                    .is_some_and(|run| run.ready)
+            {
+                *slot = None;
+                return Ok(());
+            }
+            let Some(option) = request
+                .options
+                .iter()
+                .find(|option| &option.id == option_id)
+            else {
+                return Ok(());
+            };
+            let result = (
+                option.label.clone(),
+                request.target.clone(),
+                Some(request.session_id.clone()),
+            );
+            *slot = None;
+            result
+        } else {
+            *lock(&state.follow_ups)? = None;
+            (content, target, session_id)
+        };
+        let content = content.trim();
+        if content.is_empty() || content.chars().count() > 2000 {
+            return Err("대화는 1~2,000자로 입력해 주세요.".into());
+        }
         let wake_targets = match characters::guests::actor(&state, &db, &target) {
             Ok(actor) => vec![actor.id],
             Err(_) => resolve_targets(&db, &target)?,
@@ -684,6 +746,18 @@ pub(crate) async fn send_message(
             &client_message_id,
             false,
         );
+        let recorded = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM messages WHERE id=?1)",
+            [&client_message_id],
+            |row| row.get::<_, bool>(0),
+        ).map_err(|error| error.to_string())?;
+        if recorded {
+            crate::characters::life::note_mood_input(&state)?;
+        }
+        if choice.is_some() {
+            db.execute("UPDATE message_context SET source='follow-up' WHERE message_id=?1 AND source='user'", [&client_message_id])
+                .map_err(|error| error.to_string())?;
+        }
         let waiting = waiting_story(&state, &db, &routing_targets)?;
         let waiting_pack = waiting_pack_run(&state, &db, &routing_targets)?;
         let mut plan = pack_stories::load_plan(&db, &client_message_id)?;
@@ -702,6 +776,11 @@ pub(crate) async fn send_message(
         }
         let token =
             super::tasks::reserve_conversation(&state, Some(&session.id), &client_message_id)?;
+        if recorded && store::direct_affinity(content).is_some_and(|(_, delta)| delta < 0) {
+            for id in store::message_targets(&db, &client_message_id)? {
+                crate::characters::life::change_mood(&app, &state, &id, "insult", -1)?;
+            }
+        }
         retain_waiting_story(&state, waiting, token.0)?;
         if plan.is_none() {
             retain_pack_run(&state, &db, waiting_pack, token.0)?;
@@ -1571,6 +1650,7 @@ pub(crate) fn single_reply_prompt(
     Ok(prompt)
 }
 
+#[cfg(test)]
 pub(crate) async fn generate_turn_with_memories(
     state: &AppState,
     targets: &[String],
@@ -1578,7 +1658,19 @@ pub(crate) async fn generate_turn_with_memories(
     cancel: Arc<AtomicBool>,
     memories: &[store::MemorySearchHit],
 ) -> Result<(Vec<SceneLine>, i64), String> {
-    let (settings, prompt, revision, bundle, ticket, expressions, names, earlier) = {
+    let (lines, revision, _) =
+        generate_turn_with_follow_ups(state, targets, message_id, cancel, memories).await?;
+    Ok((lines, revision))
+}
+
+async fn generate_turn_with_follow_ups(
+    state: &AppState,
+    targets: &[String],
+    message_id: &str,
+    cancel: Arc<AtomicBool>,
+    memories: &[store::MemorySearchHit],
+) -> Result<(Vec<SceneLine>, i64, Vec<String>), String> {
+    let (settings, mut prompt, revision, bundle, ticket, expressions, names, earlier, allow_follow_ups) = {
         let _action = lock(&state.action)?;
         if cancel.load(Ordering::SeqCst) {
             return Err("이전 생성 요청은 취소됐어요.".into());
@@ -1607,9 +1699,10 @@ pub(crate) async fn generate_turn_with_memories(
                     persona: target.clone(),
                     expression: expression.into(),
                     text,
+                    widget: None,
                     motion: Default::default(),
                 };
-                return Ok((vec![line], store::revision(&db)?));
+                return Ok((vec![line], store::revision(&db)?, Vec::new()));
             }
         }
         let context = turn_context(state, &db, targets, message_id)?;
@@ -1622,6 +1715,10 @@ pub(crate) async fn generate_turn_with_memories(
             prompt_with_history(&db, targets, message_id, &recalled)?
         };
         let small = use_small_model_prompt(state, &db, targets, bundle, &mut prompt)?;
+        let moods = targets.iter().map(|target| {
+            let actor = characters::guests::actor(state, &db, target)?;
+            Ok((target.clone(), characters::life::mood(state, &actor.id)?))
+        }).collect::<Result<std::collections::BTreeMap<_, _>, String>>()?;
         #[cfg(debug_assertions)]
         if !context.selected_knowledge_ids.is_empty() {
             eprintln!(
@@ -1653,11 +1750,30 @@ pub(crate) async fn generate_turn_with_memories(
             }
         }
         let settings = store::settings(&db)?;
-        let input: String = db.query_row(
-            "SELECT json_extract(data, '$.content') FROM messages WHERE id=?1 AND role='user'",
-            [message_id],
-            |row| row.get(0),
-        ).map_err(|error| error.to_string())?;
+        let allow_follow_ups = settings.show_follow_ups
+            && !small_reply_model(&db)?
+            && lock(&state.story)?.is_none()
+            && !lock(&state.pack_stories)?
+                .run
+                .as_ref()
+                .is_some_and(|run| run.ready);
+        if allow_follow_ups {
+            if let Some(system) = prompt
+                .first_mut()
+                .filter(|message| message.role == "system")
+            {
+                system.content.push_str(domain::FOLLOW_UP_PROMPT);
+            }
+        }
+        let mood_budget = if bundle || targets.len() > 1 { 7200 } else { 4800 };
+        domain::with_moods(&mut prompt, &moods, !small, mood_budget);
+        let input: String = db
+            .query_row(
+                "SELECT json_extract(data, '$.content') FROM messages WHERE id=?1 AND role='user'",
+                [message_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
         domain::require_complete_input(&prompt, &input)?;
         // Lines a small model tends to hand back: the input and its own earlier replies.
         let earlier = if small {
@@ -1703,18 +1819,30 @@ pub(crate) async fn generate_turn_with_memories(
             expressions,
             names,
             earlier,
+            allow_follow_ups,
         )
     };
     let paired = targets.len() == 2;
     // Only a small model's single reply has earlier lines to compare.
     let small = !earlier.is_empty();
-    let schema = if bundle || paired {
+    let mut schema = if bundle || paired {
         domain::scene_schema_for(targets, targets.len(), targets.len(), &expressions)
     } else if small {
         domain::small_reply_schema_for(targets, &expressions)
     } else {
         domain::reply_schema_for(targets, &expressions)
     };
+    if allow_follow_ups && (bundle || paired) {
+        domain::add_follow_ups_to_schema(&mut schema);
+    } else if !allow_follow_ups {
+        domain::remove_follow_ups_from_schema(&mut schema);
+    }
+    let widget_kinds = domain::configure_widget_replies(
+        &*lock(&state.db)?,
+        &mut prompt,
+        &mut schema,
+        settings.mode == "apple",
+    )?;
     let mut value = inference::generate(
         &state.inference,
         &settings,
@@ -1753,6 +1881,11 @@ pub(crate) async fn generate_turn_with_memories(
         .await?;
         domain::keep_first_paragraph(&mut value);
     }
+    let follow_ups = if allow_follow_ups {
+        domain::parse_follow_ups(&value)
+    } else {
+        Vec::new()
+    };
     let mut lines = if bundle || paired {
         domain::parse_lines_for(value, targets, targets.len(), targets.len(), true)?
     } else {
@@ -1782,6 +1915,7 @@ pub(crate) async fn generate_turn_with_memories(
         }
     }
     domain::validate_generated_expressions(&lines, &expressions)?;
+    domain::validate_generated_widgets(&mut lines, &widget_kinds);
     if bundle {
         let _action = lock(&state.action)?;
         if !is_current(state, ticket.epoch, &cancel) {
@@ -1804,7 +1938,7 @@ pub(crate) async fn generate_turn_with_memories(
             chrono::Utc::now().timestamp_millis(),
         )?;
     }
-    Ok((lines, revision))
+    Ok((lines, revision, follow_ups))
 }
 
 fn turn_groups(
@@ -1860,8 +1994,11 @@ pub(crate) async fn run_turn(
         crate::organizer::runtime::direct(app, state, message_id, epoch, cancel.clone()).await?;
     }
     let groups = turn_groups(&*lock(&state.db)?, targets, message_id)?;
+    let group_count = groups.len();
     let mut shown = 0;
-    for group in groups {
+    let mut follow_ups = Vec::new();
+    let mut last_reply_id = None;
+    for (group_index, group) in groups.into_iter().enumerate() {
         if !is_current(state, epoch, &cancel) {
             return Ok(());
         }
@@ -1905,10 +2042,10 @@ pub(crate) async fn run_turn(
         } else {
             None
         };
-        let (lines, revision, source) = match saved {
-            Some((lines, revision, source)) => (lines, revision?, source),
+        let (lines, revision, source, options) = match saved {
+            Some((lines, revision, source)) => (lines, revision?, source, Vec::new()),
             None => {
-                let (lines, revision) = generate_turn_with_memories(
+                let (lines, revision, options) = generate_turn_with_follow_ups(
                     state,
                     &group,
                     message_id,
@@ -1916,10 +2053,11 @@ pub(crate) async fn run_turn(
                     memories,
                 )
                 .await?;
-                (lines, revision, "llm".into())
+                (lines, revision, "llm".into(), options)
             }
         };
-        for line in &lines {
+        follow_ups = options;
+        for (line_index, line) in lines.iter().enumerate() {
             if bundle
                 && (!targets.contains(&line.persona)
                     || store::message_displayed(
@@ -1945,8 +2083,23 @@ pub(crate) async fn run_turn(
             }
             shown += 1;
             publish(app, state);
-            wait_for_line(app, state, epoch, cancel.clone()).await?;
+            let completed = wait_for_completed_line(state, epoch, cancel.clone()).await?;
+            if clear_line_if_current(state, epoch, &cancel)?
+                && (completed.is_none()
+                    || group_index + 1 != group_count
+                    || line_index + 1 != lines.len())
+            {
+                publish(app, state);
+            }
+            if completed.is_none() {
+                return Ok(());
+            }
+            last_reply_id = Some(reply_id(message_id, &line.persona));
         }
+    }
+
+    if let Some(reply_id) = last_reply_id {
+        super::chat::offer_follow_ups(state, message_id, &reply_id, follow_ups, epoch, &cancel)?;
     }
 
     Ok(())
@@ -2055,8 +2208,7 @@ mod session_tests {
             .await
             .unwrap_err();
             assert_eq!(
-                error,
-                "입력 전체를 대화에 담을 수 없어요. 내용을 나누어 보내 주세요.",
+                error, "입력 전체를 대화에 담을 수 없어요. 내용을 나누어 보내 주세요.",
                 "mode={mode}, bundle={bundle}, count={count}"
             );
             let stored = store::messages(&lock(&state.db).unwrap(), 10)
@@ -2212,6 +2364,7 @@ mod retry_display_tests {
                 persona: ids[0].clone(),
                 expression: "평온".into(),
                 text: "  저장한 답변\n그대로  ".into(),
+                widget: None,
                 motion: Default::default(),
             };
             let reply = Message {
@@ -2290,6 +2443,7 @@ mod unified_send_tests {
                 persona: "a".into(),
                 text: text.into(),
                 expression: "평온".into(),
+                widget: None,
                 motion: Default::default(),
             }],
             enabled: true,

@@ -84,6 +84,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
     new URLSearchParams(location.search).get("tab") === "envelopes" ? "envelopes" : null,
   );
   const [requestedNote, setRequestedNote] = useState<{ id: string; version: number } | null>(null);
+  const [requestedHabit, setRequestedHabit] = useState<{ id: string; version: number } | null>(null);
   const [archived, setArchived] = useState(false);
   const [editing, setEditing] = useState<DataRecord | null>(null);
   const [notice, setNotice] = useState("");
@@ -110,7 +111,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
   const [pageMenuVersion, setPageMenuVersion] = useState(0);
   const widgets = snapshot?.widgets ?? [];
   const enabled = (kind: string): WidgetView | undefined =>
-    widgets.find((widget) => widget.kind === kind && widget.installed && widget.enabled);
+    widgets.find((widget) => widget.kind === kind);
   const todo = enabled("todo"),
     calendar = enabled("calendar"),
     preparation = enabled("preparation");
@@ -145,6 +146,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
     toggleTask,
     undoCompletion,
     focusTask,
+    queueTask,
     focusEnvelope,
   } = useDiaryTasks({
     actions,
@@ -324,12 +326,35 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
     if (viewTarget.entity === "page") {
       const page = diary.state.pages.find((value) => value.id === viewTarget.targetId);
       if (page) openPage(page);
+      else if (viewTarget.fallbackToToday) openDay(localDay());
       else setFailure("해당 기록을 현재 찾을 수 없어요. 원본이 삭제되었는지 확인해 주세요.");
       return;
     }
     if (viewTarget.entity === "envelope") {
       if (envelopes.some((value) => value.id === viewTarget.targetId)) openEnvelope(viewTarget.targetId);
       else setFailure("해당 봉투를 현재 찾을 수 없어요. 봉투가 삭제되었는지 확인해 주세요.");
+      return;
+    }
+    if (viewTarget.entity === "todo") {
+      const item = items.find((value) => value.id === viewTarget.targetId);
+      navigateRef.current(() => {
+        setNotesOpen(false);
+        setCollection(null);
+        setToolsOpened(true);
+        setTool("today");
+        if (item) setEditing(item);
+      });
+      return;
+    }
+    if (viewTarget.entity === "habit") {
+      const habit = diary.state.habits?.find((value) => value.id === viewTarget.targetId);
+      navigateRef.current(() => {
+        setNotesOpen(false);
+        setCollection(null);
+        setTool("habits");
+        if (habit)
+          setRequestedHabit((previous) => ({ id: habit.id, version: (previous?.version ?? 0) + 1 }));
+      });
       return;
     }
     const event = events.find((value) => value.id === viewTarget.targetId);
@@ -379,10 +404,6 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
     });
   }
   function openSourceWidget(widget: WidgetView, itemId?: string): void {
-    if (!widget.installed || !widget.enabled) {
-      setFailure("위젯 설정에서 이 도구를 먼저 켜 주세요.");
-      return;
-    }
     if (!itemId && (widget.kind === "todo" || widget.kind === "calendar")) {
       if (widget.kind === "calendar") openDay(day, "month");
       else openTool("today");
@@ -415,6 +436,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
     onToggleTask: (item) => void toggleTask(item),
     onEditTask: setEditing,
     onFocusTask: (item) => void focusTask(item),
+    onQueueTask: (item) => void queueTask(item),
     onMoveTask: planTask,
     onOpenEnvelope: openEnvelope,
     onCreatePage: createPage,
@@ -660,6 +682,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
                 <DiaryHabits
                   key={featureContentVersion}
                   state={diary.state}
+                  requestedHabit={requestedHabit}
                   date={day}
                   onDateChange={(date) => navigate(() => setDay(date))}
                   onAction={diaryAction}

@@ -22,8 +22,8 @@ const SETTINGS_LABELS: Record<string, string> = {
   weather: "지역과 연결",
   music: "음악 앱 연결",
   clock: "시계와 기념일",
-  "focus-timer": "집중 타이머 설정",
-  preparation: "준비 봉투 설정",
+  "focus-timer": "집중 타이머 세부 설정",
+  preparation: "준비 봉투 세부 설정",
 };
 
 export function WidgetSettings({
@@ -93,7 +93,7 @@ export function WidgetSettings({
             {widget.kind === "focus-timer" && (
               <FocusWidgetSettings
                 widget={widget}
-                calendar={widgets.find((item) => item.kind === "calendar" && item.installed)}
+                calendar={widgets.find((item) => item.kind === "calendar")}
                 act={configure}
                 onDirtyChange={setConnectionDirty}
                 onBusyChange={setConnectionBusy}

@@ -80,7 +80,7 @@ fn rare_idle_start_rechecks_higher_priority_states_before_owning_the_body() {
 }
 
 #[test]
-fn common_body_talk_uses_the_existing_pack_without_installing_the_interaction_widget() {
+fn common_body_talk_uses_the_existing_pack_with_the_builtin_interaction_widget() {
     let state = crate::app::tests::state();
     let directory = tempfile::tempdir().unwrap();
     *lock(&state.talk).unwrap() = crate::talk::host::initialize(directory.path());
@@ -98,8 +98,7 @@ fn common_body_talk_uses_the_existing_pack_without_installing_the_interaction_wi
     assert!(widgets::storage::instances(&db)
         .unwrap()
         .iter()
-        .filter(|instance| instance.kind == "interaction")
-        .all(|instance| !instance.installed && !instance.enabled));
+        .any(|instance| instance.kind == "interaction"));
     let lines = crate::talk::host::prepare(&state, &db, Some(&event))
         .unwrap()
         .unwrap();
@@ -112,6 +111,120 @@ fn common_body_talk_uses_the_existing_pack_without_installing_the_interaction_wi
     )
     .unwrap();
     assert!(!crate::talk::host::current(&state, &db).unwrap());
+}
+
+#[test]
+fn touching_one_character_expires_old_events_for_all_owners() {
+    let state = crate::app::tests::state();
+    let db = lock(&state.db).unwrap();
+    let id = characters::active_character(&db, "a").unwrap().id;
+    let user = store::active_user_id(&db).unwrap();
+    let now = 1_000_000_000_i64;
+    let cutoff = now - 172_800_000;
+    for (character, owner, at) in [
+        (id.as_str(), user.as_str(), cutoff - 1),
+        (id.as_str(), "other-user", cutoff - 1),
+        ("other-character", user.as_str(), cutoff - 1),
+        ("other-character", "other-user", cutoff - 1),
+        ("other-character", "other-user", cutoff),
+        ("other-character", "other-user", cutoff + 1),
+    ] {
+        db.execute(
+            "INSERT INTO character_touch_events(character_id,user_id,created_at) VALUES(?1,?2,?3)",
+            rusqlite::params![character, owner, at],
+        )
+        .unwrap();
+    }
+    db.execute(
+        "INSERT INTO character_touches(character_id,user_id,action,count,last_at) VALUES('other-character','other-user','stroke',7,?1)",
+        [cutoff - 1],
+    )
+    .unwrap();
+    widgets::storage::body_interaction(&db, &id, "stroke", &uuid::Uuid::new_v4().to_string(), now)
+        .unwrap();
+    let expired: i64 = db
+        .query_row("SELECT COUNT(*) FROM character_touch_events WHERE created_at<?1", [cutoff], |row| row.get(0))
+        .unwrap();
+    let retained: i64 = db
+        .query_row("SELECT COUNT(*) FROM character_touch_events WHERE character_id='other-character' AND user_id='other-user'", [], |row| row.get(0))
+        .unwrap();
+    let total: i64 = db
+        .query_row("SELECT count FROM character_touches WHERE character_id='other-character' AND user_id='other-user'", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!((expired, retained, total), (0, 2, 7));
+}
+
+#[test]
+fn milestone_interrupts_automatic_talk_only_when_allowed_and_matched() {
+    let state = crate::app::tests::state();
+    let program = crate::talk::validate_source(
+        std::path::Path::new("index.talk"),
+        "format: 1\nscene: idle\non: idle\n---\nA: 이전 첫 줄\nA: 이전 다음 줄\n===\nscene: milestone\non: interaction.milestone\nwhen: interaction.milestone == 1\n---\nA: 기념 대사\n===\n",
+        &crate::talk::context::registry(),
+    )
+    .unwrap();
+    lock(&state.talk).unwrap().apply(Ok(program));
+    let (old_epoch, old_cancel) = app::interrupt(&state, true).unwrap();
+    let (old_lines, mut event, revision) = {
+        let db = lock(&state.db).unwrap();
+        let lines = crate::talk::host::prepare(&state, &db, None)
+            .unwrap()
+            .unwrap();
+        let id = characters::active_character(&db, "a").unwrap().id;
+        let mut event = widgets::storage::body_interaction(
+            &db,
+            &id,
+            "stroke",
+            &uuid::Uuid::new_v4().to_string(),
+            chrono::Utc::now().timestamp_millis(),
+        )
+        .unwrap()
+        .unwrap();
+        event.event.kind = "interaction.milestone".into();
+        (lines, event, store::revision(&db).unwrap())
+    };
+    let now = chrono::Utc::now().timestamp_millis();
+    let character = event.event.payload["owner"].as_str().unwrap();
+    lock(&state.life).unwrap().apply_interaction(character, "stroke", true, &event.id, now, old_epoch);
+    assert!(scene::present_line(
+        &state, &old_lines[0], "talk", "old-first", 0, 2, revision, old_epoch, &old_cancel, false,
+    ).unwrap());
+    assert!(scene::clear_line_if_current(&state, old_epoch, &old_cancel).unwrap());
+    assert!(speech_reason(&state).unwrap().is_none());
+    state.automatic.store(false, Ordering::SeqCst);
+    assert!(speech_reason(&state).unwrap().is_some());
+    state.automatic.store(true, Ordering::SeqCst);
+    let (new_lines, new_epoch, new_cancel) = {
+        let db = lock(&state.db).unwrap();
+        lock(&state.runtime).unwrap().paused = true;
+        assert!(prepare_milestone(&state, &db, &event).unwrap().is_none());
+        lock(&state.runtime).unwrap().paused = false;
+        event.event.payload["milestone"] = serde_json::json!(10);
+        assert!(prepare_milestone(&state, &db, &event).unwrap().is_none());
+        assert!(!old_cancel.load(Ordering::SeqCst));
+        assert!(crate::talk::host::current(&state, &db).unwrap());
+        event.event.payload["milestone"] = serde_json::json!(1);
+        let (lines, (epoch, cancel)) = prepare_milestone(&state, &db, &event)
+            .unwrap()
+            .unwrap();
+        assert_eq!(lines[0].text, "기념 대사");
+        assert!(!cancel.load(Ordering::SeqCst));
+        assert!(crate::talk::host::current(&state, &db).unwrap());
+        let count: i64 = db
+            .query_row("SELECT SUM(count) FROM character_touches", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+        (lines, epoch, cancel)
+    };
+    let mood = characters::life::pop_mood_change(&state).unwrap().unwrap();
+    assert_eq!(mood.epoch, new_epoch);
+    assert!(old_cancel.load(Ordering::SeqCst));
+    assert!(!scene::present_line(
+        &state, &old_lines[1], "talk", "old-next", 1, 2, revision, old_epoch, &old_cancel, false,
+    ).unwrap());
+    assert!(scene::present_line(
+        &state, &new_lines[0], "talk", "milestone", 0, 1, revision, new_epoch, &new_cancel, false,
+    ).unwrap());
 }
 
 #[test]
@@ -310,6 +423,7 @@ fn playback(source: &str, id: &str) -> Playback {
         text: "읽던 대화".into(),
         motion: MotionOverride::Inherit,
         source: source.into(),
+        link: None,
         text_speed: 0,
         display_started_at: Some(1),
         ends_at: i64::MAX,
@@ -320,7 +434,7 @@ fn playback(source: &str, id: &str) -> Playback {
 fn timer_event(state: &AppState, owner: &str) -> widgets::WidgetEvent {
     let directory = tempfile::tempdir().unwrap();
     let db = lock(&state.db).unwrap();
-    widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+    widgets::storage::verify_packages(&db, directory.path()).unwrap();
     let instance = widgets::storage::instances(&db)
         .unwrap()
         .into_iter()
@@ -370,7 +484,7 @@ fn focus_preserves_physical_reactions_without_starting_speech() {
     let directory = tempfile::tempdir().unwrap();
     {
         let db = lock(&state.db).unwrap();
-        widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+        widgets::storage::verify_packages(&db, directory.path()).unwrap();
         let timer = widgets::storage::instances(&db)
             .unwrap()
             .into_iter()
@@ -656,6 +770,29 @@ fn widget_reactions_obey_owner_epoch_revision_expiry_and_same_cooldown_policy() 
 }
 
 #[test]
+fn reaction_carries_only_its_own_current_interaction_mood() {
+    for is_stale in [false, true] {
+        let (state, id) = configured();
+        let now = chrono::Utc::now().timestamp_millis();
+        lock(&state.life).unwrap().apply_interaction(&id, "stroke", true, "accepted", now, 0);
+        lock(&state.life).unwrap().apply_interaction(&id, "snack", true, "other", now, 0);
+        if is_stale {
+            app::interrupt(&state, false).unwrap();
+        }
+        let before = state.epoch.load(Ordering::SeqCst);
+        let result = prepare_reaction_inner(&state, &id, "click", 7, None, None, Some("accepted"))
+            .unwrap().unwrap();
+        assert!(result.speech.is_some());
+        let after = state.epoch.load(Ordering::SeqCst);
+        assert_eq!(after, before + 1);
+        let first = characters::life::pop_mood_change(&state).unwrap().unwrap();
+        let second = characters::life::pop_mood_change(&state).unwrap().unwrap();
+        assert_eq!(first.epoch, if is_stale { 0 } else { after });
+        assert_eq!(second.epoch, 0);
+    }
+}
+
+#[test]
 fn interaction_targets_resolve_uppercase_slots_and_ignore_absent_members() {
     let (state, _) = configured();
     let db = lock(&state.db).unwrap();
@@ -719,6 +856,7 @@ fn completed_widget_scene_allows_click_speech_while_active_widget_remains_protec
         persona: id.clone(),
         expression: "평온".into(),
         text: "타이머가 끝났어.".into(),
+        widget: None,
         motion: MotionOverride::Inherit,
     };
     assert!(scene::present_line(

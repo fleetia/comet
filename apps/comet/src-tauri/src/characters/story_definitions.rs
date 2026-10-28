@@ -97,7 +97,16 @@ pub fn save_pack_story_definition_expected(
         crate::pack_stories::validate_pack(&definitions, definition)?;
         pack.set_story_definition(definition.clone());
         if !definition.is_empty() {
-            pack.format_version = 8;
+            let required_version = if definition
+                .scenarios
+                .iter()
+                .any(|scene| scene.reveal_affinity.is_some() || !scene.defer.is_empty())
+            {
+                12
+            } else {
+                8
+            };
+            pack.format_version = pack.format_version.max(required_version);
         }
         tx.execute(
             "UPDATE character_packs SET data=?1 WHERE id=?2",
@@ -215,6 +224,7 @@ pub(super) fn export_extras(
                 .iter_mut()
                 .chain(&mut scenario.accept)
                 .chain(&mut scenario.decline)
+                .chain(&mut scenario.defer)
                 .chain(&mut scenario.ending)
             {
                 remap(&mut line.persona)?;

@@ -13,8 +13,7 @@ function widget(kind: string, data: WidgetValue): WidgetView {
   return {
     id: kind,
     kind,
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 1,
     version: 1,
     data,
@@ -396,6 +395,7 @@ it("configures weather only from an explicit selected search result", async () =
         temperatureUnit: "celsius",
         showApparent: true,
         showDetails: false,
+        showTomorrow: true,
         allowTalk: true,
         refreshIntervalMinutes: 30,
       },

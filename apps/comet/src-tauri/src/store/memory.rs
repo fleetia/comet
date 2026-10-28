@@ -516,16 +516,21 @@ fn apply(
     tx.commit().map_err(err)
 }
 
+pub(crate) fn direct_affinity(content: &str) -> Option<(&'static str, i32)> {
+    match content.trim().trim_end_matches(['!', '.', '~', ' ']) {
+        "고마워" | "고마워요" | "감사합니다" => Some(("thanks", 1)),
+        "꺼져" | "멍청이" => Some(("insult", -1)),
+        _ => None,
+    }
+}
+
 // Called only for a newly inserted input, after immutable target identities are saved.
 pub(super) fn apply_direct_affinity(conn: &Connection, source: &Message) -> Result<()> {
     if source.role != "user" || source.status != "complete" {
         return Ok(());
     }
-    let normalized = source.content.trim().trim_end_matches(['!', '.', '~', ' ']);
-    let (kind, delta) = match normalized {
-        "고마워" | "고마워요" | "감사합니다" => ("thanks", 1),
-        "꺼져" | "멍청이" => ("insult", -1),
-        _ => return Ok(()),
+    let Some((kind, delta)) = direct_affinity(&source.content) else {
+        return Ok(());
     };
     let day = chrono::DateTime::from_timestamp_millis(source.created_at)
         .ok_or("잘못된 메시지 시간")?

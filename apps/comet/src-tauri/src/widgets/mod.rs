@@ -12,6 +12,7 @@ pub(crate) mod images;
 pub(crate) mod memo_notes;
 pub(crate) mod music_bridge;
 pub(crate) mod music_native;
+pub(crate) mod mood;
 pub(crate) mod planning;
 pub(crate) mod reminders;
 pub(crate) mod runtime;
@@ -50,8 +51,6 @@ pub struct WidgetInstance {
     pub id: String,
     pub kind: String,
     pub version: u32,
-    pub installed: bool,
-    pub enabled: bool,
     pub revision: i64,
     pub data: Value,
     pub error: Option<String>,
@@ -64,6 +63,7 @@ pub struct WidgetView {
     pub instance: WidgetInstance,
     pub status: String,
     pub missing: Vec<String>,
+    pub reaction: bool,
     pub package_bytes: usize,
     pub background_updated_at: Option<i64>,
 }
@@ -117,6 +117,13 @@ pub const RETIRED_KINDS: &[&str] = &["collection", "journal"];
 
 pub fn is_retired(kind: &str) -> bool {
     RETIRED_KINDS.contains(&kind)
+}
+
+fn is_package_error(error: Option<&str>) -> bool {
+    error.is_some_and(|message| {
+        message.starts_with("위젯 파일을 확인하지 못했어요.")
+            || message.starts_with("설치 파일을 확인하지 못했어요.")
+    })
 }
 
 /// Desktop placement and default shape size, shared with the frontend.
@@ -272,40 +279,22 @@ pub fn project(instance: WidgetInstance, all: &[WidgetInstance]) -> Result<Widge
 
 pub fn project_with_background(
     mut instance: WidgetInstance,
-    all: &[WidgetInstance],
+    _all: &[WidgetInstance],
     background_updated_at: Option<i64>,
 ) -> Result<WidgetView, String> {
     let metadata = manifest(&instance.kind)?;
-    let missing = metadata
-        .required
-        .iter()
-        .filter(|kind| {
-            !all.iter()
-                .any(|other| other.kind == **kind && other.installed && other.enabled)
-        })
-        .cloned()
-        .collect::<Vec<_>>();
+    let missing = Vec::new();
     let connection_needed = match instance.kind.as_str() {
         "weather" | "music" | "device" => instance.data["configured"] != true,
         _ => false,
     };
-    if instance.installed
-        && instance.enabled
-        && missing.is_empty()
-        && !connection_needed
-        && instance.error.is_none()
-    {
+    let install_error = is_package_error(instance.error.as_deref());
+    if !connection_needed && instance.error.is_none() {
         instance.error = connection_projection_error(&instance.kind, &instance.data);
     }
-    let status = if !instance.installed {
-        if instance.error.is_some() {
-            "install-error"
-        } else {
-            "not-installed"
-        }
-    } else if !instance.enabled {
-        "disabled"
-    } else if !missing.is_empty() || connection_needed {
+    let status = if install_error {
+        "install-error"
+    } else if connection_needed {
         "setup"
     } else if instance.error.is_some() {
         "error"
@@ -321,6 +310,7 @@ pub fn project_with_background(
         instance,
         status: status.into(),
         missing,
+        reaction: true,
         package_bytes: serde_json::to_vec(&metadata)
             .map_err(|error| error.to_string())?
             .len(),
@@ -408,19 +398,14 @@ mod projection_tests {
             assert_eq!(view["data"], source.data);
             assert_eq!(source.error, None);
             assert_eq!(view["revision"], 7);
-            for (installed, enabled, configured, expected) in [
-                (false, true, true, "not-installed"),
-                (true, false, true, "disabled"),
-                (true, true, false, "setup"),
-            ] {
-                let mut inactive = source.clone();
-                inactive.installed = installed;
-                inactive.enabled = enabled;
-                inactive.data["configured"] = json!(configured);
-                let view = project(inactive, &[]).unwrap();
-                assert_eq!(view.status, expected);
-                assert_eq!(view.instance.error, None);
-            }
+            let mut unconfigured = source.clone();
+            unconfigured.data["configured"] = json!(false);
+            let view = project(unconfigured, &[]).unwrap();
+            assert_eq!(view.status, "setup");
+            assert_eq!(view.instance.error, None);
+            let mut broken_package = source.clone();
+            broken_package.error = Some("위젯 파일을 확인하지 못했어요.".into());
+            assert_eq!(project(broken_package, &[]).unwrap().status, "install-error");
         }
     }
 

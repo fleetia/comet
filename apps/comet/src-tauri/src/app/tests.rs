@@ -52,11 +52,14 @@ pub(crate) fn state() -> AppState {
         gate: tokio::sync::Mutex::new(()),
         epoch: AtomicU64::new(0),
         widget_epoch: AtomicU64::new(0),
+        playback_link_gate: tokio::sync::Mutex::new(()),
         widget_playback: Mutex::new(None),
         talk: Mutex::new(talk::runtime::ActiveProgram::default()),
         talk_playback: Mutex::new(None),
         talk_turn: AtomicBool::new(true),
         story: Mutex::new(None),
+        follow_ups: Mutex::new(None),
+        follow_up_dismissed_epoch: AtomicU64::new(u64::MAX),
         pack_stories: Mutex::new(crate::pack_stories::Runtime::default()),
         story_clock: Mutex::new(story::Clock::default()),
         story_catalog: Mutex::new(story::catalog().unwrap()),
@@ -90,6 +93,7 @@ fn test_lines() -> Vec<SceneLine> {
         .into_iter()
         .enumerate()
         .map(|(index, persona)| SceneLine {
+            widget: None,
             motion: Default::default(),
             persona: persona.into(),
             expression: "평온".into(),
@@ -220,7 +224,6 @@ fn talk_remaining_lines_stop_after_each_dependency_and_host_invalidation() {
     for cause in [
         "todo",
         "memo",
-        "disable",
         "input",
         "pause",
         "manual-pause",
@@ -237,7 +240,7 @@ fn talk_remaining_lines_stop_after_each_dependency_and_host_invalidation() {
         let (token, lines, revision) = {
             let _action = lock(&state.action).unwrap();
             let db = lock(&state.db).unwrap();
-            widgets::storage::install(&db, directory.path(), &["todo".into(), "memo".into()])
+            widgets::storage::verify_packages(&db, directory.path())
                 .unwrap();
             let token = interrupt(&state, cause != "manual-pause").unwrap();
             let lines = talk::host::prepare(&state, &db, None).unwrap().unwrap();
@@ -249,18 +252,16 @@ fn talk_remaining_lines_stop_after_each_dependency_and_host_invalidation() {
         )
         .unwrap());
         match cause {
-            "todo" | "memo" | "disable" => {
+            "todo" | "memo" => {
                 let db = lock(&state.db).unwrap();
                 let instance = widgets::storage::instances(&db)
                     .unwrap()
                     .into_iter()
                     .find(|instance| {
-                        instance.kind == if cause == "disable" { "memo" } else { cause }
+                        instance.kind == cause
                     })
                     .unwrap();
-                if cause == "disable" {
-                    widgets::storage::set_enabled(&db, &instance.id, false).unwrap();
-                } else {
+                {
                     let mut changed = instance.data;
                     changed["items"] = serde_json::json!([{"id":"added","title":"추가","text":"메모","completedAt":null}]);
                     widgets::storage::commit_data(
@@ -372,8 +373,12 @@ fn brief_idle_pause_discards_widget_queue_before_a_scheduler_tick() {
     let directory = tempfile::tempdir().unwrap();
     {
         let db = lock(&state.db).unwrap();
-        widgets::storage::install(&db, directory.path(), &["small-match".into()]).unwrap();
-        let instance = widgets::storage::instances(&db).unwrap().remove(0);
+        widgets::storage::verify_packages(&db, directory.path()).unwrap();
+        let instance = widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|instance| instance.kind == "small-match")
+                .unwrap();
         widgets::storage::commit_data(
             &db,
             &instance.id,
@@ -397,7 +402,11 @@ fn brief_idle_pause_discards_widget_queue_before_a_scheduler_tick() {
                 .unwrap()
                 .is_none()
         );
-        let instance = widgets::storage::instances(&db).unwrap().remove(0);
+        let instance = widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|instance| instance.kind == "small-match")
+                .unwrap();
         widgets::storage::commit_data(
             &db,
             &instance.id,
@@ -422,14 +431,64 @@ fn brief_idle_pause_discards_widget_queue_before_a_scheduler_tick() {
 }
 
 #[test]
+fn weather_day_is_recorded_only_after_current_line_is_displayed() {
+    let state = state();
+    let db = lock(&state.db).unwrap();
+    *lock(&state.widget_playback).unwrap() = Some(widgets::WidgetEvent {
+        id: "weather-event".into(),
+        instance_id: "weather".into(),
+        widget_kind: "weather".into(),
+        revision: 0,
+        created_at: 0,
+        expires_at: i64::MAX,
+        event: widgets::EventDraft {
+            kind: "weather.last-year".into(),
+            text: "작년 날씨".into(),
+            payload: serde_json::json!({"day":"2026-10-28"}),
+        },
+    });
+    let mut line = Playback {
+        id: "scene:weather:0".into(),
+        link: None,
+        persona: "a".into(),
+        expression: "normal".into(),
+        text: "작년 날씨".into(),
+        motion: Default::default(),
+        source: "widget".into(),
+        text_speed: 0,
+        display_started_at: None,
+        ends_at: 0,
+        line_index: 0,
+        line_count: 1,
+    };
+    let count = || db.query_row(
+        "SELECT COUNT(*) FROM widget_preferences WHERE key='weather-talk:weather.last-year'",
+        [], |row| row.get::<_, i64>(0),
+    ).unwrap();
+    super::scene::mark_displayed_weather_reaction(&state, &db, &line).unwrap();
+    assert_eq!(count(), 0);
+    mark_line_displayed(&mut line, 100);
+    state.widget_epoch.store(1, Ordering::SeqCst);
+    super::scene::mark_displayed_weather_reaction(&state, &db, &line).unwrap();
+    assert_eq!(count(), 0);
+    state.epoch.store(1, Ordering::SeqCst);
+    super::scene::mark_displayed_weather_reaction(&state, &db, &line).unwrap();
+    assert_eq!(count(), 1);
+}
+
+#[test]
 fn widget_lines_stop_after_source_change_or_user_cancellation() {
     for cause in ["source-change", "disable", "input", "pause", "auto-off"] {
         let state = state();
         let directory = tempfile::tempdir().unwrap();
         let (instance, revision, event) = {
             let db = lock(&state.db).unwrap();
-            widgets::storage::install(&db, directory.path(), &["small-match".into()]).unwrap();
-            let instance = widgets::storage::instances(&db).unwrap().remove(0);
+            widgets::storage::verify_packages(&db, directory.path()).unwrap();
+            let instance = widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|instance| instance.kind == "small-match")
+                .unwrap();
             widgets::storage::commit_data(
                 &db,
                 &instance.id,
@@ -459,6 +518,7 @@ fn widget_lines_stop_after_source_change_or_user_cancellation() {
             token
         };
         let line = SceneLine {
+            widget: None,
             motion: Default::default(),
             persona: "a".into(),
             expression: "normal".into(),
@@ -493,7 +553,7 @@ fn widget_lines_stop_after_source_change_or_user_cancellation() {
                 .unwrap();
             }
             "disable" => {
-                widgets::storage::set_enabled(&lock(&state.db).unwrap(), &instance.id, false)
+                widgets::storage::set_reaction(&lock(&state.db).unwrap(), &instance.id, false)
                     .unwrap()
             }
             "pause" => {
@@ -546,6 +606,7 @@ fn inactive_character_installs_preserve_playback_but_active_definition_edits_can
         )
     };
     let line = SceneLine {
+        widget: None,
         motion: Default::default(),
         persona: "a".into(),
         expression: "평온".into(),
@@ -637,6 +698,7 @@ fn inactive_relationship_target_rename_and_removal_cancel_stale_character_contex
         let (epoch, cancel) = interrupt(&state, false).unwrap();
         let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
         let line = SceneLine {
+            widget: None,
             motion: Default::default(),
             persona: "a".into(),
             expression: "평온".into(),
@@ -723,6 +785,7 @@ fn character_change_cancels_old_playback_and_retry_preserving_the_transcript() {
     };
     let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
     let line = SceneLine {
+        widget: None,
         motion: Default::default(),
         persona: "a".into(),
         expression: "평온".into(),
@@ -801,6 +864,7 @@ fn pack_switch_cancels_stale_playback_and_restores_the_same_characters_and_perso
     };
     let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
     let line = SceneLine {
+        widget: None,
         motion: Default::default(),
         persona: "a".into(),
         expression: "평온".into(),
@@ -892,6 +956,7 @@ fn authored_idle_wordbook_overrides_the_character_pair_fallback() {
     let state = state();
     let db = lock(&state.db).unwrap();
     let lines = vec![SceneLine {
+        widget: None,
         motion: Default::default(),
         persona: "b".into(),
         expression: "장난".into(),
@@ -960,6 +1025,7 @@ fn shared_character_pack_uses_authored_keyword_order_after_personal_entries() {
         title: "테스트 별사탕".into(),
         keywords: vec!["별사탕".into()],
         lines: vec![SceneLine {
+            widget: None,
             motion: Default::default(),
             persona: "a".into(),
             expression: "평온".into(),
@@ -994,6 +1060,7 @@ fn shared_character_pack_uses_authored_keyword_order_after_personal_entries() {
         title: "개인 대사".into(),
         keywords: vec!["별".into()],
         lines: vec![SceneLine {
+            widget: None,
             motion: Default::default(),
             persona: "b".into(),
             expression: "장난".into(),
@@ -1031,12 +1098,14 @@ fn keyword_route_works_without_a_model_and_preserves_authored_lines() {
         keywords: vec!["수박".into()],
         lines: vec![
             SceneLine {
+                widget: None,
                 motion: Default::default(),
                 persona: "b".into(),
                 expression: "장난".into(),
                 text: "  그대로\n\n말할게.  ".into(),
             },
             SceneLine {
+                widget: None,
                 motion: Default::default(),
                 persona: "b".into(),
                 expression: "평온".into(),
@@ -1136,6 +1205,7 @@ fn explicit_ai_input_bypasses_personal_and_character_keywords_without_changing_d
             title: "합성 키워드".into(),
             keywords: vec!["lighthouse".into()],
             lines: vec![SceneLine {
+                widget: None,
                 motion: Default::default(),
                 persona: "a".into(),
                 expression: "평온".into(),
@@ -1234,6 +1304,7 @@ fn single_recipient_keyword_routes_filter_whole_scenes_before_matching() {
             lines: lines
                 .iter()
                 .map(|(persona, text)| SceneLine {
+                    widget: None,
                     motion: Default::default(),
                     persona: (*persona).into(),
                     expression: "평온".into(),
@@ -1377,6 +1448,7 @@ fn unavailable_wordbook_winner_is_reported_before_shorter_or_later_matches() {
         title: "짧은 항목".into(),
         keywords: vec!["테스트".into()],
         lines: vec![SceneLine {
+            widget: None,
             motion: Default::default(),
             persona: "a".into(),
             expression: "평온".into(),
@@ -1456,6 +1528,7 @@ fn presenting_a_line_captures_its_characters_text_speed_and_complete_original() 
     let token = interrupt(&state, false).unwrap();
     let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
     let line = SceneLine {
+        widget: None,
         motion: Default::default(),
         persona: "a".into(),
         expression: "평온".into(),
@@ -1711,7 +1784,7 @@ fn set_focus_timer(
         .iter()
         .any(|instance| instance.kind == "focus-timer")
     {
-        widgets::storage::install(db, directory, &["focus-timer".into()]).unwrap();
+        widgets::storage::verify_packages(db, directory).unwrap();
     }
     let instance = widgets::storage::instances(db)
         .unwrap()
@@ -1761,7 +1834,7 @@ fn starting_and_resuming_focus_cancel_existing_speech_without_erasing_the_conver
     let directory = tempfile::tempdir().unwrap();
     let (persona, session_id) = {
         let db = lock(&state.db).unwrap();
-        widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+        widgets::storage::verify_packages(&db, directory.path()).unwrap();
         store::set_user_name(&db, "집중 검사", chrono::Utc::now().timestamp_millis()).unwrap();
         let persona = characters::active_ids(&db).unwrap()[0].clone();
         let session = store::create_conversation(
@@ -1779,6 +1852,7 @@ fn starting_and_resuming_focus_cancel_existing_speech_without_erasing_the_conver
         persona: persona.clone(),
         expression: "평온".into(),
         text: "집중 전에 읽던 대사".into(),
+        widget: None,
         motion: Default::default(),
     };
     for action in ["start", "resume"] {
@@ -1878,6 +1952,7 @@ fn focus_rejects_keyword_input_and_fresh_playback_before_saving_any_content() {
         persona: "a".into(),
         expression: "평온".into(),
         text: "  등록한 원문\n그대로  ".into(),
+        widget: None,
         motion: Default::default(),
     };
     wordbook::save(
@@ -1999,8 +2074,8 @@ fn focus_activity_requires_enabled_running_focus_with_future_deadline() {
         .into_iter()
         .find(|instance| instance.kind == "focus-timer")
         .unwrap();
-    widgets::storage::set_enabled(&db, &timer.id, false).unwrap();
-    assert!(!widgets::storage::focus_active(&db, at).unwrap());
+    widgets::storage::set_reaction(&db, &timer.id, false).unwrap();
+    assert!(widgets::storage::focus_active(&db, at).unwrap());
 }
 
 #[test]
@@ -2010,7 +2085,7 @@ fn focus_hold_drops_all_balloon_reactions_without_a_catch_up() {
     let db = lock(&state.db).unwrap();
     let at = chrono::Utc::now().timestamp_millis();
     // Installing discards pending events, so both widgets exist before the events.
-    widgets::storage::install(&db, directory.path(), &["small-match".into()]).unwrap();
+    widgets::storage::verify_packages(&db, directory.path()).unwrap();
     set_focus_timer(&db, directory.path(), "idle", "focus", None);
     let instance = widgets::storage::instances(&db)
         .unwrap()
@@ -2263,6 +2338,7 @@ fn model_change_preserves_history_and_invalidates_previous_work() {
                 id: "previous-model-scene".into(),
                 revision: store::revision(&db).unwrap(),
                 lines: vec![SceneLine {
+                    widget: None,
                     motion: Default::default(),
                     persona: "a".into(),
                     expression: "평온".into(),
@@ -2930,10 +3006,9 @@ async fn shutdown_and_update_save_note_drafts_before_becoming_unavailable() {
         let directory = tempfile::tempdir().unwrap();
         let id = {
             let db = lock(&state.db).unwrap();
-            crate::widgets::storage::install(&db, directory.path(), &["memo".into()]).unwrap();
-            crate::widgets::storage::instances(&db).unwrap()[0]
-                .id
-                .clone()
+            crate::widgets::storage::verify_packages(&db, directory.path()).unwrap();
+            crate::widgets::storage::instances(&db).unwrap().into_iter()
+                .find(|widget| widget.kind == "memo").unwrap().id
         };
         let (send, receive) = tokio::sync::oneshot::channel();
         let preparation = super::lifecycle::prepare_after_notes(
@@ -3519,6 +3594,7 @@ mod retry_display_tests {
             persona: "builtin-a".into(),
             text: "  저장된 답변\n공백 보존  ".into(),
             expression: "평온".into(),
+            widget: None,
             motion: crate::characters::reactions::MotionOverride::Static,
         };
         let reply = Message {
@@ -3552,6 +3628,7 @@ mod retry_display_tests {
         save_reply_scene(&db, &input.id, &lines).unwrap();
         let changed = SceneLine {
             text: "바꾼 본문".into(),
+            widget: None,
             motion: Default::default(),
             ..line.clone()
         };
@@ -3696,4 +3773,24 @@ mod retry_display_tests {
             );
         }
     }
+}
+
+#[test]
+fn disabling_recall_invalidates_an_ordinary_talk_scene_using_its_snapshot() {
+    let state = state();
+    let program = talk::validate_source(
+        std::path::Path::new("recall-idle.talk"),
+        "format: 1\nscene: recall-idle\non: idle\nwhen: recall.ready\n---\nA: ${recall.snippet}\n===\n",
+        &talk::context::registry(),
+    ).unwrap();
+    lock(&state.talk).unwrap().apply(Ok(program));
+    let db = lock(&state.db).unwrap();
+    let date = (chrono::Local::now().date_naive() - chrono::Days::new(7)).to_string();
+    let diary = serde_json::json!({"revision":1,"pages":[{"id":"page","title":"","date":date,"entries":[{"id":"note","kind":"note","text":"private diary"}]}],"notes":[],"moves":[]});
+    db.execute("UPDATE diary_state SET data=?1 WHERE id=1", [diary.to_string()]).unwrap();
+    assert!(talk::host::prepare(&state, &db, None).unwrap().is_some());
+    let mut settings = store::settings(&db).unwrap();
+    settings.diary_recall_enabled = false;
+    store::save_settings(&db, &settings).unwrap();
+    assert!(!talk::host::current(&state, &db).unwrap());
 }

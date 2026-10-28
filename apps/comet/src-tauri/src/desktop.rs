@@ -1517,7 +1517,11 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         .cloned()
         .collect::<Vec<_>>();
     drop((runtime, presence, guests));
+    let stale_activity = playback.as_ref().is_some_and(|line| line.source == "talk")
+        && crate::talk::host::activity_in_playback(&state)?
+        && !crate::talk::host::current(&state, &db)?;
     let target = if super::unavailable(&state)
+        || stale_activity
         || (crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
             && panel.as_ref().is_none_or(|panel| {
                 matches!(
@@ -1637,7 +1641,14 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
             first_display =
                 crate::app::scene::mark_line_displayed(line, chrono::Utc::now().timestamp_millis());
             if first_display && line.source != "update" {
-                displayed_message = line.display_started_at.map(|at| (line.id.clone(), at));
+                crate::talk::host::mark_displayed_rain_idle(&state, &db, line)?;
+                if crate::widgets::commands::widget_event_current(&state, &db)? {
+                    crate::app::scene::mark_displayed_weather_reaction(&state, &db, line)?;
+                }
+                crate::app::scene::record_link_hint_displayed(&db, line)?;
+                displayed_message = line
+                    .display_started_at
+                    .map(|at| (line.id.clone(), at, line.source.clone()));
             }
         }
     }
@@ -1648,13 +1659,23 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         }
     }
     drop((playback, story));
-    if let Some((id, at)) = displayed_message {
+    if let Some((_, at, source)) = displayed_message.as_ref() {
+        if source == "talk" && crate::talk::host::activity_in_playback(&state)? {
+            crate::talk::host::record_recall_displayed(&state, &db, *at)?;
+        }
+    }
+    if let Some((id, at, source)) = displayed_message.filter(|(_, _, source)| {
+        source != "talk" || !crate::talk::host::activity_in_playback(&state).unwrap_or(true)
+    }) {
         store::mark_message_displayed_with_provenance(
             &db,
             &id,
             at,
             Some(state.automatic.load(Ordering::SeqCst)),
         )?;
+        if source == "talk" && store::message_displayed(&db, &id)? {
+            crate::talk::host::record_recall_displayed(&state, &db, at)?;
+        }
         if let Some(ticket) = super::lock(&state.tasks)?.participants.clone() {
             crate::characters::guests::hear_displayed_locked(&state, &db, &ticket, &id, at)?;
         }
@@ -2290,6 +2311,7 @@ mod tests {
             text: "새로운 업데이트가 있어요!".into(),
             motion: Default::default(),
             source: "update".into(),
+            link: None,
             text_speed: 0,
             display_started_at: None,
             ends_at: 0,
@@ -2361,6 +2383,7 @@ mod tests {
             expression: "기쁨".into(),
             text: "안녕".into(),
             source: "script".into(),
+            link: None,
             ends_at: 1,
             text_speed: 0,
             display_started_at: None,
@@ -2407,6 +2430,7 @@ mod tests {
             text: "안녕".into(),
             motion: Default::default(),
             source: "npc".into(),
+            link: None,
             ends_at: 1,
             text_speed: 0,
             display_started_at: None,
@@ -2462,6 +2486,7 @@ mod tests {
             expression: "미등록".into(),
             text: "안녕".into(),
             source: "script".into(),
+            link: None,
             ends_at: 1,
             text_speed: 0,
             display_started_at: None,
@@ -2632,6 +2657,7 @@ mod tests {
             expression: "평온".into(),
             text: "안녕".into(),
             source: "script".into(),
+            link: None,
             ends_at: 1,
             text_speed: 0,
             display_started_at: None,

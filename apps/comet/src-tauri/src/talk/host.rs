@@ -4,7 +4,7 @@ use crate::{
 };
 use rusqlite::Connection;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{atomic::Ordering, Arc},
     time::{Duration, Instant},
 };
@@ -16,14 +16,98 @@ pub(crate) struct PreparedTalk {
     revisions: BTreeMap<String, i64>,
     program: Arc<talk::Program>,
     text_values: BTreeMap<String, serde_json::Value>,
-    event: Option<widgets::WidgetEvent>,
+    pub(crate) event: Option<widgets::WidgetEvent>,
+    activity_event: Option<String>,
+    activity_id: Option<String>,
     seed: u64,
+    pub(crate) recall_date: Option<String>,
+    recall_day: Option<chrono::NaiveDate>,
+}
+
+fn add_moods(
+    state: &AppState,
+    db: &Connection,
+    context: &mut talk::EvalContext,
+) -> Result<(), String> {
+    for (slot, character) in crate::characters::SLOTS
+        .into_iter()
+        .zip(crate::characters::active_members(db)?)
+    {
+        let mood = crate::characters::life::mood(state, &character.id)?;
+        context
+            .values
+            .insert(format!("character.{slot}.mood"), serde_json::json!(mood));
+        if character.definition.source_id == "nadir" {
+            context
+                .values
+                .insert("character.nadir.mood".into(), serde_json::json!(mood));
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn prepare(
     state: &AppState,
     db: &Connection,
     event: Option<&widgets::WidgetEvent>,
+) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
+    prepare_with_activity_event(state, db, event, None)
+}
+
+fn activity_context(
+    state: &AppState,
+    context: &mut talk::EvalContext,
+) -> Result<Option<String>, String> {
+    let life = lock(&state.life)?;
+    let activity = &life.activity;
+    context
+        .values
+        .insert("activity.ready".into(), serde_json::json!(activity.ready()));
+    if !activity.ready() {
+        return Ok(None);
+    }
+    if let Some(current) = &activity.current {
+        context
+            .values
+            .insert("activity.appName".into(), serde_json::json!(current.name));
+        context.values.insert(
+            "activity.category".into(),
+            serde_json::json!(current.category),
+        );
+    }
+    context.values.insert(
+        "activity.minutes".into(),
+        serde_json::json!(activity.minutes()),
+    );
+    context.values.insert(
+        "activity.idleMinutes".into(),
+        serde_json::json!(activity.idle_minutes()),
+    );
+    Ok(activity.current.as_ref().map(|current| current.id.clone()))
+}
+
+fn prepare_with_activity_event(
+    state: &AppState,
+    db: &Connection,
+    event: Option<&widgets::WidgetEvent>,
+    activity_event: Option<&str>,
+) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
+    prepare_with_triggers(state, db, event, activity_event, false)
+}
+
+pub(crate) fn prepare_recall(
+    state: &AppState,
+    db: &Connection,
+) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
+    prepare_with_triggers(state, db, None, None, true)
+}
+
+fn prepare_with_triggers(
+    state: &AppState,
+    db: &Connection,
+    event: Option<&widgets::WidgetEvent>,
+    activity_event: Option<&str>,
+    recall: bool,
 ) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
     let (program, generation) = {
         let active = lock(&state.talk)?;
@@ -32,25 +116,79 @@ pub(crate) fn prepare(
     let Some(program) = program else {
         return Ok(None);
     };
+    let now = chrono::Utc::now();
     let mut context = talk::context::build(
         db,
         event,
-        chrono::Utc::now().timestamp_millis(),
+        now.timestamp_millis(),
         uuid::Uuid::new_v4().as_u128() as u64,
     )?;
+    add_moods(state, db, &mut context)?;
+    let activity_id = activity_context(state, &mut context)?;
+    if let Some(kind) = activity_event {
+        context.trigger = kind.into();
+        context
+            .values
+            .insert("event.kind".into(), serde_json::json!(kind));
+    }
+    let recall_date = if recall {
+        if context.values.get("recall.ready") != Some(&serde_json::json!(true)) {
+            return Ok(None);
+        }
+        context.trigger = "diary.recall".into();
+        context
+            .values
+            .get("recall.date")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned)
+    } else {
+        None
+    };
     context.visible = presence::present_ids(state, &context.active)?;
     context.values.insert(
         "character.count".into(),
         serde_json::json!(context.visible.len()),
     );
-    let simulation =
-        talk::simulate_with_validation(&program, &context, &talk::runtime::history(db)?, |lines| {
-            validate_motions(db, lines)?;
-            if !presence::lines_visible(state, db, lines)? {
-                return Err("부재 중인 화자가 있어요.".into());
+    let filtered;
+    let candidate_program: &talk::Program = if event.is_none()
+        && widgets::storage::weather_reaction_started(
+            db,
+            "weather.rain-tomorrow",
+            &now.with_timezone(&chrono::Local).date_naive().to_string(),
+        )?
+    {
+        filtered = {
+            let mut filtered = (*program).clone();
+            filtered.scenes.retain(|scene| !is_rain_idle(scene));
+            filtered
+        };
+        &filtered
+    } else {
+        program.as_ref()
+    };
+    let (muted, event_muted) = muted_reactions(db, event, &context)?;
+    let mut history = talk::runtime::history(db)?;
+    for (key, at) in lock(&state.life)?.activity.private_history() {
+        history.entry(key.clone()).and_modify(|value| *value = (*value).max(*at)).or_insert(*at);
+    }
+    let simulation = talk::simulate_with_policy(
+        candidate_program,
+        &context,
+        &history,
+        |selection| {
+            if event_muted || muted_selection(selection, &muted) {
+                return Err("reaction_disabled".into());
+            }
+            validate_motions(db, &selection.lines)
+                .map_err(|error| format!("motion_error: {error}"))?;
+            if !presence::lines_visible(state, db, &selection.lines)
+                .map_err(|error| format!("motion_error: {error}"))?
+            {
+                return Err("motion_error: 부재 중인 화자가 있어요.".into());
             }
             Ok(())
-        });
+        },
+    );
     for candidate in simulation
         .candidates
         .iter()
@@ -69,7 +207,7 @@ pub(crate) fn prepare(
     {
         dependencies.insert("weather".into());
     }
-    if let Some(event) = event {
+    if let Some(event) = event.filter(|event| event.event.kind != "mood.changed") {
         dependencies.insert(event.widget_kind.clone());
     }
     for kind in dependencies.clone() {
@@ -78,7 +216,7 @@ pub(crate) fn prepare(
     let revisions = widgets::storage::instances(db)?
         .into_iter()
         .filter(|instance| {
-            dependencies.contains(&instance.kind) && instance.installed && instance.enabled
+            !widgets::is_retired(&instance.kind) && dependencies.contains(&instance.kind)
         })
         .map(|instance| (instance.id, instance.revision))
         .collect();
@@ -91,9 +229,88 @@ pub(crate) fn prepare(
         program,
         text_values: context.values,
         event: event.cloned(),
+        activity_event: activity_event.map(str::to_owned),
+        activity_id,
         seed: context.seed,
+        recall_day: recall_date
+            .as_ref()
+            .map(|_| chrono::Local::now().date_naive()),
+        recall_date,
     });
     Ok(Some(lines))
+}
+
+fn is_rain_idle(scene: &talk::Scene) -> bool {
+    scene.pack.as_deref() == Some(talk::defaults::BYULKKORI)
+        && scene.id == "weather.tomorrow-rain-idle"
+        && scene.trigger == "idle"
+}
+
+pub(crate) fn mark_displayed_rain_idle(
+    state: &AppState,
+    db: &Connection,
+    line: &crate::types::Playback,
+) -> Result<(), String> {
+    if line.source != "talk" || line.line_index != 0 || line.display_started_at.is_none() {
+        return Ok(());
+    }
+    let prepared = lock(&state.talk_playback)?;
+    let Some(prepared) = prepared.as_ref() else {
+        return Ok(());
+    };
+    if prepared.event.is_none() && prepared.program.scenes.iter().any(|scene| {
+        scene.key == prepared.selection.key && is_rain_idle(scene)
+    }) {
+        let day = chrono::Local::now().date_naive().to_string();
+        widgets::storage::mark_weather_reaction_day(db, "weather.rain-tomorrow", &day)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn record_recall_displayed(
+    state: &AppState,
+    db: &Connection,
+    at: i64,
+) -> Result<(), String> {
+    let prepared = lock(&state.talk_playback)?;
+    if let Some(date) = prepared
+        .as_ref()
+        .and_then(|talk| talk.recall_date.as_deref())
+    {
+        talk::context::record_recall(db, date, at)?;
+    }
+    Ok(())
+}
+
+fn muted_reactions(
+    db: &Connection,
+    event: Option<&widgets::WidgetEvent>,
+    context: &talk::EvalContext,
+) -> Result<(BTreeSet<String>, bool), String> {
+    let direct_body = event.is_some_and(|event| {
+        event.widget_kind == "interaction"
+            && event.event.kind == "interaction.touch"
+            && event.event.payload["source"] == "body"
+            && context.trigger == event.event.kind
+    });
+    let mut muted = BTreeSet::new();
+    for widget in widgets::storage::snapshot(db)?.widgets {
+        if !widget.reaction && !(direct_body && widget.instance.kind == "interaction") {
+            muted.insert(widget.instance.kind);
+        }
+    }
+    let event_muted = if let Some(event) = event {
+        !direct_body && !widgets::storage::reaction_enabled(db, &event.instance_id)?
+    } else {
+        false
+    };
+    Ok((muted, event_muted))
+}
+
+fn muted_selection(selection: &talk::Selection, muted: &BTreeSet<String>) -> bool {
+    !selection.dependencies.is_disjoint(muted)
+        || (muted.contains("weather")
+            && selection.references.iter().any(|name| name.starts_with("environment.weather")))
 }
 
 fn validate_motions(db: &Connection, lines: &[crate::types::SceneLine]) -> Result<(), String> {
@@ -115,6 +332,22 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
     if prepared
         .event
         .as_ref()
+        .is_some_and(|event| event.event.kind == "mood.changed")
+    {
+        let status = lock(&state.runtime)?.clone();
+        let settings = crate::store::settings(db)?;
+        if status.hidden
+            || status.paused
+            || !settings.autonomous_enabled
+            || crate::widgets::storage::focus_active(db, now)?
+            || crate::app::quiet_hours::automatic_blocked(state, &settings)?
+        {
+            return Ok(false);
+        }
+    }
+    if prepared
+        .event
+        .as_ref()
         .is_some_and(|event| event.expires_at <= now)
     {
         return Ok(false);
@@ -124,18 +357,59 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
         instances.iter().any(|instance| {
             instance.id == *id
                 && instance.revision == *revision
-                && instance.installed
-                && instance.enabled
+                && !widgets::is_retired(&instance.kind)
         })
     }) {
         return Ok(false);
     }
     let mut context = talk::context::build(db, prepared.event.as_ref(), now, prepared.seed)?;
+    add_moods(state, db, &mut context)?;
+    let activity_id = activity_context(state, &mut context)?;
+    if let Some(kind) = &prepared.activity_event {
+        context.trigger = kind.clone();
+        context
+            .values
+            .insert("event.kind".into(), serde_json::json!(kind));
+    }
+    if (prepared.activity_event.is_some()
+        || prepared
+            .selection
+            .references
+            .iter()
+            .any(|name| name.starts_with("activity.")))
+        && (context.values["activity.ready"] != prepared.text_values["activity.ready"]
+            || activity_id != prepared.activity_id)
+    {
+        return Ok(false);
+    }
+    if prepared.text_values.get("recall.ready") == Some(&serde_json::json!(true))
+        && prepared.selection.references.iter().any(|name| name.starts_with("recall."))
+        && !crate::store::settings(db)?.diary_recall_enabled
+    {
+        return Ok(false);
+    }
+    if let Some(day) = prepared.recall_day {
+        if chrono::Local::now().date_naive() != day
+            || !crate::store::settings(db)?.diary_recall_enabled
+        {
+            return Ok(false);
+        }
+        context.trigger = "diary.recall".into();
+        for (name, value) in &prepared.text_values {
+            if name.starts_with("recall.") {
+                context.values.insert(name.clone(), value.clone());
+            }
+        }
+    }
     context.visible = presence::present_ids(state, &context.active)?;
     context.values.insert(
         "character.count".into(),
         serde_json::json!(context.visible.len()),
     );
+    let (muted, event_muted) = muted_reactions(db, prepared.event.as_ref(), &context)?;
+    if event_muted || muted_selection(&prepared.selection, &muted) {
+        return Ok(false);
+    }
     let rendered = talk::render_scene_with_text_values(
         &prepared.program,
         &prepared.selection.key,
@@ -156,6 +430,74 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
                     },
                 )
         }))
+}
+
+pub(crate) fn activity_in_playback(state: &AppState) -> Result<bool, String> {
+    Ok(lock(&state.talk_playback)?
+        .as_ref()
+        .is_some_and(|prepared| {
+            prepared.activity_event.is_some()
+                || prepared
+                    .selection
+                    .references
+                    .iter()
+                    .any(|name| name.starts_with("activity."))
+        }))
+}
+
+pub(crate) fn play_activity_reaction(
+    app: &tauri::AppHandle,
+    state: &Arc<AppState>,
+) -> Result<bool, String> {
+    let pending = {
+        let _action = lock(&state.action)?;
+        if !lock(&state.life)?.activity.has_events() {
+            return Ok(false);
+        }
+        let status = lock(&state.runtime)?.clone();
+        let db = lock(&state.db)?;
+        let settings = crate::store::settings(&db)?;
+        if crate::app::unavailable(state)
+            || status.hidden
+            || status.paused
+            || !settings.autonomous_enabled
+            || crate::app::quiet_hours::automatic_blocked(state, &settings)?
+        {
+            lock(&state.life)?.activity.take_events();
+            return Ok(false);
+        }
+        if !lock(&state.life)?.activity.ready() {
+            return Ok(false);
+        }
+        if status.phase != "idle"
+            || state.launcher_open.load(Ordering::SeqCst)
+            || crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
+            || lock(&state.panel)?.is_some()
+            || lock(&state.pack_stories)?.run.is_some()
+            || crate::behavior::reactions_blocked(state)?
+            || crate::app::now() - state.last_input.load(Ordering::SeqCst) < 3
+        {
+            return Ok(false);
+        }
+        let events = lock(&state.life)?.activity.take_events();
+        if events.is_empty() {
+            return Ok(false);
+        }
+        let token = crate::app::interrupt_with_db(state, true, &db)?;
+        let mut selected = None;
+        for kind in events {
+            if let Some(lines) = prepare_with_activity_event(state, &db, None, Some(kind))? {
+                selected = Some((lines, token));
+                break;
+            }
+        }
+        selected
+    };
+    let Some((lines, token)) = pending else {
+        return Ok(false);
+    };
+    crate::app::scene::start_scene(app.clone(), state.clone(), lines, "talk", token, None);
+    Ok(true)
 }
 
 fn log_diagnostics(diagnostics: &[talk::Diagnostic]) {
@@ -313,6 +655,142 @@ mod tests {
             .unwrap()
             .apply(talk::load_bundle(&root, &talk::context::registry()));
         (directory, state)
+    }
+
+    #[test]
+    fn activity_scenes_keep_cooldown_without_persisting_observed_information() {
+        for (field, idle, activity_event) in [
+            ("activity.appName", false, None),
+            ("activity.category", false, None),
+            ("activity.minutes", false, None),
+            ("activity.idleMinutes", true, None),
+            ("", false, Some("activity.long-session")),
+        ] {
+            let state = crate::app::tests::state();
+            lock(&state.life).unwrap().activity.observe(
+                crate::app_usage::DetailedSample {
+                    sample: crate::app_usage::Sample {
+                        app_id: Some("private-app".into()),
+                        eligible: true,
+                        status: if idle { "idle" } else { "active" }.into(),
+                    },
+                    application: Some(crate::app_usage::Application {
+                        id: "private-app".into(), name: "비밀 작업 앱".into(),
+                    }),
+                    idle_seconds: Some(if idle { 120.0 } else { 0.0 }),
+                }, &[], Instant::now(),
+            );
+            let trigger = activity_event.unwrap_or("idle");
+            let line = if field.is_empty() { "활동 반응".to_string() } else { format!("${{{field}}}") };
+            let source = format!("format: 1\nscene: private\non: {trigger}\ncooldown: 1h\n---\nA: {line}\n===\n");
+            let program = talk::validate_source(
+                Path::new("private.talk"), &source, &talk::context::registry(),
+            ).unwrap();
+            lock(&state.talk).unwrap().apply(Ok(program));
+            let token = interrupt(&state, true).unwrap();
+            let (lines, revision) = {
+                let db = lock(&state.db).unwrap();
+                (prepare_with_activity_event(&state, &db, None, activity_event).unwrap().unwrap(),
+                 crate::store::revision(&db).unwrap())
+            };
+            assert!(crate::app::scene::present_line(
+                &state, &lines[0], "talk", "private-line", 0, 1, revision, token.0, &token.1, false,
+            ).unwrap());
+            let db = lock(&state.db).unwrap();
+            assert!(crate::store::messages(&db, 10).unwrap().is_empty(), "{field}");
+            assert!(talk::runtime::history(&db).unwrap().is_empty(), "{field}");
+            assert_eq!(lock(&state.life).unwrap().activity.private_history().len(), 1);
+            assert!(prepare_with_activity_event(&state, &db, None, activity_event).unwrap().is_none());
+            drop(db);
+            lock(&state.life).unwrap().activity.clear();
+            assert!(lock(&state.life).unwrap().activity.private_history().is_empty());
+        }
+    }
+
+    #[test]
+    fn activity_based_diary_recall_remains_private_and_records_only_its_date() {
+        let state = crate::app::tests::state();
+        lock(&state.life).unwrap().activity.observe(
+            crate::app_usage::DetailedSample {
+                sample: crate::app_usage::Sample { app_id: Some("private-app".into()), eligible: true, status: "active".into() },
+                application: Some(crate::app_usage::Application { id: "private-app".into(), name: "비밀 앱".into() }),
+                idle_seconds: Some(0.0),
+            }, &[], Instant::now(),
+        );
+        let date = (chrono::Local::now().date_naive() - chrono::Days::new(7)).to_string();
+        {
+            let db = lock(&state.db).unwrap();
+            let diary = serde_json::json!({"revision":1,"pages":[{"id":"page","title":"","date":date.clone(),"entries":[{"id":"note","kind":"note","text":"추억"}]}],"notes":[],"moves":[]});
+            db.execute("UPDATE diary_state SET data=?1 WHERE id=1", [diary.to_string()]).unwrap();
+            let mut settings = crate::store::settings(&db).unwrap();
+            settings.diary_recall_enabled = true;
+            crate::store::save_settings(&db, &settings).unwrap();
+        }
+        let program = talk::validate_source(
+            Path::new("private-recall.talk"),
+            "format: 1\nscene: private\non: diary.recall\n---\nA: ${activity.minutes}분과 ${recall.snippet}\n===\n",
+            &talk::context::registry(),
+        ).unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        let token = interrupt(&state, true).unwrap();
+        let (lines, revision) = {
+            let db = lock(&state.db).unwrap();
+            (prepare_recall(&state, &db).unwrap().unwrap(), crate::store::revision(&db).unwrap())
+        };
+        assert!(crate::app::scene::present_line(
+            &state, &lines[0], "talk", "private-recall", 0, 1, revision, token.0, &token.1, false,
+        ).unwrap());
+        let db = lock(&state.db).unwrap();
+        assert!(crate::store::messages(&db, 10).unwrap().is_empty());
+        record_recall_displayed(&state, &db, chrono::Utc::now().timestamp_millis()).unwrap();
+        let recorded: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM widget_preferences WHERE key=?1)",
+            [format!("recall:{date}")], |row| row.get(0),
+        ).unwrap();
+        assert!(recorded);
+    }
+
+    #[test]
+    fn rain_idle_and_scheduled_event_share_only_the_displayed_day() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = crate::app::tests::state();
+        let root = directory.path();
+        let pack = root.join("packs/byulkkori");
+        fs::create_dir_all(&pack).unwrap();
+        fs::write(root.join("index.talk"), "format: 1\n").unwrap();
+        fs::write(pack.join("index.talk"),
+            "format: 1\nscene: weather.tomorrow-rain-idle\non: idle\n---\nA: 비가 온대.\n===\n"
+        ).unwrap();
+        lock(&state.talk).unwrap().apply(talk::load_bundle(root, &talk::context::registry()));
+        let db = lock(&state.db).unwrap();
+        let today = chrono::Local::now().date_naive().to_string();
+        let tomorrow = chrono::Local::now().date_naive().succ_opt().unwrap().to_string();
+        assert!(prepare(&state, &db, None).unwrap().is_some());
+        let mut line = crate::types::Playback {
+            id: "rain".into(), link: None, persona: "a".into(), expression: "평온".into(),
+            text: "비가 온대.".into(), motion: Default::default(), source: "talk".into(),
+            text_speed: 0, display_started_at: None, ends_at: 0, line_index: 0, line_count: 1,
+        };
+        mark_displayed_rain_idle(&state, &db, &line).unwrap();
+        assert!(!widgets::storage::weather_reaction_started(&db, "weather.rain-tomorrow", &today).unwrap());
+        assert!(prepare(&state, &db, None).unwrap().is_some());
+        line.display_started_at = Some(1);
+        mark_displayed_rain_idle(&state, &db, &line).unwrap();
+        assert!(widgets::storage::weather_reaction_started(&db, "weather.rain-tomorrow", &today).unwrap());
+        assert!(!widgets::storage::weather_reaction_started(&db, "weather.rain-tomorrow", &tomorrow).unwrap());
+        assert!(prepare(&state, &db, None).unwrap().is_none());
+        db.execute("DELETE FROM widget_preferences WHERE key='weather-talk:weather.rain-tomorrow'", []).unwrap();
+        assert!(prepare(&state, &db, None).unwrap().is_some());
+        let event = widgets::WidgetEvent {
+            id: "rain".into(), instance_id: "weather".into(), widget_kind: "weather".into(),
+            revision: 0, created_at: 0, expires_at: i64::MAX,
+            event: widgets::EventDraft {
+                kind: "weather.rain-tomorrow".into(), text: "비".into(),
+                payload: json!({"day": today}),
+            },
+        };
+        widgets::storage::mark_weather_reaction_started(&db, &event).unwrap();
+        assert!(prepare(&state, &db, None).unwrap().is_none());
     }
 
     #[test]
@@ -560,17 +1038,99 @@ mod tests {
     }
 
     #[test]
+    fn muted_widget_stops_its_idle_scene_but_preserves_data_and_other_talk() {
+        let state = crate::app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let todo = widgets::storage::instances(&db).unwrap().into_iter()
+            .find(|widget| widget.kind == "todo").unwrap();
+        let source = "format: 1\nscene: todo\non: idle\nwhen: todo.ready\n---\nA: 할 일을 살펴볼까?\n===\n";
+        let program = talk::validate_source(Path::new("todo.talk"), source, &talk::context::registry()).unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        assert!(prepare(&state, &db, None).unwrap().is_some());
+        assert!(current(&state, &db).unwrap());
+        widgets::storage::set_reaction(&db, &todo.id, false).unwrap();
+        assert!(!current(&state, &db).unwrap());
+        assert!(prepare(&state, &db, None).unwrap().is_none());
+        assert_eq!(widgets::storage::get(&db, &todo.id).unwrap().data, todo.data);
+        let mixed = format!("{source}\nscene: generic\non: idle\n---\nA: 안녕!\n===\n");
+        let program = talk::validate_source(Path::new("mixed.talk"), &mixed, &talk::context::registry()).unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        assert!(prepare(&state, &db, None).unwrap().is_some());
+        assert_eq!(lock(&state.talk_playback).unwrap().as_ref().unwrap().selection.scene_id, "generic");
+        widgets::storage::set_reaction(&db, &todo.id, true).unwrap();
+        let program = talk::validate_source(Path::new("todo.talk"), source, &talk::context::registry()).unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        assert!(prepare(&state, &db, None).unwrap().is_some());
+    }
+
+    #[test]
+    fn muted_weather_also_suppresses_environment_weather_references() {
+        let state = crate::app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let weather = widgets::storage::instances(&db).unwrap().into_iter()
+            .find(|widget| widget.kind == "weather").unwrap();
+        let source = "format: 1\nscene: weather\non: idle\nwhen: not environment.weatherReady\n---\nA: 날씨를 모르겠어.\n===\n";
+        lock(&state.talk).unwrap().apply(Ok(talk::validate_source(Path::new("weather.talk"), source, &talk::context::registry()).unwrap()));
+        assert!(prepare(&state, &db, None).unwrap().is_some());
+        widgets::storage::set_reaction(&db, &weather.id, false).unwrap();
+        assert!(!current(&state, &db).unwrap());
+        assert!(prepare(&state, &db, None).unwrap().is_none());
+    }
+
+    #[test]
+    fn direct_body_interaction_remains_available_when_widget_reactions_are_muted() {
+        let state = crate::app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let owner = crate::characters::active_ids(&db).unwrap()[0].clone();
+        let now = chrono::Utc::now().timestamp_millis();
+        let event = widgets::storage::body_interaction(&db, &owner, "stroke", &uuid::Uuid::new_v4().to_string(), now).unwrap().unwrap();
+        widgets::storage::set_reaction(&db, &event.instance_id, false).unwrap();
+        let source = "format: 1\nscene: body\non: interaction.touch\nwhen: interaction.touches > 0\n---\nA: 고마워.\n===\n";
+        lock(&state.talk).unwrap().apply(Ok(talk::validate_source(Path::new("body.talk"), source, &talk::context::registry()).unwrap()));
+        assert!(prepare(&state, &db, Some(&event)).unwrap().is_some());
+        assert!(current(&state, &db).unwrap());
+    }
+
+    #[test]
+    fn milestone_requires_owned_receipt_and_follows_widget_reaction_setting() {
+        let state = crate::app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let owner = crate::characters::active_ids(&db).unwrap()[0].clone();
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut event = widgets::storage::body_interaction(
+            &db, &owner, "stroke", &uuid::Uuid::new_v4().to_string(), now,
+        ).unwrap().unwrap();
+        event.event.kind = "interaction.milestone".into();
+        let source = "format: 1\nscene: milestone\non: interaction.milestone\nwhen: interaction.milestone == 1\n---\nA: 처음이야.\n===\n";
+        lock(&state.talk).unwrap().apply(Ok(talk::validate_source(Path::new("milestone.talk"), source, &talk::context::registry()).unwrap()));
+        assert!(prepare(&state, &db, Some(&event)).unwrap().is_some());
+        assert!(current(&state, &db).unwrap());
+        widgets::storage::set_reaction(&db, &event.instance_id, false).unwrap();
+        assert!(!current(&state, &db).unwrap());
+        assert!(prepare(&state, &db, Some(&event)).unwrap().is_none());
+        widgets::storage::set_reaction(&db, &event.instance_id, true).unwrap();
+        assert!(prepare(&state, &db, Some(&event)).unwrap().is_some());
+        let mut forged = event.clone();
+        forged.id = uuid::Uuid::new_v4().to_string();
+        assert!(prepare(&state, &db, Some(&forged)).unwrap().is_none());
+        forged.event.payload["source"] = serde_json::Value::Null;
+        let source = "format: 1\nscene: milestone\non: interaction.milestone\n---\nA: 처음이야.\n===\n";
+        lock(&state.talk).unwrap().apply(Ok(talk::validate_source(Path::new("milestone.talk"), source, &talk::context::registry()).unwrap()));
+        assert!(prepare(&state, &db, Some(&forged)).unwrap().is_none());
+    }
+
+    #[test]
     fn core_weather_revision_change_cancels_even_when_condition_and_text_still_match() {
         let state = crate::app::tests::state();
         let db = lock(&state.db).unwrap();
         let now = chrono::Utc::now().timestamp_millis();
         let data = json!({"status":"ready","lastSuccessAt":now,"observation":{"temperature":1,"weatherCode":3,"name":"서울","observedAt":now}});
-        db.execute("INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data,error) VALUES('weather','weather',1,1,1,0,?1,NULL)", [data.to_string()]).unwrap();
+        db.execute("UPDATE widget_instances SET revision=0,data=?1 WHERE kind='weather'", [data.to_string()]).unwrap();
         let program = talk::validate_source(Path::new("core.talk"), "format: 1\nscene: weather\non: idle\nwhen: environment.weatherReady and environment.weatherTemperature != null and environment.weatherTemperature < 5\n---\nA: 기온이 낮네.\nB: 겉옷을 챙겨.\n===", &talk::context::registry()).unwrap();
         lock(&state.talk).unwrap().apply(Ok(program));
         assert!(prepare(&state, &db, None).unwrap().is_some());
         assert!(current(&state, &db).unwrap());
-        db.execute("UPDATE widget_instances SET revision=revision+1,data=json_set(data,'$.observation.temperature',2) WHERE id='weather'", []).unwrap();
+        db.execute("UPDATE widget_instances SET revision=revision+1,data=json_set(data,'$.observation.temperature',2) WHERE kind='weather'", []).unwrap();
         assert!(!current(&state, &db).unwrap());
     }
 
@@ -578,11 +1138,12 @@ mod tests {
     fn unknown_weather_fallback_can_play_with_a_disabled_or_missing_connection() {
         let state = crate::app::tests::state();
         let db = lock(&state.db).unwrap();
+        db.execute("DELETE FROM widget_instances WHERE kind='weather'", []).unwrap();
         let program = talk::validate_source(Path::new("core.talk"), "format: 1\nscene: unknown\non: idle\nwhen: not environment.weatherReady\n---\nA: 지금 날씨는 몰라.\n===", &talk::context::registry()).unwrap();
         lock(&state.talk).unwrap().apply(Ok(program));
         assert!(prepare(&state, &db, None).unwrap().is_some());
         assert!(current(&state, &db).unwrap());
-        db.execute("INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data,error) VALUES('weather','weather',1,1,0,0,'{}',NULL)", []).unwrap();
+        db.execute("INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data,error) VALUES('weather','weather',1,1,1,0,?1,NULL)", [json!({"config":{"allowTalk":false}}).to_string()]).unwrap();
         assert!(prepare(&state, &db, None).unwrap().is_some());
         assert!(current(&state, &db).unwrap());
     }

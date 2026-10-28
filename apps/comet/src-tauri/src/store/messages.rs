@@ -899,6 +899,7 @@ mod scene_source_migration_tests {
             persona: "builtin-a".into(),
             text: "  이전 답변\n\n 그대로  ".into(),
             expression: "평온".into(),
+            widget: None,
             motion: Default::default(),
         }];
         save_reply_scene(&db, "old-input", &lines).unwrap();

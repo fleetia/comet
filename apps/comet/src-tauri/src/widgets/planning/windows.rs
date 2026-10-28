@@ -36,6 +36,8 @@ impl Navigation {
 pub(crate) struct PlannerViewTarget {
     entity: String,
     target_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fallback_to_today: Option<bool>,
 }
 
 #[tauri::command]
@@ -129,17 +131,38 @@ fn validate_view_target(
         _ => return Err("열 기록의 종류와 ID를 함께 지정해 주세요.".into()),
     };
     let exists = match (entity, tab) {
+        ("habit", "habits") => serde_json::to_value(crate::diary::read(db)?)
+            .map_err(|error| error.to_string())?["habits"]
+            .as_array()
+            .is_some_and(|habits| habits.iter().any(|habit| habit["id"] == id)),
+        ("todo", "todos") => crate::widgets::storage::instances(db)?
+            .iter()
+            .any(|widget| {
+                widget.kind == "todo"
+                    && widget.data["items"]
+                        .as_array()
+                        .is_some_and(|items| items.iter().any(|item| item["id"] == id))
+            }),
         ("page", "today") => {
             let diary = serde_json::to_value(crate::diary::read(db)?).map_err(|e| e.to_string())?;
-            diary["pages"]
-                .as_array()
-                .is_some_and(|pages| pages.iter().any(|page| page["id"] == id))
+            let page = diary["pages"].as_array().and_then(|pages| {
+                pages
+                    .iter()
+                    .find(|page| page["id"] == id || page["date"] == id)
+            });
+            if let Some(page_id) = page.and_then(|page| page["id"].as_str()) {
+                return Ok(Some(PlannerViewTarget {
+                    entity: entity.into(),
+                    target_id: page_id.into(),
+                    fallback_to_today: None,
+                }));
+            }
+            false
         }
         ("envelope", "envelopes") => crate::widgets::storage::instances(db)?
             .iter()
             .any(|widget| {
                 widget.kind == "preparation"
-                    && widget.installed
                     && widget.data["envelopes"]
                         .as_array()
                         .is_some_and(|envelopes| envelopes.iter().any(|value| value["id"] == id))
@@ -148,8 +171,6 @@ fn validate_view_target(
             .iter()
             .any(|widget| {
                 widget.kind == "calendar"
-                    && widget.installed
-                    && widget.enabled
                     && widget.data["events"].as_array().is_some_and(|events| {
                         events.iter().any(|event| {
                             event["id"] == id
@@ -176,7 +197,29 @@ fn validate_view_target(
     Ok(Some(PlannerViewTarget {
         entity: entity.into(),
         target_id: id.into(),
+        fallback_to_today: None,
     }))
+}
+
+pub(crate) fn open_playback_target(
+    app: &tauri::AppHandle,
+    db: &rusqlite::Connection,
+    tab: &str,
+    entity: Option<&str>,
+    id: Option<&str>,
+) -> Result<(), String> {
+    let mut target = validate_view_target(db, tab, entity, id).ok().flatten();
+    if entity == Some("page")
+        && id.is_some_and(|value| {
+            chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+                .is_ok_and(|date| date.format("%Y-%m-%d").to_string() == value)
+        })
+    {
+        if let Some(target) = target.as_mut() {
+            target.fallback_to_today = Some(true);
+        }
+    }
+    open_view(app, tab, target.as_ref())
 }
 
 pub(crate) fn calendar_selected(app: &tauri::AppHandle) -> Result<bool, String> {
@@ -193,6 +236,13 @@ pub(crate) async fn open_travel(app: tauri::AppHandle, id: Option<String>) -> Re
             && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
     });
     schedule_open(&app, OpenRequest::Travel { id })
+}
+
+pub(crate) fn open_playback_travel(
+    app: &tauri::AppHandle,
+    id: Option<String>,
+) -> Result<(), String> {
+    schedule_open(app, OpenRequest::Travel { id })
 }
 
 #[tauri::command]
@@ -221,6 +271,7 @@ mod tests {
         *navigation.view_target.lock().unwrap() = Some(super::PlannerViewTarget {
             entity: "page".into(),
             target_id: "latest-page".into(),
+            fallback_to_today: None,
         });
         for _ in 0..2 {
             assert_eq!(
@@ -260,7 +311,7 @@ mod tests {
             page_id
         );
         db.execute(
-            "INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data) VALUES('calendar','calendar',1,1,1,1,?1)",
+            "UPDATE widget_instances SET data=?1 WHERE kind='calendar'",
             [json!({"connections":[],"events":[{"id":"event","connectionId":"local"},{"id":"cancelled","connectionId":"local","cancelled":true},{"id":"removed-source","connectionId":"missing"}]}).to_string()],
         ).unwrap();
         assert_eq!(
@@ -271,7 +322,7 @@ mod tests {
             "event"
         );
         db.execute(
-            "INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data) VALUES('preparation','preparation',1,1,1,1,?1)",
+            "UPDATE widget_instances SET data=?1 WHERE kind='preparation'",
             [json!({"envelopes":[{"id":"trip-bag"}]}).to_string()],
         ).unwrap();
         assert!(
@@ -293,7 +344,7 @@ mod tests {
             assert!(validate_view_target(&db, tab, entity, id).is_err());
         }
         db.execute(
-            "UPDATE widget_instances SET enabled=0 WHERE id='calendar'",
+            "UPDATE widget_instances SET data=json_set(data,'$.events',json('[]')) WHERE kind='calendar'",
             [],
         )
         .unwrap();
@@ -390,6 +441,14 @@ pub(crate) fn open_widget_settings(app: tauri::AppHandle, kind: &str) -> Result<
         .map_err(|e| e.to_string())
 }
 
+pub(crate) fn show_widget_settings(app: tauri::AppHandle, kind: &str) -> Result<(), String> {
+    validate_widget_settings_kind(kind)?;
+    *crate::lock(&app.state::<Navigation>().settings_target)? = Some(kind.into());
+    crate::app::windows::show_settings_section(app.clone(), SettingsSection::Widgets)?;
+    app.emit_to("settings", "planner-settings-target", kind)
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub(crate) fn get_planner_settings_target(
     state: tauri::State<'_, Navigation>,
@@ -405,7 +464,7 @@ pub(crate) fn preview_planner_recurrence(
 ) -> Result<Vec<String>, String> {
     let db = crate::lock(&state.db)?;
     let widget = crate::widgets::storage::get(&db, &id)?;
-    if widget.kind != "todo" || !widget.installed || !widget.enabled {
+    if widget.kind != "todo" {
         return Err("사용 중인 할 일 도구가 필요합니다.".into());
     }
     crate::widgets::planning::recurrence_preview(

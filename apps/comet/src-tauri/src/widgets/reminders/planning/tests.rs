@@ -1,15 +1,10 @@
 use super::*;
 
-fn setup(kinds: &[&str]) -> Connection {
+fn setup(_kinds: &[&str]) -> Connection {
     let db = Connection::open_in_memory().unwrap();
     storage::initialize(&db).unwrap();
     let directory = tempfile::tempdir().unwrap();
-    storage::install(
-        &db,
-        directory.path(),
-        &kinds.iter().map(|kind| (*kind).into()).collect::<Vec<_>>(),
-    )
-    .unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
     db
 }
 
@@ -86,6 +81,21 @@ fn live_finish_delivers_selected_channels_once_even_after_auto_rest_begins() {
 }
 
 #[test]
+fn reaction_off_keeps_os_finish_notification_without_speech() {
+    let db = setup(&["focus-timer"]);
+    crate::widgets::generated::initialize(&db).unwrap();
+    let start = 1_000_000;
+    let timer = running_timer(&db, start, "both");
+    storage::set_reaction(&db, &timer.id, false).unwrap();
+    let mut clocks = BTreeMap::new();
+    tick(&db, &mut clocks, start + 59_000);
+    let result = tick(&db, &mut clocks, start + 60_000);
+    assert_eq!(result.os.len(), 1);
+    assert!(storage::take_reaction(&db, start + 60_001).unwrap().is_none());
+    assert_eq!(storage::get(&db, &timer.id).unwrap().data["mode"], "rest");
+}
+
+#[test]
 fn restart_suspend_and_cancel_do_not_deliver_old_focus_completions() {
     for gap in [None, Some(121_000)] {
         let db = setup(&["focus-timer"]);
@@ -156,8 +166,8 @@ fn selected_event_notice_uses_its_lead_and_revalidates_the_current_event() {
 }
 
 #[test]
-fn focus_notice_ignores_stale_rescheduled_disabled_or_unlinked_events() {
-    for branch in ["stale", "rescheduled", "disabled", "unlinked", "off"] {
+fn focus_notice_ignores_stale_rescheduled_cancelled_or_unlinked_events() {
+    for branch in ["stale", "rescheduled", "cancelled", "unlinked", "off"] {
         let db = setup(&["calendar", "focus-timer"]);
         let now = 1_000_000;
         linked_focus(&db, now, 5);
@@ -176,12 +186,9 @@ fn focus_notice_ignores_stale_rescheduled_disabled_or_unlinked_events() {
                 data["events"][0]["startAt"] = json!(now + 300_001);
                 save(&db, &calendar, data, now - 1);
             }
-            "disabled" => {
-                db.execute(
-                    "UPDATE widget_instances SET enabled=0 WHERE id=?1",
-                    [&calendar.id],
-                )
-                .unwrap();
+            "cancelled" => {
+                data["events"][0]["cancelled"] = json!(true);
+                save(&db, &calendar, data, now - 1);
             }
             _ => {
                 let timer = widget(&db, "focus-timer");
@@ -289,11 +296,9 @@ fn simultaneous_preparation_reminders_share_one_bubble_without_losing_targets() 
 }
 
 #[test]
-fn preparation_skips_suspended_ticks_disabled_widgets_and_broken_event_links() {
+fn preparation_skips_suspended_ticks_and_broken_event_links() {
     for branch in [
         "suspend",
-        "disabled",
-        "uninstalled",
         "missing",
         "cancelled",
         "stale",
@@ -308,17 +313,7 @@ fn preparation_skips_suspended_ticks_disabled_widgets_and_broken_event_links() {
             now - if branch == "suspend" { 121_000 } else { 500 },
         );
         let preparation = widget(&db, "preparation");
-        if branch == "disabled" || branch == "uninstalled" {
-            db.execute(
-                if branch == "disabled" {
-                    "UPDATE widget_instances SET enabled=0 WHERE id=?1"
-                } else {
-                    "UPDATE widget_instances SET installed=0 WHERE id=?1"
-                },
-                [&preparation.id],
-            )
-            .unwrap();
-        } else if ["missing", "cancelled", "stale"].contains(&branch) {
+        if ["missing", "cancelled", "stale"].contains(&branch) {
             let mut data = preparation.data.clone();
             data["envelopes"][0]["eventId"] = json!("linked");
             save(&db, &preparation, data, now - 1);

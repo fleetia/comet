@@ -14,6 +14,7 @@ fn fixture() -> (Connection, String, String, String) {
         persona: persona.into(),
         expression: "평온".into(),
         text: text.into(),
+        widget: None,
         motion: Default::default(),
     };
     pack.world_rules = "  세계 규칙\n원문 그대로  ".into();
@@ -36,6 +37,8 @@ fn fixture() -> (Connection, String, String, String) {
         keywords: vec!["이야기".into()],
         required_flags: vec![],
         min_affinity: 0,
+        reveal_affinity: None,
+        defer: vec![],
         intro: vec![line(&center, "  함께 걸어 볼까?\n원문  ")],
         accept: vec![line(&center, "함께 가자.")],
         decline: vec![line(&center, "다음에 이야기하자.")],
@@ -62,6 +65,60 @@ fn fixture() -> (Connection, String, String, String) {
         installed[1].id.clone(),
     )
 }
+#[test]
+fn new_story_fields_require_pack_format_12() {
+    let (db, _, center, guest) = fixture();
+    let original = characters::export_pack(&db, &[center, guest], &[]).unwrap();
+    for use_defer in [false, true] {
+        let mut pack = original.clone();
+        let scenario = &mut pack.scenarios[0];
+        scenario.min_affinity = 10;
+        if use_defer {
+            scenario.defer = scenario.intro.clone();
+        } else {
+            scenario.reveal_affinity = Some(0);
+        }
+        let target = store::open(Path::new(":memory:")).unwrap();
+        pack.format_version = 8;
+        assert!(characters::import_pack(&target, &pack).is_err());
+        pack.format_version = 12;
+        assert!(characters::import_pack(&target, &pack).is_ok());
+    }
+}
+
+#[test]
+fn mood_and_story_features_preserve_the_highest_pack_version() {
+    use crate::characters::animation::{self, Animation, Binding, Bindings, Clip, Frame};
+    let (db, pack_id, center, guest) = fixture();
+    let asset = animation::prepare_png(animation::png_fixture(2, 2, 255, false)).unwrap();
+    let mut definition = characters::get(&db, &center).unwrap().definition;
+    definition.animation = Some(Animation {
+        clips: vec![Clip {
+            id: "mood".into(), name: "기분".into(), fps: 6,
+            frames: vec![Frame { asset_id: asset.asset_id.clone(), x: 0, y: 0, width: 2, height: 2 }],
+        }],
+        bindings: Bindings {
+            mood_high: Some(Binding { clip_id: "mood".into(), repeat: true, interval_ms: 0 }),
+            ..Default::default()
+        },
+        overrides: Default::default(),
+    });
+    characters::save_with_assets(&db, &center, &definition, &[asset]).unwrap();
+    let mut story = characters::get_pack_story_definition(&db, &pack_id).unwrap();
+    story.definition.scenarios[0].reveal_affinity = Some(0);
+    characters::save_pack_story_definition_expected(&db, &pack_id, &story.definition, &story.baseline).unwrap();
+    let exported = characters::export_pack(&db, &[center, guest], &[]).unwrap();
+    assert_eq!(exported.format_version, 13);
+    let target = store::open(Path::new(":memory:")).unwrap();
+    let installed = characters::import_pack(&target, &exported).unwrap();
+    let imported_pack = installed[0].pack_id.as_ref().unwrap();
+    let story = characters::get_pack_story_definition(&target, imported_pack).unwrap();
+    characters::save_pack_story_definition_expected(&target, imported_pack, &story.definition, &story.baseline).unwrap();
+    let reexported = characters::export_pack(&target, &installed.iter().map(|c| c.id.clone()).collect::<Vec<_>>(), &[]).unwrap();
+    assert_eq!(reexported.format_version, 13);
+    assert!(reexported.scenarios[0].reveal_affinity.is_some());
+}
+
 fn input(db: &Connection, center: &str, content: &str, epoch: u64) -> InputContext {
     let id = uuid::Uuid::new_v4().to_string();
     store::insert_user_input(

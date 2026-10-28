@@ -66,6 +66,8 @@ export const responseHost = style([
   {
     boxSizing: "border-box",
     width: 340,
+    maxHeight: "min(520px, 100dvh)",
+    overflowY: "auto",
     paddingBottom: 16,
     color: tokens["color/ink"],
   },
@@ -83,6 +85,21 @@ export const responseText = style({
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
   lineHeight: 1.5,
+});
+export const responseLink = style({
+  display: "block",
+  width: "100%",
+  padding: 0,
+  border: 0,
+  background: "transparent",
+  color: "inherit",
+  font: "inherit",
+  letterSpacing: "inherit",
+  lineHeight: "inherit",
+  whiteSpace: "pre-wrap",
+  textAlign: "left",
+  cursor: "inherit",
+  ":focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 2 },
 });
 export const responseSource = style({
   position: "absolute",

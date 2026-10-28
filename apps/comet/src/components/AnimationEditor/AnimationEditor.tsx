@@ -632,6 +632,8 @@ export function AnimationEditor({
                 ["rest", "휴식하는 동안"],
                 ["calendarOpen", "캘린더를 보고 있는 동안"],
                 ["musicPlaying", "음악을 재생하는 동안"],
+                ["moodHigh", "기분이 좋을 때"],
+                ["moodLow", "기분이 가라앉았을 때"],
               ] as const
             ).map(([situation, label]) => (
               <BindingEditor

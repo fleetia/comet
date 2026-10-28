@@ -47,9 +47,7 @@ fn reveal_note(
         return Ok(false);
     }
     let current = storage::get(&*lock(&state.db)?, id)?;
-    if !current.installed
-        || !current.enabled
-        || !current.data["notes"].as_array().is_some_and(|notes| {
+    if !current.data["notes"].as_array().is_some_and(|notes| {
             notes
                 .iter()
                 .any(|note| note["id"] == note_id && note["isOpen"] == true)
@@ -73,7 +71,7 @@ fn reconcile(app: &tauri::AppHandle, focus: Option<&str>) -> Result<(), String> 
     let mut desired = BTreeSet::new();
     for instance in instances
         .iter()
-        .filter(|item| item.kind == "memo" && item.installed && item.enabled)
+        .filter(|item| item.kind == "memo")
     {
         let Some(notes) = instance.data["notes"].as_array() else {
             continue;
@@ -341,8 +339,6 @@ fn open_notes(db: &rusqlite::Connection, id: Option<&str>) -> Result<BTreeSet<St
     let mut notes = BTreeSet::new();
     for instance in storage::instances(db)?.into_iter().filter(|instance| {
         instance.kind == "memo"
-            && instance.installed
-            && instance.enabled
             && id.is_none_or(|id| instance.id == id)
     }) {
         if let Some(items) = instance.data["notes"].as_array() {
@@ -498,8 +494,8 @@ mod tests {
     fn database() -> (rusqlite::Connection, tempfile::TempDir, String) {
         let directory = tempfile::tempdir().unwrap();
         let db = crate::store::open(&directory.path().join("notes.sqlite")).unwrap();
-        storage::install(&db, directory.path(), &["memo".into()]).unwrap();
-        let id = storage::instances(&db).unwrap()[0].id.clone();
+        storage::verify_packages(&db, directory.path()).unwrap();
+        let id = storage::instances(&db).unwrap().into_iter().find(|widget| widget.kind == "memo").unwrap().id;
         (db, directory, id)
     }
 
@@ -512,8 +508,8 @@ mod tests {
 
     #[test]
     fn pending_note_reveal_rechecks_shutdown_and_open_intent() {
-        for mutation in ["exit", "update", "close", "disable", "remove", "delete"] {
-            let (db, directory, id) = database();
+        for mutation in ["exit", "update", "close"] {
+            let (db, _directory, id) = database();
             execute(&db, &id, "add", json!({"isOpen":true})).unwrap();
             let note_id = notes(&db, &id)[0]["id"].as_str().unwrap().to_owned();
             let state = crate::app::tests::state();
@@ -534,16 +530,6 @@ mod tests {
                         )
                         .unwrap();
                     }
-                    "disable" => {
-                        storage::set_enabled(&lock(&state.db).unwrap(), &id, false).unwrap()
-                    }
-                    "remove" | "delete" => storage::remove(
-                        &lock(&state.db).unwrap(),
-                        directory.path(),
-                        &id,
-                        mutation == "delete",
-                    )
-                    .unwrap(),
                     _ => unreachable!(),
                 }
             }
@@ -652,7 +638,7 @@ mod tests {
     }
 
     #[test]
-    fn disabling_and_reinstalling_keep_note_data_and_open_intent() {
+    fn restarting_preserves_note_data_and_open_intent() {
         let (db, directory, id) = database();
         execute(
             &db,
@@ -662,12 +648,6 @@ mod tests {
         )
         .unwrap();
         let saved = notes(&db, &id);
-        storage::set_enabled(&db, &id, false).unwrap();
-        assert!(execute(&db, &id, "add", json!({})).is_err());
-        assert_eq!(notes(&db, &id), saved);
-        storage::remove(&db, directory.path(), &id, false).unwrap();
-        storage::install(&db, directory.path(), &["memo".into()]).unwrap();
-        assert_eq!(notes(&db, &id), saved);
         drop(db);
         let db = crate::store::open(&directory.path().join("notes.sqlite")).unwrap();
         storage::verify_packages(&db, directory.path()).unwrap();
