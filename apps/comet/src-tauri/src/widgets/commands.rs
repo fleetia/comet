@@ -1380,6 +1380,13 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
     Ok(())
 }
 
+fn tomorrow_has_rain(values: &std::collections::BTreeMap<String, Value>) -> bool {
+    values.get("weather.tomorrowRainProb").and_then(Value::as_f64)
+        .is_some_and(|probability| probability >= 60.0)
+        && values.get("weather.tomorrowCode").and_then(Value::as_i64)
+            .is_some_and(|code| (51..=67).contains(&code) || (80..=82).contains(&code))
+}
+
 fn advance_weather_talk(db: &rusqlite::Connection, timestamp: i64) -> Result<(), String> {
     let Some(local) = chrono::DateTime::from_timestamp_millis(timestamp)
         .map(|instant| instant.with_timezone(&Local))
@@ -1411,9 +1418,7 @@ fn advance_weather_talk(db: &rusqlite::Connection, timestamp: i64) -> Result<(),
     let (values, _) = crate::talk::context::project(&snapshot, timestamp);
     let eligible = values["weather.ready"] == true
         && if kind == "weather.rain-tomorrow" {
-            values["weather.tomorrowRainProb"]
-                .as_f64()
-                .is_some_and(|probability| probability >= 60.0)
+            tomorrow_has_rain(&values)
         } else {
             !values["weather.lastYearCode"].is_null()
         };
@@ -1458,9 +1463,7 @@ fn weather_event_current(db: &rusqlite::Connection, event: &WidgetEvent) -> Resu
     let (values, _) = crate::talk::context::project(&storage::snapshot(db)?, timestamp);
     Ok(values["weather.ready"] == true
         && if event.event.kind == "weather.rain-tomorrow" {
-            values["weather.tomorrowRainProb"]
-                .as_f64()
-                .is_some_and(|probability| probability >= 60.0)
+            tomorrow_has_rain(&values)
         } else {
             !values["weather.lastYearCode"].is_null()
         })
@@ -1618,6 +1621,25 @@ fn fallback_reaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rain_forecast_excludes_snow_clear_and_missing_codes() {
+        for (code, probability, expected) in [
+            (json!(61), json!(60), true),
+            (json!(82), json!(80), true),
+            (json!(71), json!(80), false),
+            (json!(86), json!(80), false),
+            (json!(3), json!(80), false),
+            (Value::Null, json!(80), false),
+            (json!(61), json!(59), false),
+        ] {
+            let values = std::collections::BTreeMap::from([
+                ("weather.tomorrowCode".into(), code),
+                ("weather.tomorrowRainProb".into(), probability),
+            ]);
+            assert_eq!(tomorrow_has_rain(&values), expected);
+        }
+    }
 
     #[test]
     fn queued_weather_rechecks_the_displayed_day() {

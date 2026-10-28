@@ -478,6 +478,22 @@ mod tests {
     }
 
     #[test]
+    fn tomorrow_rain_scenes_do_not_treat_snow_as_rain() {
+        let program = program(BYULKKORI);
+        let cases = fixtures(BYULKKORI);
+        for id in ["weather.tomorrow-rain-idle", "weather.rain-tomorrow"] {
+            let case = cases.iter().find(|case| case.id == id).unwrap();
+            let scene = program.scenes.iter().find(|scene| scene.id == id).unwrap();
+            let mut context = input(case);
+            assert!(crate::talk::render_scene(&program, &scene.key, &context).is_some());
+            for code in [71, 75, 85, 86, 3] {
+                context.values.insert("weather.tomorrowCode".into(), json!(code));
+                assert!(crate::talk::render_scene(&program, &scene.key, &context).is_none(), "{id} code={code}");
+            }
+        }
+    }
+
+    #[test]
     fn every_condition_and_touch_affinity_branch_has_five_distinct_variations() {
         assert_five_variants(NADIR_AND_STAR_TAIL, &[20, 50, 80]);
         assert_five_variants(BYULKKORI, &[20]);

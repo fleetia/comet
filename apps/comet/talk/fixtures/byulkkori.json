@@ -141,7 +141,8 @@
         "fixture-a"
       ],
       "values": {
-        "weather.tomorrowRainProb": 65
+        "weather.tomorrowRainProb": 65,
+        "weather.tomorrowCode": 61
       },
       "expectedScene": "weather.tomorrow-rain-idle"
     },
@@ -156,7 +157,8 @@
         "fixture-a"
       ],
       "values": {
-        "weather.tomorrowRainProb": 65
+        "weather.tomorrowRainProb": 65,
+        "weather.tomorrowCode": 61
       },
       "expectedScene": "weather.rain-tomorrow"
     },
