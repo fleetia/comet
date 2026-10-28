@@ -120,12 +120,13 @@ test("a multi-line draft stays a one-row input whose first and last lines are re
   const caret = () =>
     field.evaluate((node: HTMLTextAreaElement) => ({
       start: node.selectionStart,
-      top: node.scrollTop,
+      // Linux font metrics leave a sub-line offset at the top; the first line is still in view.
+      top: node.scrollTop <= 2,
       bottom: Math.ceil(node.scrollTop + node.clientHeight) >= node.scrollHeight - 1,
     }));
 
   await page.keyboard.press(START);
-  await expect.poll(caret).toMatchObject({ start: 0, top: 0 });
+  await expect.poll(caret).toMatchObject({ start: 0, top: true });
   await page.keyboard.type("✏️");
   await expect(field).toHaveValue("✏️첫 줄\n가운데 줄\n끝 줄");
 
@@ -137,7 +138,7 @@ test("a multi-line draft stays a one-row input whose first and last lines are re
   // The wheel scrolls the same lines without changing the draft.
   await field.hover();
   await page.mouse.wheel(0, -200);
-  await expect.poll(caret).toMatchObject({ top: 0 });
+  await expect.poll(caret).toMatchObject({ top: true });
   await expectInsideWindow(page, field);
   await expectInsideWindow(page, page.getByRole("button", { name: "보내기" }));
   await expect(field).toHaveValue("✏️첫 줄\n가운데 줄\n끝 줄!");
