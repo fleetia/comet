@@ -1,4 +1,6 @@
 use super::appearance;
+use chrono::{Datelike, Duration as ChronoDuration};
+use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -35,6 +37,10 @@ struct State {
     error: Option<String>,
     config: Value,
     observation: Option<Value>,
+    #[serde(default)]
+    forecast: Option<Value>,
+    #[serde(default)]
+    last_year: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     spicetify_pairing_id: Option<String>,
     #[serde(default)]
@@ -119,8 +125,17 @@ pub fn refresh_interval(kind: &str, data: &Value) -> i64 {
 }
 
 fn weather_config(input: &Value) -> Result<WeatherConfig, String> {
-    let config: WeatherConfig = serde_json::from_value(input.clone())
-        .map_err(|_| "지역 이름과 위도·경도를 확인해 주세요.")?;
+    let mut input = input.clone();
+    if let Some(object) = input.as_object_mut() {
+        if object
+            .remove("showTomorrow")
+            .is_some_and(|value| !value.is_boolean())
+        {
+            return Err("날씨 표시 설정이 올바르지 않아요.".into());
+        }
+    }
+    let config: WeatherConfig =
+        serde_json::from_value(input).map_err(|_| "지역 이름과 위도·경도를 확인해 주세요.")?;
     if !config.latitude.is_finite()
         || !config.longitude.is_finite()
         || !(-90.0..=90.0).contains(&config.latitude)
@@ -160,7 +175,10 @@ fn music_config(input: &Value) -> Result<MusicConfig, String> {
 pub fn configure(kind: &str, data: &Value, input: &Value) -> Result<Value, String> {
     let config = match kind {
         "weather" => {
-            serde_json::to_value(weather_config(input)?).map_err(|error| error.to_string())?
+            let mut config =
+                serde_json::to_value(weather_config(input)?).map_err(|error| error.to_string())?;
+            config["showTomorrow"] = json!(input["showTomorrow"].as_bool().unwrap_or(true));
+            config
         }
         "music" => serde_json::to_value(music_config(input)?).map_err(|error| error.to_string())?,
         "device" => {
@@ -196,6 +214,8 @@ pub fn configure(kind: &str, data: &Value, input: &Value) -> Result<Value, Strin
         state.status = "stale".into();
         state.last_success_at = None;
         state.observation = None;
+        state.forecast = None;
+        state.last_year = None;
         state.error = None;
     }
     serde_json::to_value(state).map_err(|error| error.to_string())
@@ -324,6 +344,12 @@ pub async fn search_regions(query: &str) -> Result<Value, ConnectionError> {
 #[derive(Deserialize)]
 struct WeatherResponse {
     current: CurrentWeather,
+    #[serde(default)]
+    daily: Option<Value>,
+    #[serde(default)]
+    timezone: Option<String>,
+    #[serde(default)]
+    utc_offset_seconds: Option<i32>,
 }
 #[derive(Deserialize)]
 struct CurrentWeather {
@@ -338,7 +364,65 @@ struct CurrentWeather {
     wind_speed_10m: Option<f64>,
 }
 
-fn parse_weather(value: Value, config: &WeatherConfig, now: i64) -> Result<Value, ConnectionError> {
+fn weather_name(code: u8) -> &'static str {
+    match code {
+        0 => "맑음",
+        1..=2 => "구름 조금",
+        3 => "흐림",
+        45..=48 => "안개",
+        51..=67 => "비",
+        71..=77 => "눈",
+        80..=82 => "소나기",
+        85..=86 => "눈 소나기",
+        _ => "뇌우",
+    }
+}
+
+fn valid_weather_code(code: u64) -> bool {
+    [
+        0, 1, 2, 3, 45, 48, 51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 71, 73, 75, 77, 80, 81, 82, 85,
+        86, 95, 96, 99,
+    ]
+    .contains(&code)
+}
+
+fn daily_value(daily: &Value, key: &str, index: usize) -> Option<f64> {
+    daily[key]
+        .as_array()?
+        .get(index)?
+        .as_f64()
+        .filter(|v| v.is_finite())
+}
+
+fn daily_day(daily: &Value, index: usize, offset: chrono::FixedOffset) -> Option<String> {
+    let timestamp = daily["time"].as_array()?.get(index)?.as_i64()?;
+    Some(
+        chrono::DateTime::from_timestamp(timestamp, 0)?
+            .with_timezone(&offset)
+            .date_naive()
+            .to_string(),
+    )
+}
+
+fn daily_entry(daily: &Value, index: usize, offset: chrono::FixedOffset) -> Option<Value> {
+    let date = daily_day(daily, index, offset)?;
+    let code = daily["weather_code"]
+        .as_array()?
+        .get(index)?
+        .as_u64()
+        .filter(|v| valid_weather_code(*v))?;
+    let max =
+        daily_value(daily, "temperature_2m_max", index).filter(|v| (-100.0..=70.0).contains(v))?;
+    let min = daily_value(daily, "temperature_2m_min", index)
+        .filter(|v| (-100.0..=70.0).contains(v) && *v <= max)?;
+    Some(json!({"date":date,"code":code,"name":weather_name(code as u8),"tMax":max,"tMin":min}))
+}
+
+fn parse_weather_result(
+    value: Value,
+    config: &WeatherConfig,
+    now: i64,
+) -> Result<(Value, Option<Value>), ConnectionError> {
     let response: WeatherResponse = serde_json::from_value(value)
         .map_err(|_| failure("offline", "날씨 응답에 현재 정보가 없어요."))?;
     let current = response.current;
@@ -368,16 +452,51 @@ fn parse_weather(value: Value, config: &WeatherConfig, now: i64) -> Result<Value
     if observed_at < 0 || observed_at > now.saturating_add(30 * 60 * 1000) {
         return Err(failure("offline", "날씨의 관측 시각이 올바르지 않아요."));
     }
-    Ok(
+    let forecast = (|| {
+        let timezone = response.timezone.as_ref()?.parse::<chrono_tz::Tz>().ok()?;
+        // Open-Meteo applies the request-time offset to all daily timestamps.
+        let offset = chrono::FixedOffset::east_opt(response.utc_offset_seconds?)?;
+        let local_today = chrono::DateTime::from_timestamp_millis(now)?
+            .with_timezone(&timezone)
+            .date_naive();
+        let today = response
+            .daily
+            .as_ref()
+            .and_then(|daily| daily_entry(daily, 0, offset))
+            .filter(|entry| entry["date"].as_str() == Some(local_today.to_string().as_str()));
+        let tomorrow = response.daily.as_ref().and_then(|daily| {
+            let mut entry = daily_entry(daily, 1, offset)?;
+            if entry["date"].as_str()? != local_today.succ_opt()?.to_string() {
+                return None;
+            }
+            let probability = daily_value(daily, "precipitation_probability_max", 1)
+                .filter(|v| (0.0..=100.0).contains(v))?;
+            entry["precipProb"] = json!(probability);
+            Some(entry)
+        });
+        Some(
+            json!({"today":today,"tomorrow":tomorrow,"fetchedAt":now,"timezone":timezone.to_string()}),
+        )
+    })();
+    Ok((
         json!({"name":config.name,"latitude":config.latitude,"longitude":config.longitude,
         "temperature":current.temperature_2m,"temperatureUnit":"°C","weatherCode":current.weather_code,
         "apparentTemperature":current.apparent_temperature,"humidity":current.relative_humidity_2m,"windSpeed":current.wind_speed_10m,
         "observedAt":observed_at,"source":"Open-Meteo","sourceUrl":"https://open-meteo.com/",
         "measurementType":"weather-model","attribution":"Weather data by Open-Meteo (CC BY 4.0)"}),
-    )
+        forecast,
+    ))
 }
 
-async fn weather(config: &WeatherConfig, now: i64) -> Result<Value, ConnectionError> {
+#[cfg(test)]
+fn parse_weather(value: Value, config: &WeatherConfig, now: i64) -> Result<Value, ConnectionError> {
+    parse_weather_result(value, config, now).map(|(observation, _)| observation)
+}
+
+async fn weather(
+    config: &WeatherConfig,
+    now: i64,
+) -> Result<(Value, Option<Value>), ConnectionError> {
     let value = fetch_json(
         client()?
             .get("https://api.open-meteo.com/v1/forecast")
@@ -386,13 +505,215 @@ async fn weather(config: &WeatherConfig, now: i64) -> Result<Value, ConnectionEr
                 ("longitude", config.longitude.to_string()),
                 ("current", "temperature_2m,weather_code,apparent_temperature,relative_humidity_2m,wind_speed_10m".into()),
                 ("timeformat", "unixtime".into()),
-                ("timezone", "UTC".into()),
+                ("timezone", "auto".into()),
+                ("daily", "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max".into()),
+                ("forecast_days", "2".into()),
                 ("temperature_unit", "celsius".into()),
                 ("wind_speed_unit", "ms".into()),
             ]),
     )
     .await?;
-    parse_weather(value, config, now)
+    parse_weather_result(value, config, now)
+}
+
+pub struct ArchiveRequest {
+    latitude: f64,
+    longitude: f64,
+    start: chrono::NaiveDate,
+    end: chrono::NaiveDate,
+    key: String,
+    attempted_at: i64,
+    previous_attempts: u64,
+}
+
+fn history_location(data: &Value) -> Option<(f64, f64, String)> {
+    let lat = (data["config"]["latitude"].as_f64()? * 10.0).round() / 10.0;
+    let lon = (data["config"]["longitude"].as_f64()? * 10.0).round() / 10.0;
+    let lat = if lat == 0.0 { 0.0 } else { lat };
+    let lon = if lon == 0.0 { 0.0 } else { lon };
+    Some((lat, lon, format!("weather-archive:{lat:.1},{lon:.1}")))
+}
+
+fn forecast_day(data: &Value, now: i64) -> Option<chrono::NaiveDate> {
+    let timezone = data["forecast"]["timezone"]
+        .as_str()?
+        .parse::<chrono_tz::Tz>()
+        .ok()?;
+    Some(
+        chrono::DateTime::from_timestamp_millis(now)?
+            .with_timezone(&timezone)
+            .date_naive(),
+    )
+}
+
+pub fn reserve_weather_archive(
+    db: &rusqlite::Connection,
+    data: &Value,
+    now: i64,
+) -> Result<Option<ArchiveRequest>, String> {
+    let Some((latitude, longitude, key)) = history_location(data) else {
+        return Ok(None);
+    };
+    let Some(today) = forecast_day(data, now) else {
+        return Ok(None);
+    };
+    let count: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM weather_history WHERE lat=?1 AND lon=?2",
+            params![latitude, longitude],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if count >= 300 {
+        return Ok(None);
+    }
+    let marker: Option<String> = db
+        .query_row(
+            "SELECT value FROM widget_preferences WHERE key=?1",
+            [&key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    let marker = marker
+        .and_then(|value| serde_json::from_str::<Value>(&value).ok())
+        .unwrap_or_else(|| json!({}));
+    let attempts = marker["attempts"].as_u64().unwrap_or(0);
+    if marker["success"] == true
+        || attempts >= 2
+        || marker["lastAttemptAt"]
+            .as_i64()
+            .is_some_and(|last| now.saturating_sub(last) < 24 * 60 * 60 * 1000)
+    {
+        return Ok(None);
+    }
+    let value = json!({"attempts":attempts + 1,"lastAttemptAt":now,"success":false});
+    db.execute("INSERT INTO widget_preferences(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", params![&key, value.to_string()]).map_err(|e| e.to_string())?;
+    Ok(Some(ArchiveRequest {
+        latitude: data["config"]["latitude"].as_f64().unwrap_or(latitude),
+        longitude: data["config"]["longitude"].as_f64().unwrap_or(longitude),
+        start: today - ChronoDuration::days(400),
+        end: today - ChronoDuration::days(6),
+        key,
+        attempted_at: now,
+        previous_attempts: attempts,
+    }))
+}
+
+pub fn cancel_weather_archive(
+    db: &rusqlite::Connection,
+    request: &ArchiveRequest,
+) -> Result<(), String> {
+    let value = json!({"attempts":request.previous_attempts,"lastAttemptAt":request.attempted_at,"success":false});
+    db.execute("UPDATE widget_preferences SET value=?1 WHERE key=?2 AND json_extract(value,'$.lastAttemptAt')=?3 AND json_extract(value,'$.success')=0", params![value.to_string(),request.key,request.attempted_at]).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub async fn fetch_weather_archive(request: &ArchiveRequest) -> Result<Value, ConnectionError> {
+    let value = fetch_json(
+        client()?
+            .get("https://archive-api.open-meteo.com/v1/archive")
+            .query(&[
+                ("latitude", request.latitude.to_string()),
+                ("longitude", request.longitude.to_string()),
+                ("start_date", request.start.to_string()),
+                ("end_date", request.end.to_string()),
+                (
+                    "daily",
+                    "weather_code,temperature_2m_max,temperature_2m_min".into(),
+                ),
+                ("timezone", "auto".into()),
+            ]),
+    )
+    .await?;
+    let daily = &value["daily"];
+    let dates = daily["time"]
+        .as_array()
+        .ok_or_else(|| failure("offline", "과거 날씨 응답을 읽지 못했어요."))?;
+    if dates.len() > 400 {
+        return Err(failure("offline", "과거 날씨 응답이 너무 길어요."));
+    }
+    let mut entries = Vec::new();
+    for (index, date) in dates.iter().enumerate() {
+        let Some(day) = date
+            .as_str()
+            .and_then(|date| chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").ok())
+        else {
+            continue;
+        };
+        if day < request.start || day > request.end {
+            continue;
+        }
+        let Some(code) = daily["weather_code"]
+            .as_array()
+            .and_then(|values| values.get(index))
+            .and_then(Value::as_u64)
+            .filter(|code| valid_weather_code(*code))
+        else {
+            continue;
+        };
+        let Some(max) =
+            daily_value(daily, "temperature_2m_max", index).filter(|v| (-100.0..=70.0).contains(v))
+        else {
+            continue;
+        };
+        let Some(min) = daily_value(daily, "temperature_2m_min", index)
+            .filter(|v| (-100.0..=70.0).contains(v) && *v <= max)
+        else {
+            continue;
+        };
+        entries.push(json!({"date":day.to_string(),"code":code,"tMax":max,"tMin":min}));
+    }
+    if entries.is_empty() {
+        return Err(failure("offline", "과거 날씨 자료가 없어요."));
+    }
+    Ok(json!(entries))
+}
+
+pub fn save_weather_history(
+    db: &rusqlite::Connection,
+    data: &mut Value,
+    now: i64,
+    archive: Option<&Result<Value, ConnectionError>>,
+) -> Result<(), String> {
+    let Some((lat, lon, key)) = history_location(data) else {
+        return Ok(());
+    };
+    let Some(today) = forecast_day(data, now) else {
+        data["lastYear"] = Value::Null;
+        return Ok(());
+    };
+    let tx = db.unchecked_transaction().map_err(|e| e.to_string())?;
+    if let Some(Ok(entries)) = archive {
+        for entry in entries.as_array().into_iter().flatten() {
+            tx.execute("INSERT OR IGNORE INTO weather_history(day,lat,lon,code,tMax,tMin,tObserved,source) VALUES(?1,?2,?3,?4,?5,?6,NULL,'archive')", params![entry["date"].as_str(), lat, lon, entry["code"].as_i64(), entry["tMax"].as_f64(), entry["tMin"].as_f64()]).map_err(|e| e.to_string())?;
+        }
+        tx.execute("UPDATE widget_preferences SET value=json_set(value,'$.success',json('true')) WHERE key=?1", [&key]).map_err(|e| e.to_string())?;
+    }
+    let entry = &data["forecast"]["today"];
+    if entry["date"].as_str() == Some(today.to_string().as_str()) {
+        tx.execute("INSERT INTO weather_history(day,lat,lon,code,tMax,tMin,tObserved,source) VALUES(?1,?2,?3,?4,?5,?6,?7,'live') ON CONFLICT(day,lat,lon) DO UPDATE SET tObserved=excluded.tObserved,code=excluded.code,tMax=excluded.tMax,tMin=excluded.tMin,source='live'", params![today.to_string(),lat,lon,entry["code"].as_i64(),entry["tMax"].as_f64(),entry["tMin"].as_f64(),data["observation"]["temperature"].as_f64()]).map_err(|e| e.to_string())?;
+    } else {
+        tx.execute("UPDATE weather_history SET tObserved=?1 WHERE day=?2 AND lat=?3 AND lon=?4 AND source='live'", params![data["observation"]["temperature"].as_f64(), today.to_string(), lat, lon]).map_err(|e| e.to_string())?;
+    }
+    tx.execute(
+        "DELETE FROM weather_history WHERE day<?1",
+        [(today - ChronoDuration::days(400)).to_string()],
+    )
+    .map_err(|e| e.to_string())?;
+    let last_year_day = today
+        .with_year(today.year() - 1)
+        .or_else(|| today.pred_opt()?.with_year(today.year() - 1));
+    data["lastYear"] = if let Some(day) = last_year_day {
+        tx.query_row("SELECT code,tMax,tMin,source FROM weather_history WHERE day=?1 AND lat=?2 AND lon=?3", params![day.to_string(),lat,lon], |row| {
+            let code: u8 = row.get(0)?;
+            Ok(json!({"date":day.to_string(),"code":code,"name":weather_name(code),"tMax":row.get::<_,f64>(1)?,"tMin":row.get::<_,f64>(2)?,"source":row.get::<_,String>(3)?}))
+        }).optional().map_err(|e| e.to_string())?.unwrap_or(Value::Null)
+    } else {
+        Value::Null
+    };
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows", test))]
@@ -702,12 +1023,14 @@ pub async fn refresh(kind: &str, data: &Value, now: i64) -> Result<Value, Connec
     }
     let observation = match kind {
         "weather" => {
-            weather(
+            let (observation, forecast) = weather(
                 &weather_config(&state.config)
                     .map_err(|message| failure("permission-needed", &message))?,
                 now,
             )
-            .await?
+            .await?;
+            state.forecast = forecast;
+            observation
         }
         "music" => {
             music(
@@ -826,6 +1149,29 @@ mod tests {
             1_100_000
         )
         .is_err());
+    }
+
+    #[test]
+    fn daily_forecast_uses_provider_offset_across_daylight_saving_changes() {
+        let config = WeatherConfig {
+            name: "New York".into(), latitude: 40.71, longitude: -74.01,
+            temperature_unit: temperature_unit(), show_apparent: true, show_details: false,
+            allow_talk: true, refresh_interval_minutes: weather_interval(),
+        };
+        let response = json!({
+            "timezone":"America/New_York", "utc_offset_seconds":-14400,
+            "current":{"time":1793509200,"temperature_2m":12.0,"weather_code":3},
+            "daily":{
+                "time":[1793505600,1793592000], "weather_code":[3,61],
+                "temperature_2m_max":[15,13], "temperature_2m_min":[8,7],
+                "precipitation_probability_max":[20,80]
+            }
+        });
+        let (_, forecast) = parse_weather_result(response, &config, 1793509200000).unwrap();
+        let forecast = forecast.unwrap();
+        assert_eq!(forecast["today"]["date"], "2026-11-01");
+        assert_eq!(forecast["tomorrow"]["date"], "2026-11-02");
+        assert_eq!(forecast["tomorrow"]["precipProb"], 80.0);
     }
 
     #[test]

@@ -50,10 +50,11 @@ fn prepare_with_trigger(
     let Some(program) = program else {
         return Ok(None);
     };
+    let now = chrono::Utc::now();
     let mut context = talk::context::build(
         db,
         event,
-        chrono::Utc::now().timestamp_millis(),
+        now.timestamp_millis(),
         uuid::Uuid::new_v4().as_u128() as u64,
     )?;
     let recall_date = if recall {
@@ -74,9 +75,26 @@ fn prepare_with_trigger(
         "character.count".into(),
         serde_json::json!(context.visible.len()),
     );
+    let filtered;
+    let candidate_program: &talk::Program = if event.is_none()
+        && widgets::storage::weather_reaction_started(
+            db,
+            "weather.rain-tomorrow",
+            &now.with_timezone(&chrono::Local).date_naive().to_string(),
+        )?
+    {
+        filtered = {
+            let mut filtered = (*program).clone();
+            filtered.scenes.retain(|scene| !is_rain_idle(scene));
+            filtered
+        };
+        &filtered
+    } else {
+        program.as_ref()
+    };
     let (muted, event_muted) = muted_reactions(db, event, &context)?;
     let simulation = talk::simulate_with_policy(
-        &program,
+        candidate_program,
         &context,
         &talk::runtime::history(db)?,
         |selection| {
@@ -140,6 +158,33 @@ fn prepare_with_trigger(
         recall_date,
     });
     Ok(Some(lines))
+}
+
+fn is_rain_idle(scene: &talk::Scene) -> bool {
+    scene.pack.as_deref() == Some(talk::defaults::BYULKKORI)
+        && scene.id == "weather.tomorrow-rain-idle"
+        && scene.trigger == "idle"
+}
+
+pub(crate) fn mark_displayed_rain_idle(
+    state: &AppState,
+    db: &Connection,
+    line: &crate::types::Playback,
+) -> Result<(), String> {
+    if line.source != "talk" || line.line_index != 0 || line.display_started_at.is_none() {
+        return Ok(());
+    }
+    let prepared = lock(&state.talk_playback)?;
+    let Some(prepared) = prepared.as_ref() else {
+        return Ok(());
+    };
+    if prepared.event.is_none() && prepared.program.scenes.iter().any(|scene| {
+        scene.key == prepared.selection.key && is_rain_idle(scene)
+    }) {
+        let day = chrono::Local::now().date_naive().to_string();
+        widgets::storage::mark_weather_reaction_day(db, "weather.rain-tomorrow", &day)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn record_recall_displayed(
@@ -427,6 +472,49 @@ mod tests {
             .unwrap()
             .apply(talk::load_bundle(&root, &talk::context::registry()));
         (directory, state)
+    }
+
+    #[test]
+    fn rain_idle_and_scheduled_event_share_only_the_displayed_day() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = crate::app::tests::state();
+        let root = directory.path();
+        let pack = root.join("packs/byulkkori");
+        fs::create_dir_all(&pack).unwrap();
+        fs::write(root.join("index.talk"), "format: 1\n").unwrap();
+        fs::write(pack.join("index.talk"),
+            "format: 1\nscene: weather.tomorrow-rain-idle\non: idle\n---\nA: 비가 온대.\n===\n"
+        ).unwrap();
+        lock(&state.talk).unwrap().apply(talk::load_bundle(root, &talk::context::registry()));
+        let db = lock(&state.db).unwrap();
+        let today = chrono::Local::now().date_naive().to_string();
+        let tomorrow = chrono::Local::now().date_naive().succ_opt().unwrap().to_string();
+        assert!(prepare(&state, &db, None).unwrap().is_some());
+        let mut line = crate::types::Playback {
+            id: "rain".into(), link: None, persona: "a".into(), expression: "평온".into(),
+            text: "비가 온대.".into(), motion: Default::default(), source: "talk".into(),
+            text_speed: 0, display_started_at: None, ends_at: 0, line_index: 0, line_count: 1,
+        };
+        mark_displayed_rain_idle(&state, &db, &line).unwrap();
+        assert!(!widgets::storage::weather_reaction_started(&db, "weather.rain-tomorrow", &today).unwrap());
+        assert!(prepare(&state, &db, None).unwrap().is_some());
+        line.display_started_at = Some(1);
+        mark_displayed_rain_idle(&state, &db, &line).unwrap();
+        assert!(widgets::storage::weather_reaction_started(&db, "weather.rain-tomorrow", &today).unwrap());
+        assert!(!widgets::storage::weather_reaction_started(&db, "weather.rain-tomorrow", &tomorrow).unwrap());
+        assert!(prepare(&state, &db, None).unwrap().is_none());
+        db.execute("DELETE FROM widget_preferences WHERE key='weather-talk:weather.rain-tomorrow'", []).unwrap();
+        assert!(prepare(&state, &db, None).unwrap().is_some());
+        let event = widgets::WidgetEvent {
+            id: "rain".into(), instance_id: "weather".into(), widget_kind: "weather".into(),
+            revision: 0, created_at: 0, expires_at: i64::MAX,
+            event: widgets::EventDraft {
+                kind: "weather.rain-tomorrow".into(), text: "비".into(),
+                payload: json!({"day": today}),
+            },
+        };
+        widgets::storage::mark_weather_reaction_started(&db, &event).unwrap();
+        assert!(prepare(&state, &db, None).unwrap().is_none());
     }
 
     #[test]
