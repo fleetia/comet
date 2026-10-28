@@ -1,6 +1,6 @@
 use image::{AnimationDecoder, ImageDecoder, ImageFormat};
 use std::{
-    io::{BufReader, Read, Write},
+    io::{BufReader, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
 };
 
@@ -81,19 +81,26 @@ impl Drop for TemporaryMedia {
 
 struct LimitedOutput {
     file: std::fs::File,
-    written: u64,
     limit: u64,
 }
 impl Write for LimitedOutput {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        if bytes.len() as u64 > self.limit.saturating_sub(self.written) {
+        let position = self.file.stream_position()?;
+        if bytes.len() as u64 > self.limit.saturating_sub(position) {
             return Err(std::io::Error::other("encoded image exceeds original size"));
         }
-        let n = self.file.write(bytes)?;
-        self.written += n as u64;
-        Ok(n)
+        self.file.write(bytes)
     }
     fn flush(&mut self) -> std::io::Result<()> { self.file.flush() }
+}
+impl Seek for LimitedOutput {
+    fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+        self.file.seek(position)
+    }
+}
+
+fn limited_output(path: &Path, limit: u64) -> Result<LimitedOutput> {
+    Ok(LimitedOutput { file: std::fs::File::create(path).map_err(err)?, limit })
 }
 
 fn compress(source: &Path, output: &Path, mime: &str, width: u32, height: u32) -> Result<()> {
@@ -107,7 +114,7 @@ fn compress(source: &Path, output: &Path, mime: &str, width: u32, height: u32) -
             let mut decoder = image::codecs::gif::GifDecoder::new(open()?).map_err(err)?;
             decoder.set_limits(image::Limits::default()).map_err(err)?;
             let mut encoder = image::codecs::gif::GifEncoder::new_with_speed(
-                LimitedOutput { file: std::fs::File::create(output).map_err(err)?, written: 0, limit }, 10);
+                limited_output(output, limit)?, 10);
             if let Some(repeat) = gif_repeat(source)? { encoder.set_repeat(repeat).map_err(err)?; }
             for frame in decoder.into_frames() {
                 let frame = frame.map_err(err)?;
@@ -122,7 +129,7 @@ fn compress(source: &Path, output: &Path, mime: &str, width: u32, height: u32) -
                 let reader = png::Decoder::new(open()?).read_info().map_err(err)?;
                 let animation = reader.info().animation_control.ok_or("APNG 애니메이션 정보가 없어요.")?;
                 let mut encoder = png::Encoder::new(
-                    LimitedOutput { file: std::fs::File::create(output).map_err(err)?, written: 0, limit }, w, h);
+                    limited_output(output, limit)?, w, h);
                 encoder.set_color(png::ColorType::Rgba);
                 encoder.set_depth(png::BitDepth::Eight);
                 encoder.set_animated(animation.num_frames, animation.num_plays).map_err(err)?;
@@ -141,7 +148,7 @@ fn compress(source: &Path, output: &Path, mime: &str, width: u32, height: u32) -
             } else {
                 let image = image::DynamicImage::from_decoder(decoder).map_err(err)?;
                 image.resize_exact(w, h, image::imageops::FilterType::Lanczos3)
-                    .write_to(&mut std::fs::File::create(output).map_err(err)?, ImageFormat::Png).map_err(err)?;
+                    .write_to(&mut limited_output(output, limit)?, ImageFormat::Png).map_err(err)?;
             }
         }
         "image/jpeg" => {
@@ -151,7 +158,7 @@ fn compress(source: &Path, output: &Path, mime: &str, width: u32, height: u32) -
             let mut image = image::DynamicImage::from_decoder(decoder).map_err(err)?;
             image.apply_orientation(orientation);
             image.resize_exact(w, h, image::imageops::FilterType::Lanczos3)
-                .write_to(&mut std::fs::File::create(output).map_err(err)?, ImageFormat::Jpeg).map_err(err)?;
+                .write_to(&mut limited_output(output, limit)?, ImageFormat::Jpeg).map_err(err)?;
         }
         "image/webp" => {
             let mut decoder = image::codecs::webp::WebPDecoder::new(open()?).map_err(err)?;
@@ -159,7 +166,7 @@ fn compress(source: &Path, output: &Path, mime: &str, width: u32, height: u32) -
             if decoder.has_animation() { return Err("움직이는 WebP 원본을 사용해요.".into()); }
             let image = image::DynamicImage::from_decoder(decoder).map_err(err)?;
             image.resize_exact(w, h, image::imageops::FilterType::Lanczos3)
-                .write_to(&mut std::fs::File::create(output).map_err(err)?, ImageFormat::WebP).map_err(err)?;
+                .write_to(&mut limited_output(output, limit)?, ImageFormat::WebP).map_err(err)?;
         }
         _ => return Err("원본 형식을 유지해요.".into()),
     }
@@ -229,6 +236,8 @@ fn svg_dimensions(bytes: &[u8]) -> Result<(u32, u32)> {
     Ok((w.round().max(1.0) as u32, h.round().max(1.0) as u32))
 }
 
+const MAX_SVG_TAG_BYTES: usize = 1024 * 1024;
+
 fn svg_dimensions_from_file(path: &Path) -> Result<(u32, u32)> {
     let mut input = std::fs::File::open(path).map_err(err)?;
     let mut buffer = [0u8; 8192];
@@ -249,8 +258,10 @@ fn svg_dimensions_from_file(path: &Path) -> Result<(u32, u32)> {
         }
         if !searching {
             if let Some(end) = tag.iter().position(|byte| *byte == b'>') {
+                if end >= MAX_SVG_TAG_BYTES { return Err("SVG 시작 태그가 너무 길어요.".into()); }
                 return svg_dimensions(&tag[..=end]);
             }
+            if tag.len() > MAX_SVG_TAG_BYTES { return Err("SVG 시작 태그가 너무 길어요.".into()); }
         }
     }
 }
@@ -302,6 +313,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn encoded_output_limit_applies_after_seek_without_growing_the_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("encoded");
+        let mut output = limited_output(&path, 4).unwrap();
+        output.write_all(b"abcd").unwrap();
+        output.seek(SeekFrom::Start(1)).unwrap();
+        output.write_all(b"XY").unwrap();
+        output.seek(SeekFrom::Start(4)).unwrap();
+        assert!(output.write_all(b"z").is_err());
+        assert_eq!(std::fs::read(path).unwrap(), b"aXYd");
+    }
+
+    #[test]
+    fn svg_tag_parsing_is_bounded_without_limiting_file_content() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("image.svg");
+        let mut valid = b"<svg width=\"20\" height=\"10\">".to_vec();
+        valid.extend(vec![b'x'; MAX_SVG_TAG_BYTES + 1]);
+        std::fs::write(&source, valid).unwrap();
+        assert_eq!(svg_dimensions_from_file(&source).unwrap(), (20, 10));
+        let mut malformed = b"<svg ".to_vec();
+        malformed.extend(vec![b'x'; MAX_SVG_TAG_BYTES + 1]);
+        std::fs::write(&source, malformed).unwrap();
+        assert!(svg_dimensions_from_file(&source).is_err());
+    }
+
+    #[test]
     fn jpeg_orientation_is_preserved_by_compression_and_fallback_dimensions() {
         let directory = tempfile::tempdir().unwrap();
         let source = directory.path().join("portrait.jpg");
@@ -314,6 +352,8 @@ mod tests {
         let mut oriented = vec![0xff, 0xd8, 0xff, 0xe1];
         oriented.extend_from_slice(&((exif.len() + 2) as u16).to_be_bytes());
         oriented.extend_from_slice(exif);
+        oriented.extend_from_slice(&[0xff, 0xe2, 0x10, 0x02]);
+        oriented.extend_from_slice(&vec![0; 4096]);
         oriented.extend_from_slice(&encoded[2..]);
         std::fs::write(&source, oriented).unwrap();
         let media = read(&source).unwrap();
