@@ -873,11 +873,12 @@ pub(super) fn act(
             }
             let completed =
                 state.status == "running" && state.deadline.is_some_and(|end| end <= now);
-            save_session(
-                &mut state,
-                now,
-                if completed { "completed" } else { "ended" },
-            );
+            // A cancelled focus stays out of the records; only one that already reached its deadline counts.
+            if completed {
+                save_session(&mut state, now, "completed");
+            } else {
+                state.active_session = None;
+            }
             state.status = "idle".into();
             state.completed_focus_pending = false;
             state.deadline = None;
