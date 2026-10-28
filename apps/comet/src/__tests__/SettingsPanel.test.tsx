@@ -162,6 +162,8 @@ it("keeps user and desktop drafts independent across the Figma destinations", as
         charactersVisible: true,
         pranksEnabled: true,
         allowedToys: ["ball", "paper-plane", "bubbles"],
+        activityEnabled: false,
+        activityExcludedApps: [],
       },
     }),
   );
