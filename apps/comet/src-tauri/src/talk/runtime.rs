@@ -1435,6 +1435,7 @@ mod byulkkori_replacement_tests {
                 let _ = fs::remove_file(pack.join(name));
             }
             fs::remove_file(directory.path().join(".talk-byulkkori-revived-widgets-v1")).unwrap();
+            fs::remove_file(directory.path().join(".talk-byulkkori-touch-milestone-v1")).unwrap();
             initialize_files(directory.path()).unwrap();
         };
 
