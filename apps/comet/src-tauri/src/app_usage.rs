@@ -1,9 +1,9 @@
-//! On-demand foreground-application snapshots for the opt-in focus timer.
+//! On-demand foreground-application snapshots for opt-in features.
 //!
 //! This module never starts a watcher, reads a window title/document/URL, or
-//! persists an observation. The caller must only sample an active, opted-in
-//! timer and discard observations when its session/selection has changed.
+//! persists an observation. Callers own opt-in, timing and cancellation.
 
+pub(crate) mod activity;
 pub(crate) mod tracking;
 
 use serde::{Deserialize, Serialize};
@@ -36,6 +36,12 @@ impl Sample {
     }
 }
 
+pub(crate) struct DetailedSample {
+    pub sample: Sample,
+    pub application: Option<Application>,
+    pub idle_seconds: Option<f64>,
+}
+
 /// Enumerate running GUI applications only when the user opens/refreshes the
 /// selection control. Errors do not masquerade as a successful empty list.
 pub(crate) fn applications() -> Result<Vec<Application>, String> {
@@ -45,7 +51,15 @@ pub(crate) fn applications() -> Result<Vec<Application>, String> {
 /// The caller owns polling, opt-in, timing, session epochs, and persistence.
 /// An ineligible sample intentionally contains no foreground identity.
 pub(crate) fn sample() -> Sample {
-    native::sample()
+    native::detailed_sample(false).sample
+}
+
+pub(crate) fn detailed_sample() -> DetailedSample {
+    let mut detail = native::detailed_sample(true);
+    detail.application = detail
+        .application
+        .and_then(|app| normalize_applications(vec![app]).into_iter().next());
+    detail
 }
 
 fn normalize_applications(applications: Vec<Application>) -> Vec<Application> {
