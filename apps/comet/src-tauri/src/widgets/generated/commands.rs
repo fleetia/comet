@@ -2359,6 +2359,29 @@ mod tests {
     }
 
     #[test]
+    fn generated_reaction_off_does_not_consume_rule_cooldown() {
+        let state = app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let widget = generated::create(
+            &db,
+            definition(),
+            generated::InstallationOrigin::Import,
+            None,
+        )
+        .unwrap();
+        let mut widget = generated::mark_ready(&db, &widget.id, widget.revision).unwrap();
+        let mut condition = rule(&widget.id);
+        condition.cooldown_ms = 60_000;
+        generated::save_rules(&db, &widget.id, vec![condition], &widget.state).unwrap();
+        storage::set_reaction(&db, &widget.id, false).unwrap();
+        widget = save_observed_state(&state, &db, &widget.id, widget.revision, json!({"count":1})).unwrap();
+        storage::set_reaction(&db, &widget.id, true).unwrap();
+        widget = save_observed_state(&state, &db, &widget.id, widget.revision, json!({"count":0})).unwrap();
+        save_observed_state(&state, &db, &widget.id, widget.revision, json!({"count":1})).unwrap();
+        assert!(generated::take_pending(&db, chrono::Utc::now().timestamp_millis()).unwrap().is_some());
+    }
+
+    #[test]
     fn generated_ticks_preserve_queued_and_playing_condition_reactions() {
         let state = app::tests::state();
         let _action = lock(&state.action).unwrap();
