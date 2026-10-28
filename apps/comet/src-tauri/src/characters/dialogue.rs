@@ -22,6 +22,7 @@ pub(super) fn remap(
                 persona: SLOTS[index].into(),
                 expression: line.expression.clone(),
                 text: line.text.clone(),
+                widget: None,
                 motion: line.motion.clone(),
             })
         })
@@ -68,6 +69,7 @@ pub fn greeting(conn: &Connection, slot: &str) -> Result<Vec<SceneLine>> {
             persona: slot.into(),
             expression: line.expression,
             text: line.text,
+            widget: None,
             motion: line.motion,
         })
         .collect())
@@ -317,6 +319,7 @@ pub fn idle_scene(conn: &Connection, index: usize) -> Result<Vec<SceneLine>> {
             persona: (*slot).into(),
             expression: line.expression.clone(),
             text: line.text.clone(),
+            widget: None,
             motion: line.motion.clone(),
         });
     }
@@ -453,6 +456,7 @@ pub(crate) fn registered_directed_reply(
                 persona: actor_id.to_string(),
                 expression: line.expression.clone(),
                 text: line.text.clone(),
+                widget: None,
                 motion: line.motion.clone(),
             })
             .collect(),

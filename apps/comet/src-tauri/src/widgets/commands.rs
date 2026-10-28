@@ -672,7 +672,153 @@ pub(crate) async fn open_widget(
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
 ) -> Result<(), String> {
-    open_widget_inner(&app, &state, &id, None, None).await
+    open_widget_inner(&app, &state, &id, None, None, None).await
+}
+
+fn finish_playback_link(state: &AppState, db: &rusqlite::Connection) -> Result<u64, String> {
+    store::pause_conversations(db)?;
+    let (epoch, _) = crate::app::interrupt_with_db(state, false, db)?;
+    *lock(&state.panel)? = None;
+    state.last_input.store(now(), Ordering::SeqCst);
+    crate::app::schedule_idle(state, store::settings(db)?.idle_minutes);
+    Ok(epoch)
+}
+
+fn reserve_playback_link_open(state: &AppState) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
+    state.playback_link_gate.try_lock().map_err(|_| "위젯을 열고 있어요. 잠시 기다려 주세요.".into())
+}
+
+fn playback_link_for_open(state: &AppState, playback_id: &str) -> Result<crate::types::PlaybackLink, String> {
+    lock(&state.playback)?
+        .as_ref()
+        .filter(|line| line.id == playback_id)
+        .and_then(|line| line.link.clone())
+        .ok_or_else(|| "대사가 바뀌어 위젯을 열지 않았어요.".into())
+}
+
+#[tauri::command]
+pub(crate) async fn open_playback_link(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    playback_id: String,
+) -> Result<bool, String> {
+    let _open = reserve_playback_link_open(&state)?;
+    let link = {
+        let _action = lock(&state.action)?;
+        playback_link_for_open(&state, &playback_id)?
+    };
+    let planner = link
+        .item
+        .as_ref()
+        .and_then(|item| match item.entity.as_str() {
+            "event" => Some(("calendar", Some("event"), Some(item.id.as_str()))),
+            "envelope" => Some(("envelopes", Some("envelope"), Some(item.id.as_str()))),
+            "todo" => Some(("todos", Some("todo"), Some(item.id.as_str()))),
+            "habit" => Some(("habits", Some("habit"), Some(item.id.as_str()))),
+            "today" => Some(("today", None, None)),
+            _ => None,
+        });
+    if let Some((tab, entity, id)) = planner {
+        let epoch = {
+            let _action = lock(&state.action)?;
+            validate_playback_open(&state, Some(&playback_id))?;
+            let db = lock(&state.db)?;
+            crate::widgets::planning::windows::open_playback_target(&app, &db, tab, entity, id)?;
+            finish_playback_link(&state, &db)?
+        };
+        crate::app::phase(
+            &app,
+            &state,
+            epoch,
+            crate::types::RuntimePhase::Idle,
+            None,
+            None,
+        );
+        return Ok(true);
+    }
+    if let Some(item) = link.item.as_ref().filter(|item| item.entity == "travel") {
+        let epoch = {
+            let _action = lock(&state.action)?;
+            validate_playback_open(&state, Some(&playback_id))?;
+            let db = lock(&state.db)?;
+            let target = crate::diary::travel_exists(&db, &item.id)?.then(|| item.id.clone());
+            crate::widgets::planning::windows::open_playback_travel(&app, target)?;
+            finish_playback_link(&state, &db)?
+        };
+        crate::app::phase(
+            &app,
+            &state,
+            epoch,
+            crate::types::RuntimePhase::Idle,
+            None,
+            None,
+        );
+        return Ok(true);
+    }
+    if matches!(link.kind.as_str(), "clock" | "weather") {
+        let _action = lock(&state.action)?;
+        validate_playback_open(&state, Some(&playback_id))?;
+        let label =
+            crate::widgets::desktop::playback_window_label(&*lock(&state.db)?, &link.instance_id)?;
+        if let Some(window) = label.and_then(|label| app.get_webview_window(&label)) {
+            window.show().map_err(|error| error.to_string())?;
+            window.set_focus().map_err(|error| error.to_string())?;
+        } else {
+            crate::widgets::planning::windows::show_widget_settings(app.clone(), &link.kind)?;
+        }
+        let db = lock(&state.db)?;
+        let epoch = finish_playback_link(&state, &db)?;
+        drop(db);
+        drop(_action);
+        crate::app::phase(
+            &app,
+            &state,
+            epoch,
+            crate::types::RuntimePhase::Idle,
+            None,
+            None,
+        );
+        return Ok(true);
+    }
+    if link.kind == "memo" {
+        let (snapshot, epoch) = create_memo_for_playback(&state, &link.instance_id, &playback_id)?;
+        crate::app::phase(&app, &state, epoch, crate::types::RuntimePhase::Idle, None, None);
+        crate::widgets::memo_notes::reveal_created_note(&app, &state, &link.instance_id, snapshot).await?;
+        return Ok(true);
+    }
+    if widgets::manifest(&link.kind).is_ok() {
+        open_widget_inner(
+            &app,
+            &state,
+            &link.instance_id,
+            None,
+            None,
+            Some(&playback_id),
+        )
+        .await?;
+    } else {
+        crate::widgets::generated::commands::open_generated_for_playback(
+            &app,
+            &state,
+            &link.instance_id,
+            &playback_id,
+        )?;
+    }
+    let epoch = {
+        let _action = lock(&state.action)?;
+        validate_playback_open(&state, Some(&playback_id))?;
+        let db = lock(&state.db)?;
+        finish_playback_link(&state, &db)?
+    };
+    crate::app::phase(
+        &app,
+        &state,
+        epoch,
+        crate::types::RuntimePhase::Idle,
+        None,
+        None,
+    );
+    Ok(true)
 }
 
 /// Widgets the character menu's "같이 놀기" ring opens.
@@ -746,7 +892,7 @@ pub(crate) async fn open_play_widget(
     })?;
     publish_widgets(&app, &state);
     match prepared {
-        Some(id) => open_widget_inner(&app, &state, &id, None, None).await,
+        Some(id) => open_widget_inner(&app, &state, &id, None, None, None).await,
         None => crate::widgets::planning::windows::open_widget_settings(app.clone(), &kind),
     }
 }
@@ -810,6 +956,7 @@ pub(crate) async fn open_widget_for_launcher(
         state,
         &id,
         Some((expected_revision, session_id)),
+        None,
         None,
     )
     .await
@@ -898,7 +1045,7 @@ pub(crate) async fn open_widget_for_conversation(
         epoch,
         cancel,
     };
-    open_widget_inner(app, managed.inner(), id, None, Some(&guard)).await?;
+    open_widget_inner(app, managed.inner(), id, None, Some(&guard), None).await?;
     Ok(serde_json::json!({"opened":true,"widgetId":id,"revision":expected_revision}))
 }
 
@@ -921,12 +1068,41 @@ fn validate_open_widget(
     Ok(())
 }
 
+pub(crate) fn validate_playback_open(state: &AppState, id: Option<&str>) -> Result<(), String> {
+    if let Some(id) = id {
+        if !lock(&state.playback)?
+            .as_ref()
+            .is_some_and(|line| line.id == id)
+        {
+            return Err("대사가 바뀌어 위젯을 열지 않았어요.".into());
+        }
+    }
+    Ok(())
+}
+
+fn create_memo_for_playback(
+    state: &AppState,
+    id: &str,
+    playback_id: &str,
+) -> Result<(WidgetSnapshot, u64), String> {
+    change(state, |db| {
+        validate_playback_open(state, Some(playback_id))?;
+        let current = storage::get(db, id)?;
+        validate_open_widget(state, &current, None)?;
+        let snapshot = crate::widgets::memo_notes::create_note(db, id)?;
+        let epoch = finish_playback_link(state, db)?;
+        Ok((snapshot, epoch))
+    })
+}
+
 fn create_memo_for_open(
     state: &AppState,
     id: &str,
     launcher: Option<(i64, u64)>,
+    playback: Option<&str>,
 ) -> Result<WidgetSnapshot, String> {
     change(state, |db| {
+        validate_playback_open(state, playback)?;
         let current = storage::get(db, id)?;
         validate_open_widget(state, &current, launcher)?;
         if let Some((_, session)) = launcher {
@@ -951,9 +1127,11 @@ async fn open_widget_inner(
     id: &str,
     launcher: Option<(i64, u64)>,
     conversation: Option<&ConversationOpen<'_>>,
+    playback: Option<&str>,
 ) -> Result<(), String> {
     uuid::Uuid::parse_str(id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
     let (instance, open_intent) = change(state, |db| {
+        validate_playback_open(state, playback)?;
         let instance = storage::get(db, id)?;
         validate_open_widget(state, &instance, launcher)?;
         validate_conversation_open(state, &instance, conversation)?;
@@ -965,11 +1143,16 @@ async fn open_widget_inner(
         Ok((instance, intent))
     })?;
     if instance.kind == "memo" {
-        let snapshot = create_memo_for_open(state, id, launcher)?;
+        let snapshot = create_memo_for_open(state, id, launcher, playback)?;
         crate::widgets::memo_notes::reveal_created_note(app, state, id, snapshot).await?;
         return Ok(());
     }
     if instance.kind == "travel" {
+        if let Some(playback) = playback {
+            let _action = lock(&state.action)?;
+            validate_playback_open(state, Some(playback))?;
+            return crate::widgets::planning::windows::open_playback_travel(app, None);
+        }
         if let Some((_, session)) = launcher {
             change(state, |_| {
                 crate::app::launcher::accept_execution(state, session)
@@ -981,6 +1164,7 @@ async fn open_widget_inner(
         let token = crate::desktop::toys::launch_token(app, id)?;
         let geometry = crate::desktop::toys::current_geometry(app).await?;
         return change(state, |db| {
+            validate_playback_open(state, playback)?;
             let current = storage::get(db, id)?;
             validate_open_widget(state, &current, launcher)?;
             validate_conversation_open(state, &current, conversation)?;
@@ -1005,6 +1189,7 @@ async fn open_widget_inner(
     }
     // The widget may have been disabled or removed while the OS was launching Spotify.
     let _action = lock(&state.action)?;
+    validate_playback_open(state, playback)?;
     if crate::unavailable(state) {
         return Err("앱을 정리하고 있어요.".into());
     }
@@ -1269,6 +1454,7 @@ pub(crate) fn play_widget_reaction(
                 (
                     vec![SceneLine {
                         motion: Default::default(),
+                        widget: None,
                         persona: "a".into(),
                         expression: "평온".into(),
                         text: event.event.text.clone(),
@@ -1321,6 +1507,7 @@ fn fallback_reaction(
         return Ok(None);
     }
     Ok(Some(vec![SceneLine {
+        widget: None,
         motion: Default::default(),
         persona: "a".into(),
         expression: "평온".into(),
@@ -1331,6 +1518,63 @@ fn fallback_reaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn memo_playback_open_finishes_before_the_new_revision_can_cancel_the_scene() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut state = crate::app::tests::state();
+        state.app_data = directory.path().into();
+        let memo = change(&state, |db| {
+            storage::instances(db)?.into_iter().find(|widget| widget.kind == "memo").ok_or("메모 위젯이 없어요".into())
+        }).unwrap();
+        *lock(&state.playback).unwrap() = Some(serde_json::from_value(serde_json::json!({
+            "id":"line", "persona":"a", "expression":"평온", "text":"메모", "source":"talk",
+            "endsAt":0, "lineIndex":0, "lineCount":1
+        })).unwrap());
+        let (snapshot, epoch) = create_memo_for_playback(&state, &memo.id, "line").unwrap();
+        assert_eq!(snapshot.widgets.iter().find(|widget| widget.instance.id == memo.id).unwrap().instance.data["notes"].as_array().unwrap().len(), 1);
+        assert!(lock(&state.playback).unwrap().is_none());
+        assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
+        assert!(create_memo_for_playback(&state, &memo.id, "line").is_err());
+        assert_eq!(storage::get(&lock(&state.db).unwrap(), &memo.id).unwrap().data["notes"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn playback_link_reservation_prevents_duplicate_memo_creation() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut state = crate::app::tests::state();
+        state.app_data = directory.path().into();
+        let memo = change(&state, |db| {
+            storage::instances(db)?.into_iter().find(|widget| widget.kind == "memo").ok_or("메모 위젯이 없어요".into())
+        }).unwrap();
+        *lock(&state.playback).unwrap() = Some(serde_json::from_value(serde_json::json!({
+            "id":"line", "persona":"a", "expression":"평온", "text":"메모", "source":"talk",
+            "endsAt":0, "lineIndex":0, "lineCount":1
+        })).unwrap());
+        let first = reserve_playback_link_open(&state).unwrap();
+        assert!(reserve_playback_link_open(&state).is_err());
+        create_memo_for_open(&state, &memo.id, None, Some("line")).unwrap();
+        assert_eq!(storage::get(&lock(&state.db).unwrap(), &memo.id).unwrap().data["notes"].as_array().unwrap().len(), 1);
+        drop(first);
+        assert!(reserve_playback_link_open(&state).is_ok());
+    }
+
+    #[test]
+    fn playback_link_open_rejects_missing_and_changed_lines() {
+        let state = crate::app::tests::state();
+        let error = "대사가 바뀌어 위젯을 열지 않았어요.";
+        assert_eq!(playback_link_for_open(&state, "old").unwrap_err(), error);
+        *lock(&state.playback).unwrap() = Some(serde_json::from_value(serde_json::json!({
+            "id":"old", "persona":"a", "expression":"평온", "text":"날씨",
+            "source":"talk", "link":{"instanceId":"weather","kind":"weather","label":"날씨"},
+            "endsAt":0,"lineIndex":0,"lineCount":1
+        })).unwrap());
+        assert_eq!(playback_link_for_open(&state, "old").unwrap().kind, "weather");
+        assert!(validate_playback_open(&state, Some("old")).is_ok());
+        lock(&state.playback).unwrap().as_mut().unwrap().id = "new".into();
+        assert_eq!(playback_link_for_open(&state, "old").unwrap_err(), error);
+        assert_eq!(validate_playback_open(&state, Some("old")).unwrap_err(), error);
+    }
 
     #[test]
     fn widget_navigation_opens_the_matching_planner_destination() {
@@ -1578,7 +1822,7 @@ mod tests {
             storage::instances(db)?.into_iter().find(|widget| widget.kind == "memo").ok_or("메모 위젯이 없어요".into())
         })
         .unwrap();
-        let created = create_memo_for_open(&state, &first.id, None).unwrap();
+        let created = create_memo_for_open(&state, &first.id, None, None).unwrap();
         let note = &created.widgets.iter().find(|widget| widget.instance.id == first.id).unwrap().instance.data["notes"][0];
         assert_eq!(note["isOpen"], true);
         let note_id = note["id"].clone();
@@ -1600,14 +1844,14 @@ mod tests {
         .unwrap();
         let before = storage::get(&lock(&state.db).unwrap(), &first.id).unwrap();
         state.launcher_open.store(true, Ordering::SeqCst);
-        assert!(create_memo_for_open(&state, &first.id, Some((first.revision, 0))).is_err());
-        assert!(create_memo_for_open(&state, &first.id, Some((before.revision, 1))).is_err());
-        let result = create_memo_for_open(&state, &first.id, Some((before.revision, 0))).unwrap();
+        assert!(create_memo_for_open(&state, &first.id, Some((first.revision, 0)), None).is_err());
+        assert!(create_memo_for_open(&state, &first.id, Some((before.revision, 1)), None).is_err());
+        let result = create_memo_for_open(&state, &first.id, Some((before.revision, 0)), None).unwrap();
         let notes = result.widgets.iter().find(|widget| widget.instance.id == first.id).unwrap().instance.data["notes"].as_array().unwrap();
         assert_eq!(notes.len(), 2);
         assert_eq!(notes[0], before.data["notes"][0]);
         assert_eq!(notes[1]["isOpen"], true);
-        assert!(create_memo_for_open(&state, &first.id, Some((before.revision, 0))).is_err());
+        assert!(create_memo_for_open(&state, &first.id, Some((before.revision, 0)), None).is_err());
         assert_eq!(
             storage::get(&lock(&state.db).unwrap(), &first.id)
                 .unwrap()
