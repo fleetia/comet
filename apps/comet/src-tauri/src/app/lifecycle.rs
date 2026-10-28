@@ -624,6 +624,7 @@ pub fn run() {
             launcher::execute_launcher,
             behavior::get_desktop_preferences,
             behavior::set_desktop_preferences,
+            behavior::set_activity_preferences,
             behavior::clear_desktop_toys,
             desktop::toys::desktop_toy_action,
             crate::characters::collision_host::set_character_collision,
