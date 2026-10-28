@@ -77,7 +77,7 @@ export function GeneratedWidgetSettings({
         </div>
         <Button
           variant="primary"
-          disabled={!canAct || !widget.enabled}
+          disabled={!canAct}
           onClick={() => void run("open_generated_widget", { id: widget.id })}
         >
           위젯 실행 ↗
@@ -88,7 +88,7 @@ export function GeneratedWidgetSettings({
       </Text>
       <Text as="p" variant="caption" tone="muted">
         {widget.definition.actions?.length
-          ? "위젯을 켜고 실행 확인이 끝나면 대화에서도 사용할 수 있어요. 실행 창을 닫아도 사용할 수 있어요."
+          ? "실행 확인이 끝나면 대화에서도 사용할 수 있어요. 실행 창을 닫아도 사용할 수 있어요."
           : '이 위젯을 대화로 사용하려면 아래 AI로 고치기에서 "기존 기능과 기록을 유지하며 대화로 사용할 수 있게 해 줘"라고 요청하세요.'}
       </Text>
       <Button
@@ -113,19 +113,18 @@ export function GeneratedWidgetSettings({
           사용과 표시
         </Heading>
         <Checkbox
-          checked={widget.enabled}
+          checked={widget.reaction}
           disabled={!canAct}
           onChange={(event) =>
-            void run("set_generated_widget_enabled", {
+            void run("set_widget_reaction", {
               id: widget.id,
-              expectedRevision: widget.revision,
               enabled: event.target.checked,
             })
           }
-          label="위젯 사용"
+          label="캐릭터 반응"
         />
         <Text as="p" variant="caption" tone="muted">
-          실행 창을 닫아도 위젯 사용 상태는 유지됩니다.
+          위젯의 이벤트와 상태에 캐릭터가 반응할지 정해요.
         </Text>
       </section>
       <section className={styles.group}>
@@ -148,7 +147,7 @@ export function GeneratedWidgetSettings({
         <Inline gap="sm">
           <Button
             variant="primary"
-            disabled={!canAct || !widget.enabled || !eligibility.allowed || !request.trim()}
+            disabled={!canAct || !eligibility.allowed || !request.trim()}
             onClick={() => void edit()}
           >
             AI로 수정하기

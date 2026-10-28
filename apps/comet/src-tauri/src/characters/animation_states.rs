@@ -32,7 +32,7 @@ impl Runtime {
         now: i64,
     ) -> bool {
         let usable =
-            |widget: &&WidgetInstance| widget.installed && widget.enabled && widget.error.is_none();
+            |widget: &&WidgetInstance| widget.error.is_none();
         let timer = widgets.iter().filter(usable).find(|widget| {
             widget.kind == "focus-timer"
                 && widget.data["status"] == "running"
@@ -67,7 +67,7 @@ impl Runtime {
             && calendar_visible
             && widgets
                 .iter()
-                .any(|widget| widget.kind == "calendar" && widget.installed && widget.enabled);
+                .any(|widget| widget.kind == "calendar");
         let next = States {
             music_playing,
             calendar_open,

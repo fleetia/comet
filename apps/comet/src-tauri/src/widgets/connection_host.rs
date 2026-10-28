@@ -43,9 +43,6 @@ fn decode_calendar(value: &Value) -> Result<CalendarState, String> {
         .map_err(|_| "저장된 캘린더 상태를 읽지 못했습니다.".into())
 }
 fn active(instance: &WidgetInstance, kind: Option<&str>) -> Result<(), String> {
-    if !instance.installed || !instance.enabled {
-        return Err("위젯을 설치하고 켜 주세요.".into());
-    }
     if kind.is_some_and(|kind| kind != instance.kind) {
         return Err("위젯 종류가 일치하지 않습니다.".into());
     }
@@ -78,8 +75,6 @@ fn begin(
 fn is_current(state: &AppState, job: &Job, instance: &WidgetInstance) -> Result<bool, String> {
     Ok(!crate::unavailable(state)
         && !job.cancel.load(Ordering::SeqCst)
-        && instance.installed
-        && instance.enabled
         && instance.revision == job.instance.revision
         && lock(&state.widget_jobs)?
             .get(&instance.id)
@@ -628,8 +623,6 @@ fn pairing_id(data: &Value) -> Option<&str> {
 
 pub(crate) fn spotify_widget(instance: &WidgetInstance) -> bool {
     instance.kind == "music"
-        && instance.installed
-        && instance.enabled
         && instance.data["configured"] == true
         && (connections::uses_music_bridge(&instance.data["config"])
             || matches!(
@@ -1385,7 +1378,7 @@ pub(crate) fn start_due_widget_refreshes(app: &AppHandle, state: &Arc<AppState>)
         if available == 0 {
             break;
         }
-        if !instance.installed || !instance.enabled || occupied.contains(&instance.id) {
+        if occupied.contains(&instance.id) {
             continue;
         }
         let calendar_id = if instance.kind == "calendar" {

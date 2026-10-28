@@ -53,7 +53,7 @@ pub struct GeneratedWidget {
     pub definition: Definition,
     pub state: Value,
     pub revision: i64,
-    pub enabled: bool,
+    pub reaction: bool,
     pub installed: bool,
     pub status: String,
     pub error: Option<String>,
@@ -261,6 +261,8 @@ pub fn initialize(db: &Connection) -> Result<()> {
         "CREATE TABLE IF NOT EXISTS generated_widgets(
 id TEXT PRIMARY KEY,definition TEXT NOT NULL,state TEXT NOT NULL,revision INTEGER NOT NULL,
 enabled INTEGER NOT NULL,installed INTEGER NOT NULL,status TEXT NOT NULL,error TEXT);
+CREATE TABLE IF NOT EXISTS widget_preferences(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+UPDATE generated_widgets SET enabled=1 WHERE enabled!=1;
 CREATE TABLE IF NOT EXISTS widget_state_rules(
 id TEXT PRIMARY KEY,widget_id TEXT NOT NULL,definition TEXT NOT NULL,revision INTEGER NOT NULL,
 last_match INTEGER,last_triggered_at INTEGER);
@@ -314,7 +316,7 @@ fn read_widget(row: &rusqlite::Row<'_>) -> rusqlite::Result<GeneratedWidget> {
         definition: parse(row, 1)?,
         state: parse(row, 2)?,
         revision: row.get(3)?,
-        enabled: row.get(4)?,
+        reaction: row.get(4)?,
         installed: row.get(5)?,
         status: row.get(6)?,
         error: row.get(7)?,
@@ -332,7 +334,7 @@ fn read_widget(row: &rusqlite::Row<'_>) -> rusqlite::Result<GeneratedWidget> {
 
 pub fn list(db: &Connection) -> Result<Vec<GeneratedWidget>> {
     let mut statement = db
-        .prepare("SELECT id,definition,state,revision,enabled,installed,status,error,installation,updated_at,previous_definition FROM generated_widgets ORDER BY rowid")
+        .prepare("SELECT id,definition,state,revision,COALESCE((SELECT value FROM widget_preferences WHERE key='reaction:' || generated_widgets.id),'1') != '0',installed,status,error,installation,updated_at,previous_definition FROM generated_widgets ORDER BY rowid")
         .map_err(err)?;
     let rows = statement.query_map([], read_widget).map_err(err)?;
     rows.map(|row| row.map_err(err)).collect()
@@ -341,7 +343,7 @@ pub fn list(db: &Connection) -> Result<Vec<GeneratedWidget>> {
 pub fn get(db: &Connection, id: &str) -> Result<GeneratedWidget> {
     valid_id(id)?;
     db.query_row(
-        "SELECT id,definition,state,revision,enabled,installed,status,error,installation,updated_at,previous_definition FROM generated_widgets WHERE id=?1",
+        "SELECT id,definition,state,revision,COALESCE((SELECT value FROM widget_preferences WHERE key='reaction:' || generated_widgets.id),'1') != '0',installed,status,error,installation,updated_at,previous_definition FROM generated_widgets WHERE id=?1",
         [id],
         read_widget,
     )
@@ -363,7 +365,7 @@ pub fn create(
         state: definition.initial_state.clone(),
         definition,
         revision: 1,
-        enabled: true,
+        reaction: true,
         installed: true,
         status: "draft".into(),
         error: None,
@@ -404,14 +406,13 @@ fn change(
             widget.updated_at = Some(chrono::Utc::now().timestamp_millis());
         }
         let updated = tx.execute(
-            "UPDATE generated_widgets SET definition=?1,state=?2,revision=?3,enabled=?4,installed=?5,status=?6,error=?7,updated_at=?10,previous_definition=?11 WHERE id=?8 AND revision=?9",
-            params![serde_json::to_string(&widget.definition).map_err(err)?, serde_json::to_string(&widget.state).map_err(err)?, widget.revision,widget.enabled,widget.installed,widget.status,widget.error,widget.id,expected_revision,widget.updated_at,widget.previous_definition.as_ref().map(serde_json::to_string).transpose().map_err(err)?],
+            "UPDATE generated_widgets SET definition=?1,state=?2,revision=?3,enabled=1,installed=?4,status=?5,error=?6,updated_at=?9,previous_definition=?10 WHERE id=?7 AND revision=?8",
+            params![serde_json::to_string(&widget.definition).map_err(err)?, serde_json::to_string(&widget.state).map_err(err)?, widget.revision,widget.installed,widget.status,widget.error,widget.id,expected_revision,widget.updated_at,widget.previous_definition.as_ref().map(serde_json::to_string).transpose().map_err(err)?],
         ).map_err(err)?;
         if updated != 1 {
             return Err("위젯이 변경됐어요. 최신 상태를 확인해 주세요.".into());
         }
         if widget.definition != before.definition
-            || widget.enabled != before.enabled
             || widget.installed != before.installed
             || widget.status != before.status
         {
@@ -488,22 +489,10 @@ pub fn save_state(
 ) -> Result<GeneratedWidget> {
     validate_state(&state)?;
     change(db, id, expected_revision, |widget| {
-        if !widget.enabled || widget.status == "error" {
-            return Err("멈춘 위젯의 결과는 저장하지 않았어요.".into());
+        if widget.status == "error" {
+            return Err("오류가 난 위젯의 결과는 저장하지 않았어요.".into());
         }
         widget.state = state;
-        Ok(())
-    })
-}
-
-pub fn set_enabled(
-    db: &Connection,
-    id: &str,
-    expected_revision: i64,
-    enabled: bool,
-) -> Result<GeneratedWidget> {
-    change(db, id, expected_revision, |widget| {
-        widget.enabled = enabled;
         Ok(())
     })
 }
@@ -511,16 +500,12 @@ pub fn set_enabled(
 pub fn retire(db: &Connection, id: &str, expected_revision: i64) -> Result<GeneratedWidget> {
     change(db, id, expected_revision, |widget| {
         widget.installed = false;
-        widget.enabled = false;
         Ok(())
     })
 }
 
 pub fn mark_ready(db: &Connection, id: &str, expected_revision: i64) -> Result<GeneratedWidget> {
     change(db, id, expected_revision, |widget| {
-        if !widget.enabled {
-            return Err("멈춘 위젯의 실행 결과는 적용하지 않았어요.".into());
-        }
         widget.status = "ready".into();
         widget.error = None;
         Ok(())
@@ -537,9 +522,6 @@ pub fn mark_error(
         return Err("위젯 오류 설명의 크기를 확인해 주세요.".into());
     }
     change(db, id, expected_revision, |widget| {
-        if !widget.enabled {
-            return Err("멈춘 위젯의 실행 결과는 적용하지 않았어요.".into());
-        }
         widget.status = "error".into();
         widget.error = Some(error.to_owned());
         Ok(())
@@ -772,16 +754,16 @@ fn matches_rule(rule: &StateRule, state: &Value) -> bool {
 }
 
 fn generated_target_active(db: &Connection, widget_id: &str, revision: i64) -> Result<bool> {
-    let target: Option<(i64, bool, bool, String)> = db
+    let target: Option<(i64, bool, String)> = db
         .query_row(
-            "SELECT revision,enabled,installed,status FROM generated_widgets WHERE id=?1",
+            "SELECT revision,installed,status FROM generated_widgets WHERE id=?1",
             [widget_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()
         .map_err(err)?;
-    Ok(target.is_none_or(|(current, enabled, installed, status)| {
-        current == revision && enabled && installed && status == "ready"
+    Ok(target.is_none_or(|(current, installed, status)| {
+        current == revision && installed && status == "ready"
     }))
 }
 

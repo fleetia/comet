@@ -1041,8 +1041,8 @@ pub(crate) fn execute(
         };
         let instance = storage::instances(&tx)?
             .into_iter()
-            .find(|v| v.kind == kind && v.enabled && v.installed)
-            .ok_or_else(|| format!("{kind} 위젯을 설치하고 켜 주세요."))?;
+            .find(|v| v.kind == kind)
+            .ok_or_else(|| format!("{kind} 위젯을 찾을 수 없습니다."))?;
         if instance.revision != action.expected_revision {
             return Err(format!("{kind} 위젯의 최신 revision은 {}예요. 이번 context.entities.widgets에서 kind={kind}인 항목의 revision을 expectedRevision에 넣어 다시 제안해 주세요.", instance.revision));
         }
@@ -1362,7 +1362,6 @@ pub(crate) fn entities(db: &Connection, query: &str) -> Result<Value> {
     let mut widgets = vec![];
     for widget in storage::instances(db)?
         .into_iter()
-        .filter(|widget| widget.installed && widget.enabled)
     {
         let domain = match widget.kind.as_str() {
             "todo" => "task_",

@@ -256,9 +256,7 @@ pub fn event_current(db: &Connection, event: &super::WidgetEvent) -> Result<bool
             .is_none_or(|timers| {
                 timers.iter().all(|timer| {
                     instances.iter().any(|item| {
-                        item.installed
-                            && item.enabled
-                            && item.id == timer["id"]
+                        item.id == timer["id"]
                             && Some(item.revision) == timer["revision"].as_i64()
                     })
                 })
@@ -266,9 +264,7 @@ pub fn event_current(db: &Connection, event: &super::WidgetEvent) -> Result<bool
     }
     if event.event.kind == "planner-anniversary" {
         let clock = storage::get(db, &event.instance_id)?;
-        return Ok(clock.installed
-            && clock.enabled
-            && clock.kind == "clock"
+        return Ok(clock.kind == "clock"
             && anniversary_current(&clock.data, &event.event.payload, Local::now().date_naive()));
     }
     if event.event.kind != "planner-reminder" {
@@ -280,7 +276,7 @@ pub fn event_current(db: &Connection, event: &super::WidgetEvent) -> Result<bool
     };
     let todo = instances
         .iter()
-        .find(|item| item.kind == "todo" && item.installed && item.enabled)
+        .find(|item| item.kind == "todo")
         .map(|item| &item.data);
     let current = targets(
         &calendar.data,
@@ -347,11 +343,11 @@ pub fn advance(
     let instances = storage::instances(db)?;
     let todo = instances
         .iter()
-        .find(|item| item.kind == "todo" && item.installed && item.enabled)
+        .find(|item| item.kind == "todo")
         .map(|item| &item.data);
     let timers: Vec<_> = instances
         .iter()
-        .filter(|item| item.kind == "focus-timer" && item.installed && item.enabled)
+        .filter(|item| item.kind == "focus-timer")
         .cloned()
         .collect();
     let mut result = Advance {
@@ -365,7 +361,7 @@ pub fn advance(
         let previous = clocks.insert(instance.id.clone(), now);
         let settings = settings(&instance.data)?;
         let continuous = previous.is_some_and(|after| now >= after && now - after <= 120_000);
-        let allowed = instance.installed && instance.enabled && continuous;
+        let allowed = continuous;
         let mut mood = timer_moods(
             clocks,
             &instance.id,
@@ -466,7 +462,7 @@ pub fn advance(
     if !quiet && (8..12).contains(&local.hour()) {
         for instance in instances
             .iter()
-            .filter(|item| item.kind == "clock" && item.installed && item.enabled)
+            .filter(|item| item.kind == "clock")
         {
             let (data, drafts) = anniversary_greetings(&instance.data, local.date_naive());
             if !drafts.is_empty() {

@@ -15,7 +15,7 @@ const widget: GeneratedWidget = {
   state: { count: 4 },
   revision: 3,
   installed: true,
-  enabled: true,
+  reaction: true,
   installation: null,
   updatedAt: null,
   status: "ready",

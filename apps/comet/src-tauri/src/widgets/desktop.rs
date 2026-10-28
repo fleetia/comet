@@ -454,11 +454,11 @@ fn read(db: &Connection) -> Result<Stored, String> {
         .map(Option::unwrap_or_default)
 }
 
-/// Installed, enabled widgets that can sit on the desktop, by id.
+/// Widgets that can sit on the desktop, by id.
 fn placeable(db: &Connection) -> Result<HashMap<String, String>, String> {
     Ok(storage::instances(db)?
         .into_iter()
-        .filter(|widget| widget.installed && widget.enabled && supports(&widget.kind))
+        .filter(|widget| supports(&widget.kind))
         .map(|widget| (widget.id, widget.kind))
         .collect())
 }
@@ -532,7 +532,7 @@ fn commit(db: &Connection, previous: &Stored, layout: Layout) -> Result<Stored, 
     validate(&layout)?;
     let placeable = placeable(db)?;
     if layout.order.iter().any(|id| !placeable.contains_key(id)) {
-        return Err("설치하고 켠 바탕화면 위젯만 배치할 수 있어요.".into());
+        return Err("바탕화면에 놓을 수 있는 위젯만 배치할 수 있어요.".into());
     }
     let next = Stored {
         revision: previous
@@ -1256,7 +1256,7 @@ pub(crate) async fn add_widget_desktop_item(
     widget_id(&id)?;
     let (stored, _) = widgets::commands::change(&state, |db| {
         if !placeable(db)?.contains_key(&id) {
-            return Err("설치하고 켠 바탕화면 위젯만 놓을 수 있어요.".into());
+            return Err("바탕화면에 놓을 수 있는 위젯만 놓을 수 있어요.".into());
         }
         update(db, |layout| {
             if !layout.order.contains(&id) {

@@ -65,7 +65,7 @@ const FIELDS: &[(&str, &str, &str, &str, &str)] = &[
 fn description(prefix: &str, field: &str, nullable: bool) -> String {
     let text = match (prefix, field) {
         ("dialogue", "variant") => "한 대본 재생 동안 고정되는 0~4 변형 번호",
-        ("environment", "weatherReady") => "설치된 날씨 연결에 2시간 이내의 유효한 관측이 있는지 여부. 미설치·비활성·실패·오래됨에는 false",
+        ("environment", "weatherReady") => "날씨 연결에 2시간 이내의 유효한 관측이 있는지 여부. 연결 실패·오래됨에는 false",
         ("environment", "weatherStatus") => "날씨 연결 상태. not-installed·disabled·offline·stale을 관측 성공과 구분",
         ("environment", "weatherTemperature") => "날씨 연결의 최신 관측 기온(섭씨)",
         ("environment", "weatherCode") => "날씨 연결의 최신 WMO weatherCode 숫자",
@@ -79,8 +79,8 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         ("travel", "daysUntil") => "가장 가까운 여행의 첫날까지 남은 일수(그곳 날짜 기준). 이미 시작했으면 0 이하",
         ("travel", "title") => "가장 가까운 여행의 이름. 여행이 없으면 null",
         ("travel", "stage") => "가장 가까운 여행의 단계: planning, before, traveling, wrapping",
-        (_, "ready") => "설치·활성·의존성과 데이터 최신성 검사를 통과했는지 여부",
-        (_, "status") => "설치 상태 또는 연결 상태. unavailable·실패·stale은 성공한 빈 값과 구분",
+        (_, "ready") => "연결과 데이터 최신성 검사를 통과했는지 여부",
+        (_, "status") => "연결 상태. unavailable·실패·stale은 성공한 빈 값과 구분",
         (_, "openCount") => "완료하지 않은 할 일 수",
         (_, "completedCount") => "완료한 할 일 수",
         (_, "overdueCount") => "미완료이며 지정 시각 또는 날짜를 지난 할 일 수. 날짜 비교는 기기 현지 날짜 기준",
@@ -155,7 +155,7 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         return format!("{text}. 해당 캐릭터가 없으면 null.");
     }
     if nullable {
-        format!("{text}. 미설치·비활성·자료 없음·오래됨에는 null(별도 명시된 독립 관측값 제외).")
+        format!("{text}. 자료 없음·오래됨에는 null(별도 명시된 독립 관측값 제외).")
     } else {
         text.to_owned()
     }
@@ -311,9 +311,6 @@ fn project(snapshot: &WidgetSnapshot, now: i64) -> (BTreeMap<String, Value>, BTr
         let Some(widget) = widget else {
             continue;
         };
-        if !widget.instance.installed || !widget.instance.enabled || !widget.missing.is_empty() {
-            continue;
-        }
         available.insert(kind.to_owned());
         let d = &widget.instance.data;
         let external = matches!(kind, "weather" | "music" | "device");

@@ -90,9 +90,6 @@ fn active_appearance_target(
     instance: &widgets::WidgetInstance,
     expected_revision: i64,
 ) -> Result<(), String> {
-    if !instance.installed || !instance.enabled {
-        return Err("설치하고 켠 위젯만 사용할 수 있어요.".into());
-    }
     if instance.revision != expected_revision {
         return Err(
             "다른 화면에서 위젯이 변경됐어요. 최신 상태를 확인하고 다시 시도해 주세요.".into(),
@@ -100,15 +97,6 @@ fn active_appearance_target(
     }
     if !widgets::appearance::supports(&instance.kind) {
         return Err("이 위젯은 색상·글자를 바꿀 수 없어요.".into());
-    }
-    Ok(())
-}
-
-fn close_widget_windows(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
-    for label in [format!("widget-{id}"), format!("widget-display-{id}")] {
-        if let Some(window) = app.get_webview_window(&label) {
-            window.destroy().map_err(|error| error.to_string())?;
-        }
     }
     Ok(())
 }
@@ -121,71 +109,41 @@ pub(crate) fn get_widgets(
 }
 
 #[tauri::command]
-pub(crate) fn install_widgets(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<AppState>>,
-    kinds: Vec<String>,
-) -> Result<(), String> {
-    let result = change(&state, |db| storage::install(db, &state.app_data, &kinds));
-    crate::widgets::memo_notes::schedule_sync(&app);
-    publish_widgets(&app, &state);
-    result
-}
-
-#[tauri::command]
-pub(crate) async fn set_widget_enabled(
+pub(crate) fn set_widget_reaction(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
     enabled: bool,
 ) -> Result<(), String> {
-    let mutation = |db: &rusqlite::Connection| {
-        if !enabled {
-            crate::widgets::connection_host::clear_music_pairing(db, &id)?;
+    change(&state, |db| {
+        let official = storage::instances(db)?.iter().any(|widget| widget.id == id);
+        let generated: bool = db
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM generated_widgets WHERE id=?1 AND installed=1)",
+                [&id],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        if !official && !generated {
+            return Err("위젯을 찾지 못했어요.".into());
         }
-        storage::set_enabled(db, &id, enabled)?;
-        crate::widgets::generated::commands::reset_rule_baseline(db, &id)?;
-        if !enabled {
-            cancel_widget_jobs(&state, Some(&id))?;
-        }
-        Ok(())
-    };
-    if enabled {
-        change(&state, mutation)?;
-    } else {
-        crate::widgets::memo_notes::with_flushed_notes(&app, &state, &id, mutation).await?;
-    }
-    crate::widgets::memo_notes::schedule_sync(&app);
+        storage::set_reaction(db, &id, enabled)
+    })?;
     if !enabled {
-        crate::desktop::toys::remove_widget(&app, &id);
-        cancel_widget_scene(&app, &state)?;
-        close_widget_windows(&app, &id)?;
-        crate::widgets::desktop::prune(&app, &state)?;
+        let _action = lock(&state.action)?;
+        let db = lock(&state.db)?;
+        let is_target = lock(&state.widget_playback)?
+            .as_ref()
+            .is_some_and(|event| event.instance_id == id);
+        if is_target {
+            cancel_stale_widget_scene(&state, &db)?;
+        }
+        drop(db);
+        drop(_action);
+        publish(&app, &state);
     }
     publish_widgets(&app, &state);
-    Ok(())
-}
-
-#[tauri::command]
-pub(crate) async fn remove_widget(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<AppState>>,
-    id: String,
-    delete_data: bool,
-) -> Result<(), String> {
-    crate::widgets::memo_notes::with_flushed_notes(&app, &state, &id, |db| {
-        crate::widgets::connection_host::clear_music_pairing(db, &id)?;
-        storage::remove(db, &state.app_data, &id, delete_data)?;
-        crate::widgets::generated::commands::reset_rule_baseline(db, &id)?;
-        cancel_widget_jobs(&state, Some(&id))
-    })
-    .await?;
-    crate::widgets::memo_notes::schedule_sync(&app);
-    cancel_widget_scene(&app, &state)?;
-    crate::desktop::toys::remove_widget(&app, &id);
-    close_widget_windows(&app, &id)?;
-    crate::widgets::desktop::prune(&app, &state)?;
-    publish_widgets(&app, &state);
+    widgets::generated::commands::publish(&app);
     Ok(())
 }
 
@@ -368,23 +326,14 @@ pub(crate) fn event_current(
     if event.widget_kind == "state-rule" {
         return crate::widgets::generated::commands::event_current(db, event);
     }
-    let all = storage::instances(db)?;
-    Ok(event.expires_at > chrono::Utc::now().timestamp_millis()
+    let Ok(instance) = storage::get(db, &event.instance_id) else {
+        return Ok(false);
+    };
+    Ok(storage::reaction_enabled(db, &event.instance_id)?
+        && event.expires_at > chrono::Utc::now().timestamp_millis()
         && widgets::reminders::event_current(db, event)?
-        && all.iter().any(|instance| {
-            instance.id == event.instance_id
-                && instance.installed
-                && instance.enabled
-                && instance.revision == event.revision
-        })
-        && widgets::manifest(&event.widget_kind)?
-            .required
-            .iter()
-            .all(|kind| {
-                all.iter().any(|instance| {
-                    instance.kind == *kind && instance.installed && instance.enabled
-                })
-            }))
+        && !widgets::is_retired(&instance.kind)
+        && instance.revision == event.revision)
 }
 
 #[tauri::command]
@@ -402,9 +351,7 @@ pub(crate) async fn execute_widget(
         };
         return change(&state, |db| {
             let instance = storage::get(db, &request.instance_id)?;
-            if !instance.installed
-                || !instance.enabled
-                || instance.revision != request.expected_revision
+            if instance.revision != request.expected_revision
                 || !crate::behavior::DESKTOP_TOYS.contains(&instance.kind.as_str())
             {
                 return Err("장난감 상태가 바뀌었어요. 다시 열어 주세요.".into());
@@ -444,7 +391,10 @@ pub(crate) async fn execute_widget(
         if created_id.is_none() {
             return Err(error);
         }
-        crate::report_error!("widget_save_reaction", "위젯 내용 저장 후 반응 갱신 실패: {error}");
+        crate::report_error!(
+            "widget_save_reaction",
+            "위젯 내용 저장 후 반응 갱신 실패: {error}"
+        );
         if let Ok(mut runtime) = lock(&state.runtime) {
             runtime.error = Some("내용은 저장했지만 캐릭터 반응을 갱신하지 못했어요.".into());
         }
@@ -677,8 +627,7 @@ const PLAY_KINDS: [&str; 7] = [
     "pet",
 ];
 
-/// Picks the requested game on a usable play widget and returns its id, or `None` when the
-/// widget still has to be installed or turned on. Picking never plays a round.
+/// Picks the requested game on a play widget and returns its id. Picking never plays a round.
 pub(crate) fn prepare_play(
     db: &rusqlite::Connection,
     kind: &str,
@@ -690,7 +639,7 @@ pub(crate) fn prepare_play(
     }
     let Some(instance) = storage::instances(db)?
         .into_iter()
-        .find(|instance| instance.kind == kind && instance.installed && instance.enabled)
+        .find(|instance| instance.kind == kind)
     else {
         return Ok(None);
     };
@@ -901,8 +850,8 @@ fn validate_open_widget(
     instance: &widgets::WidgetInstance,
     launcher: Option<(i64, u64)>,
 ) -> Result<(), String> {
-    if widgets::is_retired(&instance.kind) || !instance.installed || !instance.enabled {
-        return Err("위젯을 설치하고 켜 주세요.".into());
+    if widgets::is_retired(&instance.kind) {
+        return Err("위젯을 찾지 못했어요.".into());
     }
     if let Some((revision, session)) = launcher {
         crate::app::launcher::validate_session(state, session)?;
@@ -1720,8 +1669,8 @@ pub(crate) async fn set_focus_expanded(
 ) -> Result<(), String> {
     change(&state, |db| {
         let instance = storage::get(db, &id)?;
-        if instance.kind != "focus-timer" || !instance.installed || !instance.enabled {
-            return Err("집중 타이머를 먼저 켜 주세요.".into());
+        if instance.kind != "focus-timer" {
+            return Err("집중 타이머를 찾지 못했어요.".into());
         }
         Ok(())
     })?;
@@ -1848,8 +1797,8 @@ pub(crate) fn set_music_expanded(
 ) -> Result<(), String> {
     change(&state, |db| {
         let instance = storage::get(db, &id)?;
-        if instance.kind != "music" || !instance.installed || !instance.enabled {
-            return Err("음악 위젯을 먼저 켜 주세요.".into());
+        if instance.kind != "music" {
+            return Err("음악 위젯을 찾지 못했어요.".into());
         }
         let window = app
             .get_webview_window(&format!("widget-{id}"))
@@ -1874,10 +1823,7 @@ fn advance_app_usage(state: &AppState, db: &rusqlite::Connection, at: i64) -> Re
     let timers: Vec<_> = storage::instances(db)?
         .into_iter()
         .filter(|instance| {
-            instance.kind == "focus-timer"
-                && instance.installed
-                && instance.enabled
-                && crate::app_usage::tracking::enabled(&instance.data)
+            instance.kind == "focus-timer" && crate::app_usage::tracking::enabled(&instance.data)
         })
         .collect();
     let mut tracker = lock(&state.app_usage_tracker)?;

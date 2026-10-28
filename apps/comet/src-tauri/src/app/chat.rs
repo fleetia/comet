@@ -381,8 +381,6 @@ fn music_discussion_draft(
 ) -> Result<String, String> {
     let observation = &instance.data["observation"];
     if instance.kind != "music"
-        || !instance.installed
-        || !instance.enabled
         || instance.revision != revision
         || instance.data["configured"] != true
         || !matches!(instance.data["status"].as_str(), Some("ready" | "syncing"))

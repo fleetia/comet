@@ -47,9 +47,7 @@ fn reveal_note(
         return Ok(false);
     }
     let current = storage::get(&*lock(&state.db)?, id)?;
-    if !current.installed
-        || !current.enabled
-        || !current.data["notes"].as_array().is_some_and(|notes| {
+    if !current.data["notes"].as_array().is_some_and(|notes| {
             notes
                 .iter()
                 .any(|note| note["id"] == note_id && note["isOpen"] == true)
@@ -73,7 +71,7 @@ fn reconcile(app: &tauri::AppHandle, focus: Option<&str>) -> Result<(), String> 
     let mut desired = BTreeSet::new();
     for instance in instances
         .iter()
-        .filter(|item| item.kind == "memo" && item.installed && item.enabled)
+        .filter(|item| item.kind == "memo")
     {
         let Some(notes) = instance.data["notes"].as_array() else {
             continue;
@@ -341,8 +339,6 @@ fn open_notes(db: &rusqlite::Connection, id: Option<&str>) -> Result<BTreeSet<St
     let mut notes = BTreeSet::new();
     for instance in storage::instances(db)?.into_iter().filter(|instance| {
         instance.kind == "memo"
-            && instance.installed
-            && instance.enabled
             && id.is_none_or(|id| instance.id == id)
     }) {
         if let Some(items) = instance.data["notes"].as_array() {
