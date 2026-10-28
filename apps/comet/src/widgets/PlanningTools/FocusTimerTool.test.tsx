@@ -572,7 +572,7 @@ it("shows automatic rest behind the focus completion card and keeps todo complet
   await reactAct(async () =>
     fireEvent.click(screen.getByRole("button", { name: /휴식 5분 시작/ })),
   );
-  expect(action).toHaveBeenLastCalledWith("show-rest");
+  expect(action).toHaveBeenLastCalledWith("show-rest", {});
   view.rerender(
     <TimerTool
       widget={{
