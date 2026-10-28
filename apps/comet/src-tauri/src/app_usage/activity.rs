@@ -80,6 +80,7 @@ impl Runtime {
                 .is_some_and(|app| !excluded.contains(&app.id))
         {
             self.ready = true;
+            self.events.retain(|event| *event != "activity.long-session");
             self.current = None;
             if let Some(seconds) = sample
                 .idle_seconds
@@ -115,6 +116,7 @@ impl Runtime {
             .as_ref()
             .is_none_or(|current| current.id != app.id)
         {
+            self.events.retain(|event| *event != "activity.long-session");
             self.last_switch_at = Some(now);
             self.current = Some(Current {
                 id: app.id,
@@ -147,4 +149,43 @@ fn category(name: &str) -> String {
         .into_iter()
         .find_map(|(category, names)| names.iter().any(|entry| entry == &name).then_some(category))
         .unwrap_or_else(|| "other".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app_usage::{Application, Sample};
+
+    fn sample(id: &str, idle: bool) -> DetailedSample {
+        DetailedSample {
+            sample: Sample {
+                app_id: Some(id.into()),
+                eligible: !idle,
+                status: if idle { "idle" } else { "active" }.into(),
+            },
+            application: Some(Application { id: id.into(), name: id.into() }),
+            idle_seconds: idle.then_some(60.0),
+        }
+    }
+
+    #[test]
+    fn long_session_pending_only_applies_to_its_current_app() {
+        let mut runtime = Runtime::default();
+        let start = Instant::now();
+        runtime.observe(sample("editor", false), &[], start);
+        runtime.current.as_mut().unwrap().next_long_session = start + Duration::from_secs(5);
+        runtime.observe(sample("editor", false), &[], start + Duration::from_secs(5));
+        assert!(runtime.has_events());
+        runtime.observe(sample("editor", false), &[], start + Duration::from_secs(6));
+        assert!(runtime.has_events());
+        runtime.queue("activity.idle-return");
+        runtime.observe(sample("browser", false), &[], start + Duration::from_secs(7));
+        assert_eq!(runtime.take_events(), vec!["activity.idle-return"]);
+
+        runtime.current.as_mut().unwrap().next_long_session = start + Duration::from_secs(8);
+        runtime.observe(sample("browser", false), &[], start + Duration::from_secs(8));
+        assert!(runtime.has_events());
+        runtime.observe(sample("browser", true), &[], start + Duration::from_secs(9));
+        assert!(!runtime.has_events());
+    }
 }
