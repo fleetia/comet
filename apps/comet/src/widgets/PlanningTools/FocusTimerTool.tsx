@@ -56,7 +56,7 @@ function savedDraft(widget: WidgetView): Draft {
     memo: text(data.memo),
   };
 }
-function pendingMemo(widget: WidgetView): { memo: string; base: string; owner: string } | null {
+function pendingMemo(widget: WidgetView): { memo: string; base: string; owner: string; show: boolean } | null {
   try {
     const value: unknown = JSON.parse(
       localStorage.getItem(`comet.focus.draft:${widget.id}`) || "null",
@@ -74,7 +74,7 @@ function pendingMemo(widget: WidgetView): { memo: string; base: string; owner: s
       !("memoOwner" in value) ||
       typeof value.memoOwner !== "string" ||
       !value.memoOwner ||
-      value.draft.memo === value.memoBase
+      (value.draft.memo === value.memoBase && !("showPreviousMemo" in value && value.showPreviousMemo === true))
     )
       return null;
     const data = record(widget.data);
@@ -83,7 +83,12 @@ function pendingMemo(widget: WidgetView): { memo: string; base: string; owner: s
       !rows(data.sessions).some((session) => session.id === value.memoOwner)
     )
       return null;
-    return { memo: value.draft.memo, base: value.memoBase, owner: value.memoOwner };
+    return {
+      memo: value.draft.memo,
+      base: value.memoBase,
+      owner: value.memoOwner,
+      show: "showPreviousMemo" in value && value.showPreviousMemo === true,
+    };
   } catch {
     return null;
   }
@@ -202,7 +207,7 @@ export function TimerTool({
   const [now, setNow] = useState(Date.now());
   const [draft, setDraft] = useState(() => readDraft(widget));
   const [memoBase, setMemoBase] = useState(() => readMemoBase(widget));
-  const [showPreviousMemo, setShowPreviousMemo] = useState(false);
+  const [showPreviousMemo, setShowPreviousMemo] = useState(() => pendingMemo(widget)?.show ?? false);
   const memoSave = useRef<{ memo: string; promise: Promise<boolean> } | null>(null);
   const memoOwner = useRef(readMemoOwner(widget));
   const memoWidget = useRef(widget.id);
@@ -262,12 +267,12 @@ export function TimerTool({
     const next = savedDraft(widget);
     if (previous.current.id !== widget.id) {
       setDraft(readDraft(widget));
-      setMemoBase(next.memo);
-      setShowPreviousMemo(false);
+      setMemoBase(readMemoBase(widget));
+      setShowPreviousMemo(pendingMemo(widget)?.show ?? false);
       setCustom(![15, 25, 50].includes(Number(next.minutes)));
     } else {
       const before = previous.current.draft;
-      if (draft.memo === before.memo) setMemoBase(next.memo);
+      if (!showPreviousMemo && draft.memo === before.memo) setMemoBase(next.memo);
       setDraft((current) => ({
         title: current.title === before.title ? next.title : current.title,
         minutes: current.minutes === before.minutes ? next.minutes : current.minutes,
@@ -276,7 +281,7 @@ export function TimerTool({
           ? next.eventRef
           : current.eventRef,
         noteRef: sameReference(current.noteRef, before.noteRef) ? next.noteRef : current.noteRef,
-        memo: current.memo === before.memo ? next.memo : current.memo,
+        memo: !showPreviousMemo && current.memo === before.memo ? next.memo : current.memo,
       }));
     }
     previous.current = { id: widget.id, draft: next };
@@ -285,12 +290,12 @@ export function TimerTool({
     try {
       localStorage.setItem(
         `comet.focus.draft:${widget.id}`,
-        JSON.stringify({ base: savedKey, draft, memoBase, memoOwner: memoOwner.current }),
+        JSON.stringify({ base: savedKey, draft, memoBase, memoOwner: memoOwner.current, showPreviousMemo }),
       );
     } catch {
       /* Explicit save actions remain available when draft storage is unavailable. */
     }
-  }, [widget.id, savedKey, draft, memoBase]);
+  }, [widget.id, savedKey, draft, memoBase, showPreviousMemo]);
   const status = text(data.status) || "idle";
   const idle = status === "idle";
   const completionPending = data.completedFocusPending === true;

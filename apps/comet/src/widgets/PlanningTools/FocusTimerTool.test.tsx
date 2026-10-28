@@ -697,7 +697,7 @@ it("starts a queued focus with an empty memo after saving the completed session"
 it("reloads and saves a conflicted draft against its previous session", async () => {
   const timer = widget("focus-timer", {
     status: "running", mode: "focus", durationMs: 1500000, remainingMs: 1500000,
-    deadline: Date.now() + 1500000, memo: "현재 세션 메모",
+    deadline: Date.now() + 1500000, memo: "다른 창에서 저장",
     activeSession: { id: "current" },
     sessions: [{ id: "previous", title: "이전 집중", startedAt: Date.now() - 1500000,
       endedAt: Date.now(), elapsedMs: 1500000, memo: "다른 창에서 저장", segments: [] }],
@@ -705,16 +705,24 @@ it("reloads and saves a conflicted draft against its previous session", async ()
   localStorage.setItem(`comet.focus.draft:${timer.id}`, JSON.stringify({
     draft: { memo: "이전 집중 초안" }, memoBase: "이전 원문", memoOwner: "previous",
   }));
-  render(<TimerTool widget={timer} widgets={[]} act={action} />);
+  const view = render(<TimerTool widget={timer} widgets={[]} act={action} />);
   await click("노트", "radio");
   const memo = screen.getByLabelText("이번 집중 메모");
   expect(memo).toHaveProperty("value", "이전 집중 초안");
   await click("최신 집중 메모 불러오기");
   expect(memo).toHaveProperty("value", "다른 창에서 저장");
-  fireEvent.change(memo, { target: { value: "이전 기록 수정" } });
-  await reactAct(async () => fireEvent.blur(memo));
+  const changed = { ...timer, revision: 2, data: { ...(timer.data as DataRecord), memo: "현재 세션 메모" } };
+  view.rerender(<TimerTool widget={changed} widgets={[]} act={action} />);
+  expect(memo).toHaveProperty("value", "다른 창에서 저장");
+  view.unmount();
+  render(<TimerTool widget={changed} widgets={[]} act={action} />);
+  await click("노트", "radio");
+  const reloaded = screen.getByLabelText("이번 집중 메모");
+  expect(reloaded).toHaveProperty("value", "다른 창에서 저장");
+  fireEvent.change(reloaded, { target: { value: "이전 기록 수정" } });
+  await reactAct(async () => fireEvent.blur(reloaded));
   expect(action).toHaveBeenLastCalledWith("update-session-memo", {
     id: "previous", memo: "이전 기록 수정", expectedMemo: "다른 창에서 저장",
   });
-  expect(memo).toHaveProperty("value", "현재 세션 메모");
+  expect(reloaded).toHaveProperty("value", "현재 세션 메모");
 });
