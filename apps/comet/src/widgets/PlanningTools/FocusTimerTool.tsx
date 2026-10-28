@@ -202,6 +202,7 @@ export function TimerTool({
   const [now, setNow] = useState(Date.now());
   const [draft, setDraft] = useState(() => readDraft(widget));
   const [memoBase, setMemoBase] = useState(() => readMemoBase(widget));
+  const [showPreviousMemo, setShowPreviousMemo] = useState(false);
   const memoSave = useRef<{ memo: string; promise: Promise<boolean> } | null>(null);
   const memoOwner = useRef(readMemoOwner(widget));
   const memoWidget = useRef(widget.id);
@@ -262,6 +263,7 @@ export function TimerTool({
     if (previous.current.id !== widget.id) {
       setDraft(readDraft(widget));
       setMemoBase(next.memo);
+      setShowPreviousMemo(false);
       setCustom(![15, 25, 50].includes(Number(next.minutes)));
     } else {
       const before = previous.current.draft;
@@ -314,9 +316,9 @@ export function TimerTool({
   const progress = duration > 0 ? Math.max(0, Math.min(1, remaining / duration)) : 0;
   const sessions = focusSessions(data, now);
   const owner = currentMemoOwner(data);
-  if (draft.memo === memoBase && !memoSave.current) memoOwner.current = owner;
+  if (draft.memo === memoBase && !memoSave.current && !showPreviousMemo) memoOwner.current = owner;
   const previousMemoPending =
-    draft.memo !== memoBase && Boolean(memoOwner.current) && memoOwner.current !== owner;
+    (draft.memo !== memoBase || showPreviousMemo) && Boolean(memoOwner.current) && memoOwner.current !== owner;
   const previousMemoSession = rows(data.sessions).find(
     (session) => session.id === memoOwner.current,
   );
@@ -454,6 +456,7 @@ export function TimerTool({
               setDraft((current) => ({ ...current, memo: nextMemo }));
               setMemoBase(nextMemo);
               memoOwner.current = currentMemoOwner(latestData.current);
+              setShowPreviousMemo(false);
             } else {
               setMemoBase(draft.memo);
             }
@@ -516,6 +519,7 @@ export function TimerTool({
     if (previousMemoPending && memo === memoBase) {
       const current = text(data.memo);
       memoOwner.current = owner;
+      setShowPreviousMemo(false);
       setMemoBase(current);
       setDraft((value) => ({ ...value, memo: current }));
       return;
@@ -1004,10 +1008,14 @@ export function TimerTool({
                       : text(data.memo) !== memoBase)
                   }
                   onReloadMemo={() => {
-                    const memo = text(data.memo);
+                    if (previousMemoPending && !previousMemoSession) {
+                      setError("이전 집중 기록을 찾지 못했어요. 입력한 초안은 남아 있어요.");
+                      return;
+                    }
+                    const memo = previousMemoPending ? text(previousMemoSession?.memo) : text(data.memo);
                     setDraft({ ...draft, memo });
                     setMemoBase(memo);
-                    if (previousMemoPending) memoOwner.current = owner;
+                    setShowPreviousMemo(previousMemoPending);
                     setError("");
                   }}
                   canConnect={idle && active}

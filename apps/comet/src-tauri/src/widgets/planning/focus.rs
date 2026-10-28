@@ -212,6 +212,14 @@ pub(super) fn initial() -> Value {
     })
 }
 
+fn focus_duration(state: &Timer) -> i64 {
+    state.focus_duration_ms.unwrap_or(if state.mode == "rest" {
+        1500000
+    } else {
+        state.duration_ms
+    })
+}
+
 fn duration(input: &Value, fallback: i64) -> Result<i64, String> {
     let duration = match input.get("durationMs") {
         None => fallback,
@@ -660,7 +668,7 @@ pub(super) fn act(
             }
             let title = text(input, "title", 500)?;
             let focus_duration_ms = duration(
-                &json!({"durationMs": input.get("focusDurationMs").cloned().unwrap_or(json!(state.focus_duration_ms.unwrap_or(state.duration_ms)))}),
+                &json!({"durationMs": input.get("focusDurationMs").cloned().unwrap_or(json!(focus_duration(&state)))}),
                 1500000,
             )?;
             let todo_id = match input.get("todoId") {
@@ -789,7 +797,7 @@ pub(super) fn act(
             } else if action == "rest" {
                 state.settings.rest_duration_ms
             } else {
-                state.focus_duration_ms.unwrap_or(state.duration_ms)
+                focus_duration(&state)
             };
             let value = duration(input, fallback)?;
             if action != "rest" {
@@ -887,11 +895,7 @@ pub(super) fn act(
             state.status = "idle".into();
             state.completed_focus_pending = false;
             state.deadline = None;
-            state.duration_ms = state.focus_duration_ms.unwrap_or(if state.mode == "rest" {
-                1500000
-            } else {
-                state.duration_ms
-            });
+            state.duration_ms = focus_duration(&state);
             state.mode = "focus".into();
             state.rest_kind = None;
             state.remaining_ms = state.duration_ms;

@@ -16,6 +16,23 @@ fn reject(data: &Value, action: &str, input: Value, now: i64) {
 }
 
 #[test]
+fn legacy_rest_queues_and_continues_with_the_focus_default() {
+    let mut data = initial();
+    data.as_object_mut().unwrap().remove("focusDurationMs");
+    data["status"] = json!("running");
+    data["mode"] = json!("rest");
+    data["durationMs"] = json!(300000);
+    data["remainingMs"] = json!(300000);
+    data["deadline"] = json!(301000);
+    let queued = run(&data, "queue-add", json!({"title":"다음 집중"}), 1000);
+    assert_eq!(queued.data["queue"][0]["focusDurationMs"], 1500000);
+    let continued = run(&data, "continue", json!({}), 1000);
+    assert_eq!(continued.data["durationMs"], 1500000);
+    let explicit = run(&data, "queue-add", json!({"title":"짧은 집중","focusDurationMs":60000}), 1000);
+    assert_eq!(explicit.data["queue"][0]["focusDurationMs"], 60000);
+}
+
+#[test]
 fn queued_focus_links_only_todos_that_are_still_incomplete() {
     for completed_at in [Value::Null, json!(1500), json!("missing")] {
         for automatic in [false, true] {
