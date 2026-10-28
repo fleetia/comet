@@ -204,7 +204,7 @@ fn receive(
     runtime: &Runtime,
     notice: Notice,
 ) -> Result<(), String> {
-    let (os, text, id, now) = widgets::commands::change(state, |db| {
+    let (os, text) = widgets::commands::change(state, |db| {
         let instance = widgets::storage::instances(db)?
             .into_iter()
             .find(|item| item.kind == "external-notice" && item.installed && item.enabled)
@@ -240,14 +240,7 @@ fn receive(
             text: text.clone(),
             payload: json!({"title": notice.title, "text": notice.text, "result": notice.result, "urgent": notice.urgent, "source": "url", "receivedAt": now}),
         };
-        widgets::storage::commit_data(
-            db,
-            &instance.id,
-            instance.revision,
-            instance.data.clone(),
-            vec![draft],
-            now,
-        )?;
+        widgets::storage::record_external_notice(db, &instance, draft, now)?;
         recent.push_back(at);
         let status = app::lock(&state.runtime)?;
         if status.hidden
@@ -264,24 +257,10 @@ fn receive(
         Ok((
             notice.os || notice.urgent || instance.data["osNotifications"] == true,
             text,
-            instance.id,
-            now,
         ))
     })?;
     if os {
-        widgets::planning::notifications::deliver(
-            app,
-            widgets::reminders::Delivery {
-                instance_id: id,
-                text,
-                sound_enabled: true,
-                widget: false,
-                notification_key: uuid::Uuid::new_v4().to_string(),
-                fallback: None,
-            },
-            now,
-            state.epoch.load(Ordering::SeqCst),
-        );
+        widgets::planning::notifications::show_external(app, &text);
     }
     widgets::commands::publish_widgets(app, state);
     Ok(())

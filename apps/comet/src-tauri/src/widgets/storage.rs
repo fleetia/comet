@@ -910,7 +910,7 @@ fn apply_effect(
         synchronize_jar(db)?;
     }
     db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND (json_extract(data,'$.expiresAt')<=?1 OR NOT EXISTS(SELECT 1 FROM widget_instances i WHERE i.id=widget_events.instance_id AND i.installed=1 AND i.enabled=1 AND i.revision=json_extract(widget_events.data,'$.revision')))",[now]).map_err(err)?;
-    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND seq NOT IN (SELECT seq FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8)",[]).map_err(err)?;
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.kind')!='external-notice' AND seq NOT IN (SELECT seq FROM widget_events WHERE pending=1 AND json_extract(data,'$.kind')!='external-notice' ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8)",[]).map_err(err)?;
     Ok(())
 }
 
@@ -932,6 +932,37 @@ pub fn commit_data(
         return Err("이미 변경되거나 중지된 위젯의 결과는 적용하지 않았어요.".into());
     }
     apply_effect(&tx, instance, WidgetEffect { data, events }, now)?;
+    tx.commit().map_err(err)
+}
+
+pub(crate) fn record_external_notice(
+    db: &Connection,
+    instance: &WidgetInstance,
+    draft: EventDraft,
+    now: i64,
+) -> Result<()> {
+    let tx = db.unchecked_transaction().map_err(err)?;
+    let current = get(&tx, &instance.id)?;
+    if current.kind != "external-notice" || !current.installed || !current.enabled
+        || current.revision != instance.revision || current.data["enabled"] == false
+    {
+        return Err("바깥 알림 설정이 바뀌었어요.".into());
+    }
+    tx.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.kind')='external-notice' AND json_extract(data,'$.expiresAt')<=?1", [now]).map_err(err)?;
+    let event = WidgetEvent {
+        id: uuid::Uuid::new_v4().to_string(),
+        instance_id: current.id,
+        widget_kind: current.kind,
+        revision: current.revision,
+        created_at: now,
+        expires_at: now.saturating_add(3_600_000),
+        event: draft,
+    };
+    tx.execute(
+        "INSERT INTO widget_events(id,instance_id,data,pending) VALUES(?1,?2,?3,1)",
+        params![event.id, event.instance_id, serde_json::to_string(&event).map_err(err)?],
+    ).map_err(err)?;
+    tx.execute("INSERT INTO widget_journal VALUES(?1)", [&event.id]).map_err(err)?;
     tx.commit().map_err(err)
 }
 
@@ -1163,7 +1194,7 @@ pub fn take_reaction(db: &Connection, now: i64) -> Result<Option<WidgetEvent>> {
         "UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.payload.bubbleEnabled')=0",
         [],
     ).map_err(err)?;
-    let mut statement = db.prepare("SELECT data FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8").map_err(err)?;
+    let mut statement = db.prepare("SELECT data FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END, CASE WHEN json_extract(data,'$.kind')='external-notice' THEN seq ELSE -seq END LIMIT 8").map_err(err)?;
     let events = statement
         .query_map([], |row| row.get::<_, String>(0))
         .map_err(err)?
@@ -1187,7 +1218,7 @@ pub fn take_reaction(db: &Connection, now: i64) -> Result<Option<WidgetEvent>> {
                 })
             })
     });
-    discard_pending(db)?;
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND (json_extract(data,'$.kind')!='external-notice' OR id=?1 OR json_extract(data,'$.expiresAt')<=?2 OR NOT EXISTS(SELECT 1 FROM widget_instances i WHERE i.id=widget_events.instance_id AND i.installed=1 AND i.enabled=1 AND i.revision=json_extract(widget_events.data,'$.revision')))", params![result.as_ref().map(|event| event.id.as_str()), now]).map_err(err)?;
     Ok(result.map(without_toy_statistics))
 }
 

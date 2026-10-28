@@ -2,6 +2,13 @@ use super::*;
 use crate::widgets::{storage, EventDraft, WidgetEvent};
 use serde_json::json;
 
+#[test]
+fn external_notifications_do_not_route_to_planner_actions() {
+    assert!(is_external_notification("planner:external-123:0"));
+    assert!(!is_external_notification("planner:calendar-id:123"));
+    assert!(!is_external_notification("widget:timer-id:123:key"));
+}
+
 fn silent_finish(state: &crate::AppState) -> WidgetEvent {
     let db = crate::lock(&state.db).unwrap();
     let directory = tempfile::tempdir().unwrap();

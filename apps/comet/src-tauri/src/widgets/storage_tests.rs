@@ -10,6 +10,51 @@ fn database() -> Connection {
 }
 
 #[test]
+fn external_notice_burst_keeps_each_pending_event_without_changing_revision() {
+    let db = database();
+    storage::seed_external_notice(&db).unwrap();
+    let instance = instance(&db, "external-notice");
+    for n in 0..6 {
+        storage::record_external_notice(&db, &instance, super::EventDraft {
+            kind: "external-notice".into(), text: n.to_string(), payload: json!({}),
+        }, n).unwrap();
+    }
+    assert_eq!(storage::get(&db, &instance.id).unwrap().revision, instance.revision);
+    for n in 0..6 {
+        assert_eq!(storage::take_reaction(&db, 10).unwrap().unwrap().event.text, n.to_string());
+    }
+    assert!(storage::take_reaction(&db, 10).unwrap().is_none());
+    let count: i64 = db.query_row("SELECT count(*) FROM widget_journal", [], |row| row.get(0)).unwrap();
+    assert_eq!(count, 6);
+}
+
+#[test]
+fn queued_external_notices_are_discarded_on_cancellation() {
+    let db = database();
+    storage::seed_external_notice(&db).unwrap();
+    let instance = instance(&db, "external-notice");
+    storage::record_external_notice(&db, &instance, super::EventDraft {
+        kind: "external-notice".into(), text: "notice".into(), payload: json!({}),
+    }, 0).unwrap();
+    storage::discard_pending(&db).unwrap();
+    assert!(storage::take_reaction(&db, 1).unwrap().is_none());
+}
+
+#[test]
+fn changing_external_notice_settings_invalidates_queued_notices() {
+    let db = database();
+    storage::seed_external_notice(&db).unwrap();
+    let instance = instance(&db, "external-notice");
+    storage::record_external_notice(&db, &instance, super::EventDraft {
+        kind: "external-notice".into(), text: "notice".into(), payload: json!({}),
+    }, 0).unwrap();
+    let mut data = instance.data.clone();
+    data["enabled"] = json!(false);
+    storage::commit_data(&db, &instance.id, instance.revision, data, vec![], 1).unwrap();
+    assert!(storage::take_reaction(&db, 2).unwrap().is_none());
+}
+
+#[test]
 fn storage_initialization_does_not_install_widgets() {
     let db = database();
     assert!(storage::instances(&db).unwrap().is_empty());
