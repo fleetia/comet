@@ -1627,12 +1627,17 @@ fn use_small_model_prompt(
     {
         let definition = characters::guests::actor(state, db, &targets[0])?.definition;
         let user = store::current_user(db)?.map(|user| user.name);
+        let has_moments = system.content.contains(domain::SHARED_MOMENT_RULES);
         system.content = domain::small_model_system(&targets[0], &definition, user.as_deref());
+        if has_moments {
+            system.content.push_str(domain::SHARED_MOMENT_RULES);
+        }
     }
     // The character data follows the system message; the user's input comes after it.
     if let Some(context) = prompt.get_mut(1).filter(|message| message.role == "user") {
         domain::drop_expression_list(context);
     }
+    domain::drop_moments_if_over_budget(prompt, 4800);
     Ok(true)
 }
 
@@ -2155,6 +2160,32 @@ mod pack_controller_tests;
 #[cfg(test)]
 mod session_tests {
     use super::*;
+
+    #[test]
+    fn small_model_keeps_or_drops_moments_with_the_replaced_system_budget() {
+        let state = super::super::tests::state();
+        let db = lock(&state.db).unwrap();
+        store::save_settings(&db, &Settings { mode: "apple".into(), ..Settings::default() }).unwrap();
+        let target = characters::active_ids(&db).unwrap().remove(0);
+        let mut actor = characters::get(&db, &target).unwrap();
+        actor.definition.personality = "가".repeat(300);
+        actor.definition.instructions = "나".repeat(300);
+        characters::save(&db, &target, &actor.definition).unwrap();
+        for (padding, retained) in [(0, true), (3000, false)] {
+            let mut prompt = vec![
+                ChatMessage { role: "system".into(), content: format!("이전 안내{}", domain::SHARED_MOMENT_RULES) },
+                ChatMessage { role: "user".into(), content: serde_json::json!({
+                    "characterSettings": [], "sharedMoments": [{"summary":"편집한 추억"}], "padding": "x".repeat(padding)
+                }).to_string() },
+                ChatMessage { role: "user".into(), content: "최근 입력".into() },
+            ];
+            assert!(use_small_model_prompt(&state, &db, std::slice::from_ref(&target), false, &mut prompt).unwrap());
+            let context: serde_json::Value = serde_json::from_str(&prompt[1].content).unwrap();
+            assert_eq!(context.get("sharedMoments").is_some(), retained);
+            assert_eq!(prompt[0].content.contains(domain::SHARED_MOMENT_RULES), retained);
+            assert_eq!(prompt[2].content, "최근 입력");
+        }
+    }
 
     #[tokio::test]
     async fn truncated_latest_input_stops_before_inference_for_every_mode() {
