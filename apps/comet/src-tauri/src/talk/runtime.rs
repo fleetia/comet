@@ -149,6 +149,7 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
             "talk_migration_birthday",
             ".talk birthday dialogue: {error}"
         );
+
     }
     migrate_encryption(&root);
     Ok(root)
@@ -295,6 +296,7 @@ fn add_touch_milestone_dialogue(root: &Path) -> Result<(), String> {
             let index = super::encryption::decode(bundled("index.talk")?.as_bytes())?
                 .replace("import \"./situations/birthday.talk\"\n", "");
             super::files::atomic_write(&entry, &super::encryption::encode(&index)?)?;
+
         }
     }
     super::files::atomic_write(&marker, b"1\n")
@@ -1466,6 +1468,7 @@ mod byulkkori_replacement_tests {
                 let _ = fs::remove_file(pack.join(name));
             }
             fs::remove_file(directory.path().join(".talk-byulkkori-revived-widgets-v1")).unwrap();
+            fs::remove_file(directory.path().join(".talk-byulkkori-touch-milestone-v1")).unwrap();
             initialize_files(directory.path()).unwrap();
         };
 

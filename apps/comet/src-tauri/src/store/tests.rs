@@ -1349,11 +1349,14 @@ fn birthday_date_change_clears_only_the_current_year_celebration_marker() {
     for key in [&current_key, &previous_key] {
         db.execute("INSERT INTO kv(key,value) VALUES(?1,'1')", [key]).unwrap();
     }
+    let has_marker = |key: &str| db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM kv WHERE key=?1)", [key], |row| row.get::<_, bool>(0),
+    ).unwrap();
     let corrected_year = crate::types::UserBirthday { year: Some(2001), ..birthday.clone() };
     set_user_birthday(&db, Some(&corrected_year)).unwrap();
-    assert_eq!(get(&db, &current_key).unwrap().as_deref(), Some("1"));
+    assert!(has_marker(&current_key));
     let changed_date = crate::types::UserBirthday { day: 5, ..corrected_year };
     set_user_birthday(&db, Some(&changed_date)).unwrap();
-    assert_eq!(get(&db, &current_key).unwrap(), None);
-    assert_eq!(get(&db, &previous_key).unwrap().as_deref(), Some("1"));
+    assert!(!has_marker(&current_key));
+    assert!(has_marker(&previous_key));
 }
