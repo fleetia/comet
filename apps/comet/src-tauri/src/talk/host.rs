@@ -500,7 +500,7 @@ mod tests {
         {
             let db = lock(&state.db).unwrap();
             assert!(!birthday_current(&state, &db).unwrap());
-            assert_eq!(crate::store::get(&db, "test-birthday").unwrap(), None);
+            assert!(!db.query_row("SELECT EXISTS(SELECT 1 FROM kv WHERE key='test-birthday')", [], |row| row.get::<_, bool>(0)).unwrap());
         }
         crate::characters::life::set_sleep(&state, &id, false).unwrap();
         assert!(birthday_current(&state, &lock(&state.db).unwrap()).unwrap());
@@ -509,7 +509,7 @@ mod tests {
         let lines = lock(&state.talk_playback).unwrap().as_ref().unwrap().selection.lines.clone();
         assert!(presence::lines_visible(&state, &db, &lines).unwrap());
         assert!(!birthday_current(&state, &db).unwrap());
-        assert_eq!(crate::store::get(&db, "test-birthday").unwrap(), None);
+        assert!(!db.query_row("SELECT EXISTS(SELECT 1 FROM kv WHERE key='test-birthday')", [], |row| row.get::<_, bool>(0)).unwrap());
     }
 
     #[test]
