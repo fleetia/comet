@@ -139,6 +139,8 @@ beforeEach(() => {
     switch (name) {
       case "get_character_touches":
         return { stroke: 0, poke: 0, snack: 0 };
+      case "get_shared_moment_stats":
+        return { daysTogether: 1, momentCount: 0 };
       case "get_character_dialogue":
         return { pairScenes: [], wordbook: [] };
       case "get_character_packs":
@@ -299,6 +301,7 @@ it.each([
           ([name]) =>
             ![
               "get_character_touches",
+              "get_shared_moment_stats",
               "get_character_mood",
               "get_character_dialogue",
               "get_character_packs",

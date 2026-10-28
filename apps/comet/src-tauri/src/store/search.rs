@@ -1,6 +1,7 @@
 use super::memory::{eligible_memory, memory_row, recall_weight, MEMORY_FIELDS};
 use super::{err, get, put, Result};
 use crate::types::Memory;
+use chrono::{Datelike, Local, TimeZone};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -536,6 +537,80 @@ pub fn current_user_facts_for(
     Ok(facts)
 }
 
+/// Select confirmed moments independently of the user's search terms.
+pub(super) fn shared_moments_for(
+    conn: &Connection,
+    character_ids: &[String],
+    at: i64,
+) -> Result<Vec<Memory>> {
+    let user = super::active_user_id(conn)?;
+    let at = super::effective_memory_time(conn, at)?;
+    let scope = serde_json::to_string(character_ids).map_err(err)?;
+    let today = Local
+        .timestamp_millis_opt(at)
+        .single()
+        .ok_or("잘못된 기억 시간")?
+        .date_naive();
+    let mut statement = conn
+        .prepare(&format!(
+            "SELECT {MEMORY_FIELDS} FROM memories m
+        WHERE m.user_id=?1 AND m.kind='experience' AND m.source LIKE 'moment:%'
+        AND m.deleted=0 AND m.expired=0 AND m.character_id IN (SELECT value FROM json_each(?2))
+        ORDER BY m.source_created_at DESC,m.id"
+        ))
+        .map_err(err)?;
+    let rows = statement
+        .query_map(params![user, scope], memory_row)
+        .map_err(err)?;
+    let mut recent = Vec::new();
+    let mut anniversary = None;
+    for row in rows {
+        let memory = row.map_err(err)?;
+        if !eligible_memory(conn, &memory, at)? {
+            continue;
+        }
+        let Some(date) = memory
+            .source_message_id
+            .split(':')
+            .nth(2)
+            .and_then(|date| chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").ok())
+        else {
+            continue;
+        };
+        if serde_json::from_str::<serde_json::Value>(&memory.source_text)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("summary")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            })
+            .is_none()
+        {
+            continue;
+        }
+        if anniversary.is_none()
+            && date < today
+            && date.month() == today.month()
+            && date.day() == today.day()
+        {
+            anniversary = Some(memory.clone());
+        }
+        if recent.len() < 3 {
+            recent.push(memory);
+        }
+        if recent.len() == 3 && anniversary.is_some() {
+            break;
+        }
+    }
+    if let Some(memory) = anniversary {
+        if recent.iter().all(|item| item.id != memory.id) {
+            recent.insert(0, memory);
+        }
+    }
+    Ok(recent)
+}
+
 /// Recent user facts join before query hits because lexical coverage misses
 /// paraphrased questions such as a drink recommendation; the total stays eight.
 pub fn recall_for_turn(
@@ -544,12 +619,15 @@ pub fn recall_for_turn(
     character_ids: &[String],
     at: i64,
 ) -> Result<Vec<Memory>> {
-    let mut memories = current_user_facts_for(conn, character_ids, at)?;
+    let mut memories = shared_moments_for(conn, character_ids, at)?;
+    memories.extend(current_user_facts_for(conn, character_ids, at)?);
     for hit in revalidate_search_hits(conn, hits)? {
         if memories.len() >= 8 {
             break;
         }
-        if memories.iter().all(|memory| memory.id != hit.id) {
+        if !hit.source_message_id.starts_with("moment:")
+            && memories.iter().all(|memory| memory.id != hit.id)
+        {
             memories.push(hit);
         }
     }

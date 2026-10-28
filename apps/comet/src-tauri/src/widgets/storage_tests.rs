@@ -118,6 +118,58 @@ fn changing_external_notice_settings_invalidates_queued_notices() {
 }
 
 #[test]
+fn external_notice_does_not_create_shared_moments_or_consume_the_notice() {
+    let db = crate::store::open(Path::new(":memory:")).unwrap();
+    crate::store::set_user_name(&db, "친구", 1).unwrap();
+    let character = crate::characters::active_ids(&db).unwrap().remove(0);
+    let notice = instance(&db, "external-notice");
+    let count_moments = || db.query_row(
+        "SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:%'", [], |row| row.get::<_, i64>(0),
+    ).unwrap();
+    let before = count_moments();
+    storage::record_external_notice(&db, &notice, super::EventDraft {
+        kind: "external-notice".into(), text: "private external message".into(), payload: json!({}),
+    }, 1).unwrap();
+    assert!(!storage::record_widget_moments(&db, &notice, &notice, &[character], 1).unwrap());
+    assert_eq!(count_moments(), before);
+    let pending: i64 = db.query_row(
+        "SELECT COUNT(*) FROM widget_events WHERE pending=1 AND json_extract(data,'$.kind')='external-notice'",
+        [], |row| row.get(0),
+    ).unwrap();
+    assert_eq!(pending, 1);
+}
+
+#[test]
+fn focus_moment_waits_for_a_present_character_without_consuming_the_daily_marker() {
+    use chrono::{Local, TimeZone};
+
+    let db = crate::store::open(Path::new(":memory:")).unwrap();
+    crate::store::set_user_name(&db, "친구", 1).unwrap();
+    let character = crate::characters::active_ids(&db).unwrap().remove(0);
+    let before = instance(&db, "focus-timer");
+    let start = Local
+        .from_local_datetime(&Local::now().date_naive().and_hms_opt(12, 0, 0).unwrap())
+        .single()
+        .unwrap()
+        .timestamp_millis();
+    let now = start + 3_600_000;
+    let mut after = before.clone();
+    after.data["sessions"] = json!([{ "segments": [{ "startAt": start, "endAt": now }] }]);
+
+    assert!(!storage::record_widget_moments(&db, &before, &after, &[], now).unwrap());
+    assert!(storage::record_widget_moments(&db, &before, &after, &[character], now).unwrap());
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:focus-day:%'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap(),
+        1
+    );
+}
+
+#[test]
 fn package_migration_repairs_existing_invalid_manifests_without_resetting_data() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();

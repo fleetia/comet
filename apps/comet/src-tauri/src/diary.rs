@@ -493,16 +493,48 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 fn update(
     db: &Connection,
     expected_revision: u64,
     action: &str,
     input: &Value,
 ) -> Result<DiaryState> {
+    update_with_presence(db, expected_revision, action, input, &[])
+}
+
+fn update_with_presence(
+    db: &Connection,
+    expected_revision: u64,
+    action: &str,
+    input: &Value,
+    present: &[String],
+) -> Result<DiaryState> {
     let tx = db.unchecked_transaction().map_err(err)?;
+    let before = if action == "habit-check" {
+        Some(read(&tx)?)
+    } else {
+        None
+    };
     let state = update_in_transaction(&tx, expected_revision, action, input)?;
+    if let Some(before) = before {
+        record_habit_moment(
+            &tx, &before, &state, input, present, chrono::Utc::now().timestamp_millis(),
+        )?;
+    }
     tx.commit().map_err(err)?;
     Ok(state)
+}
+
+pub(crate) fn record_habit_moment(
+    db: &Connection,
+    before: &DiaryState,
+    after: &DiaryState,
+    input: &Value,
+    present: &[String],
+    at: i64,
+) -> Result<()> {
+    habits::record_moment(db, before, after, input, present, at)
 }
 
 pub(crate) fn update_in_transaction(
@@ -576,7 +608,13 @@ pub(crate) fn update_diary(
         if crate::unavailable(&state) {
             return Err("앱을 종료하고 있어요.".into());
         }
-        update(&*lock(&state.db)?, expected_revision, &action, &input)?
+        let db = lock(&state.db)?;
+        let present = if action == "habit-check" {
+            crate::app::presence::present_ids(&state, &crate::characters::active_ids(&db)?)?
+        } else {
+            Vec::new()
+        };
+        update_with_presence(&db, expected_revision, &action, &input, &present)?
     };
     let _ = app.emit("diary-updated", &saved);
     if action.starts_with("travel-") {

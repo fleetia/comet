@@ -151,7 +151,10 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
         crate::report_error!("talk_migration_recall", ".talk recall dialogue: {error}");
     }
     if let Err(error) = add_birthday_dialogue(&root) {
-        crate::report_error!("talk_migration_birthday", ".talk birthday dialogue: {error}");
+        crate::report_error!(
+            "talk_migration_birthday",
+            ".talk birthday dialogue: {error}"
+        );
     }
     if let Err(error) = add_activity_dialogue(&root) {
         crate::report_error!("talk_migration_activity", ".talk activity dialogue: {error}");

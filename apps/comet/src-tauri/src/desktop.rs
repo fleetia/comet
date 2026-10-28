@@ -1517,8 +1517,12 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         .cloned()
         .collect::<Vec<_>>();
     drop((runtime, presence, guests));
-    let birthday_expired = playback.as_ref().is_some_and(|line| line.source == "talk" && line.display_started_at.is_none())
-        && !crate::talk::host::birthday_current(&state, &db)?;
+    let birthday_expired = playback
+        .as_ref()
+        .is_some_and(|line| line.source == "talk" && line.display_started_at.is_none())
+        && (!crate::talk::host::birthday_current(&state, &db)?
+            || !crate::talk::host::anniversary_current(&state, &db)?
+            || !crate::talk::host::moment_recall_current(&state, &db)?);
     let stale_activity = playback.as_ref().is_some_and(|line| line.source == "talk")
         && crate::talk::host::activity_in_playback(&state)?
         && !crate::talk::host::current(&state, &db)?;
@@ -1625,7 +1629,9 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
     if playback
         .as_ref()
         .is_some_and(|line| line.source == "talk" && line.display_started_at.is_none())
-        && !crate::talk::host::birthday_current(&state, &db)?
+        && (!crate::talk::host::birthday_current(&state, &db)?
+            || !crate::talk::host::anniversary_current(&state, &db)?
+            || !crate::talk::host::moment_recall_current(&state, &db)?)
     {
         window.hide().map_err(|error| error.to_string())?;
         return Ok(Some(BalloonPlacement::default()));
@@ -1660,9 +1666,19 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
                 displayed_message = line
                     .display_started_at
                     .map(|at| (line.id.clone(), at, line.source.clone()));
+                if line.source == "talk" {
+                    crate::talk::host::mark_moment_recall_displayed(
+                        &state, &db, line.line_index, line.display_started_at.unwrap_or_default(),
+                    )?;
+                }
                 if line.source == "talk" && line.line_index == 0 {
                     crate::talk::host::mark_birthday_displayed(
                         &state, &db, line.display_started_at.unwrap_or_default(),
+                    )?;
+                    crate::talk::host::mark_anniversary_displayed(
+                        &state,
+                        &db,
+                        line.display_started_at.unwrap_or_default(),
                     )?;
                 }
             }

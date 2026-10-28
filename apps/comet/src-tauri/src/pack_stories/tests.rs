@@ -270,13 +270,24 @@ fn model_free_story_completion_requires_valid_final_duration_and_commits_once() 
     );
     assert_eq!(
         db.query_row(
-            "SELECT COUNT(*) FROM memories WHERE source LIKE 'pack-story:%'",
+            "SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:story-complete:%'",
             [],
             |r| r.get::<_, i64>(0)
         )
         .unwrap(),
         1
     );
+    let (source, source_text): (String, String) = db
+        .query_row(
+            "SELECT source,source_text FROM memories WHERE source LIKE 'moment:story-complete:%'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    let scenario_id = ticket.scenario_id.as_deref().unwrap();
+    assert!(source.ends_with(&format!(":{scenario_id}")));
+    let source_text: serde_json::Value = serde_json::from_str(&source_text).unwrap();
+    assert_eq!(source_text["refs"]["scenarioId"], scenario_id);
     assert_eq!(
         db.query_row("SELECT COUNT(*) FROM story_answers", [], |r| r
             .get::<_, i64>(0))
@@ -340,7 +351,7 @@ fn cancelled_ending_has_zero_effects_and_retries_do_not_recreate_a_run() {
     }
     assert_eq!(
         db.query_row(
-            "SELECT COUNT(*) FROM memories WHERE source LIKE 'pack-story:%'",
+            "SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:story-complete:%'",
             [],
             |r| r.get::<_, i64>(0)
         )
@@ -881,7 +892,7 @@ fn cancellation_after_a_shown_ending_grants_no_completion_or_memory() {
     );
     assert_eq!(
         db.query_row(
-            "SELECT COUNT(*) FROM memories WHERE source LIKE 'pack-story:%'",
+            "SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:story-complete:%'",
             [],
             |r| r.get::<_, i64>(0)
         )

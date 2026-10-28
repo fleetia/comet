@@ -367,6 +367,11 @@ pub(crate) async fn run_background(
                         break;
                     }
                 }
+                if selected.is_none() {
+                    if let Some(anniversary) = due_relationship_anniversary(&db)? {
+                        selected = crate::talk::host::prepare_anniversary(state, &db, anniversary)?;
+                    }
+                }
                 if selected.is_none()
                     && settings.diary_recall_enabled
                     && claim_recall_opportunity(&db)?
@@ -646,6 +651,26 @@ pub(crate) async fn run_background(
         },
     )?;
     Ok(())
+}
+
+fn due_relationship_anniversary(db: &Connection) -> Result<Option<crate::talk::host::AnniversaryTrigger>, String> {
+    let Some(user) = store::current_user(db)? else {
+        return Ok(None);
+    };
+    let Some(start) = chrono::DateTime::from_timestamp_millis(user.started_at) else {
+        return Ok(None);
+    };
+    let start = start.with_timezone(&chrono::Local).date_naive();
+    let today = chrono::Local::now().date_naive();
+    if today.year() <= start.year() || !crate::talk::context::birthday_today(today, start.month(), start.day()) {
+        return Ok(None);
+    }
+    let key = format!("relationship:anniversary:{}:{}", user.id, today.year());
+    let displayed: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM kv WHERE key=?1)", [&key], |row| row.get(0)).map_err(|error| error.to_string())?;
+    if displayed {
+        return Ok(None);
+    }
+    Ok(Some(crate::talk::host::AnniversaryTrigger { user_id: user.id, date: today, key }))
 }
 
 fn due_birthdays(

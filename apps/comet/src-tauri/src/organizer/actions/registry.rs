@@ -855,6 +855,7 @@ fn ensure_removed_unreferenced(db: &Connection, changes: &[Change]) -> Result<()
     Ok(())
 }
 
+#[cfg(test)]
 pub(crate) fn execute_registry(
     db: &Connection,
     user: &str,
@@ -862,6 +863,18 @@ pub(crate) fn execute_registry(
     step: usize,
     query: &str,
     action: &Action,
+) -> Result<Receipt> {
+    execute_registry_with_presence(db, user, input_id, step, query, action, &[])
+}
+
+pub(crate) fn execute_registry_with_presence(
+    db: &Connection,
+    user: &str,
+    input_id: &str,
+    step: usize,
+    query: &str,
+    action: &Action,
+    present: &[String],
 ) -> Result<Receipt> {
     let definition = catalog::definition(&action.kind)?;
     if definition.action == "desktop-open" {
@@ -903,14 +916,25 @@ pub(crate) fn execute_registry(
     let payload = payload(&tx, definition, action, &before, query)?;
     let timestamp = chrono::Utc::now().timestamp_millis();
     let after = if definition.owner == "diary" {
-        serde_json::to_value(diary::update_in_transaction(
+        let before_state = if definition.action == "habit-check" {
+            Some(diary::read(&tx)?)
+        } else {
+            None
+        };
+        let after_state = diary::update_in_transaction(
             &tx,
             u64::try_from(revision).map_err(err)?,
             definition.action,
             &payload,
-        )?)
-        .map_err(err)?
+        )?;
+        if let Some(before_state) = before_state {
+            diary::record_habit_moment(
+                &tx, &before_state, &after_state, &payload, present, timestamp,
+            )?;
+        }
+        serde_json::to_value(after_state).map_err(err)?
     } else {
+        let before_instance = storage::get(&tx, &owner_id)?;
         storage::execute_in_transaction(
             &tx,
             &WidgetRequest {
@@ -923,7 +947,11 @@ pub(crate) fn execute_registry(
             timestamp,
             uuid::Uuid::new_v4().as_u128() as u64,
         )?;
-        storage::get(&tx, &owner_id)?.data
+        let after_instance = storage::get(&tx, &owner_id)?;
+        storage::record_widget_moments(
+            &tx, &before_instance, &after_instance, present, timestamp,
+        )?;
+        after_instance.data
     };
     let effects = changes(&owner_id, &before, &after);
     ensure_removed_unreferenced(&tx, &effects)?;
