@@ -45,6 +45,7 @@ export type DiaryPageProps = {
   onToggleTask: (item: DataRecord) => void;
   onEditTask: (item: DataRecord) => void;
   onFocusTask?: (item: DataRecord) => void;
+  onQueueTask?: (item: DataRecord) => void;
   onMoveTask: (item: DataRecord, toDate: string) => Promise<boolean>;
   onOpenEnvelope: (id: string) => void;
   onCreatePage: () => Promise<string | null>;
@@ -227,6 +228,7 @@ export function DiaryPage({
   onToggleTask,
   onEditTask,
   onFocusTask,
+  onQueueTask,
   onMoveTask,
   onOpenEnvelope,
   onCreatePage,
@@ -577,6 +579,7 @@ export function DiaryPage({
               onToggle={onToggleTask}
               onEdit={onEditTask}
               onFocus={onFocusTask}
+              onQueue={onQueueTask}
               onMove={onMoveTask}
               onRemove={() => void removeEntry(entry)}
             />
@@ -796,6 +799,7 @@ export function DiaryPage({
                   onToggle={onToggleTask}
                   onEdit={onEditTask}
                   onFocus={onFocusTask}
+                  onQueue={onQueueTask}
                   onMove={onMoveTask}
                 />
               </div>
@@ -986,6 +990,7 @@ function TaskLine({
   onToggle,
   onEdit,
   onFocus,
+  onQueue,
   onMove,
   onRemove,
 }: {
@@ -995,6 +1000,7 @@ function TaskLine({
   onToggle: (item: DataRecord) => void;
   onEdit: (item: DataRecord) => void;
   onFocus?: (item: DataRecord) => void;
+  onQueue?: (item: DataRecord) => void;
   onMove: (item: DataRecord, toDate: string) => Promise<boolean>;
   onRemove?: () => void;
 }): ReactElement {
@@ -1082,6 +1088,16 @@ function TaskLine({
               onClick={() => onFocus(item)}
             >
               25분 집중 시작
+            </Button>
+          )}
+          {onQueue && !done && (
+            <Button
+              variant="ghost"
+              size="small"
+              disabled={busy || saving}
+              onClick={() => onQueue(item)}
+            >
+              다음 집중에 추가
             </Button>
           )}
         </>

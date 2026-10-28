@@ -37,6 +37,7 @@ export function FocusTimerStats({
   act,
   onNotes,
   onClose,
+  hideTabs = false,
   onOpenTimeline,
 }: {
   sessions: FocusSession[];
@@ -48,6 +49,7 @@ export function FocusTimerStats({
   act: ToolAction;
   onNotes?: () => void;
   onClose?: () => void;
+  hideTabs?: boolean;
   onOpenTimeline?: () => void;
 }): ReactElement {
   const [period, setPeriod] = useState<FocusPeriod>("week");
@@ -102,6 +104,7 @@ export function FocusTimerStats({
     );
   return (
     <FocusPanel
+      hideTabs={hideTabs}
       label="집중 통계"
       tab="records"
       onClose={onClose}
