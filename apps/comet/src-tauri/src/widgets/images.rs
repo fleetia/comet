@@ -539,3 +539,33 @@ pub(crate) fn resize_widget_image(
     publish_widgets(&app, &state);
     Ok(snapshot)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reaction_setting_does_not_remove_or_block_existing_images() {
+        let state = crate::app::tests::state();
+        let id = {
+            let db = lock(&state.db).unwrap();
+            let mut instance = storage::instances(&db).unwrap().into_iter()
+                .find(|instance| instance.kind == "image").unwrap();
+            instance.data["images"] = json!([{ "id": "image-one", "isOpen": true }]);
+            storage::put(&db, &instance).unwrap();
+            super::super::backgrounds::put_media(&db, "image:image-one", "image/png", b"original").unwrap();
+            storage::set_reaction(&db, &instance.id, false).unwrap();
+            instance.id
+        };
+        mutate(&state, &id, true, |instance| {
+            active(instance)?;
+            image_mut(instance, "image-one")?["isOpen"] = json!(false);
+            Ok(())
+        }).unwrap();
+        let db = lock(&state.db).unwrap();
+        let instance = storage::get(&db, &id).unwrap();
+        assert_eq!(instance.data["images"][0]["isOpen"], false);
+        assert_eq!(super::super::backgrounds::get(&db, "image:image-one").unwrap().unwrap().data, b"original");
+        assert!(!storage::reaction_enabled(&db, &id).unwrap());
+    }
+}
