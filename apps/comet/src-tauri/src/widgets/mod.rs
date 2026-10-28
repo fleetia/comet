@@ -9,6 +9,7 @@ pub(crate) mod generated;
 pub(crate) mod memo_notes;
 pub(crate) mod music_bridge;
 pub(crate) mod music_native;
+pub(crate) mod mood;
 pub(crate) mod planning;
 pub(crate) mod reminders;
 pub(crate) mod runtime;

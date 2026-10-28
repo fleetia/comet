@@ -24,6 +24,28 @@ pub(crate) struct PreparedTalk {
     recall_day: Option<chrono::NaiveDate>,
 }
 
+fn add_moods(
+    state: &AppState,
+    db: &Connection,
+    context: &mut talk::EvalContext,
+) -> Result<(), String> {
+    for (slot, character) in crate::characters::SLOTS
+        .into_iter()
+        .zip(crate::characters::active_members(db)?)
+    {
+        let mood = crate::characters::life::mood(state, &character.id)?;
+        context
+            .values
+            .insert(format!("character.{slot}.mood"), serde_json::json!(mood));
+        if character.definition.source_id == "nadir" {
+            context
+                .values
+                .insert("character.nadir.mood".into(), serde_json::json!(mood));
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn prepare(
     state: &AppState,
     db: &Connection,
@@ -101,6 +123,7 @@ fn prepare_with_triggers(
         now.timestamp_millis(),
         uuid::Uuid::new_v4().as_u128() as u64,
     )?;
+    add_moods(state, db, &mut context)?;
     let activity_id = activity_context(state, &mut context)?;
     if let Some(kind) = activity_event {
         context.trigger = kind.into();
@@ -184,7 +207,7 @@ fn prepare_with_triggers(
     {
         dependencies.insert("weather".into());
     }
-    if let Some(event) = event {
+    if let Some(event) = event.filter(|event| event.event.kind != "mood.changed") {
         dependencies.insert(event.widget_kind.clone());
     }
     for kind in dependencies.clone() {
@@ -309,6 +332,22 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
     if prepared
         .event
         .as_ref()
+        .is_some_and(|event| event.event.kind == "mood.changed")
+    {
+        let status = lock(&state.runtime)?.clone();
+        let settings = crate::store::settings(db)?;
+        if status.hidden
+            || status.paused
+            || !settings.autonomous_enabled
+            || crate::widgets::storage::focus_active(db, now)?
+            || crate::app::quiet_hours::automatic_blocked(state, &settings)?
+        {
+            return Ok(false);
+        }
+    }
+    if prepared
+        .event
+        .as_ref()
         .is_some_and(|event| event.expires_at <= now)
     {
         return Ok(false);
@@ -324,6 +363,7 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
         return Ok(false);
     }
     let mut context = talk::context::build(db, prepared.event.as_ref(), now, prepared.seed)?;
+    add_moods(state, db, &mut context)?;
     let activity_id = activity_context(state, &mut context)?;
     if let Some(kind) = &prepared.activity_event {
         context.trigger = kind.clone();

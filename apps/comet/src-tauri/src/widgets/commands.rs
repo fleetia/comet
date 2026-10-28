@@ -153,22 +153,42 @@ pub(crate) fn set_widget_reaction(
 }
 
 pub(crate) fn cancel_widget_scene(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
+    cancel_widget_scene_for_interaction(app, state, None)
+}
+
+fn cancel_widget_scene_for_interaction(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    request_id: Option<&str>,
+) -> Result<(), String> {
     {
         let _action = lock(&state.action)?;
         let db = lock(&state.db)?;
-        cancel_stale_widget_scene(state, &db)?;
+        cancel_stale_widget_scene_inner(state, &db, request_id)?;
     }
     publish(app, state);
     Ok(())
 }
 
 fn cancel_stale_widget_scene(state: &AppState, db: &rusqlite::Connection) -> Result<(), String> {
+    cancel_stale_widget_scene_inner(state, db, None)
+}
+
+fn cancel_stale_widget_scene_inner(
+    state: &AppState,
+    db: &rusqlite::Connection,
+    request_id: Option<&str>,
+) -> Result<(), String> {
     let has_scene = lock(&state.widget_playback)?.is_some();
     let has_talk = lock(&state.talk_playback)?.is_some();
     if (has_scene && !widget_event_current(state, db)?)
         || (has_talk && !crate::talk::host::current(state, db)?)
     {
+        let previous = state.epoch.load(Ordering::SeqCst);
         let token = interrupt(state, true)?;
+        if let Some(request_id) = request_id {
+            crate::characters::life::advance_interaction_mood_epoch(state, request_id, previous, token.0)?;
+        }
         state.widget_epoch.store(token.0, Ordering::SeqCst);
         let mut runtime = lock(&state.runtime)?;
         runtime.phase = crate::types::RuntimePhase::Idle;
@@ -415,24 +435,66 @@ pub(crate) async fn execute_widget(
             } else {
                 crate::desktop::toys::remove_widget(&app, &instance.id);
             }
+            crate::characters::life::note_mood_input(&state)?;
             Ok(None)
         });
     }
-    let created_id = change(&state, |db| {
+    let (created_id, interaction_accepted) = change(&state, |db| {
+        let timestamp = chrono::Utc::now().timestamp_millis();
+        let focus_before = if request.action == "cancel"
+            && lock(&state.widget_clocks)?
+                .get("focus-completions")
+                .is_some_and(|previous| timestamp >= *previous && timestamp - *previous <= 120_000)
+        {
+            storage::get(db, &request.instance_id)
+                .ok()
+                .filter(|instance| instance.kind == "focus-timer")
+        } else {
+            None
+        };
+        let interaction_target = crate::widgets::mood::pending_interaction_target(db, &request)?;
         let created_id = execute_with_created_id(
             db,
             &request,
-            chrono::Utc::now().timestamp_millis(),
+            timestamp,
             uuid::Uuid::new_v4().as_u128() as u64,
         )?;
+        let interaction_accepted = interaction_target.is_some();
+        if let Some((character_id, action)) = interaction_target {
+            crate::characters::life::change_interaction_mood(
+                &app, &state, &character_id, &action, true, &request.request_id,
+            )?;
+        }
+        if let Some(before) = focus_before {
+            let after = storage::get(db, &request.instance_id)?;
+            let previous_sessions = before.data["sessions"].as_array();
+            let new_completed = after.data["sessions"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|session| {
+                    session["outcome"] == "completed"
+                        && previous_sessions.is_none_or(|previous| {
+                            !previous.iter().any(|old| old["id"] == session["id"])
+                        })
+                });
+            if before.data["mode"] == "focus" && new_completed {
+                for member in crate::characters::active_members(db)? {
+                    crate::characters::life::change_mood(&app, &state, &member.id, "focus", 1)?;
+                }
+            }
+        }
         if request.action == "configure-alerts" {
             lock(&state.widget_clocks)?.remove(&request.instance_id);
         }
-        Ok(created_id)
+        crate::characters::life::note_mood_input(&state)?;
+        Ok((created_id, interaction_accepted))
     })?;
     crate::widgets::memo_notes::schedule_sync(&app);
     // New state can invalidate an already playing reaction to this widget.
-    if let Err(error) = cancel_widget_scene(&app, &state) {
+    if let Err(error) = cancel_widget_scene_for_interaction(
+        &app, &state, interaction_accepted.then_some(request.request_id.as_str()),
+    ) {
         if created_id.is_none() {
             return Err(error);
         }
@@ -2336,6 +2398,29 @@ pub(crate) fn list_usage_applications() -> Value {
 #[cfg(test)]
 mod play_tests {
     use super::*;
+
+    #[test]
+    fn cancelling_stale_widget_scene_carries_only_the_current_interaction_mood() {
+        for is_stale in [false, true] {
+            let state = crate::app::tests::state();
+            let now = chrono::Utc::now().timestamp_millis();
+            lock(&state.life).unwrap().apply_interaction("character", "stroke", true, "request", now, 0);
+            if is_stale {
+                interrupt(&state, false).unwrap();
+            }
+            *lock(&state.widget_playback).unwrap() = Some(WidgetEvent {
+                id: "old".into(), instance_id: "old".into(), widget_kind: "interaction".into(),
+                revision: 0, created_at: 0, expires_at: 0,
+                event: widgets::EventDraft { kind: "interaction.touch".into(), text: String::new(), payload: serde_json::json!({}) },
+            });
+            let previous = state.epoch.load(Ordering::SeqCst);
+            let db = lock(&state.db).unwrap();
+            cancel_stale_widget_scene_inner(&state, &db, Some("request")).unwrap();
+            let change = crate::characters::life::pop_mood_change(&state).unwrap().unwrap();
+            assert_eq!(state.epoch.load(Ordering::SeqCst), previous + 1);
+            assert_eq!(change.epoch, if is_stale { 0 } else { previous + 1 });
+        }
+    }
 
     fn count(db: &rusqlite::Connection, table: &str) -> i64 {
         db.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
