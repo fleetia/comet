@@ -18,6 +18,8 @@ pub(crate) struct PreparedTalk {
     text_values: BTreeMap<String, serde_json::Value>,
     pub(crate) event: Option<widgets::WidgetEvent>,
     seed: u64,
+    pub(crate) recall_date: Option<String>,
+    recall_day: Option<chrono::NaiveDate>,
 }
 
 fn add_moods(
@@ -47,6 +49,22 @@ pub(crate) fn prepare(
     db: &Connection,
     event: Option<&widgets::WidgetEvent>,
 ) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
+    prepare_with_trigger(state, db, event, false)
+}
+
+pub(crate) fn prepare_recall(
+    state: &AppState,
+    db: &Connection,
+) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
+    prepare_with_trigger(state, db, None, true)
+}
+
+fn prepare_with_trigger(
+    state: &AppState,
+    db: &Connection,
+    event: Option<&widgets::WidgetEvent>,
+    recall: bool,
+) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
     let (program, generation) = {
         let active = lock(&state.talk)?;
         (active.program.clone(), active.generation)
@@ -61,6 +79,19 @@ pub(crate) fn prepare(
         uuid::Uuid::new_v4().as_u128() as u64,
     )?;
     add_moods(state, db, &mut context)?;
+    let recall_date = if recall {
+        if context.values.get("recall.ready") != Some(&serde_json::json!(true)) {
+            return Ok(None);
+        }
+        context.trigger = "diary.recall".into();
+        context
+            .values
+            .get("recall.date")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned)
+    } else {
+        None
+    };
     context.visible = presence::present_ids(state, &context.active)?;
     context.values.insert(
         "character.count".into(),
@@ -126,8 +157,27 @@ pub(crate) fn prepare(
         text_values: context.values,
         event: event.cloned(),
         seed: context.seed,
+        recall_day: recall_date
+            .as_ref()
+            .map(|_| chrono::Local::now().date_naive()),
+        recall_date,
     });
     Ok(Some(lines))
+}
+
+pub(crate) fn record_recall_displayed(
+    state: &AppState,
+    db: &Connection,
+    at: i64,
+) -> Result<(), String> {
+    let prepared = lock(&state.talk_playback)?;
+    if let Some(date) = prepared
+        .as_ref()
+        .and_then(|talk| talk.recall_date.as_deref())
+    {
+        talk::context::record_recall(db, date, at)?;
+    }
+    Ok(())
 }
 
 fn muted_reactions(
@@ -212,6 +262,25 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
     }
     let mut context = talk::context::build(db, prepared.event.as_ref(), now, prepared.seed)?;
     add_moods(state, db, &mut context)?;
+    if prepared.text_values.get("recall.ready") == Some(&serde_json::json!(true))
+        && prepared.selection.references.iter().any(|name| name.starts_with("recall."))
+        && !crate::store::settings(db)?.diary_recall_enabled
+    {
+        return Ok(false);
+    }
+    if let Some(day) = prepared.recall_day {
+        if chrono::Local::now().date_naive() != day
+            || !crate::store::settings(db)?.diary_recall_enabled
+        {
+            return Ok(false);
+        }
+        context.trigger = "diary.recall".into();
+        for (name, value) in &prepared.text_values {
+            if name.starts_with("recall.") {
+                context.values.insert(name.clone(), value.clone());
+            }
+        }
+    }
     context.visible = presence::present_ids(state, &context.active)?;
     context.values.insert(
         "character.count".into(),
