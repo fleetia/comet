@@ -63,35 +63,26 @@ fn selection_catalog_distinguishes_named_widgets_with_the_same_action_descriptio
 #[test]
 fn selector_schema_tracks_current_catalog_ids_without_weakening_unknown_id_validation() {
     let db = store::open(std::path::Path::new(":memory:")).unwrap();
-    let directory = tempfile::tempdir().unwrap();
     let task = Selection {
         route: "tools".into(),
         action_ids: vec!["task_add".into()],
         continue_previous: false,
     };
-    let before = catalog(&db).unwrap();
-    let schema = selection_schema(&before, false);
-    let ids = schema["properties"]["actionIds"]["items"]["enum"]
-        .as_array()
-        .unwrap();
-    assert!(ids.contains(&json!("ledger_create")));
-    assert!(!ids.contains(&json!("task_add")));
-    assert!(select(&task, &before).is_err());
-    assert_eq!(
-        schema["properties"]["continuePrevious"]["enum"],
-        json!([false])
-    );
-
-    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
     let available = catalog(&db).unwrap();
     let schema = selection_schema(&available, false);
     let ids = schema["properties"]["actionIds"]["items"]["enum"]
         .as_array()
         .unwrap();
+    assert!(ids.contains(&json!("ledger_create")));
     assert!(ids.contains(&json!("task_add")));
+    select(&task, &available).unwrap();
+    assert_eq!(
+        schema["properties"]["continuePrevious"]["enum"],
+        json!([false])
+    );
+
     assert_eq!(ids.len(), available.len());
     assert!(available.iter().all(|spec| ids.contains(&spec["id"])));
-    select(&task, &available).unwrap();
     let unknown = Selection {
         action_ids: vec!["not-installed".into()],
         ..task
@@ -104,8 +95,6 @@ fn selector_schema_tracks_current_catalog_ids_without_weakening_unknown_id_valid
 #[test]
 fn a_completed_expense_and_future_task_can_share_one_plan() {
     let db = store::open(std::path::Path::new(":memory:")).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
     let request = "오늘 3000원 컵라면 사먹음. 내일 발표 준비 할 일 추가해줘";
     let mut turn = new_turn(&message("compound", request)).unwrap();
     turn.selected = vec!["ledger_create".into(), "task_add".into()];
@@ -131,13 +120,6 @@ fn a_completed_expense_and_future_task_can_share_one_plan() {
 fn compound_creation_uses_instruction_evidence_and_preserves_the_memo_body() {
     let db = store::open(std::path::Path::new(":memory:")).unwrap();
     let user = store::active_user_id(&db).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    crate::widgets::storage::install(
-        &db,
-        directory.path(),
-        &["preparation".into(), "clock".into(), "memo".into()],
-    )
-    .unwrap();
     let request = "QA 물 마시기 습관을 오늘부터 매일 하루 3회 목표인 횟수형으로 추가해줘. 준비 봉투에 제목 QA 소풍, 날짜 내일, 체크 항목 도시락과 물로 만들어줘. 시계·기념일에 2026년 11월 1일 QA 기념일을 등록해줘. 바탕화면 메모에 QA 메모라는 제목으로 저장해줘: 원문 첫 줄\n둘째 줄";
     let scope = actions::instruction_text(request);
     assert!(scope.ends_with("저장해줘"));
@@ -407,11 +389,14 @@ fn compound_records_use_their_own_committed_revision_but_reject_intervening_edit
 }
 
 #[test]
-fn replay_refreshes_queries_and_does_not_reuse_disabled_widget_results() {
+fn replay_refreshes_queries_even_when_reactions_are_disabled() {
     let db = store::open(std::path::Path::new(":memory:")).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
     let user = store::active_user_id(&db).unwrap();
+    let revision = actions::entities_for(&db, "task_add", "").unwrap()["revision"].as_i64().unwrap();
+    actions::execute_registry(&db, &user, "create", 0, "할 일을 추가해줘", &actions::Action {
+        kind: "task_add".into(), target_id: String::new(), expected_revision: revision,
+        input: json!({"title":"보존할 할 일"}),
+    }).unwrap();
     let mut turn = new_turn(&message("query", "할 일 알려줘")).unwrap();
     turn.selected = vec!["task_query".into()];
     let context = actions::entities_for(&db, "task_query", "").unwrap();
@@ -440,19 +425,18 @@ fn replay_refreshes_queries_and_does_not_reuse_disabled_widget_results() {
         .unwrap();
     assert!(!fresh.to_string().contains("staleSecret"));
     assert!(fresh["context"]["operations"][0]["result"].is_object());
-    crate::widgets::storage::set_enabled(&db, context["ownerId"].as_str().unwrap(), false).unwrap();
-    let disabled = actions::replay_context(&db, &user, "query")
+    crate::widgets::storage::set_reaction(&db, context["ownerId"].as_str().unwrap(), false).unwrap();
+    let replayed = actions::replay_context(&db, &user, "query")
         .unwrap()
         .unwrap();
-    assert!(disabled["context"]["operations"][0]["result"].is_null());
-    assert!(!disabled.to_string().contains("old query data"));
+    assert!(replayed["context"]["operations"][0]["result"].is_object());
+    assert!(replayed.to_string().contains("보존할 할 일"));
+    assert!(!replayed.to_string().contains("old query data"));
 }
 
 #[test]
 fn control_reply_keeps_the_actual_roll_but_hides_it_after_source_changes() {
     let db = store::open(std::path::Path::new(":memory:")).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    crate::widgets::storage::install(&db, directory.path(), &["small-match".into()]).unwrap();
     let user = store::active_user_id(&db).unwrap();
     let mut turn = new_turn(&message("roll", "주사위 굴려줘")).unwrap();
     turn.selected = vec!["match_dice".into()];
@@ -501,12 +485,21 @@ fn control_reply_keeps_the_actual_roll_but_hides_it_after_source_changes() {
         outcome
     );
     assert!(visible["receipts"][0].get("result").is_none());
-    crate::widgets::storage::set_enabled(&db, context["ownerId"].as_str().unwrap(), false).unwrap();
+    let owner = context["ownerId"].as_str().unwrap();
+    crate::widgets::storage::set_reaction(&db, owner, false).unwrap();
+    let replayed = actions::replay_context(&db, &user, "roll").unwrap().unwrap();
+    assert_eq!(replayed["context"]["operations"][0]["result"]["outcome"], outcome);
+    let widget = crate::widgets::storage::get(&db, owner).unwrap();
+    crate::widgets::storage::execute(&db, &crate::widgets::WidgetRequest {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        instance_id: owner.into(), expected_revision: widget.revision,
+        action: "choose".into(), input: json!({"game":"coin"}),
+    }, 0, 0).unwrap();
     let hidden = actions::replay_context(&db, &user, "roll")
         .unwrap()
         .unwrap();
     assert!(hidden["context"]["operations"][0]["result"]["outcome"].is_null());
-    assert_eq!(hidden["receipts"][0]["title"], "저장된 작업");
+    assert_eq!(hidden["receipts"][0]["title"], visible["receipts"][0]["title"]);
 }
 
 #[test]
@@ -560,8 +553,6 @@ fn task_proposal(target_id: &str, input: Value, revision: i64) -> Proposal {
 fn new_task_named_by_its_list_is_saved_to_that_list_but_unknown_targets_stay_rejected() {
     let db = store::open(std::path::Path::new(":memory:")).unwrap();
     let user = store::active_user_id(&db).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
     let request = "QA 조약돌 할 일 추가해줘";
     let context = actions::entities_for(&db, "task_add", request).unwrap();
     let revision = context["revision"].as_i64().unwrap();
@@ -735,8 +726,6 @@ fn preference_with_only_unauthorized_writes_becomes_ordinary_conversation() {
 #[test]
 fn explicit_write_and_clarification_intents_keep_failed_plan_guards() {
     let db = store::open(std::path::Path::new(":memory:")).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
     let user = store::active_user_id(&db).unwrap();
     for request in [
         "할 일 추가해줘",
@@ -939,8 +928,6 @@ fn save(db: &Connection, turn: &Turn, input_id: &str) {
 #[test]
 fn a_task_is_created_and_rescheduled_from_the_users_words_without_a_planner_call() {
     let db = store::open(std::path::Path::new(":memory:")).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
     let catalog = catalog(&db).unwrap();
     for (id, request, due) in [
         (
@@ -974,8 +961,6 @@ fn a_task_is_created_and_rescheduled_from_the_users_words_without_a_planner_call
 #[test]
 fn a_local_planner_grammar_only_admits_the_values_the_host_knows() {
     let db = store::open(std::path::Path::new(":memory:")).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
     let request = "마감일 2026-11-06인 QA-T1 할 일을 추가해줘.";
     let turn = read_turn(&db, "local", request);
     let catalog = catalog(&db).unwrap();
@@ -1021,8 +1006,6 @@ fn a_local_planner_grammar_only_admits_the_values_the_host_knows() {
 #[test]
 fn a_local_plan_takes_the_input_object_and_drops_nulls_only_for_new_items() {
     let db = store::open(std::path::Path::new(":memory:")).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
     let plan: LocalPlan = serde_json::from_value(json!({"question":"","operations":[
         {"kind":"task_add","targetId":"","expectedRevision":1,"input":{"title":"QA-T1","dueAt":null},"mode":"explicit","evidence":"추가해줘"},
         {"kind":"task_update","targetId":"t","expectedRevision":1,"input":{"dueDate":null},"mode":"explicit","evidence":"바꿔줘"}]}))
@@ -1041,8 +1024,6 @@ fn a_local_plan_takes_the_input_object_and_drops_nulls_only_for_new_items() {
 #[test]
 fn planned_values_that_drop_or_rewrite_the_users_words_are_not_saved() {
     let db = store::open(std::path::Path::new(":memory:")).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
     let catalog = catalog(&db).unwrap();
     for (request, kind, input, field) in [
         (
@@ -1080,8 +1061,6 @@ fn planned_values_that_drop_or_rewrite_the_users_words_are_not_saved() {
 #[test]
 fn a_kiwi_request_form_passes_the_explicit_gate_that_string_endings_miss() {
     let db = store::open(std::path::Path::new(":memory:")).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
     let request = "할 일에 우유 사기 넣어 둬.";
     assert!(!actions::has_explicit_request(request));
     let catalog = catalog(&db).unwrap();
@@ -1103,8 +1082,6 @@ fn a_kiwi_request_form_passes_the_explicit_gate_that_string_endings_miss() {
 #[test]
 fn planner_instruction_carries_only_the_selected_features_rules() {
     let db = store::open(std::path::Path::new(":memory:")).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
     let catalog = catalog(&db).unwrap();
     let task = vec![capability(&catalog, "task_add").unwrap().clone()];
     let travel = vec![capability(&catalog, "travel_expense_add").unwrap().clone()];
@@ -1155,8 +1132,6 @@ fn run_host_turn(db: &Connection, id: &str, request: &str) -> Turn {
 fn a_named_clock_time_becomes_that_deadline_and_a_guessed_one_is_not_saved() {
     let db = store::open(std::path::Path::new(":memory:")).unwrap();
     let user = store::active_user_id(&db).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
     let catalog = catalog(&db).unwrap();
     let request = "내일 오후 3시에 치과 가기 할 일 추가해줘.";
     let turn = read_turn(&db, "clock", request);
@@ -1225,8 +1200,6 @@ fn a_named_clock_time_becomes_that_deadline_and_a_guessed_one_is_not_saved() {
 fn the_apps_own_reply_names_the_saved_change_the_found_items_or_the_question() {
     let db = store::open(std::path::Path::new(":memory:")).unwrap();
     let user = store::active_user_id(&db).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
     run_host_turn(&db, "add", "마감일 2026-11-06인 QA-T1 할 일을 추가해줘.");
     assert_eq!(
         actions::result_reply(&db, &user, "add").unwrap().as_deref(),

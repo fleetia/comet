@@ -1336,6 +1336,7 @@ fn export_pack_contents(
                 .iter_mut()
                 .chain(&mut scenario.accept)
                 .chain(&mut scenario.decline)
+                .chain(&mut scenario.defer)
                 .chain(&mut scenario.ending)
             {
                 line.motion = line.motion.without_images();
@@ -1372,6 +1373,13 @@ fn export_pack_contents(
     }
     if validation::has_mood_bindings(&pack) {
         pack.format_version = pack.format_version.max(13);
+    }
+    if pack
+        .scenarios
+        .iter()
+        .any(|scene| scene.reveal_affinity.is_some() || !scene.defer.is_empty())
+    {
+        pack.format_version = pack.format_version.max(12);
     }
     validation::validate_pack_metadata(&pack)?;
     Ok(pack)

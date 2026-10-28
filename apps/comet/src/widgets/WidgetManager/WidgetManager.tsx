@@ -1,7 +1,6 @@
 import { Heading, Inline, Text } from "../../primitives";
 import {
   Button,
-  Checkbox,
   type ContextMenuAction,
   Dialog,
   SettingControlRow,
@@ -35,15 +34,6 @@ import { WIDGET_ICONS, WidgetCatalog, type WidgetListEntry } from "./WidgetCatal
 import * as details from "./widgetDetails.css";
 import * as styles from "./widgetManager.css";
 
-const OPTIONAL_CONNECTIONS: Record<string, Record<string, string>> = {
-  todo: { "focus-timer": "할 일을 정하고 집중하기", preparation: "준비할 일을 봉투에 모으기" },
-  "focus-timer": { todo: "집중할 일을 선택하고 완료하기" },
-  preparation: {
-    todo: "할 일을 연결하거나 체크 항목을 할 일로 옮기기",
-    calendar: "준비 봉투에 일정 연결하기",
-  },
-  calendar: { preparation: "일정에 필요한 준비 모으기" },
-};
 function descriptionOf(widget: WidgetView | undefined, kind: string, fallback: string): string {
   const data = record(widget?.data);
   if (kind === "calendar") return "다이어리와 바탕화면 위젯에서 써요";
@@ -88,7 +78,6 @@ export function WidgetManager({
   const { workshop, error: generatedError, reload: reloadGenerated } = useGeneratedWidgets();
   const runtime = useWidgetRuntime(active);
   const desktop = useWidgetDesktop(active);
-  const [installTarget, setInstallTarget] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [inspectorSlot, setInspectorSlot] = useState<HTMLDivElement | null>(null);
   const [connectingCalendarId, setConnectingCalendarId] = useState<string | null>(null);
@@ -141,7 +130,7 @@ export function WidgetManager({
   }, [settingsDirty, onDirtyChange]);
   function focusWidget(kind: string): void {
     const target = findView(kind);
-    if (target?.installed && !CONFIGURABLE_WIDGETS.includes(kind)) {
+    if (target && !CONFIGURABLE_WIDGETS.includes(kind)) {
       openCanonical(target);
       return;
     }
@@ -152,10 +141,7 @@ export function WidgetManager({
       ...new Set([...previous, ...(selectedId ? [selectedId] : []), kind]),
     ]);
   }
-  const [confirmation, setConfirmation] = useState<
-    "install" | WidgetView | { generatedId: string } | null
-  >(null);
-  const [deleteData, setDeleteData] = useState(false);
+  const [confirmation, setConfirmation] = useState<{ generatedId: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const pending = useRef(false);
@@ -178,9 +164,6 @@ export function WidgetManager({
       if (name.endsWith("_widget_desktop_item") || name === "set_widget_desktop_editing")
         desktop.receive(result as WidgetDesktopState);
       setConfirmation(null);
-      if (name === "install_widgets") {
-        setInstallTarget(null);
-      }
       reload();
       reloadGenerated();
       runtime.reload();
@@ -189,7 +172,6 @@ export function WidgetManager({
       setFailure(errorText(cause));
       if (
         name === "generate_widget" ||
-        name === "set_generated_widget_enabled" ||
         name === "remove_generated_widget"
       ) {
         reloadGenerated();
@@ -206,57 +188,21 @@ export function WidgetManager({
   const generatedWidgets = workshop.widgets.filter((item) => item.installed);
   const generated =
     generatedWidgets.find((item) => item.id === focused) ??
-    (!catalog.some((item) => item.id === focused) && !widgets.some((item) => item.installed)
+    (!catalog.some((item) => item.id === focused) && widgets.length === 0
       ? generatedWidgets[0]
       : undefined);
   const findView = (kind: string): WidgetView | undefined =>
     widgets.find((item) => item.kind === kind);
-  const nameOf = (kind: string): string => catalog.find((item) => item.id === kind)?.name ?? kind;
-  function installationPlan(target: string | null): string[] {
-    const kinds = new Set(target && !findView(target)?.installed ? [target] : []);
-    function addRequired(kind: string): void {
-      for (const required of catalog.find((item) => item.id === kind)?.required ?? []) {
-        const existing = findView(required);
-        if ((!existing?.installed || !existing.enabled) && !kinds.has(required)) {
-          kinds.add(required);
-          addRequired(required);
-        }
-      }
-    }
-    [...kinds].forEach(addRequired);
-    return [...kinds];
-  }
-  const installation = installationPlan(installTarget);
-  const added = installation.filter((kind) => kind !== installTarget);
-  function install(kind: string): void {
-    setFailure(null);
-    const kinds = installationPlan(kind);
-    if (kinds.length > 1) {
-      setInstallTarget(kind);
-      setConfirmation("install");
-      return;
-    }
-    void run("install_widgets", { kinds });
-  }
-  const removed =
-    confirmation && typeof confirmation === "object" && "kind" in confirmation
-      ? confirmation
-      : null;
-  const removedGenerated =
-    confirmation && typeof confirmation === "object" && "generatedId" in confirmation
-      ? generatedWidgets.find((item) => item.id === confirmation.generatedId)
-      : undefined;
-  const affected = removed
-    ? catalog.filter((item) => item.required.includes(removed.kind) && findView(item.id)?.installed)
-    : [];
+  const removedGenerated = confirmation
+    ? generatedWidgets.find((item) => item.id === confirmation.generatedId)
+    : undefined;
   const entries: WidgetListEntry[] = [
     ...catalog.map((item) => {
       const view = findView(item.id);
       return {
         ...item,
-        installed: Boolean(view?.installed),
-        enabled: Boolean(view?.enabled),
-        status: view?.status ?? "not-installed",
+        reaction: view?.reaction ?? true,
+        status: view?.status ?? "install-error",
         attention: Boolean(view && ["setup", "error", "install-error"].includes(view.status)),
       };
     }),
@@ -267,16 +213,14 @@ export function WidgetManager({
           name: item.definition.name,
           description: item.definition.description,
           category: "generated",
-          installed: true,
-          enabled: item.enabled,
-          status: !item.enabled ? "disabled" : item.status === "ready" ? "enabled" : item.status,
+          reaction: item.reaction,
+          status: item.status === "ready" ? "enabled" : item.status,
           attention: item.status !== "ready",
         }) as const,
     ),
   ];
   const entry =
     catalog.find((item) => item.id === focused) ??
-    catalog.find((item) => findView(item.id)?.installed) ??
     catalog[0];
   const widget = entry ? findView(entry.id) : undefined;
   const selectedId = generated?.id ?? entry?.id;
@@ -297,14 +241,6 @@ export function WidgetManager({
   const runtimeError = running?.queryError ?? runtime.error;
   const hasLastConfirmation = !!running && (!running.queryError || !!running.lastConfirmed);
   const failureStatus = hasLastConfirmation ? "마지막 확인 상태 · 갱신 실패" : "확인 실패";
-  const related = entry
-    ? catalog.filter(
-        (item) =>
-          entry.required.includes(item.id) ||
-          item.required.includes(entry.id) ||
-          Boolean(OPTIONAL_CONNECTIONS[entry.id]?.[item.id]),
-      )
-    : [];
   const act: ToolAction = async (action, input = {}, target = widget) => {
     if (!target) {
       return false;
@@ -320,19 +256,23 @@ export function WidgetManager({
     });
   };
   function openCanonical(target: WidgetView): void {
-    if (!target.enabled) {
-      setFailure("위젯 사용을 켠 뒤 열어 주세요.");
-      return;
-    }
     if (DESKTOP_TOYS.includes(target.kind)) void act("desktop-open", {}, target);
     else void run(target.kind === "memo" ? "create_memo_note" : "open_widget", { id: target.id });
   }
   function contextActions(id: string): ContextMenuAction[] {
     const target = findView(id);
-    if (!target?.installed)
-      return catalog.some((entry) => entry.id === id)
-        ? [{ id: "install", label: "위젯 설치", icon: "plus", disabled: !canAct }]
+    if (!target) {
+      const item = generatedWidgets.find((widget) => widget.id === id);
+      return item
+        ? [
+            {
+              id: "toggle",
+              label: item.reaction ? "캐릭터 반응 끄기" : "캐릭터 반응 켜기",
+              disabled: !canAct,
+            },
+          ]
         : [];
+    }
     const current = runtime.snapshot?.widgets.find((item) => item.id === target.id);
     const confirmed = !!current && (!current.queryError || !!current.lastConfirmed);
     const actions: ContextMenuAction[] = [];
@@ -348,7 +288,7 @@ export function WidgetManager({
               ? "바탕화면에 꺼내기"
               : "위젯 열기",
         icon: "arrowright",
-        disabled: !canAct || !target.enabled,
+        disabled: !canAct,
       });
     if (canPlaceOnDesktop(target.kind))
       actions.push(
@@ -358,11 +298,11 @@ export function WidgetManager({
               id: "desktop-add",
               label: "바탕화면에 놓기",
               icon: "plus",
-              disabled: !canAct || !target.enabled || !desktop.state,
+              disabled: !canAct || !desktop.state,
             },
       );
     if (DESKTOP_TOYS.includes(target.kind))
-      actions.push({ id: "clear", label: "장난감 정리하기", disabled: !canAct || !target.enabled });
+      actions.push({ id: "clear", label: "장난감 정리하기", disabled: !canAct });
     if (confirmed && current?.toys)
       actions.push({
         id: "toy-status",
@@ -384,16 +324,10 @@ export function WidgetManager({
       });
     if (current?.actionError)
       actions.push({ id: "action-error", label: current.actionError.message, disabled: true });
-    if (target.missing.length)
-      actions.push({
-        id: "missing",
-        label: `먼저 설치·켜기: ${target.missing.map(nameOf).join(", ")}`,
-        disabled: true,
-      });
     actions.push({
       id: "toggle",
-      label: target.enabled ? "사용 끄기" : "사용 켜기",
-      disabled: !canAct || (!target.enabled && target.missing.length > 0),
+      label: target.reaction ? "캐릭터 반응 끄기" : "캐릭터 반응 켜기",
+      disabled: !canAct,
       separatorBefore: true,
     });
     actions.push({
@@ -402,60 +336,28 @@ export function WidgetManager({
       icon: "balloon",
       disabled: !canAct,
     });
-    actions.push({
-      id: "remove",
-      label: "위젯 제거…",
-      icon: "remove",
-      destructive: true,
-      disabled: !canAct,
-    });
     return actions;
   }
   function contextAction(kind: string, action: string): void {
     const target = findView(kind);
-    if (action === "install") {
-      focusWidget(kind);
-      install(kind);
+    if (action === "toggle") {
+      const reaction =
+        target?.reaction ?? generatedWidgets.find((item) => item.id === kind)?.reaction;
+      if (reaction !== undefined) {
+        void run("set_widget_reaction", { id: target?.id ?? kind, enabled: !reaction });
+      }
       return;
     }
-    if (!target?.installed) return;
+    if (!target) return;
     if (action === "settings") focusWidget(kind);
     else if (action === "open") openCanonical(target);
-    else if (action === "toggle")
-      void run("set_widget_enabled", { id: target.id, enabled: !target.enabled });
     else if (action === "state-rules") void run("open_widget_state_rules", { id: target.id });
     else if (action === "clear") void act("desktop-clear", {}, target);
     else if (action === "desktop-add") void run("add_widget_desktop_item", { id: target.id });
     else if (action === "desktop-remove") void run("remove_widget_desktop_item", { id: target.id });
     else if (action === "refresh-runtime") runtime.reload();
-    else if (action === "remove") {
-      setDeleteData(false);
-      setFailure(null);
-      setConfirmation(target);
-    }
   }
 
-  const relatedContent =
-    related.length > 0 ? (
-      <section className={styles.group}>
-        <Heading level={4} variant="label">
-          함께 쓰기
-        </Heading>
-        {related.map((item) => (
-          <div className={styles.related} key={item.id}>
-            <Text variant="label">{item.name}</Text>
-            <Text variant="caption" tone="muted">
-              {entry?.required.includes(item.id)
-                ? "필수 연결"
-                : (OPTIONAL_CONNECTIONS[entry?.id ?? ""]?.[item.id] ?? "선택 연동")}
-            </Text>
-            <Button variant="ghost" size="small" onClick={() => focusWidget(item.id)}>
-              {findView(item.id)?.installed ? "설정" : "추가"}
-            </Button>
-          </div>
-        ))}
-      </section>
-    ) : undefined;
   const catalogFooter = (
     <section className={styles.experiments} aria-label="실험 기능">
       <h2 className={styles.directorySectionTitle}>실험 기능</h2>
@@ -559,12 +461,9 @@ export function WidgetManager({
               onMenuAction={contextAction}
               onEditDesktop={() => void run("set_widget_desktop_editing", { editing: true })}
               disabled={!canAct}
-              onToggle={(id, enabled) => {
-                const view = findView(id);
-                if (view?.installed) void run("set_widget_enabled", { id: view.id, enabled });
-                else if (catalog.some((item) => item.id === id)) install(id);
-                else void run("set_generated_widget_enabled", { id, enabled });
-              }}
+              onToggle={(id, enabled) =>
+                void run("set_widget_reaction", { id: findView(id)?.id ?? id, enabled })
+              }
             >
               {catalogFooter}
             </WidgetCatalog>
@@ -612,18 +511,18 @@ export function WidgetManager({
                         </div>
                       </header>
                     )}
-                    {widget?.installed && connectingCalendarId !== widget.id && (
+                    {widget && connectingCalendarId !== widget.id && (
                       <WidgetDetailPreview
                         widget={widget}
                         widgets={widgets}
                         shape={desktop.state?.shapes?.[widget.id]}
                         act={act}
-                        disabled={!canAct || !widget.enabled}
+                        disabled={!canAct}
                         onBusyChange={(value) => reportBusy(`${widget.id}:preview`, value)}
                       />
                     )}
                     <div ref={setInspectorSlot} className={details.inspectorSlot} />
-                    {widget?.installed && canPlaceOnDesktop(widget.kind) && (
+                    {widget && canPlaceOnDesktop(widget.kind) && (
                       <div className={details.launch}>
                         {placed(widget.id) ? (
                           <Button
@@ -641,7 +540,7 @@ export function WidgetManager({
                           <Button
                             variant={widget.kind === "preparation" ? "ghost" : "primary"}
                             className={details.launchButton}
-                            disabled={!canAct || !widget.enabled || !desktop.state}
+                            disabled={!canAct || !desktop.state}
                             onClick={() => void run("add_widget_desktop_item", { id: widget.id })}
                           >
                             <Icon name="plus" size={15} />
@@ -655,12 +554,12 @@ export function WidgetManager({
                         )}
                       </div>
                     )}
-                    {widget?.installed && widget.kind === "preparation" && (
+                    {widget && widget.kind === "preparation" && (
                       <div className={details.launch}>
                         <Button
                           variant="primary"
                           className={details.launchButton}
-                          disabled={!canAct || !widget.enabled}
+                          disabled={!canAct}
                           onClick={() => openCanonical(widget)}
                         >
                           <Icon name="arrowright" size={15} />
@@ -669,42 +568,25 @@ export function WidgetManager({
                         <p className={details.hint}>다이어리 › 준비 봉투가 열려요</p>
                       </div>
                     )}
-                    {widget?.installed && CONFIGURABLE_WIDGETS.includes(widget.kind) && (
-                      <>
-                        <div className={details.manage}>
-                          <Button
-                            variant="ghost"
-                            size="small"
-                            className={details.editLink}
-                            aria-label="상태별 캐릭터 대사 편집"
-                            disabled={!canAct}
-                            onClick={() => void run("open_widget_state_rules", { id: widget.id })}
-                          >
-                            <Icon name="balloon" size={13} />
-                            상태별 대사
-                          </Button>
-                          <Button
-                            variant="danger"
-                            size="small"
-                            disabled={!canAct}
-                            onClick={() => {
-                              setDeleteData(false);
-                              setFailure(null);
-                              setConfirmation(widget);
-                            }}
-                          >
-                            <Icon name="remove" size={13} />
-                            위젯 제거…
-                          </Button>
-                        </div>
-                        <p className={details.hint}>제거해도 쓴 내용은 기본으로 남겨 둬요.</p>
-                      </>
+                    {widget && CONFIGURABLE_WIDGETS.includes(widget.kind) && (
+                      <div className={details.manage}>
+                        <Button
+                          variant="ghost"
+                          size="small"
+                          className={details.editLink}
+                          aria-label="상태별 캐릭터 대사 편집"
+                          disabled={!canAct}
+                          onClick={() => void run("open_widget_state_rules", { id: widget.id })}
+                        >
+                          <Icon name="balloon" size={13} />
+                          상태별 대사
+                        </Button>
+                      </div>
                     )}
                   </aside>
                   <div className={styles.detailBody}>
                     {(widget?.error ||
-                      widget?.missing.length ||
-                      (runtimeError && widget?.installed) ||
+                      (runtimeError && widget) ||
                       running?.actionError) && (
                       <Surface variant="panel" className={styles.runtimeMessages}>
                         {widget?.error && (
@@ -712,12 +594,7 @@ export function WidgetManager({
                             {widget.error}
                           </Text>
                         )}
-                        {!!widget?.missing.length && (
-                          <Text as="p" className={common.error}>
-                            먼저 설치·켜기: {widget.missing.map(nameOf).join(", ")}
-                          </Text>
-                        )}
-                        {runtimeError && widget?.installed && (
+                        {runtimeError && widget && (
                           <div className={styles.runtimeError}>
                             <Text variant="caption" role="status">
                               {failureStatus} · {runtimeError}
@@ -734,64 +611,28 @@ export function WidgetManager({
                         )}
                       </Surface>
                     )}
-                    {widget?.installed && !CONFIGURABLE_WIDGETS.includes(widget.kind) && (
+                    {widget && !CONFIGURABLE_WIDGETS.includes(widget.kind) && (
                       <Surface variant="panel" className={styles.genericPanel} role="status">
                         <Heading level={4} variant="label">
                           따로 정할 설정이 없어요
                         </Heading>
                         <Text as="p" variant="caption" tone="muted">
-                          {!widget.enabled
-                            ? `${entry.name} 사용이 꺼져 있어요. 켜면 바로 쓸 수 있어요.`
-                            : widget.kind === "memo"
-                              ? "새 낱장을 꺼내요. 저장한 메모는 다이어리의 메모에서 찾아 다시 열어요."
-                              : `${entry.name}은 목록에서 바로 열어 써요.`}
+                          {widget.kind === "memo"
+                            ? "새 낱장을 꺼내요. 저장한 메모는 다이어리의 메모에서 찾아 다시 열어요."
+                            : `${entry.name}은 목록에서 바로 열어 써요.`}
                         </Text>
                         <Button
                           variant="primary"
-                          disabled={!canAct || (!widget.enabled && widget.missing.length > 0)}
-                          onClick={() =>
-                            widget.enabled
-                              ? openCanonical(widget)
-                              : void run("set_widget_enabled", { id: widget.id, enabled: true })
-                          }
+                          disabled={!canAct}
+                          onClick={() => openCanonical(widget)}
                         >
-                          {!widget.enabled
-                            ? "사용 켜기"
-                            : widget.kind === "memo"
-                              ? "새 메모 꺼내기"
-                              : "열기"}
+                          {widget.kind === "memo" ? "새 메모 꺼내기" : "열기"}
                         </Button>
                       </Surface>
                     )}
-                    {!widget?.installed ? (
-                      <Surface variant="panel" className={styles.genericPanel}>
-                        <Heading level={4} variant="label">
-                          사용 시작
-                        </Heading>
-                        {entry.required.length > 0 && (
-                          <Text as="p" variant="label">
-                            필수 위젯: {entry.required.map(nameOf).join(", ")}
-                          </Text>
-                        )}
-                        {entry.connection && (
-                          <Text as="p" variant="caption" tone="muted">
-                            외부 연결·권한은 설치 후 직접 설정합니다.
-                          </Text>
-                        )}
-                        <Button
-                          variant="primary"
-                          disabled={!canAct}
-                          onClick={() => install(entry.id)}
-                        >
-                          {widget?.status === "install-error" ? "다시 설치" : "위젯 설치"}
-                        </Button>
-                        {relatedContent}
-                      </Surface>
-                    ) : null}
                     {widgets
                       .filter(
                         (item) =>
-                          item.installed &&
                           CONFIGURABLE_WIDGETS.includes(item.kind) &&
                           (visitedSettings.includes(item.kind) || item.id === widget?.id),
                       )
@@ -819,7 +660,7 @@ export function WidgetManager({
                               onDirtyChange={reportDirty}
                               onBusyChange={reportBusy}
                               related={undefined}
-                              disabled={!canAct || !item.enabled}
+                              disabled={!canAct}
                             />
                           </div>
                         </div>
@@ -843,35 +684,23 @@ export function WidgetManager({
             event.preventDefault();
           }
         }}
-        title={
-          confirmation === "install"
-            ? "위젯을 설치할까요?"
-            : `${removedGenerated?.definition.name ?? (removed ? nameOf(removed.kind) : "위젯")} 제거`
-        }
+        title={`${removedGenerated?.definition.name ?? "위젯"} 제거`}
         closeLabel="닫기"
         variant="confirm"
         footer={
           <>
             <Button
-              variant={confirmation === "install" ? "primary" : "danger"}
-              disabled={
-                !canAct ||
-                (confirmation === "install"
-                  ? installation.length === 0
-                  : !removed && !removedGenerated)
-              }
+              variant="danger"
+              disabled={!canAct || !removedGenerated}
               onClick={() => {
-                if (confirmation === "install")
-                  void run("install_widgets", { kinds: installation });
-                else if (removed) void run("remove_widget", { id: removed.id, deleteData });
-                else if (removedGenerated)
+                if (removedGenerated)
                   void run("remove_generated_widget", {
                     id: removedGenerated.id,
                     expectedRevision: removedGenerated.revision,
                   });
               }}
             >
-              {confirmation === "install" ? "설치 확인" : "제거 확인"}
+              제거 확인
             </Button>
             <Button variant="ghost" disabled={busy} onClick={() => setConfirmation(null)}>
               취소
@@ -880,44 +709,10 @@ export function WidgetManager({
         }
       >
         <div className={styles.dialogBody}>
-          {confirmation === "install" ? (
-            <>
-              <Text as="p">{installTarget ? nameOf(installTarget) : ""}</Text>
-              {added.length > 0 && (
-                <Text as="p">
-                  필수 위젯도 함께 설치하거나 켭니다: {added.map(nameOf).join(", ")}
-                </Text>
-              )}
-              <Text as="p" variant="caption" tone="muted">
-                선택 연동은 자동 설치하지 않아요. 계정 연결과 지역 설정은 설치 후 별도로 진행합니다.
-              </Text>
-            </>
-          ) : (
-            <>
-              <Text as="p">
-                작동과 대기 중인 반응을 멈춥니다. 작성한 데이터는 기본으로 보존합니다.
-              </Text>
-              {affected.length > 0 && (
-                <Text as="p">
-                  필수 연결을 사용할 수 없게 되는 도구:{" "}
-                  {affected.map((item) => item.name).join(", ")}. 해당 도구의 데이터는 보존합니다.
-                </Text>
-              )}
-              {removed && (
-                <Checkbox
-                  checked={deleteData}
-                  disabled={busy}
-                  onChange={(event) => setDeleteData(event.target.checked)}
-                  label="이 위젯의 작성 데이터도 삭제"
-                />
-              )}
-              {removedGenerated && (
-                <Text as="p" variant="caption" tone="muted">
-                  위젯 정의·작성 데이터·설치 정보는 이 기기에 보존합니다.
-                </Text>
-              )}
-            </>
-          )}
+          <Text as="p">작동과 대기 중인 반응을 멈춥니다. 작성한 데이터는 기본으로 보존합니다.</Text>
+          <Text as="p" variant="caption" tone="muted">
+            위젯 정의·작성 데이터·설치 정보는 이 기기에 보존합니다.
+          </Text>
           {failure && (
             <Text as="p" role="alert" className={common.error}>
               {failure}

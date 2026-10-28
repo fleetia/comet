@@ -36,8 +36,7 @@ function widget(kind: string, data: DataRecord): WidgetView {
   return {
     id: `${kind}-id`,
     kind,
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 1,
     version: 1,
     data,

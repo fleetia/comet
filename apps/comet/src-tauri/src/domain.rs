@@ -71,6 +71,7 @@ pub(crate) fn with_moods(
         message.content = data.to_string();
     }
 }
+pub const FOLLOW_UP_PROMPT: &str = " followUps에는 사용자가 이어서 할 만한 짧은 말 2~3개를 넣는다. 질문 되풀이, 명령, 실행 요청, 캐릭터의 말은 넣지 않는다. 없으면 빈 배열로 둔다.";
 #[cfg(test)]
 const USER_CONTEXT_BYTES: usize = 1200;
 
@@ -210,8 +211,8 @@ pub fn strip_own_name_label(line: &mut SceneLine, name: &str) {
 }
 pub fn parse_reply(value: Value) -> Result<SceneLine, String> {
     let obj = value.as_object().ok_or("대사 형식이 올바르지 않습니다.")?;
-    if obj.len() != 3 {
-        return Err("대사에는 persona, expression, text만 허용됩니다.".into());
+    if obj.len() != 3 && !(obj.len() == 4 && obj.contains_key("followUps")) {
+        return Err("대사에는 persona, expression, text와 followUps만 허용됩니다.".into());
     }
     let line: SceneLine = serde_json::from_value(value).map_err(|e| e.to_string())?;
     if line.persona.is_empty()
@@ -223,6 +224,26 @@ pub fn parse_reply(value: Value) -> Result<SceneLine, String> {
         return Err("허용되지 않은 캐릭터, 표정 또는 대사입니다.".into());
     }
     Ok(line)
+}
+pub fn parse_follow_ups(value: &Value) -> Vec<String> {
+    let Some(options) = value.get("followUps").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    if options.len() > 3 {
+        return Vec::new();
+    }
+    options
+        .iter()
+        .map(|option| {
+            option
+                .as_str()
+                .filter(|label| !label.trim().is_empty() && label.chars().count() <= 24)
+        })
+        .collect::<Option<Vec<_>>>()
+        .unwrap_or_default()
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
 }
 #[cfg(test)]
 pub fn parse_scene(value: Value) -> Result<Vec<SceneLine>, String> {
@@ -752,13 +773,33 @@ pub fn reply_schema_for(targets: &[String], expressions: &[&str]) -> Value {
     let mut schema = reply_schema();
     schema["properties"]["persona"]["enum"] = json!(targets);
     schema["properties"]["expression"]["enum"] = json!(expressions);
+    add_follow_ups_to_schema(&mut schema);
     schema
+}
+pub fn remove_follow_ups_from_schema(schema: &mut Value) {
+    if let Some(properties) = schema.get_mut("properties").and_then(Value::as_object_mut) {
+        properties.remove("followUps");
+    }
+}
+pub fn add_follow_ups_to_schema(schema: &mut Value) {
+    schema["properties"]["followUps"] =
+        json!({"type":"array","maxItems":3,"items":{"type":"string","maxLength":24}});
+}
+pub(crate) fn require_follow_ups_in_strict_schema(schema: &mut Value) {
+    if schema.pointer("/properties/followUps").is_some() {
+        if let Some(required) = schema.get_mut("required").and_then(Value::as_array_mut) {
+            if !required.iter().any(|field| field.as_str() == Some("followUps")) {
+                required.push(json!("followUps"));
+            }
+        }
+    }
 }
 /// A small model's reply stops at 200 characters: past that it rambles over the balloon and runs
 /// into the token limit before closing the JSON.
 pub fn small_reply_schema_for(targets: &[String], expressions: &[&str]) -> Value {
     let mut schema = reply_schema_for(targets, expressions);
     schema["properties"]["text"]["maxLength"] = json!(200);
+    remove_follow_ups_from_schema(&mut schema);
     schema
 }
 /// Keeps a small model's reply to its first paragraph. The rest rambles, and once saved as
@@ -783,7 +824,9 @@ pub fn scene_schema_for(
     maximum: usize,
     expressions: &[&str],
 ) -> Value {
-    json!({"type":"object","additionalProperties":false,"required":["lines"],"properties":{"lines":{"type":"array","minItems":minimum,"maxItems":maximum,"items":reply_schema_for(targets, expressions)}}})
+    let mut line_schema = reply_schema_for(targets, expressions);
+    remove_follow_ups_from_schema(&mut line_schema);
+    json!({"type":"object","additionalProperties":false,"required":["lines"],"properties":{"lines":{"type":"array","minItems":minimum,"maxItems":maximum,"items":line_schema}}})
 }
 pub fn parse_lines_for(
     value: Value,
@@ -793,8 +836,8 @@ pub fn parse_lines_for(
     ordered: bool,
 ) -> Result<Vec<SceneLine>, String> {
     let object = value.as_object().ok_or("장면 형식이 올바르지 않습니다.")?;
-    if object.len() != 1 {
-        return Err("장면에는 lines만 허용됩니다.".into());
+    if object.len() != 1 && !(object.len() == 2 && object.contains_key("followUps")) {
+        return Err("장면에는 lines와 followUps만 허용됩니다.".into());
     }
     let lines = object
         .get("lines")
@@ -1110,6 +1153,19 @@ pub fn analysis_schema() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strict_follow_ups_are_required_only_when_present() {
+        let mut schema = super::reply_schema_for(&["a".into()], &["normal"]);
+        super::require_follow_ups_in_strict_schema(&mut schema);
+        super::require_follow_ups_in_strict_schema(&mut schema);
+        assert_eq!(schema["required"].as_array().unwrap().iter()
+            .filter(|field| field.as_str() == Some("followUps")).count(), 1);
+        let mut without = super::small_reply_schema_for(&["a".into()], &["normal"]);
+        super::require_follow_ups_in_strict_schema(&mut without);
+        assert!(!without["required"].as_array().unwrap().iter()
+            .any(|field| field.as_str() == Some("followUps")));
+    }
 
     #[test]
     fn truncated_latest_input_is_rejected_in_single_and_roster_prompts() {

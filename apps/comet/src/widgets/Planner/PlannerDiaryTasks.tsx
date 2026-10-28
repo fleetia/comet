@@ -26,7 +26,6 @@ export function PlannerDiaryTasks({
   lists,
   envelopes,
   todo,
-  todoInstalled,
   calendar,
   busy,
   act,
@@ -45,14 +44,12 @@ export function PlannerDiaryTasks({
   onOpenInbox,
   onManageLists,
   onWrap,
-  onEnableTodo,
 }: {
   day: string;
   items: DataRecord[];
   lists: DataRecord[];
   envelopes: DataRecord[];
   todo: WidgetView | undefined;
-  todoInstalled: boolean;
   calendar: WidgetView | undefined;
   busy: boolean;
   act: ToolAction;
@@ -73,7 +70,6 @@ export function PlannerDiaryTasks({
   onOpenInbox: () => void;
   onManageLists: () => void;
   onWrap: () => void;
-  onEnableTodo: () => Promise<void>;
 }): ReactElement {
   const { dragging, draggedTask } = usePlannerTaskDrag({ busy, todo, items });
   const completed = (item: DataRecord): boolean =>
@@ -323,7 +319,7 @@ export function PlannerDiaryTasks({
           )}
         </>
       ) : (
-        <PlannerTodoEmpty installed={todoInstalled} busy={busy} onEnable={onEnableTodo} />
+        <PlannerTodoEmpty />
       )}
       {calendar && <PlannerAlertNotice widget={calendar} act={act} />}
     </section>

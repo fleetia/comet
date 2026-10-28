@@ -32,7 +32,7 @@ impl Runtime {
         now: i64,
     ) -> bool {
         let usable =
-            |widget: &&WidgetInstance| widget.installed && widget.enabled && widget.error.is_none();
+            |widget: &&WidgetInstance| widget.error.is_none();
         let timer = widgets.iter().filter(usable).find(|widget| {
             widget.kind == "focus-timer"
                 && widget.data["status"] == "running"
@@ -67,7 +67,7 @@ impl Runtime {
             && calendar_visible
             && widgets
                 .iter()
-                .any(|widget| widget.kind == "calendar" && widget.installed && widget.enabled);
+                .any(|widget| widget.kind == "calendar");
         let next = States {
             music_playing,
             calendar_open,
@@ -127,8 +127,6 @@ mod tests {
             id: "music".into(),
             kind: "music".into(),
             version: 1,
-            installed: true,
-            enabled: true,
             revision: 1,
             error: None,
             data: json!({"configured":true,"status":"ready","observation":{
@@ -160,13 +158,11 @@ mod tests {
         fresh.data["observation"]["observedAt"] = json!(104);
         runtime.update(&[timer.clone(), fresh], false, false, 105);
         assert!(runtime.states.music_playing);
-        for reason in 0..5 {
+        for reason in 0..3 {
             let mut invalid = timer.clone();
             match reason {
-                0 => invalid.installed = false,
-                1 => invalid.enabled = false,
-                2 => invalid.data["status"] = json!("paused"),
-                3 => invalid.data["deadline"] = json!(105),
+                0 => invalid.data["status"] = json!("paused"),
+                1 => invalid.data["deadline"] = json!(105),
                 _ => invalid.error = Some("failed".into()),
             }
             runtime.update(&[invalid], false, false, 105);
@@ -215,19 +211,17 @@ mod tests {
     }
 
     #[test]
-    fn disabled_removed_disconnected_hidden_and_restart_require_new_observation() {
-        for reason in 0..5 {
+    fn disconnected_hidden_and_restart_require_new_observation() {
+        for reason in 0..3 {
             let mut runtime = runtime();
             let mut widget = music();
             runtime.update(&[widget.clone()], false, false, 102);
             match reason {
-                0 => widget.enabled = false,
-                1 => widget.installed = false,
-                2 => widget.data["status"] = json!("offline"),
-                3 => widget.error = Some("disconnected".into()),
+                0 => widget.data["status"] = json!("offline"),
+                1 => widget.error = Some("disconnected".into()),
                 _ => {}
             }
-            runtime.update(&[widget], false, reason == 4, 103);
+            runtime.update(&[widget], false, reason == 2, 103);
             assert!(!runtime.states.music_playing);
             let mut fresh = music();
             runtime.update(&[fresh.clone()], false, false, 104);
@@ -244,7 +238,7 @@ mod tests {
         assert!(!restarted.states.music_playing);
     }
     #[test]
-    fn calendar_needs_enabled_install_and_actual_visible_calendar_destination() {
+    fn calendar_needs_actual_visible_calendar_destination() {
         let mut runtime = runtime();
         let mut calendar = music();
         calendar.kind = "calendar".into();
@@ -253,13 +247,6 @@ mod tests {
             assert_eq!(runtime.states.calendar_open, visible);
         }
         runtime.update(&[calendar.clone()], true, true, 111);
-        assert!(!runtime.states.calendar_open);
-        calendar.enabled = false;
-        runtime.update(&[calendar.clone()], true, false, 112);
-        assert!(!runtime.states.calendar_open);
-        calendar.enabled = true;
-        calendar.installed = false;
-        runtime.update(&[calendar], true, false, 113);
         assert!(!runtime.states.calendar_open);
         runtime.update(&[], true, false, 114);
         assert!(!runtime.states.calendar_open);
