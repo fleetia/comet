@@ -775,6 +775,12 @@ pub(crate) async fn open_playback_link(
         );
         return Ok(true);
     }
+    if link.kind == "memo" {
+        let (snapshot, epoch) = create_memo_for_playback(&state, &link.instance_id, &playback_id)?;
+        crate::app::phase(&app, &state, epoch, crate::types::RuntimePhase::Idle, None, None);
+        crate::widgets::memo_notes::reveal_created_note(&app, &state, &link.instance_id, snapshot).await?;
+        return Ok(true);
+    }
     if widgets::manifest(&link.kind).is_ok() {
         open_widget_inner(
             &app,
@@ -1070,6 +1076,21 @@ pub(crate) fn validate_playback_open(state: &AppState, id: Option<&str>) -> Resu
         }
     }
     Ok(())
+}
+
+fn create_memo_for_playback(
+    state: &AppState,
+    id: &str,
+    playback_id: &str,
+) -> Result<(WidgetSnapshot, u64), String> {
+    change(state, |db| {
+        validate_playback_open(state, Some(playback_id))?;
+        let current = storage::get(db, id)?;
+        validate_open_widget(state, &current, None)?;
+        let snapshot = crate::widgets::memo_notes::create_note(db, id)?;
+        let epoch = finish_playback_link(state, db)?;
+        Ok((snapshot, epoch))
+    })
 }
 
 fn create_memo_for_open(
@@ -1459,6 +1480,27 @@ fn fallback_reaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn memo_playback_open_finishes_before_the_new_revision_can_cancel_the_scene() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut state = crate::app::tests::state();
+        state.app_data = directory.path().into();
+        let memo = change(&state, |db| {
+            storage::install(db, &state.app_data, &["memo".into()])?;
+            Ok(storage::instances(db)?.remove(0))
+        }).unwrap();
+        *lock(&state.playback).unwrap() = Some(serde_json::from_value(serde_json::json!({
+            "id":"line", "persona":"a", "expression":"평온", "text":"메모", "source":"talk",
+            "endsAt":0, "lineIndex":0, "lineCount":1
+        })).unwrap());
+        let (snapshot, epoch) = create_memo_for_playback(&state, &memo.id, "line").unwrap();
+        assert_eq!(snapshot.widgets[0].instance.data["notes"].as_array().unwrap().len(), 1);
+        assert!(lock(&state.playback).unwrap().is_none());
+        assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
+        assert!(create_memo_for_playback(&state, &memo.id, "line").is_err());
+        assert_eq!(storage::get(&lock(&state.db).unwrap(), &memo.id).unwrap().data["notes"].as_array().unwrap().len(), 1);
+    }
 
     #[test]
     fn playback_link_reservation_prevents_duplicate_memo_creation() {
