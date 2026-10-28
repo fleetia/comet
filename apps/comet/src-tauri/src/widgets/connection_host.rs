@@ -32,6 +32,23 @@ struct Job {
 fn timestamp() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
+pub(crate) fn wake_session() -> &'static str {
+    static SESSION: OnceLock<String> = OnceLock::new();
+    SESSION.get_or_init(|| uuid::Uuid::new_v4().to_string())
+}
+pub(crate) fn wake_event_allowed(
+    state: &AppState,
+    db: &rusqlite::Connection,
+) -> Result<bool, String> {
+    let runtime = lock(&state.runtime)?;
+    let settings = crate::store::settings(db)?;
+    Ok(!runtime.hidden
+        && !runtime.paused
+        && !state.launcher_open.load(Ordering::SeqCst)
+        && settings.autonomous_enabled
+        && !crate::app::quiet_hours::automatic_blocked(state, &settings)?
+        && !storage::focus_active(db, timestamp())?)
+}
 fn semaphore() -> Arc<tokio::sync::Semaphore> {
     static LIMIT: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
     LIMIT
@@ -642,7 +659,10 @@ fn forget_music_credential(owner: String, pairing: String) {
     // OS credential dialogs must not hold the action/DB locks or delay application shutdown.
     std::thread::spawn(move || {
         if crate::widgets::music_bridge::forget(&owner, &pairing).is_err() {
-            crate::report_error!("music_credential_delete", "해제한 음악 연결의 저장된 인증 정보를 삭제하지 못했습니다.");
+            crate::report_error!(
+                "music_credential_delete",
+                "해제한 음악 연결의 저장된 인증 정보를 삭제하지 못했습니다."
+            );
         }
     });
 }
@@ -1240,9 +1260,7 @@ fn begin_information(state: &AppState, id: &str, manual: bool, time: i64) -> Res
         if !manual && lock(&state.widget_jobs)?.contains_key(id) {
             return Err("이미 조회 중입니다.".into());
         }
-        if !["weather", "music"].contains(&instance.kind.as_str())
-            && !(manual && instance.kind == "device")
-        {
+        if !["weather", "music", "device"].contains(&instance.kind.as_str()) {
             return Err("정보 연결 위젯이 아닙니다.".into());
         }
         if instance.data["configured"] != true {
@@ -1276,22 +1294,46 @@ async fn refresh_information(
     manual: bool,
 ) -> Result<(), String> {
     let time = timestamp();
+    let (reaction_epoch, reaction_allowed) = {
+        let _action = lock(&state.action)?;
+        let db = lock(&state.db)?;
+        let allowed = storage::get(&db, id)?.kind != "device" || wake_event_allowed(state, &db)?;
+        (state.epoch.load(Ordering::SeqCst), allowed)
+    };
     let job = begin_information(state, id, manual, time)?;
     publish_widgets(app, state);
     let result = execute(&job, async {
         Ok(refresh_observation(&job.instance, time).await)
     })
     .await;
+    let needs_notification = job.instance.kind == "device"
+        && reaction_allowed
+        && job.instance.data["config"]["criticalNotification"] == true
+        && matches!(&result, Ok(Ok(value)) if {
+            let mut next = value.clone();
+            connections::device_events(&job.instance.data, &mut next)
+                .iter().any(|event| event.kind == "device.critical")
+        });
+    let notification_allowed = needs_notification
+        && crate::widgets::planning::notifications::get_planner_notification_permission(
+            app.clone(),
+        )
+        .await
+        .as_deref()
+        .is_ok_and(|value| matches!(value, "granted" | "system"));
     let outcome = match result {
         Ok(result) => finish(state, &job, |db, current| {
-            let data = match &result {
+            let mut events = vec![];
+            let mut data = match &result {
                 Ok(value) => {
                     let mut value = value.clone();
+                    if current.kind == "device" {
+                        events = connections::device_events(&current.data, &mut value);
+                    }
                     value["lastAttemptAt"] = json!(time);
                     value["failureCount"] = json!(0);
-                    value["nextRefreshAt"] = json!(timestamp().saturating_add(
-                        connections::refresh_interval(&current.kind, &current.data)
-                    ));
+                    value["nextRefreshAt"] = json!(timestamp()
+                        .saturating_add(connections::refresh_interval(&current.kind, &value)));
                     value
                 }
                 Err(failure) => information_failure(
@@ -1301,7 +1343,73 @@ async fn refresh_information(
                     connections::refresh_interval(&current.kind, &current.data),
                 ),
             };
-            storage::commit_data(db, &current.id, current.revision, data, vec![], timestamp())?;
+            if current.kind == "device"
+                && current.data["pendingWakeAt"].as_i64().is_some_and(|at| {
+                    current.data["lastWakeAt"].as_i64() == Some(at)
+                        && timestamp().saturating_sub(at) <= 60_000
+                })
+                && current.data["pendingWakeSession"].as_str() == Some(wake_session())
+                && current.data["pendingWakeEpoch"].as_u64()
+                    == Some(state.epoch.load(Ordering::SeqCst))
+                && wake_event_allowed(state, db)?
+                && current.data["config"]["allowTalk"] != false
+            {
+                events.push(super::EventDraft {
+                    kind: "device-woke".into(),
+                    text: "다시 깨어났어요.".into(),
+                    payload: json!({}),
+                });
+            }
+            if current.kind == "device" {
+                data["pendingWakeAt"] = Value::Null;
+                data["pendingWakeEpoch"] = Value::Null;
+                data["pendingWakeSession"] = Value::Null;
+                if !reaction_allowed
+                    || state.epoch.load(Ordering::SeqCst) != reaction_epoch
+                    || !wake_event_allowed(state, db)?
+                {
+                    events.clear();
+                }
+            }
+            let notify = events.iter().any(|event| event.kind == "device.critical")
+                && current.data["config"]["criticalNotification"] == true;
+            let os_event = notify.then(|| super::WidgetEvent {
+                id: uuid::Uuid::new_v4().to_string(),
+                instance_id: current.id.clone(),
+                widget_kind: current.kind.clone(),
+                revision: current.revision + 1,
+                created_at: timestamp(),
+                expires_at: timestamp().saturating_add(30_000),
+                event: super::EventDraft {
+                    kind: "device.critical".into(),
+                    text: "배터리가 위험 수준이에요. 충전해 주세요.".into(),
+                    payload: json!({"bubbleEnabled":false}),
+                },
+            });
+            storage::commit_data(
+                db,
+                &current.id,
+                current.revision,
+                data.take(),
+                events,
+                timestamp(),
+            )?;
+            if let Some(event) = os_event.filter(|_| notification_allowed) {
+                if crate::widgets::planning::notifications::deliver_automatic_widget(
+                    app,
+                    state,
+                    db,
+                    &event,
+                    reaction_epoch,
+                )
+                .is_err()
+                {
+                    crate::report_error!(
+                        "battery_notification",
+                        "배터리 OS 알림을 표시하지 못했습니다."
+                    );
+                }
+            }
             result.map(|_| ()).map_err(|x| x.message)
         }),
         Err(error) => {
@@ -1398,7 +1506,7 @@ pub(crate) fn start_due_widget_refreshes(app: &AppHandle, state: &Arc<AppState>)
         } else {
             None
         };
-        let info = ["weather", "music"].contains(&instance.kind.as_str())
+        let info = ["weather", "music", "device"].contains(&instance.kind.as_str())
             && information_due(&instance, now);
         if calendar_id.is_none() && !info {
             continue;
@@ -1415,6 +1523,14 @@ pub(crate) fn start_due_widget_refreshes(app: &AppHandle, state: &Arc<AppState>)
             }
         });
     }
+}
+
+pub(crate) fn refresh_device_after_wake(app: &AppHandle, state: &Arc<AppState>, id: String) {
+    let app = app.clone();
+    let state = state.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = refresh_information(&app, &state, &id, false).await;
+    });
 }
 
 #[cfg(test)]

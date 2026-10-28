@@ -116,18 +116,33 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
         write_marker(&marker)?;
     }
     if let Err(error) = super::retired::migrate(&root) {
-        crate::report_error!("talk_migration_retired_widget", ".talk retired-widget migration: {error}");
+        crate::report_error!(
+            "talk_migration_retired_widget",
+            ".talk retired-widget migration: {error}"
+        );
     }
     migrate_defaults(&root);
     migrate_packs(&root);
     if let Err(error) = upgrade_bundled_dialogue(&root) {
-        crate::report_error!("talk_migration_dialogue", ".talk dialogue migration: {error}");
+        crate::report_error!(
+            "talk_migration_dialogue",
+            ".talk dialogue migration: {error}"
+        );
     }
     if let Err(error) = replace_byulkkori_dialogue(&root) {
-        crate::report_error!("talk_migration_byulkkori", ".talk byulkkori dialogue replacement: {error}");
+        crate::report_error!(
+            "talk_migration_byulkkori",
+            ".talk byulkkori dialogue replacement: {error}"
+        );
     }
     if let Err(error) = add_revived_widget_dialogue(&root) {
-        crate::report_error!("talk_migration_revived_widget", ".talk revived widget dialogue: {error}");
+        crate::report_error!(
+            "talk_migration_revived_widget",
+            ".talk revived widget dialogue: {error}"
+        );
+    }
+    if let Err(error) = add_battery_dialogue(&root) {
+        crate::report_error!("talk_migration_battery", ".talk battery dialogue: {error}");
     }
     migrate_encryption(&root);
     Ok(root)
@@ -176,6 +191,69 @@ fn add_revived_widget_dialogue(root: &Path) -> Result<(), String> {
         }
         // The entry goes last: until it imports them, the added files stay inert.
         super::files::atomic_write(&entry, bundled("index.talk")?.as_bytes())?;
+    }
+    super::files::atomic_write(&marker, b"1\n")
+}
+
+/// Add the battery reactions to an unmodified factory index without replacing authored scenes.
+fn add_battery_dialogue(root: &Path) -> Result<(), String> {
+    let marker = app_data_of(root)?.join(".talk-byulkkori-battery-v1");
+    if marker.try_exists().map_err(|error| error.to_string())? || !root.exists() {
+        return Ok(());
+    }
+    let pack = defaults::pack(defaults::BYULKKORI).ok_or("기본 대본을 찾지 못했어요.")?;
+    let target = root.join(PACKS_DIRECTORY).join(pack.id);
+    let entry = target.join("index.talk");
+    let device = target.join("widgets/device.talk");
+    let bundled = |name: &str| {
+        pack.files
+            .iter()
+            .find(|(path, _)| *path == name)
+            .map(|(_, source)| *source)
+            .ok_or("기본 대본을 찾지 못했어요.")
+    };
+    let read_optional = |path: &Path| match fs::read(path) {
+        Ok(bytes) => super::encryption::decode(&bytes).map(Some),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.to_string()),
+    };
+    let index = read_optional(&entry)?;
+    let default_index = super::encryption::decode(bundled("index.talk")?.as_bytes())?;
+    if index.as_deref() == Some(default_index.as_str()) {
+        if let Some(original) = read_optional(&device)? {
+            let mut source = original.clone();
+            let program = super::load_pack(&entry, &super::context::registry(), pack.id)
+                .map_err(|_| "배터리 대사를 추가하기 전에 기존 대화팩을 확인해 주세요.")?;
+            let default_device =
+                super::encryption::decode(bundled("widgets/device.talk")?.as_bytes())?;
+            let scenes: Vec<_> = default_device.split("\nscene: ").collect();
+            if let Some(low) = scenes
+                .iter()
+                .find(|scene| scene.starts_with("device.low\n"))
+            {
+                let current = format!("\nscene: {low}");
+                let previous = current.replacen("cooldown: 1h\n", "cooldown: 30m\n", 1);
+                source = source.replace(&previous, &current);
+            }
+            for id in [
+                "device.event-low",
+                "device.event-critical",
+                "device.event-charging-started",
+                "device.event-charged",
+            ] {
+                if program.scenes.iter().any(|scene| scene.id == id) {
+                    continue;
+                }
+                let scene = scenes
+                    .iter()
+                    .find(|scene| scene.starts_with(&format!("{id}\n")))
+                    .ok_or("기본 배터리 대사를 찾지 못했어요.")?;
+                source.push_str(&format!("\nscene: {scene}"));
+            }
+            if source != original {
+                super::files::atomic_write(&device, &super::encryption::encode(&source)?)?;
+            }
+        }
     }
     super::files::atomic_write(&marker, b"1\n")
 }
@@ -635,7 +713,10 @@ fn migrate_encryption(root: &Path) {
         return;
     }
     if let Err(error) = super::files::seal_bundle(root, &super::context::registry()) {
-        crate::report_error!("talk_migration_encryption", ".talk encryption migration: {error}");
+        crate::report_error!(
+            "talk_migration_encryption",
+            ".talk encryption migration: {error}"
+        );
     }
 }
 

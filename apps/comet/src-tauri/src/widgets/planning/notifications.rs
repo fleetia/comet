@@ -15,7 +15,7 @@ pub(crate) async fn get_planner_notification_permission(
 pub(crate) async fn request_planner_notification_permission(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    // This is only invoked by the explicit permission button, never by a timer.
+    // Only explicit user actions request permission, never an automatic event.
     native::permission(&app, true).await
 }
 
@@ -85,6 +85,30 @@ pub(crate) fn deliver(
             let _ = app.emit("planner-notification-error", error);
         }
     });
+}
+
+pub(crate) fn deliver_automatic_widget(
+    app: &tauri::AppHandle,
+    state: &crate::AppState,
+    db: &rusqlite::Connection,
+    event: &crate::widgets::WidgetEvent,
+    epoch: u64,
+) -> Result<(), String> {
+    if state.epoch.load(Ordering::SeqCst) != epoch
+        || !crate::widgets::connection_host::wake_event_allowed(state, db)?
+        || !crate::widgets::commands::event_current(db, &bubble_fallback(event))?
+    {
+        return Ok(());
+    }
+    native::show(
+        app,
+        &event.instance_id,
+        event.created_at,
+        &event.event.text,
+        false,
+        true,
+        &event.id,
+    )
 }
 
 fn show_delivery(

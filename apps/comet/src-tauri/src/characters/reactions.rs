@@ -15,6 +15,11 @@ pub const EVENTS: &[(&str, &str)] = &[
     ("calendar-reminder", "캘린더 알림"),
     ("planner-reminder", "일정 알림"),
     ("planner-mood", "일정 분위기 변화"),
+    ("device-woke", "절전 복귀"),
+    ("device.low", "배터리 부족"),
+    ("device.critical", "배터리 위험"),
+    ("device.charging-started", "배터리 충전 시작"),
+    ("device.charged", "배터리 충전 완료"),
     ("interaction.touch", "교감 위젯"),
     ("ball.stopped", "위젯 공 멈춤"),
     ("paper-plane.landed", "위젯 종이비행기 착지"),
@@ -371,7 +376,6 @@ pub fn select(
 }
 
 const RETIRED_EVENTS: &[&str] = &[
-    "device-woke",
     "guessing.attempt",
     "fishing.bite",
     "fishing.missed",

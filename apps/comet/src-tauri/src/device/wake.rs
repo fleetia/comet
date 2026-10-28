@@ -12,13 +12,56 @@ fn receive_wake(app: &tauri::AppHandle) {
         let Some(state) = app.try_state::<Arc<AppState>>() else {
             return Ok(());
         };
-        let _action = lock(&state.action)?;
-        // A wake callback resets reminder cursors even after a short sleep. No missed
-        // threshold, snooze, or mood transition should be replayed on resume.
-        lock(&state.widget_clocks)?.clear();
-        lock(&state.app_usage_tracker)?.clear();
-        app.state::<crate::desktop::toys::Runtime>()
-            .discard_pending_outcomes();
+        let at = chrono::Utc::now().timestamp_millis();
+        let mut devices = Vec::new();
+        {
+            let _action = lock(&state.action)?;
+            lock(&state.widget_clocks)?.clear();
+            lock(&state.app_usage_tracker)?.clear();
+            app.state::<crate::desktop::toys::Runtime>()
+                .discard_pending_outcomes();
+            if crate::unavailable(&state) {
+                return Ok(());
+            }
+            let db = lock(&state.db)?;
+            let can_react = crate::widgets::connection_host::wake_event_allowed(&state, &db)?;
+            for instance in crate::widgets::storage::instances(&db)? {
+                if instance.kind != "device"
+                    || !instance.installed
+                    || !instance.enabled
+                    || instance.data["configured"] != true
+                {
+                    continue;
+                }
+                if let Some(job) = lock(&state.widget_jobs)?.remove(&instance.id) {
+                    job.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+                let mut data = instance.data.clone();
+                data["lastWakeAt"] = serde_json::json!(at);
+                data["pendingWakeAt"] = serde_json::json!(can_react.then_some(at));
+                data["pendingWakeEpoch"] = serde_json::json!(
+                    can_react.then(|| state.epoch.load(std::sync::atomic::Ordering::SeqCst))
+                );
+                data["pendingWakeSession"] = serde_json::json!(
+                    can_react.then(crate::widgets::connection_host::wake_session)
+                );
+                data["nextRefreshAt"] = serde_json::json!(0);
+                data["failureCount"] = serde_json::json!(0);
+                data["status"] = serde_json::json!("stale");
+                crate::widgets::storage::commit_data(
+                    &db,
+                    &instance.id,
+                    instance.revision,
+                    data,
+                    vec![],
+                    at,
+                )?;
+                devices.push(instance.id);
+            }
+        }
+        for id in devices {
+            crate::widgets::connection_host::refresh_device_after_wake(app, &state, id);
+        }
         Ok(())
     }));
 }

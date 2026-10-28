@@ -256,6 +256,10 @@ pub fn registry() -> Registry {
             "planner-reminder",
             "planner-mood",
             "device-woke",
+            "device.low",
+            "device.critical",
+            "device.charging-started",
+            "device.charged",
             "interaction.touch",
             "ball.stopped",
             "paper-plane.landed",
@@ -316,6 +320,11 @@ fn project(snapshot: &WidgetSnapshot, now: i64) -> (BTreeMap<String, Value>, BTr
         }
         available.insert(kind.to_owned());
         let d = &widget.instance.data;
+        if kind == "device" && d["config"]["allowTalk"] == false {
+            set("status", json!("disabled"));
+            available.remove(kind);
+            continue;
+        }
         let external = matches!(kind, "weather" | "music" | "device");
         let mut ready = widget.status == "enabled";
         if external {

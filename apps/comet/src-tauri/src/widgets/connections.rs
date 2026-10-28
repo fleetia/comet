@@ -1,4 +1,4 @@
-use super::appearance;
+use super::{appearance, EventDraft};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -32,6 +32,12 @@ struct State {
     last_success_at: Option<i64>,
     #[serde(default)]
     last_wake_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending_wake_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending_wake_epoch: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending_wake_session: Option<String>,
     error: Option<String>,
     config: Value,
     observation: Option<Value>,
@@ -39,6 +45,20 @@ struct State {
     spicetify_pairing_id: Option<String>,
     #[serde(default)]
     appearance: appearance::Appearance,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    latches: Option<DeviceLatches>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct DeviceLatches {
+    #[serde(default)]
+    low: bool,
+    #[serde(default)]
+    critical: bool,
+    #[serde(default)]
+    charged: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_status: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -89,9 +109,29 @@ fn enabled() -> bool {
     true
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DeviceConfig {}
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DeviceConfig {
+    #[serde(default = "enabled")]
+    allow_talk: bool,
+    #[serde(default = "low_threshold")]
+    low_threshold: u8,
+    #[serde(default)]
+    critical_notification: bool,
+}
+
+fn low_threshold() -> u8 {
+    20
+}
+
+fn device_config(input: &Value) -> Result<DeviceConfig, String> {
+    let config: DeviceConfig =
+        serde_json::from_value(input.clone()).map_err(|_| "기기 조회 설정이 올바르지 않아요.")?;
+    if !(10..=50).contains(&config.low_threshold) {
+        return Err("낮은 배터리 기준은 10~50%로 설정해 주세요.".into());
+    }
+    Ok(config)
+}
 
 pub fn initial(kind: &str) -> Value {
     if !["weather", "music", "device"].contains(&kind) {
@@ -104,10 +144,14 @@ pub fn min_interval(kind: &str) -> i64 {
     match kind {
         "weather" => 30 * 60 * 1000,
         "music" => 15 * 1000,
+        "device" => 5 * 60 * 1000,
         _ => 60 * 1000,
     }
 }
 pub fn refresh_interval(kind: &str, data: &Value) -> i64 {
+    if kind == "device" && data["observation"]["hasBattery"] == false {
+        return 24 * 60 * 60 * 1000;
+    }
     if kind == "weather" {
         return data["config"]["refreshIntervalMinutes"]
             .as_i64()
@@ -164,9 +208,7 @@ pub fn configure(kind: &str, data: &Value, input: &Value) -> Result<Value, Strin
         }
         "music" => serde_json::to_value(music_config(input)?).map_err(|error| error.to_string())?,
         "device" => {
-            serde_json::from_value::<DeviceConfig>(input.clone())
-                .map_err(|_| "기기 조회 설정이 올바르지 않아요.")?;
-            json!({})
+            serde_json::to_value(device_config(input)?).map_err(|error| error.to_string())?
         }
         _ => return Err("지원하지 않는 정보 연결이에요.".into()),
     };
@@ -188,6 +230,7 @@ pub fn configure(kind: &str, data: &Value, input: &Value) -> Result<Value, Strin
         "music" => ["provider", "allowedProviders"]
             .iter()
             .all(|key| state.config[*key] == config[*key]),
+        "device" => state.configured,
         _ => false,
     };
     state.config = config;
@@ -199,6 +242,73 @@ pub fn configure(kind: &str, data: &Value, input: &Value) -> Result<Value, Strin
         state.error = None;
     }
     serde_json::to_value(state).map_err(|error| error.to_string())
+}
+
+pub(crate) fn device_events(previous: &Value, next: &mut Value) -> Vec<EventDraft> {
+    fn battery(data: &Value) -> Option<&Value> {
+        data["observation"]["batteries"]
+            .as_array()?
+            .iter()
+            .min_by_key(|item| item["percent"].as_u64().unwrap_or(101))
+    }
+    let Ok(config) = device_config(&next["config"]) else {
+        return vec![];
+    };
+    let mut latches: DeviceLatches =
+        serde_json::from_value(previous["latches"].clone()).unwrap_or_default();
+    let Some(current) = battery(next) else {
+        return vec![];
+    };
+    let status = current["status"].as_str().unwrap_or("unknown");
+    let percent = current["percent"].as_u64();
+    let previous_status = latches.last_status.clone().or_else(|| {
+        battery(previous)
+            .and_then(|item| item["status"].as_str())
+            .filter(|status| matches!(*status, "discharging" | "charging" | "charged"))
+            .map(str::to_owned)
+    });
+    let mut events = vec![];
+    let mut emit = |kind: &str, text: &str| {
+        if config.allow_talk {
+            events.push(EventDraft {
+                kind: kind.into(),
+                text: text.into(),
+                payload: json!({}),
+            });
+        }
+    };
+    match status {
+        "discharging" => {
+            latches.charged = false;
+            if percent.is_some_and(|value| value <= u64::from(config.low_threshold)) && !latches.low
+            {
+                latches.low = true;
+                emit("device.low", "배터리가 얼마 남지 않았어요.");
+            }
+            if percent.is_some_and(|value| value <= 10) && !latches.critical {
+                latches.critical = true;
+                emit(
+                    "device.critical",
+                    "배터리가 위험 수준이에요. 충전해 주세요.",
+                );
+            }
+        }
+        "charging" | "charged" => {
+            latches.low = false;
+            latches.critical = false;
+            if status == "charging" && previous_status.as_deref() == Some("discharging") {
+                emit("device.charging-started", "배터리 충전을 시작했어요.");
+            }
+            if (status == "charged" || percent == Some(100)) && !latches.charged {
+                latches.charged = true;
+                emit("device.charged", "배터리가 다 충전됐어요.");
+            }
+        }
+        _ => return vec![],
+    }
+    latches.last_status = Some(status.to_owned());
+    next["latches"] = serde_json::to_value(latches).unwrap_or(Value::Null);
+    events
 }
 
 fn client() -> Result<reqwest::Client, ConnectionError> {
@@ -719,9 +829,8 @@ pub async fn refresh(kind: &str, data: &Value, now: i64) -> Result<Value, Connec
             .await?
         }
         "device" => {
-            serde_json::from_value::<DeviceConfig>(state.config.clone()).map_err(|_| {
-                failure("permission-needed", "기기 조회 설정을 다시 확인해 주세요.")
-            })?;
+            device_config(&state.config)
+                .map_err(|message| failure("permission-needed", &message))?;
             device(now).await?
         }
         _ => return Err(failure("unsupported", "지원하지 않는 정보 연결이에요.")),
