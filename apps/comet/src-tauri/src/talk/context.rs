@@ -1,7 +1,7 @@
 use super::{EvalContext, Registry, ValueType, Variable};
 pub use crate::widgets::WidgetEvent;
 use crate::widgets::{self, storage, WidgetSnapshot};
-use chrono::{DateTime, Local, NaiveDate, Timelike};
+use chrono::{DateTime, Datelike, Local, NaiveDate, Timelike};
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -38,7 +38,13 @@ const FIELDS: &[(&str, &str, &str, &str, &str)] = &[
         "",
     ),
     ("memo", "memo", "count", "", ""),
-    ("weather", "weather", "temperature code", "name", ""),
+    (
+        "weather",
+        "weather",
+        "temperature code tomorrowCode tomorrowMax tomorrowMin tomorrowRainProb lastYearCode lastYearMax lastYearMin todayMax todayMin",
+        "name tomorrowName lastYearName lastYearSource",
+        "",
+    ),
     ("music", "music", "", "title artist", "running playing"),
     (
         "device",
@@ -102,6 +108,18 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         (_, "temperature") => "최근 관측 기온(섭씨). 관측·조회 성공 시각 모두 2시간 이내일 때만 제공",
         (_, "code") => "날씨 제공자의 WMO weatherCode 숫자",
         ("weather", "name") => "관측 대상 지역 이름",
+        ("weather", "tomorrowCode") => "내일 예보의 WMO weatherCode 숫자",
+        ("weather", "tomorrowName") => "내일 예보의 날씨 이름",
+        ("weather", "tomorrowMax") => "내일 예보 최고 기온(섭씨)",
+        ("weather", "tomorrowMin") => "내일 예보 최저 기온(섭씨)",
+        ("weather", "tomorrowRainProb") => "내일 예보 최대 강수 확률(%)",
+        ("weather", "lastYearCode") => "작년 오늘 날씨의 WMO weatherCode 숫자",
+        ("weather", "lastYearName") => "작년 오늘 날씨 이름",
+        ("weather", "lastYearMax") => "작년 오늘 최고 기온(섭씨)",
+        ("weather", "lastYearMin") => "작년 오늘 최저 기온(섭씨)",
+        ("weather", "lastYearSource") => "작년 날씨의 출처: live(직접 관측) 또는 archive(보충 자료)",
+        ("weather", "todayMax") => "오늘 예보 최고 기온(섭씨)",
+        ("weather", "todayMin") => "오늘 예보 최저 기온(섭씨)",
         (_, "running") => "음악 제공 앱이 실행 중인지 여부",
         (_, "playing") if prefix == "music" => "현재 음악을 재생 중인지 여부. 중지·일시정지는 false",
         ("music", "title") => "현재 재생 중인 곡 제목. 비재생 시 null",
@@ -256,6 +274,8 @@ pub fn registry() -> Registry {
             "planner-reminder",
             "planner-mood",
             "device-woke",
+            "weather.rain-tomorrow",
+            "weather.last-year",
             "interaction.touch",
             "ball.stopped",
             "paper-plane.landed",
@@ -284,7 +304,10 @@ fn fresh(data: &Value, now: i64, age: i64) -> bool {
             .as_i64()
             .is_some_and(|at| now >= at && now - at <= age)
 }
-fn project(snapshot: &WidgetSnapshot, now: i64) -> (BTreeMap<String, Value>, BTreeSet<String>) {
+pub(crate) fn project(
+    snapshot: &WidgetSnapshot,
+    now: i64,
+) -> (BTreeMap<String, Value>, BTreeSet<String>) {
     let mut values = registry()
         .variables
         .keys()
@@ -513,6 +536,55 @@ fn project(snapshot: &WidgetSnapshot, now: i64) -> (BTreeMap<String, Value>, BTr
                 set("temperature", o["temperature"].clone());
                 set("code", o["weatherCode"].clone());
                 set("name", o["name"].clone());
+                let forecast = &d["forecast"];
+                let weather_today = DateTime::from_timestamp_millis(now).and_then(|instant| {
+                    forecast["timezone"]
+                        .as_str()
+                        .and_then(|name| name.parse::<chrono_tz::Tz>().ok())
+                        .map(|zone| instant.with_timezone(&zone).date_naive())
+                });
+                if weather_today.is_some_and(|day| {
+                    forecast["today"]["date"].as_str() == Some(day.to_string().as_str())
+                }) {
+                    for (field, source) in [("todayMax", "tMax"), ("todayMin", "tMin")] {
+                        set(field, forecast["today"][source].clone());
+                    }
+                }
+                if weather_today
+                    .and_then(|day| day.succ_opt())
+                    .is_some_and(|day| {
+                        forecast["tomorrow"]["date"].as_str() == Some(day.to_string().as_str())
+                    })
+                {
+                    for (field, source) in [
+                        ("tomorrowCode", "code"),
+                        ("tomorrowName", "name"),
+                        ("tomorrowMax", "tMax"),
+                        ("tomorrowMin", "tMin"),
+                        ("tomorrowRainProb", "precipProb"),
+                    ] {
+                        set(field, forecast["tomorrow"][source].clone());
+                    }
+                }
+                let last_year = &d["lastYear"];
+                let last_year_day = last_year["date"]
+                    .as_str()
+                    .and_then(|date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok());
+                let expected_last_year = weather_today.and_then(|day| {
+                    day.with_year(day.year() - 1)
+                        .or_else(|| day.pred_opt()?.with_year(day.year() - 1))
+                });
+                if expected_last_year.is_some() && expected_last_year == last_year_day {
+                    for (field, source) in [
+                        ("lastYearCode", "code"),
+                        ("lastYearName", "name"),
+                        ("lastYearMax", "tMax"),
+                        ("lastYearMin", "tMin"),
+                        ("lastYearSource", "source"),
+                    ] {
+                        set(field, last_year[source].clone());
+                    }
+                }
             }
             "music" => {
                 if d["config"]["allowTalk"] == false {

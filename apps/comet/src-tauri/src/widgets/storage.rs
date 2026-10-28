@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS widget_events(seq INTEGER PRIMARY KEY AUTOINCREMENT,
 id TEXT UNIQUE NOT NULL,instance_id TEXT NOT NULL,data TEXT NOT NULL,pending INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS widget_journal(event_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS widget_preferences(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS weather_history(day TEXT NOT NULL,lat REAL NOT NULL,lon REAL NOT NULL,code INTEGER NOT NULL,tMax REAL NOT NULL,tMin REAL NOT NULL,tObserved REAL,source TEXT NOT NULL DEFAULT 'live',PRIMARY KEY(day,lat,lon));
 CREATE TABLE IF NOT EXISTS desktop_toy_results(id TEXT PRIMARY KEY,widget_id TEXT NOT NULL,kind TEXT NOT NULL,created_at INTEGER NOT NULL,data TEXT NOT NULL);",
     )
     .map_err(err)?;
@@ -902,6 +903,61 @@ pub fn commit_data(
     }
     apply_effect(&tx, instance, WidgetEffect { data, events }, now)?;
     tx.commit().map_err(err)
+}
+
+pub(crate) fn record_daily_weather_event(
+    db: &Connection,
+    instance: &WidgetInstance,
+    draft: EventDraft,
+    day: &str,
+    now: i64,
+) -> Result<bool> {
+    let tx = db.unchecked_transaction().map_err(err)?;
+    let key = format!("weather-talk:{}", draft.kind);
+    let previous: Option<String> = tx
+        .query_row(
+            "SELECT value FROM widget_preferences WHERE key=?1",
+            [&key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(err)?;
+    if previous.as_deref() == Some(day) {
+        return Ok(false);
+    }
+    let current = get(&tx, &instance.id)?;
+    if !current.installed || !current.enabled || current.revision != instance.revision {
+        return Ok(false);
+    }
+    let event = WidgetEvent {
+        id: uuid::Uuid::new_v4().to_string(),
+        instance_id: instance.id.clone(),
+        widget_kind: instance.kind.clone(),
+        revision: instance.revision,
+        created_at: now,
+        expires_at: now.saturating_add(30_000),
+        event: draft,
+    };
+    tx.execute(
+        "INSERT INTO widget_events(id,instance_id,data,pending) VALUES(?1,?2,?3,1)",
+        params![
+            event.id,
+            event.instance_id,
+            serde_json::to_string(&event).map_err(err)?
+        ],
+    )
+    .map_err(err)?;
+    tx.execute(
+        "INSERT OR IGNORE INTO widget_journal VALUES(?1)",
+        [&event.id],
+    )
+    .map_err(err)?;
+    tx.execute(
+        "INSERT INTO widget_preferences(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        params![key, day],
+    ).map_err(err)?;
+    tx.commit().map_err(err)?;
+    Ok(true)
 }
 
 pub(crate) fn record_desktop_result(

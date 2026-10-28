@@ -9,7 +9,9 @@ use crate::{
     types::SceneLine,
     widgets::{self, storage, WidgetEvent, WidgetRequest, WidgetSnapshot},
 };
-use serde_json::Value;
+use chrono::{Local, Timelike};
+use rusqlite::OptionalExtension;
+use serde_json::{json, Value};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -371,6 +373,7 @@ pub(crate) fn event_current(
     let all = storage::instances(db)?;
     Ok(event.expires_at > chrono::Utc::now().timestamp_millis()
         && widgets::reminders::event_current(db, event)?
+        && weather_event_current(db, event)?
         && all.iter().any(|instance| {
             instance.id == event.instance_id
                 && instance.installed
@@ -1142,15 +1145,37 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
             || crate::app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?;
         let alerted =
             widgets::reminders::advance(db, &mut *lock(&state.widget_clocks)?, timestamp, quiet)?;
-        let runtime = lock(&state.runtime)?;
-        if state.launcher_open.load(Ordering::SeqCst)
+        let runtime = lock(&state.runtime)?.clone();
+        let suspended = state.launcher_open.load(Ordering::SeqCst)
             || runtime.hidden
-            || !store::settings(db)?.autonomous_enabled
-        {
+            || !store::settings(db)?.autonomous_enabled;
+        if suspended {
             storage::discard_pending(db)?;
         }
-        drop(runtime);
-        hold_for_focus(state, db)?;
+        let blocked = hold_for_focus(state, db)?;
+        if !suspended
+            && !quiet
+            && !blocked
+            && runtime.phase == "idle"
+            && lock(&state.panel)?.is_none()
+            && lock(&state.pack_stories)?.run.is_none()
+            && now() - state.last_input.load(Ordering::SeqCst) >= 3
+            && !crate::behavior::reactions_blocked(state)?
+        {
+            let due = {
+                let mut clocks = lock(&state.widget_clocks)?;
+                let previous = clocks.get("weather-talk").copied();
+                if previous.is_none_or(|at| timestamp < at || timestamp - at >= 60_000) {
+                    clocks.insert("weather-talk".into(), timestamp);
+                    true
+                } else {
+                    false
+                }
+            };
+            if due {
+                advance_weather_talk(db, timestamp)?;
+            }
+        }
         if changed || alerted.changed {
             cancel_stale_widget_scene(state, db)?;
         }
@@ -1174,6 +1199,92 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
         let _ = app.emit("widgets-state", snapshot);
     }
     Ok(())
+}
+
+fn advance_weather_talk(db: &rusqlite::Connection, timestamp: i64) -> Result<(), String> {
+    let Some(local) = chrono::DateTime::from_timestamp_millis(timestamp)
+        .map(|instant| instant.with_timezone(&Local))
+    else {
+        return Ok(());
+    };
+    let (kind, text) = match local.hour() {
+        7..=11 => ("weather.last-year", "작년 오늘 날씨를 살펴볼까요?"),
+        18..=22 => (
+            "weather.rain-tomorrow",
+            "내일 비 예보가 있어요. 우산을 챙겨요.",
+        ),
+        _ => return Ok(()),
+    };
+    let day = local.date_naive().to_string();
+    let key = format!("weather-talk:{kind}");
+    let previous: Option<String> = db
+        .query_row(
+            "SELECT value FROM widget_preferences WHERE key=?1",
+            [&key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    if previous.as_deref() == Some(day.as_str()) {
+        return Ok(());
+    }
+    let snapshot = storage::snapshot(db)?;
+    let (values, _) = crate::talk::context::project(&snapshot, timestamp);
+    let eligible = values["weather.ready"] == true
+        && if kind == "weather.rain-tomorrow" {
+            values["weather.tomorrowRainProb"]
+                .as_f64()
+                .is_some_and(|probability| probability >= 60.0)
+        } else {
+            !values["weather.lastYearCode"].is_null()
+        };
+    if !eligible {
+        return Ok(());
+    }
+    if let Some(weather) = snapshot
+        .widgets
+        .iter()
+        .find(|widget| widget.instance.kind == "weather")
+    {
+        storage::record_daily_weather_event(
+            db,
+            &weather.instance,
+            widgets::EventDraft {
+                kind: kind.into(),
+                text: text.into(),
+                payload: json!({"day": &day}),
+            },
+            &day,
+            timestamp,
+        )?;
+    }
+    Ok(())
+}
+
+fn weather_event_current(db: &rusqlite::Connection, event: &WidgetEvent) -> Result<bool, String> {
+    if !matches!(
+        event.event.kind.as_str(),
+        "weather.rain-tomorrow" | "weather.last-year"
+    ) {
+        return Ok(true);
+    }
+    let timestamp = chrono::Utc::now().timestamp_millis();
+    let local = Local::now();
+    if event.event.payload["day"].as_str() != Some(local.date_naive().to_string().as_str())
+        || (event.event.kind == "weather.rain-tomorrow" && !(18..=22).contains(&local.hour()))
+        || (event.event.kind == "weather.last-year" && !(7..=11).contains(&local.hour()))
+    {
+        return Ok(false);
+    }
+    let (values, _) = crate::talk::context::project(&storage::snapshot(db)?, timestamp);
+    Ok(values["weather.ready"] == true
+        && if event.event.kind == "weather.rain-tomorrow" {
+            values["weather.tomorrowRainProb"]
+                .as_f64()
+                .is_some_and(|probability| probability >= 60.0)
+        } else {
+            !values["weather.lastYearCode"].is_null()
+        })
 }
 
 /// Caller holds action and db. Share eligibility and queue consumption with the scheduler tests.
@@ -1204,7 +1315,12 @@ pub(crate) fn take_pending_reaction(
     hold_for_focus(state, db)?;
     let event = storage::take_reaction(db, chrono::Utc::now().timestamp_millis())?;
     match event {
-        Some(event) if widgets::reminders::event_current(db, &event)? => Ok(Some(event)),
+        Some(event)
+            if widgets::reminders::event_current(db, &event)?
+                && weather_event_current(db, &event)? =>
+        {
+            Ok(Some(event))
+        }
         _ => Ok(None),
     }
 }

@@ -129,8 +129,44 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
     if let Err(error) = add_revived_widget_dialogue(&root) {
         crate::report_error!("talk_migration_revived_widget", ".talk revived widget dialogue: {error}");
     }
+    if let Err(error) = upgrade_weather_dialogue(&root) {
+        crate::report_error!("talk_migration_weather", ".talk weather dialogue: {error}");
+    }
     migrate_encryption(&root);
     Ok(root)
+}
+
+fn upgrade_weather_dialogue(root: &Path) -> Result<(), String> {
+    let marker = app_data_of(root)?.join(".talk-byulkkori-weather-v1");
+    if marker.try_exists().map_err(|error| error.to_string())? || !root.exists() {
+        return Ok(());
+    }
+    let name = "situations/weather.talk";
+    let path = root
+        .join(PACKS_DIRECTORY)
+        .join(defaults::BYULKKORI)
+        .join(name);
+    match fs::read(&path) {
+        Ok(bytes) => {
+            let source = super::encryption::decode(&bytes)?;
+            if hex::encode(Sha256::digest(source.as_bytes()))
+                == "5daac9d1b9bcada63486755104054ae2489aa3beab952cc781d0d01e7f14fa3e"
+            {
+                let pack =
+                    defaults::pack(defaults::BYULKKORI).ok_or("기본 대본을 찾지 못했어요.")?;
+                let bundled = pack
+                    .files
+                    .iter()
+                    .find(|(file, _)| *file == name)
+                    .map(|(_, source)| *source)
+                    .ok_or("기본 대본을 찾지 못했어요.")?;
+                super::files::atomic_write(&path, bundled.as_bytes())?;
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.to_string()),
+    }
+    super::files::atomic_write(&marker, b"1\n")
 }
 
 const REVIVED_WIDGET_FILES: [&str; 6] = [
