@@ -1517,12 +1517,14 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         .cloned()
         .collect::<Vec<_>>();
     drop((runtime, presence, guests));
-    let birthday_expired = playback
-        .as_ref()
-        .is_some_and(|line| line.source == "talk" && line.display_started_at.is_none())
+    let birthday_expired = playback.as_ref().is_some_and(|line| line.source == "talk" && line.display_started_at.is_none())
         && !crate::talk::host::birthday_current(&state, &db)?;
+    let stale_activity = playback.as_ref().is_some_and(|line| line.source == "talk")
+        && crate::talk::host::activity_in_playback(&state)?
+        && !crate::talk::host::current(&state, &db)?;
     let target = if super::unavailable(&state)
         || birthday_expired
+        || stale_activity
         || (crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
             && panel.as_ref().is_none_or(|panel| {
                 matches!(
@@ -1657,7 +1659,7 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
                 crate::app::scene::record_link_hint_displayed(&db, line)?;
                 displayed_message = line
                     .display_started_at
-                    .map(|at| (line.id.clone(), at, line.source == "talk"));
+                    .map(|at| (line.id.clone(), at, line.source.clone()));
                 if line.source == "talk" && line.line_index == 0 {
                     crate::talk::host::mark_birthday_displayed(
                         &state, &db, line.display_started_at.unwrap_or_default(),
@@ -1673,14 +1675,21 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         }
     }
     drop((playback, story));
-    if let Some((id, at, is_talk)) = displayed_message {
+    if let Some((_, at, source)) = displayed_message.as_ref() {
+        if source == "talk" && crate::talk::host::activity_in_playback(&state)? {
+            crate::talk::host::record_recall_displayed(&state, &db, *at)?;
+        }
+    }
+    if let Some((id, at, source)) = displayed_message.filter(|(_, _, source)| {
+        source != "talk" || !crate::talk::host::activity_in_playback(&state).unwrap_or(true)
+    }) {
         store::mark_message_displayed_with_provenance(
             &db,
             &id,
             at,
             Some(state.automatic.load(Ordering::SeqCst)),
         )?;
-        if is_talk && store::message_displayed(&db, &id)? {
+        if source == "talk" && store::message_displayed(&db, &id)? {
             crate::talk::host::record_recall_displayed(&state, &db, at)?;
         }
         if let Some(ticket) = super::lock(&state.tasks)?.participants.clone() {

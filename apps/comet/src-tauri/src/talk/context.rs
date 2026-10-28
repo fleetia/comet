@@ -77,6 +77,11 @@ const FIELDS: &[(&str, &str, &str, &str, &str)] = &[
 fn description(prefix: &str, field: &str, nullable: bool) -> String {
     let text = match (prefix, field) {
         ("dialogue", "variant") => "한 대본 재생 동안 고정되는 0~4 변형 번호",
+        ("activity", "ready") => "전경 앱 관측이 켜져 있고 유효한 샘플이 있는지 여부",
+        ("activity", "appName") => "현재 전경 앱의 표시 이름. 제외 앱과 무입력 상태에는 null",
+        ("activity", "category") => "현재 앱 범주: editor, terminal, browser, chat, media, office, game, other",
+        ("activity", "minutes") => "현재 앱을 연속 사용한 분",
+        ("activity", "idleMinutes") => "입력이 없었던 연속 시간(분)",
         ("environment", "weatherReady") => "날씨 연결에 2시간 이내의 유효한 관측이 있는지 여부. 연결 실패·오래됨에는 false",
         ("environment", "weatherStatus") => "날씨 연결 상태. not-installed·disabled·offline·stale을 관측 성공과 구분",
         ("environment", "weatherTemperature") => "날씨 연결의 최신 관측 기온(섭씨)",
@@ -258,6 +263,13 @@ pub fn registry() -> Registry {
     add("interaction", "milestone", ValueType::Number, true, None);
     add("interaction", "milestoneAction", ValueType::String, true, None);
     add("dialogue", "variant", ValueType::Number, false, None);
+    add("activity", "ready", ValueType::Boolean, false, None);
+    for field in ["appName", "category"] {
+        add("activity", field, ValueType::String, true, None);
+    }
+    for field in ["minutes", "idleMinutes"] {
+        add("activity", field, ValueType::Number, true, None);
+    }
     add("environment", "hour", ValueType::Number, true, None);
     add(
         "environment",
@@ -330,6 +342,8 @@ pub fn registry() -> Registry {
             "idle",
             "user.birthday",
             "character.birthday",
+            "activity.long-session",
+            "activity.idle-return",
             "diary.recall",
             "todo-completed",
             "todo-undone",
@@ -521,6 +535,7 @@ pub(crate) fn project(
         .map(|name| (name.clone(), Value::Null))
         .collect::<BTreeMap<_, _>>();
     let mut available = BTreeSet::new();
+    values.insert("activity.ready".into(), json!(false));
     let instant = DateTime::from_timestamp_millis(now).map(|time| time.with_timezone(&Local));
     let today = instant.map(|time| time.date_naive());
     for &(prefix, kind, numbers, strings, booleans) in FIELDS {
