@@ -35,6 +35,7 @@ pub const PACKS: &[Pack] = &[
             "index.talk",
             "situations/duo.talk",
             "situations/group.talk",
+            "situations/recall.talk",
             "situations/solo.talk",
             "situations/time.talk",
             "situations/weather.talk",

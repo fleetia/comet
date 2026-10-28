@@ -326,6 +326,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
     if (viewTarget.entity === "page") {
       const page = diary.state.pages.find((value) => value.id === viewTarget.targetId);
       if (page) openPage(page);
+      else if (viewTarget.fallbackToToday) openDay(localDay());
       else setFailure("해당 기록을 현재 찾을 수 없어요. 원본이 삭제되었는지 확인해 주세요.");
       return;
     }
