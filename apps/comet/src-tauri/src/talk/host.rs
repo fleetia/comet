@@ -253,15 +253,7 @@ pub(crate) fn play_activity_reaction(
 ) -> Result<bool, String> {
     let pending = {
         let _action = lock(&state.action)?;
-        let events = {
-            let mut life = lock(&state.life)?;
-            let events = life.activity.take_events();
-            if !life.activity.ready() {
-                return Ok(false);
-            }
-            events
-        };
-        if events.is_empty() {
+        if !lock(&state.life)?.activity.has_events() {
             return Ok(false);
         }
         let status = lock(&state.runtime)?.clone();
@@ -270,16 +262,27 @@ pub(crate) fn play_activity_reaction(
         if crate::app::unavailable(state)
             || status.hidden
             || status.paused
-            || status.phase != "idle"
-            || state.launcher_open.load(Ordering::SeqCst)
             || !settings.autonomous_enabled
             || crate::app::quiet_hours::automatic_blocked(state, &settings)?
+        {
+            lock(&state.life)?.activity.take_events();
+            return Ok(false);
+        }
+        if !lock(&state.life)?.activity.ready() {
+            return Ok(false);
+        }
+        if status.phase != "idle"
+            || state.launcher_open.load(Ordering::SeqCst)
             || crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
             || lock(&state.panel)?.is_some()
             || lock(&state.pack_stories)?.run.is_some()
             || crate::behavior::reactions_blocked(state)?
             || crate::app::now() - state.last_input.load(Ordering::SeqCst) < 3
         {
+            return Ok(false);
+        }
+        let events = lock(&state.life)?.activity.take_events();
+        if events.is_empty() {
             return Ok(false);
         }
         let token = crate::app::interrupt_with_db(state, true, &db)?;

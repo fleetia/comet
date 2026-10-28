@@ -59,6 +59,10 @@ impl Runtime {
         std::mem::take(&mut self.events)
     }
 
+    pub(crate) fn has_events(&self) -> bool {
+        !self.events.is_empty()
+    }
+
     pub(crate) fn observe(&mut self, sample: DetailedSample, excluded: &[String], now: Instant) {
         if self
             .last_sample
