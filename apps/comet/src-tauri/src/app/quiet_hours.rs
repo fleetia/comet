@@ -94,7 +94,7 @@ pub(crate) fn event_allowed(event: &widgets::EventDraft) -> bool {
 pub(crate) fn event_allowed_when_paused(event: &widgets::EventDraft) -> bool {
     matches!(
         event.kind.as_str(),
-        "timer-finished" | "calendar-reminder" | "planner-reminder"
+        "timer-finished" | "focus-long-rest-started" | "calendar-reminder" | "planner-reminder"
     ) || (event.kind == "planner-mood" && event.payload["preview"] == true)
 }
 

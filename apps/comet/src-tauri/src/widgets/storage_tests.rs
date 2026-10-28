@@ -11,6 +11,35 @@ fn database() -> Connection {
 }
 
 #[test]
+fn quiet_preserves_urgent_notice_and_focus_break_but_discards_ordinary_notice() {
+    let db = database();
+    for (id, kind, urgent) in [
+        ("urgent", "external-notice", true),
+        ("ordinary", "external-notice", false),
+        ("long-rest", "focus-long-rest-started", false),
+    ] {
+        let event = super::WidgetEvent {
+            id: id.into(), instance_id: id.into(), widget_kind: id.into(), revision: 1,
+            created_at: 1, expires_at: 1000,
+            event: super::EventDraft { kind: kind.into(), text: id.into(), payload: json!({"urgent":urgent}) },
+        };
+        db.execute("INSERT INTO widget_events(id,instance_id,data,pending) VALUES(?1,?1,?2,1)",
+            rusqlite::params![id, serde_json::to_string(&event).unwrap()]).unwrap();
+        db.execute("INSERT INTO widget_journal VALUES(?1)", [id]).unwrap();
+    }
+    storage::discard_pending_during_quiet(&db).unwrap();
+    for (id, pending) in [("urgent", true), ("ordinary", false), ("long-rest", true)] {
+        let actual: bool = db.query_row("SELECT pending FROM widget_events WHERE id=?1", [id], |row| row.get(0)).unwrap();
+        assert_eq!(actual, pending, "{id}");
+    }
+    storage::discard_pending_external_notice(&db).unwrap();
+    let pending: bool = db.query_row("SELECT pending FROM widget_events WHERE id='urgent'", [], |row| row.get(0)).unwrap();
+    assert!(!pending);
+    let retained: i64 = db.query_row("SELECT COUNT(*) FROM widget_journal", [], |row| row.get(0)).unwrap();
+    assert_eq!(retained, 3);
+}
+
+#[test]
 fn external_notice_burst_keeps_each_pending_event_without_changing_revision() {
     let db = database();
     let instance = instance(&db, "external-notice");
@@ -955,8 +984,10 @@ fn focus_statistics_survive_explicit_pause_and_resume() {
     let elapsed = paused.data["activeSession"]["elapsedMs"].as_i64().unwrap();
     assert_eq!(elapsed, 5 * 60000);
     act(&db, "focus-timer", "resume", json!({}), now + 10 * 60000, 3);
-    act(&db, "focus-timer", "cancel", json!({}), now + 10 * 60000 + 1000, 4);
-    assert_eq!(instance(&db, "focus-timer").data["sessions"][0]["elapsedMs"], elapsed + 1000);
+    act(&db, "focus-timer", "cancel", json!({}), now + 25 * 60000, 4);
+    let finished = instance(&db, "focus-timer");
+    assert_eq!(finished.data["sessions"][0]["elapsedMs"], 20 * 60000);
+    assert_eq!(finished.data["sessions"][0]["segments"].as_array().unwrap().len(), 2);
 }
 
 #[test]
@@ -985,9 +1016,9 @@ fn focus_statistics_survive_restart_and_expired_sessions_are_not_replayed() {
         restarted.data["activeSession"]["runningSince"],
         now - 5 * 60000
     );
-    act(&db, "focus-timer", "cancel", json!({}), now + 1000, 2);
+    act(&db, "focus-timer", "cancel", json!({}), now + 15 * 60000, 2);
     let recorded = instance(&db, "focus-timer");
-    assert_eq!(recorded.data["sessions"][0]["elapsedMs"], 5 * 60000 + 1000);
+    assert_eq!(recorded.data["sessions"][0]["elapsedMs"], 20 * 60000);
     act(
         &db,
         "focus-timer",
@@ -1036,10 +1067,10 @@ fn invalid_focus_package_preserves_the_running_session_and_its_history() {
     assert_eq!(current.data["status"], "running");
     assert_eq!(current.data["activeSession"]["runningSince"], now - 5 * 60000);
     prepare_widgets(&db, directory.path(), &["focus-timer"]);
-    act(&db, "focus-timer", "cancel", json!({}), now + 10 * 60000, 2);
+    act(&db, "focus-timer", "cancel", json!({}), now + 15 * 60000, 2);
     assert_eq!(
         instance(&db, "focus-timer").data["sessions"][0]["elapsedMs"],
-        15 * 60000
+        20 * 60000
     );
 }
 

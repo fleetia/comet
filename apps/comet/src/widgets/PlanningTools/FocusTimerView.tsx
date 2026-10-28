@@ -99,6 +99,9 @@ type Props = FocusTimerWidgetProps & {
   pickerOpen?: boolean;
   onCloseWidget?: () => void;
   busy?: boolean;
+  onLongRest?: () => void;
+  longRestLabel?: string;
+  nextTitle?: string;
 };
 
 export function FocusTimerView({
@@ -141,6 +144,9 @@ export function FocusTimerView({
   className,
   onCloseWidget,
   busy,
+  onLongRest,
+  longRestLabel,
+  nextTitle,
   ...props
 }: Props): ReactElement {
   if (collapsed) {
@@ -331,6 +337,16 @@ export function FocusTimerView({
                         {restLabel}
                       </Button>
                     )}
+                    {onLongRest && (
+                      <Button
+                        className={s.restSummary}
+                        variant="ghost"
+                        onClick={onLongRest}
+                        leadingIcon={<Icon name="moon" size={15} />}
+                      >
+                        {longRestLabel}
+                      </Button>
+                    )}
                     <div className={s.timerActions}>
                       <Button
                         className={s.linkAction}
@@ -354,7 +370,7 @@ export function FocusTimerView({
                   <>
                     {summary}
                     <Button className={s.primaryAction} disabled={startDisabled} onClick={onStart}>
-                      {duration}분 다시 시작
+                      {nextTitle ? `${nextTitle} 집중 시작` : `${duration}분 다시 시작`}
                     </Button>
                     <Button className={s.stopAction} variant="ghost" onClick={onStop}>
                       오늘은 여기까지

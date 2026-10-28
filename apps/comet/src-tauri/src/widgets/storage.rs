@@ -636,6 +636,17 @@ pub(crate) fn execute_in_transaction(
         }
     }
     let mut related = active_data(tx)?;
+    if instance.kind == "focus-timer"
+        && matches!(request.action.as_str(), "continue" | "pause")
+        && !related.contains_key("todo")
+    {
+        if let Some(todo) = instances(tx)?
+            .into_iter()
+            .find(|entry| entry.kind == "todo")
+        {
+            related.insert("todo".into(), todo.data);
+        }
+    }
     if instance.kind == "preparation"
         && matches!(request.action.as_str(), "create" | "update")
         && request.input["eventId"]
@@ -1073,7 +1084,13 @@ pub fn advance(db: &Connection, now: i64) -> Result<bool> {
 pub fn advance_with_continuity(db: &Connection, now: i64, continuous: bool) -> Result<bool> {
     let tx = db.unchecked_transaction().map_err(err)?;
     let mut changed = false;
-    for instance in instances(&tx)?
+    let all = instances(&tx)?;
+    let related = all
+        .iter()
+        .filter(|entry| entry.kind == "todo")
+        .map(|entry| (entry.kind.clone(), entry.data.clone()))
+        .collect();
+    for instance in all
         .into_iter()
         .filter(|entry| !super::is_retired(&entry.kind))
     {
@@ -1084,6 +1101,8 @@ pub fn advance_with_continuity(db: &Connection, now: i64, continuous: bool) -> R
                     events: vec![],
                 })
             })
+        } else if instance.kind == "focus-timer" {
+            super::planning::tick_timer(&instance.data, now, &related)
         } else {
             super::tick(&instance, now)
         };
@@ -1172,12 +1191,13 @@ pub fn focus_active(db: &Connection, now: i64) -> Result<bool> {
 
 /// Focus drops balloon reactions; OS notifications are delivered independently.
 pub(crate) fn discard_pending_during_focus(db: &Connection) -> Result<()> {
-    discard_pending(db)
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND NOT COALESCE(json_extract(data,'$.widgetKind')='focus-timer' AND json_extract(data,'$.kind')='timer-finished' AND json_extract(data,'$.payload.mode')='rest' AND json_type(data,'$.payload.nextTitle')='text', 0)", []).map_err(err)?;
+    Ok(())
 }
 
 /// Silence preserves important reminders and an explicitly requested greeting preview.
 pub(crate) fn discard_pending_during_quiet(db: &Connection) -> Result<()> {
-    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.kind') NOT IN ('timer-finished','calendar-reminder','planner-reminder') AND NOT (json_extract(data,'$.kind')='planner-mood' AND COALESCE(json_extract(data,'$.payload.preview'),0)=1) AND NOT (json_extract(data,'$.kind')='external-notice' AND COALESCE(json_extract(data,'$.payload.urgent'),0)=1)", [])
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.kind') NOT IN ('timer-finished','focus-long-rest-started','calendar-reminder','planner-reminder') AND NOT (json_extract(data,'$.kind')='planner-mood' AND COALESCE(json_extract(data,'$.payload.preview'),0)=1) AND NOT (json_extract(data,'$.kind')='external-notice' AND COALESCE(json_extract(data,'$.payload.urgent'),0)=1)", [])
         .map_err(err)?;
     Ok(())
 }

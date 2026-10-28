@@ -16,6 +16,55 @@ fn reject(data: &Value, action: &str, input: Value, now: i64) {
 }
 
 #[test]
+fn legacy_rest_queues_and_continues_with_the_focus_default() {
+    let mut data = initial();
+    data.as_object_mut().unwrap().remove("focusDurationMs");
+    data["status"] = json!("running");
+    data["mode"] = json!("rest");
+    data["durationMs"] = json!(300000);
+    data["remainingMs"] = json!(300000);
+    data["deadline"] = json!(301000);
+    let queued = run(&data, "queue-add", json!({"title":"다음 집중"}), 1000);
+    assert_eq!(queued.data["queue"][0]["focusDurationMs"], 1500000);
+    let continued = run(&data, "continue", json!({}), 1000);
+    assert_eq!(continued.data["durationMs"], 1500000);
+    let explicit = run(&data, "queue-add", json!({"title":"짧은 집중","focusDurationMs":60000}), 1000);
+    assert_eq!(explicit.data["queue"][0]["focusDurationMs"], 60000);
+}
+
+#[test]
+fn queued_focus_links_only_todos_that_are_still_incomplete() {
+    for completed_at in [Value::Null, json!(1500), json!("missing")] {
+        for automatic in [false, true] {
+            let mut data = initial();
+            data["queue"] = json!([{
+                "id":"queued", "todoId":"todo-1", "title":"계속할 일",
+                "focusDurationMs":1000, "eventRef":null, "noteRef":null
+            }]);
+            let mut related = BTreeMap::new();
+            if completed_at != "missing" {
+                related.insert("todo".into(), json!({"items":[{"id":"todo-1","completedAt":completed_at}]}));
+            }
+            let started = if automatic {
+                data["status"] = json!("running");
+                data["mode"] = json!("rest");
+                data["deadline"] = json!(2000);
+                data["settings"]["continuous"] = json!(true);
+                tick_with_related(&data, 2000, &related).unwrap().unwrap()
+            } else {
+                data["status"] = json!("finished");
+                act(&data, "continue", &json!({}), &related, 2000).unwrap()
+            };
+            let expected = if completed_at.is_null() { json!("todo-1") } else { Value::Null };
+            assert_eq!(started.data["todoId"], expected, "automatic={automatic}");
+            assert_eq!(started.data["activeSession"]["todoId"], expected, "automatic={automatic}");
+            assert_eq!(started.data["activeSession"]["title"], "계속할 일");
+            assert!(started.data["queue"].as_array().unwrap().is_empty());
+        }
+    }
+}
+
+#[test]
 fn session_memo_conflicts_preserve_the_latest_saved_value() {
     let started = run(&manual_timer(), "start", json!({"durationMs":1000}), 1000);
     let edited = run(
@@ -131,13 +180,12 @@ fn custom_break_settings_apply_to_the_next_break_and_never_add_focus_statistics(
 }
 
 #[test]
-fn manual_end_records_only_worked_time_and_cancel_never_duplicates_a_finished_session() {
+fn cancel_discards_unfinished_work_and_counts_a_completed_focus_once() {
     let started = run(&manual_timer(), "start", json!({"durationMs":10000}), 1000);
     let paused = run(&started.data, "pause", json!({}), 4000);
     let cancelled = run(&paused.data, "cancel", json!({}), 30000);
-    assert_eq!(cancelled.data["sessions"][0]["elapsedMs"], 3000);
-    assert_eq!(cancelled.data["sessions"][0]["endedAt"], 30000);
-    assert_eq!(cancelled.data["sessions"][0]["outcome"], "ended");
+    assert!(cancelled.data["sessions"].as_array().unwrap().is_empty());
+    assert_eq!(cancelled.data["cycle"], 0);
     assert_eq!(cancelled.data["status"], "idle");
     assert_eq!(cancelled.data["remainingMs"], 10000);
     assert!(cancelled.events.is_empty());
@@ -148,9 +196,20 @@ fn manual_end_records_only_worked_time_and_cancel_never_duplicates_a_finished_se
     assert_eq!(zero.data["sessions"], cancelled.data["sessions"]);
     let late = run(&zero.data, "start", json!({}), 50000);
     let late = run(&late.data, "cancel", json!({}), 80000);
-    assert_eq!(late.data["sessions"][1]["elapsedMs"], 10000);
-    assert_eq!(late.data["sessions"][1]["endedAt"], 60000);
-    assert_eq!(late.data["sessions"][1]["outcome"], "completed");
+    assert_eq!(late.data["sessions"][0]["elapsedMs"], 10000);
+    assert_eq!(late.data["sessions"][0]["endedAt"], 60000);
+    assert_eq!(late.data["sessions"][0]["outcome"], "completed");
+    assert_eq!(late.data["cycle"], 1);
+    let repeated = run(&late.data, "cancel", json!({}), 80001);
+    assert_eq!(repeated.data["cycle"], 1);
+    assert_eq!(repeated.data["sessions"], late.data["sessions"]);
+
+    let focus = run(&manual_timer(), "start", json!({"durationMs":1000}), 1000);
+    let finished = tick(&focus.data, 2000).unwrap().unwrap();
+    let rest = run(&finished.data, "rest", json!({}), 3000);
+    let after_rest = run(&rest.data, "cancel", json!({}), 303000);
+    assert_eq!(after_rest.data["cycle"], 1);
+    assert_eq!(after_rest.data["sessions"], finished.data["sessions"]);
 }
 
 #[test]
@@ -359,7 +418,7 @@ fn suspend_closes_focus_before_disabled_time_and_restart_expiry_finishes_without
     assert_eq!(disabled["activeSession"]["elapsedMs"], 5 * 60000);
     assert!(disabled["activeSession"]["runningSince"].is_null());
     let cancelled = run(&disabled, "cancel", json!({}), 1000 + 15 * 60000);
-    assert_eq!(cancelled.data["sessions"][0]["elapsedMs"], 5 * 60000);
+    assert!(cancelled.data["sessions"].as_array().unwrap().is_empty());
     let resumed = run(&disabled, "resume", json!({}), 1000 + 15 * 60000);
     let finished = tick(&resumed.data, 1000 + 35 * 60000).unwrap().unwrap();
     assert_eq!(finished.data["sessions"][0]["elapsedMs"], 20 * 60000);
@@ -416,8 +475,8 @@ fn storage_request_replay_and_revision_checks_keep_session_appends_atomic_and_on
     assert_eq!(storage::get(&db, &instance.id).unwrap().data, started.data);
     storage::execute(&db, &cancel, 4000, 3).unwrap();
     let saved = storage::get(&db, &instance.id).unwrap();
-    assert_eq!(saved.data["sessions"][0]["elapsedMs"], 3000);
-    assert_eq!(saved.data["sessions"][0]["memo"], "마친 작업 메모");
+    assert!(saved.data["sessions"].as_array().unwrap().is_empty());
+    assert_eq!(saved.data["memo"], "마친 작업 메모");
     assert_eq!(saved.revision, started.revision + 1);
     storage::execute(&db, &cancel, 5000, 4).unwrap();
     assert_eq!(
@@ -438,7 +497,7 @@ fn storage_request_replay_and_revision_checks_keep_session_appends_atomic_and_on
     storage::execute(&db, &restart, 7000, 6).unwrap();
     storage::advance(&db, 8000).unwrap();
     let finished = storage::get(&db, &instance.id).unwrap();
-    assert_eq!(finished.data["sessions"].as_array().unwrap().len(), 2);
+    assert_eq!(finished.data["sessions"].as_array().unwrap().len(), 1);
     storage::advance(&db, 9000).unwrap();
     assert_eq!(storage::get(&db, &instance.id).unwrap().data, finished.data);
 }
@@ -458,8 +517,9 @@ fn selected_application_is_opt_in_and_preserved_in_session_history() {
     reject(&observed, "configure", json!({"appUsageTarget":null}), 3000);
     let paused = run(&observed, "pause", json!({}), 3000);
     assert_eq!(paused.data["activeSession"]["appUsage"]["elapsedMs"], 1500);
-    let ended = run(&paused.data, "cancel", json!({}), 9000);
-    assert_eq!(ended.data["sessions"][0]["elapsedMs"], 2000);
+    let resumed = run(&paused.data, "resume", json!({}), 9000);
+    let ended = tick(&resumed.data, 17000).unwrap().unwrap();
+    assert_eq!(ended.data["sessions"][0]["elapsedMs"], 10000);
     assert_eq!(ended.data["sessions"][0]["appUsage"]["elapsedMs"], 1500);
     assert_eq!(
         ended.data["sessions"][0]["appUsage"]["target"]["name"],
@@ -469,9 +529,9 @@ fn selected_application_is_opt_in_and_preserved_in_session_history() {
         &ended.data,
         "configure",
         json!({"appUsageTarget":null}),
-        9001,
+        17001,
     );
-    let next = run(&opted_out.data, "start", json!({}), 10000);
+    let next = run(&opted_out.data, "start", json!({}), 18000);
     assert!(next.data["activeSession"]["appUsage"].is_null());
     assert_eq!(next.data["sessions"][0]["appUsage"]["elapsedMs"], 1500);
 }
@@ -512,17 +572,13 @@ fn clock_rollback_before_timer_actions_caps_usage_without_another_sample() {
     observed["activeSession"]["appUsage"]["elapsedMs"] = json!(5000);
 
     let ended = run(&observed, "cancel", json!({}), 4000);
-    assert_eq!(ended.data["sessions"][0]["elapsedMs"], 3000);
-    assert_eq!(ended.data["sessions"][0]["appUsage"]["elapsedMs"], 3000);
+    assert!(ended.data["sessions"].as_array().unwrap().is_empty());
 
     let paused = run(&observed, "pause", json!({}), 4000);
     assert_eq!(paused.data["activeSession"]["elapsedMs"], 3000);
     assert_eq!(paused.data["activeSession"]["appUsage"]["elapsedMs"], 3000);
     let paused_ended = run(&paused.data, "cancel", json!({}), 4500);
-    assert_eq!(
-        paused_ended.data["sessions"][0]["appUsage"]["elapsedMs"],
-        3000
-    );
+    assert!(paused_ended.data["sessions"].as_array().unwrap().is_empty());
 
     let suspended = suspend(&observed, 4000, false).unwrap();
     assert_eq!(suspended["activeSession"]["elapsedMs"], 3000);
@@ -767,8 +823,8 @@ fn starting_with_null_todo_clears_the_previous_selection_without_rewriting_histo
     let mut data = manual_timer();
     data["todoId"] = json!("previous-task");
     let first = run(&data, "start", json!({"durationMs":10000}), 1000);
-    let ended = run(&first.data, "cancel", json!({}), 2000);
-    let next = run(&ended.data, "start", json!({"todoId":null}), 3000);
+    let ended = tick(&first.data, 11000).unwrap().unwrap();
+    let next = run(&ended.data, "start", json!({"todoId":null}), 12000);
     assert!(next.data["todoId"].is_null());
     assert!(next.data["activeSession"]["todoId"].is_null());
     assert_eq!(next.data["sessions"][0]["todoId"], "previous-task");
@@ -800,11 +856,11 @@ fn explicit_task_launch_replaces_context_without_rewriting_prior_sessions_or_tas
     });
     data["noteRef"] = json!({"kind":"diary","id":"old-note","title":"이전 노트"});
     let started = run(&data, "start", json!({"durationMs":10000}), 1000);
-    let ended = run(&started.data, "cancel", json!({}), 2000);
+    let ended = tick(&started.data, 11000).unwrap().unwrap();
     let previous = ended.data["sessions"][0].clone();
     let mut state = ended.data;
     for (index, item) in todos["items"].as_array().unwrap().iter().enumerate() {
-        let now = 3000 + index as i64 * 3000;
+        let now = 12000 + index as i64 * 1_503_000;
         let history = state["sessions"].clone();
         let input = json!({
             "durationMs":1500000,"title":item["title"],"todoId":item["id"],
@@ -825,7 +881,7 @@ fn explicit_task_launch_replaces_context_without_rewriting_prior_sessions_or_tas
             json!({"memo":"이 세션에서 적은 메모"}),
             now + 500,
         );
-        state = run(&edited.data, "cancel", json!({}), now + 1000).data;
+        state = tick(&edited.data, now + 1_500_000).unwrap().unwrap().data;
         assert_eq!(state["sessions"][0], previous);
         assert_eq!(state["sessions"][index + 1]["title"], item["title"]);
         assert_eq!(
