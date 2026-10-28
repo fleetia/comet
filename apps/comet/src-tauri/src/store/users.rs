@@ -147,16 +147,17 @@ pub fn current_user_birthday(conn: &Connection) -> Result<Option<UserBirthday>> 
 }
 
 fn validate_birthday(birthday: &UserBirthday) -> Result<()> {
+    validate_birthday_at(birthday, chrono::Local::now().date_naive())
+}
+
+fn validate_birthday_at(birthday: &UserBirthday, today: chrono::NaiveDate) -> Result<()> {
     let year = birthday.year.unwrap_or(2000);
-    if birthday
-        .year
-        .is_some_and(|year| year < 1900 || year > chrono::Local::now().year())
-        || chrono::NaiveDate::from_ymd_opt(year, birthday.month, birthday.day).is_none()
+    let date = chrono::NaiveDate::from_ymd_opt(year, birthday.month, birthday.day);
+    if birthday.year.is_some_and(|year| year < 1900)
+        || date.is_none()
+        || birthday.year.is_some_and(|_| date.is_some_and(|date| date > today))
     {
-        return Err(
-            "생일을 올바른 날짜로 입력해 주세요. 연도는 1900년부터 올해까지 선택할 수 있어요."
-                .into(),
-        );
+        return Err("생일을 올바른 날짜로 입력해 주세요. 연도를 입력할 때는 1900년부터 오늘까지 선택할 수 있어요.".into());
     }
     Ok(())
 }
@@ -324,4 +325,19 @@ pub fn message_user_names(
         .query_map([limit.min(1000) as i64], |r| Ok((r.get(0)?, r.get(1)?)))
         .map_err(err)?;
     rows.collect::<rusqlite::Result<_>>().map_err(err)
+}
+
+#[cfg(test)]
+mod birthday_validation_tests {
+    use super::*;
+
+    #[test]
+    fn rejects_future_birth_dates_only_when_year_is_supplied() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 10, 29).unwrap();
+        let birthday = UserBirthday { year: Some(2026), month: 10, day: 30 };
+        assert!(validate_birthday_at(&birthday, today).is_err());
+        assert!(validate_birthday_at(&UserBirthday { day: 29, ..birthday.clone() }, today).is_ok());
+        assert!(validate_birthday_at(&UserBirthday { year: Some(2025), ..birthday.clone() }, today).is_ok());
+        assert!(validate_birthday_at(&UserBirthday { year: None, ..birthday }, today).is_ok());
+    }
 }
