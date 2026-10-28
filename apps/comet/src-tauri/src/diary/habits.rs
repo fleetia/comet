@@ -1,5 +1,6 @@
 use super::{boolean, capacity, date, missing, new_id, string, time, DiaryState, Result};
 use chrono::{Datelike, Local, NaiveDate};
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -26,6 +27,96 @@ pub(super) struct HabitCheck {
     pub(super) date: String,
     pub(super) status: String,
     pub(super) count: u32,
+}
+
+pub(super) fn record_moment(
+    db: &Connection,
+    before: &DiaryState,
+    after: &DiaryState,
+    input: &Value,
+    present: &[String],
+    at: i64,
+) -> Result<()> {
+    let Some(today) = chrono::DateTime::from_timestamp_millis(at)
+        .map(|time| time.with_timezone(&Local).date_naive())
+    else {
+        return Ok(());
+    };
+    let Some(id) = input["habitId"].as_str() else {
+        return Ok(());
+    };
+    let today_string = today.format("%Y-%m-%d").to_string();
+    if input["date"].as_str() != Some(today_string.as_str()) {
+        return Ok(());
+    }
+    let Some(habit) = after.habits.iter().find(|habit| habit.id == id) else {
+        return Ok(());
+    };
+    if !habit.weekdays.contains(&today.weekday().num_days_from_sunday()) {
+        return Ok(());
+    }
+    let complete = |check: &HabitCheck| {
+        check.habit_id == id && check.status == "done"
+            && (habit.mode == "check" || check.count >= habit.target)
+    };
+    if before.habit_checks.iter().any(|check| check.date == today_string && complete(check)) {
+        return Ok(());
+    }
+    let completed_dates: std::collections::HashSet<&str> = after.habit_checks.iter()
+        .filter(|check| complete(check))
+        .map(|check| check.date.as_str())
+        .collect();
+    if !completed_dates.contains(today_string.as_str()) {
+        return Ok(());
+    }
+    let mut day = today;
+    let mut streak = 0;
+    loop {
+        let date = day.format("%Y-%m-%d").to_string();
+        if date < habit.start_date {
+            break;
+        }
+        if habit
+            .weekdays
+            .contains(&day.weekday().num_days_from_sunday())
+        {
+            if !completed_dates.contains(date.as_str()) {
+                break;
+            }
+            streak += 1;
+            if streak > 100 {
+                break;
+            }
+        }
+        let Some(previous) = day.pred_opt() else {
+            break;
+        };
+        day = previous;
+    }
+    if ![7, 30, 100].contains(&streak) {
+        return Ok(());
+    }
+    let Some(user) = crate::store::current_user(db)? else {
+        return Ok(());
+    };
+    let key = format!("moment-seen:habit-streak:{}:{id}:{today_string}", user.id);
+    if db.execute("INSERT OR IGNORE INTO kv(key,value) VALUES(?1,'true')", [&key]).map_err(super::err)? == 0 {
+        return Ok(());
+    }
+    let summary = format!("‘{}’ {streak}일 연속", habit.title);
+    for character in present {
+        crate::store::insert_moment(
+            db,
+            character,
+            &user.id,
+            "habit-streak",
+            &summary,
+            at,
+            Some(id),
+            serde_json::json!({"habitId":id,"streak":streak}),
+        )?;
+    }
+    Ok(())
 }
 
 fn number(input: &Value, key: &str, min: u32, max: u32) -> Result<u32> {

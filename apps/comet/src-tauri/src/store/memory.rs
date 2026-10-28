@@ -289,6 +289,43 @@ pub fn insert_experience(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn insert_moment(
+    conn: &Connection,
+    character_id: &str,
+    user_id: &str,
+    event: &str,
+    summary: &str,
+    at: i64,
+    reference: Option<&str>,
+    refs: Value,
+) -> Result<bool> {
+    let date = chrono::DateTime::from_timestamp_millis(at)
+        .ok_or("추억 날짜가 올바르지 않아요.")?
+        .with_timezone(&chrono::Local)
+        .format("%Y-%m-%d")
+        .to_string();
+    let source = match reference {
+        Some(reference) => format!("moment:{event}:{date}:{reference}"),
+        None => format!("moment:{event}:{date}"),
+    };
+    let source_text = serde_json::json!({"event":event,"at":at,"summary":summary,"refs":refs}).to_string();
+    let day_pattern = format!("moment:%:{date}");
+    let day_ref_pattern = format!("moment:%:{date}:%");
+    let inserted = conn.execute(
+        "INSERT INTO memories(id,content,source,updated,character_id,user_id,kind,source_text,source_created_at)
+         SELECT ?1,?2,?3,?4,?5,?6,'experience',?7,?4
+         WHERE NOT EXISTS(SELECT 1 FROM memory_exclusions WHERE character_id=?5 AND user_id=?6 AND source=?3)
+           AND NOT EXISTS(SELECT 1 FROM memories WHERE character_id=?5 AND user_id=?6 AND source=?3)
+           AND (SELECT COUNT(*) FROM memories WHERE character_id=?5 AND (source LIKE ?8 OR source LIKE ?9)) < 3",
+        params![uuid::Uuid::new_v4().to_string(), summary, source, at, character_id, user_id, source_text, day_pattern, day_ref_pattern],
+    ).map_err(err)?;
+    if inserted > 0 {
+        bump_revision(conn)?;
+    }
+    Ok(inserted > 0)
+}
+
 pub fn record_recall(conn: &Connection, key: &str, memories: &[Memory], at: i64) -> Result<()> {
     let until = memories
         .iter()
@@ -547,7 +584,17 @@ pub(super) fn apply_direct_affinity(conn: &Connection, source: &Message) -> Resu
 }
 
 pub fn idle_memories(conn: &Connection, at: i64) -> Result<Vec<Memory>> {
-    recall_memories(conn, &crate::characters::active_ids(conn)?, at, 8)
+    let characters = crate::characters::active_ids(conn)?;
+    let mut memories = super::search::shared_moments_for(conn, &characters, at)?;
+    for memory in recall_memories(conn, &characters, at, 8)? {
+        if memories.len() == 8 {
+            break;
+        }
+        if !memory.source_message_id.starts_with("moment:") {
+            memories.push(memory);
+        }
+    }
+    Ok(memories)
 }
 
 pub fn completed_conversation_sources(

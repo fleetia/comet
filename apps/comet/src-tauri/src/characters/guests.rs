@@ -536,7 +536,44 @@ pub(crate) fn interact_locked(
         .iter()
         .position(|id| id == &actor.id)
         .ok_or("이 인물은 현재 화면에서 교감할 수 없어요.")?;
-    crate::widgets::storage::body_interaction_with_actor(db, &actor, slot, action, request_id, now)
+    let event = crate::widgets::storage::body_interaction_with_actor(
+        db, &actor, slot, action, request_id, now,
+    )?;
+    if let (Some(event), Some(user)) = (&event, crate::store::current_user(db)?) {
+        if let (Some(number), Some(counter)) = (
+            event
+                .event
+                .payload
+                .get("milestone")
+                .and_then(serde_json::Value::as_i64),
+            event
+                .event
+                .payload
+                .get("counter")
+                .and_then(serde_json::Value::as_str),
+        ) {
+            if number >= 100 {
+                let label = match counter {
+                    "stroke" => "쓰다듬기",
+                    "poke" => "콕 찌르기",
+                    "cheek" => "볼 잡기",
+                    "snack" => "간식 주기",
+                    _ => "교감",
+                };
+                crate::store::insert_moment(
+                    db,
+                    &actor.id,
+                    &user.id,
+                    "touch-milestone",
+                    &format!("{label} {number}번째"),
+                    now,
+                    Some(&format!("{counter}:{number}")),
+                    serde_json::json!({"counter":counter,"count":number}),
+                )?;
+            }
+        }
+    }
+    Ok(event)
 }
 
 pub(crate) fn leave_locked(state: &AppState, id: &str) -> Result<Option<String>> {

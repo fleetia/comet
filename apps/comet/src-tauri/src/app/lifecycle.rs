@@ -597,6 +597,7 @@ pub fn run() {
             super::users::assign_legacy_memories,
             super::users::forget_character_memories,
             super::users::count_character_memories,
+            super::users::get_shared_moment_stats,
             launcher::get_launcher_state,
             launcher::open_launcher,
             launcher::close_launcher,

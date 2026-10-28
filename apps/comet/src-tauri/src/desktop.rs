@@ -1520,7 +1520,9 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
     let birthday_expired = playback
         .as_ref()
         .is_some_and(|line| line.source == "talk" && line.display_started_at.is_none())
-        && !crate::talk::host::birthday_current(&state, &db)?;
+        && (!crate::talk::host::birthday_current(&state, &db)?
+            || !crate::talk::host::anniversary_current(&state, &db)?
+            || !crate::talk::host::moment_recall_current(&state, &db)?);
     let target = if super::unavailable(&state)
         || birthday_expired
         || (crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
@@ -1623,7 +1625,9 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
     if playback
         .as_ref()
         .is_some_and(|line| line.source == "talk" && line.display_started_at.is_none())
-        && !crate::talk::host::birthday_current(&state, &db)?
+        && (!crate::talk::host::birthday_current(&state, &db)?
+            || !crate::talk::host::anniversary_current(&state, &db)?
+            || !crate::talk::host::moment_recall_current(&state, &db)?)
     {
         window.hide().map_err(|error| error.to_string())?;
         return Ok(Some(BalloonPlacement::default()));
@@ -1651,8 +1655,21 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
                 crate::app::scene::mark_line_displayed(line, chrono::Utc::now().timestamp_millis());
             if first_display && line.source != "update" {
                 displayed_message = line.display_started_at.map(|at| (line.id.clone(), at));
+                if line.source == "talk" {
+                    crate::talk::host::mark_moment_recall_displayed(
+                        &state,
+                        &db,
+                        line.line_index,
+                        line.display_started_at.unwrap_or_default(),
+                    )?;
+                }
                 if line.source == "talk" && line.line_index == 0 {
                     crate::talk::host::mark_birthday_displayed(
+                        &state,
+                        &db,
+                        line.display_started_at.unwrap_or_default(),
+                    )?;
+                    crate::talk::host::mark_anniversary_displayed(
                         &state,
                         &db,
                         line.display_started_at.unwrap_or_default(),

@@ -19,6 +19,15 @@ pub(crate) struct PreparedTalk {
     event: Option<widgets::WidgetEvent>,
     seed: u64,
     birthday: Option<BirthdayTrigger>,
+    anniversary: Option<AnniversaryTrigger>,
+    moment_recall: Option<talk::context::MomentRecall>,
+}
+
+#[derive(Clone)]
+pub(crate) struct AnniversaryTrigger {
+    pub user_id: String,
+    pub date: chrono::NaiveDate,
+    pub key: String,
 }
 
 #[derive(Clone)]
@@ -35,7 +44,7 @@ pub(crate) fn prepare(
     db: &Connection,
     event: Option<&widgets::WidgetEvent>,
 ) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
-    prepare_with_birthday(state, db, event, None)
+    prepare_with_triggers(state, db, event, None, None)
 }
 
 pub(crate) fn prepare_birthday(
@@ -43,7 +52,15 @@ pub(crate) fn prepare_birthday(
     db: &Connection,
     birthday: BirthdayTrigger,
 ) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
-    prepare_with_birthday(state, db, None, Some(birthday))
+    prepare_with_triggers(state, db, None, Some(birthday), None)
+}
+
+pub(crate) fn prepare_anniversary(
+    state: &AppState,
+    db: &Connection,
+    anniversary: AnniversaryTrigger,
+) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
+    prepare_with_triggers(state, db, None, None, Some(anniversary))
 }
 
 fn apply_birthday(context: &mut talk::EvalContext, birthday: &BirthdayTrigger) {
@@ -57,11 +74,12 @@ fn apply_birthday(context: &mut talk::EvalContext, birthday: &BirthdayTrigger) {
     );
 }
 
-fn prepare_with_birthday(
+fn prepare_with_triggers(
     state: &AppState,
     db: &Connection,
     event: Option<&widgets::WidgetEvent>,
     birthday: Option<BirthdayTrigger>,
+    anniversary: Option<AnniversaryTrigger>,
 ) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
     let (program, generation) = {
         let active = lock(&state.talk)?;
@@ -79,7 +97,23 @@ fn prepare_with_birthday(
     if let Some(birthday) = &birthday {
         apply_birthday(&mut context, birthday);
     }
+    if anniversary.is_some() {
+        context.trigger = "relationship.anniversary".into();
+        context.values.insert(
+            "event.kind".into(),
+            serde_json::json!("relationship.anniversary"),
+        );
+    }
     context.visible = presence::present_ids(state, &context.active)?;
+    let moment_recall = talk::context::moment_recall(db, &context.visible, context.now_ms)?;
+    context.values.insert(
+        "recall.moment".into(),
+        moment_recall
+            .as_ref()
+            .map_or(serde_json::Value::Null, |moment| {
+                serde_json::json!(moment.summary)
+            }),
+    );
     context.values.insert(
         "character.count".into(),
         serde_json::json!(context.visible.len()),
@@ -106,6 +140,19 @@ fn prepare_with_birthday(
     }
     let Some(selection) = simulation.selected else {
         return Ok(None);
+    };
+    let moment_recall = if selection.references.contains("recall.moment") {
+        if let Some(moment) = &moment_recall {
+            if !crate::characters::resolve_lines(db, &selection.lines)?
+                .iter()
+                .all(|line| moment.keepers.contains(&line.persona))
+            {
+                return Ok(None);
+            }
+        }
+        moment_recall
+    } else {
+        None
     };
     let mut dependencies = selection.dependencies.clone();
     if selection
@@ -139,6 +186,8 @@ fn prepare_with_birthday(
         event: event.cloned(),
         seed: context.seed,
         birthday,
+        anniversary,
+        moment_recall,
     });
     Ok(Some(lines))
 }
@@ -202,7 +251,47 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
         }
         apply_birthday(&mut context, birthday);
     }
+    if let Some(anniversary) = &prepared.anniversary {
+        if chrono::Local::now().date_naive() != anniversary.date
+            || crate::store::current_user(db)?
+                .as_ref()
+                .map(|user| &user.id)
+                != Some(&anniversary.user_id)
+        {
+            return Ok(false);
+        }
+        context.trigger = "relationship.anniversary".into();
+        context.values.insert(
+            "event.kind".into(),
+            serde_json::json!("relationship.anniversary"),
+        );
+    }
     context.visible = presence::present_ids(state, &context.active)?;
+    if let Some(moment) = &prepared.moment_recall {
+        let today = chrono::DateTime::from_timestamp_millis(now)
+            .map(|time| time.with_timezone(&chrono::Local).date_naive());
+        if today != Some(moment.today)
+            || crate::store::current_user(db)?
+                .as_ref()
+                .map(|user| &user.id)
+                != Some(&moment.user_id)
+        {
+            return Ok(false);
+        }
+        for line in crate::characters::resolve_lines(db, &prepared.selection.lines)? {
+            let exists: bool = db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM memories WHERE user_id=?1 AND character_id=?2 AND source=?3 AND content=?4 AND kind='experience' AND deleted=0 AND expired=0 AND required_chapter IS NULL)",
+                rusqlite::params![moment.user_id, line.persona, moment.source, moment.summary],
+                |row| row.get(0),
+            ).map_err(|error| error.to_string())?;
+            if !exists || !context.visible.contains(&line.persona) {
+                return Ok(false);
+            }
+        }
+        context
+            .values
+            .insert("recall.moment".into(), serde_json::json!(moment.summary));
+    }
     context.values.insert(
         "character.count".into(),
         serde_json::json!(context.visible.len()),
@@ -227,6 +316,110 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
                     },
                 )
         }))
+}
+
+pub(crate) fn moment_recall_current(state: &AppState, db: &Connection) -> Result<bool, String> {
+    let is_recall = lock(&state.talk_playback)?
+        .as_ref()
+        .is_some_and(|prepared| prepared.moment_recall.is_some());
+    if is_recall {
+        current(state, db)
+    } else {
+        Ok(true)
+    }
+}
+
+fn recalled_lines(
+    body: &[talk::Statement],
+    values: &BTreeMap<String, serde_json::Value>,
+    lines: &mut Vec<bool>,
+) -> Result<(), String> {
+    for statement in body {
+        match statement {
+            talk::Statement::Line { parts, .. } => lines.push(parts.iter().any(
+                |part| matches!(part, talk::TextPart::Variable(name) if name == "recall.moment"),
+            )),
+            talk::Statement::If {
+                condition, yes, no, ..
+            } => {
+                let branch = if super::expr::boolean(super::expr::evaluate(condition, values)?)? {
+                    yes
+                } else {
+                    no
+                };
+                recalled_lines(branch, values, lines)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn mark_moment_recall_displayed(
+    state: &AppState,
+    db: &Connection,
+    line_index: usize,
+    at: i64,
+) -> Result<(), String> {
+    let prepared = lock(&state.talk_playback)?;
+    let Some(prepared) = prepared.as_ref() else {
+        return Ok(());
+    };
+    let Some(moment) = &prepared.moment_recall else {
+        return Ok(());
+    };
+    let Some(scene) = prepared
+        .program
+        .scenes
+        .iter()
+        .find(|scene| scene.key == prepared.selection.key)
+    else {
+        return Ok(());
+    };
+    let mut lines = Vec::new();
+    recalled_lines(&scene.body, &prepared.text_values, &mut lines)?;
+    if !lines.get(line_index).copied().unwrap_or(false) {
+        return Ok(());
+    }
+    let date = chrono::DateTime::from_timestamp_millis(at)
+        .map(|time| time.with_timezone(&chrono::Local).date_naive());
+    if date == Some(moment.today) {
+        let key = format!("recall:moment:{}:{}", moment.user_id, moment.date);
+        db.execute("INSERT INTO widget_preferences(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", rusqlite::params![key, at.to_string()])
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+pub(crate) fn mark_anniversary_displayed(
+    state: &AppState,
+    db: &Connection,
+    at: i64,
+) -> Result<(), String> {
+    let prepared = lock(&state.talk_playback)?;
+    let Some(anniversary) = prepared
+        .as_ref()
+        .and_then(|prepared| prepared.anniversary.as_ref())
+    else {
+        return Ok(());
+    };
+    let date = chrono::DateTime::from_timestamp_millis(at)
+        .map(|time| time.with_timezone(&chrono::Local).date_naive());
+    if date == Some(anniversary.date) {
+        db.execute("INSERT INTO kv(key,value) VALUES(?1,'1') ON CONFLICT(key) DO UPDATE SET value=excluded.value", [&anniversary.key])
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+pub(crate) fn anniversary_current(state: &AppState, db: &Connection) -> Result<bool, String> {
+    let is_anniversary = lock(&state.talk_playback)?
+        .as_ref()
+        .is_some_and(|prepared| prepared.anniversary.is_some());
+    if is_anniversary {
+        current(state, db)
+    } else {
+        Ok(true)
+    }
 }
 
 pub(crate) fn birthday_current(state: &AppState, db: &Connection) -> Result<bool, String> {

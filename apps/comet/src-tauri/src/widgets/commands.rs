@@ -427,11 +427,14 @@ pub(crate) async fn execute_widget(
         });
     }
     let created_id = change(&state, |db| {
-        let created_id = execute_with_created_id(
+        let present =
+            crate::app::presence::present_ids(&state, &crate::characters::active_ids(db)?)?;
+        let created_id = execute_with_created_id_and_presence(
             db,
             &request,
             chrono::Utc::now().timestamp_millis(),
             uuid::Uuid::new_v4().as_u128() as u64,
+            &present,
         )?;
         if request.action == "configure-alerts" {
             lock(&state.widget_clocks)?.remove(&request.instance_id);
@@ -444,7 +447,10 @@ pub(crate) async fn execute_widget(
         if created_id.is_none() {
             return Err(error);
         }
-        crate::report_error!("widget_save_reaction", "위젯 내용 저장 후 반응 갱신 실패: {error}");
+        crate::report_error!(
+            "widget_save_reaction",
+            "위젯 내용 저장 후 반응 갱신 실패: {error}"
+        );
         if let Ok(mut runtime) = lock(&state.runtime) {
             runtime.error = Some("내용은 저장했지만 캐릭터 반응을 갱신하지 못했어요.".into());
         }
@@ -454,17 +460,29 @@ pub(crate) async fn execute_widget(
     Ok(created_id)
 }
 
+#[cfg(test)]
 fn execute_with_created_id(
     db: &rusqlite::Connection,
     request: &WidgetRequest,
     now: i64,
     entropy: u64,
 ) -> Result<Option<String>, String> {
+    execute_with_created_id_and_presence(db, request, now, entropy, &[])
+}
+
+fn execute_with_created_id_and_presence(
+    db: &rusqlite::Connection,
+    request: &WidgetRequest,
+    now: i64,
+    entropy: u64,
+    present: &[String],
+) -> Result<Option<String>, String> {
     use rusqlite::OptionalExtension;
 
     let tx = db
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
+    let before_moment = storage::get(&tx, &request.instance_id)?;
     let before = if matches!(request.action.as_str(), "add" | "create") {
         storage::get(&tx, &request.instance_id).ok()
     } else {
@@ -490,6 +508,8 @@ fn execute_with_created_id(
             error
         });
     }
+    let after_moment = storage::get(&tx, &request.instance_id)?;
+    storage::record_widget_moments(&tx, &before_moment, &after_moment, present, now)?;
     let saved: Option<Option<String>> = tx
         .query_row(
             "SELECT created_id FROM widget_request_results WHERE request_id=?1",
@@ -1134,14 +1154,23 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
     let (changed, usage_changed) = change(state, |db| {
         let timestamp = chrono::Utc::now().timestamp_millis();
         let usage_changed = advance_app_usage(state, db, timestamp)?;
-        let continuous = lock(&state.widget_clocks)?
+        let previous = lock(&state.widget_clocks)?
             .get("focus-completions")
-            .is_some_and(|previous| timestamp >= *previous && timestamp - *previous <= 120_000);
-        let changed = storage::advance_with_continuity(db, timestamp, continuous)?;
+            .copied()
+            .filter(|previous| timestamp >= *previous && timestamp - *previous <= 120_000);
+        let continuous = previous.is_some();
+        let present =
+            crate::app::presence::present_ids(state, &crate::characters::active_ids(db)?)?;
+        let changed = storage::advance_with_presence(db, timestamp, continuous, &present, previous)?;
         let quiet = lock(&state.runtime)?.paused
             || crate::app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?;
-        let alerted =
-            widgets::reminders::advance(db, &mut *lock(&state.widget_clocks)?, timestamp, quiet)?;
+        let alerted = widgets::reminders::advance_with_presence(
+            db,
+            &mut *lock(&state.widget_clocks)?,
+            timestamp,
+            quiet,
+            &present,
+        )?;
         let runtime = lock(&state.runtime)?;
         if state.launcher_open.load(Ordering::SeqCst)
             || runtime.hidden
