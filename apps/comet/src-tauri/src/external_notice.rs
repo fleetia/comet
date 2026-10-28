@@ -8,7 +8,39 @@ use std::{
 use tauri::Manager;
 
 #[derive(Default)]
-pub(crate) struct Runtime(Mutex<VecDeque<Instant>>);
+pub(crate) struct Runtime {
+    recent: Mutex<VecDeque<Instant>>,
+    startup: Mutex<Startup>,
+}
+
+#[derive(Default)]
+struct Startup {
+    ready: bool,
+    queued: VecDeque<Notice>,
+}
+
+impl Runtime {
+    fn queue_or_ready(&self, notice: Notice) -> Result<Option<Notice>, String> {
+        let mut startup = app::lock(&self.startup)?;
+        if startup.ready {
+            return Ok(Some(notice));
+        }
+        if startup.queued.len() >= 6 {
+            return Err("바깥 알림이 너무 자주 도착했어요.".into());
+        }
+        startup.queued.push_back(notice);
+        Ok(None)
+    }
+
+    fn next_startup(&self) -> Result<Option<Notice>, String> {
+        let mut startup = app::lock(&self.startup)?;
+        if let Some(notice) = startup.queued.pop_front() {
+            return Ok(Some(notice));
+        }
+        startup.ready = true;
+        Ok(None)
+    }
+}
 
 struct Notice {
     title: Option<String>,
@@ -211,11 +243,23 @@ pub(crate) fn receive_url(app: &tauri::AppHandle, url: &tauri::Url) {
     let Ok(notice) = parse_url(url) else {
         return;
     };
-    let Some(state) = app.try_state::<Arc<app::AppState>>() else {
+    let Some(runtime) = app.try_state::<Runtime>() else {
         return;
     };
+    let Ok(Some(notice)) = runtime.queue_or_ready(notice) else {
+        return;
+    };
+    if let Some(state) = app.try_state::<Arc<app::AppState>>() {
+        let _ = receive(app, &state, &runtime, notice);
+    }
+}
+
+pub(crate) fn finish_startup(app: &tauri::AppHandle, state: &app::AppState) -> Result<(), String> {
     let runtime = app.state::<Runtime>();
-    let _ = receive(app, &state, &runtime, notice);
+    while let Some(notice) = runtime.next_startup()? {
+        let _ = receive(app, state, &runtime, notice);
+    }
+    Ok(())
 }
 
 fn receive(
@@ -232,7 +276,7 @@ fn receive(
         if instance.data["enabled"] == false {
             return Err("바깥 알림 받기가 꺼져 있어요.".into());
         }
-        let mut recent = app::lock(&runtime.0)?;
+        let mut recent = app::lock(&runtime.recent)?;
         let at = Instant::now();
         while recent
             .front()
@@ -272,6 +316,23 @@ fn receive(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_notices_are_bounded_and_drained_in_order_before_live_delivery() {
+        let runtime = Runtime::default();
+        let notice = |text: &str| Notice { title: None, text: text.into(), result: None, urgent: false, os: false };
+        for text in ["one", "two", "three", "four", "five", "six"] {
+            assert!(runtime.queue_or_ready(notice(text)).unwrap().is_none());
+        }
+        assert!(runtime.queue_or_ready(notice("overflow")).is_err());
+        assert_eq!(runtime.next_startup().unwrap().unwrap().text, "one");
+        assert!(runtime.queue_or_ready(notice("during-drain")).unwrap().is_none());
+        for text in ["two", "three", "four", "five", "six", "during-drain"] {
+            assert_eq!(runtime.next_startup().unwrap().unwrap().text, text);
+        }
+        assert!(runtime.next_startup().unwrap().is_none());
+        assert_eq!(runtime.queue_or_ready(notice("live")).unwrap().unwrap().text, "live");
+    }
 
     #[test]
     fn os_delivery_follows_saved_preference_for_every_url_flag() {

@@ -298,6 +298,7 @@ pub fn run() {
             desktop::menu::create(app.handle()).map_err(std::io::Error::other)?;
             crate::widgets::desktop::restore_on_start(app.handle(), state.clone());
             crate::widgets::planning::notifications::install(app.handle())?;
+            crate::external_notice::finish_startup(app.handle(), &state).map_err(std::io::Error::other)?;
             #[cfg(not(target_os = "macos"))]
             for url in std::env::args()
                 .skip(1)
