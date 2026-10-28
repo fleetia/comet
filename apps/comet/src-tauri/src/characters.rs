@@ -1368,7 +1368,10 @@ fn export_pack_contents(
                 || d.relationships.iter().any(|r| !r.reply_lines.is_empty())
         })
     {
-        pack.format_version = 8;
+        pack.format_version = pack.format_version.max(8);
+    }
+    if validation::has_mood_bindings(&pack) {
+        pack.format_version = pack.format_version.max(13);
     }
     validation::validate_pack_metadata(&pack)?;
     Ok(pack)

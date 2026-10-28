@@ -261,7 +261,7 @@ export type CharacterArchive = {
   }[];
 };
 export type CharacterPack = Partial<PackStoryDefinition> & {
-  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 13;
   name: string;
   author: string;
   sourceUrl?: string;
