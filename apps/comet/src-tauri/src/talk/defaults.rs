@@ -851,7 +851,7 @@ mod pipeline_tests {
         let (db, _directory) = nadir_database(&kinds);
         let program = program(NADIR_AND_STAR_TAIL);
         let context = context::build(&db, None, 1_000, 0).unwrap();
-        assert_eq!(context.available.len(), 15);
+        assert_eq!(context.available.len(), catalog.len());
         for scene in INITIAL_STATES {
             idle_scene(&db, &program, scene, 1_000);
         }

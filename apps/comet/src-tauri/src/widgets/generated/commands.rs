@@ -317,6 +317,15 @@ fn observe_generated_state(
     db: &rusqlite::Connection,
     widget: &generated::GeneratedWidget,
 ) -> Result<()> {
+    if !storage::reaction_enabled(db, &widget.id)? {
+        if reactions_blocked(state, db)? {
+            generated::discard_pending(db)?;
+        } else {
+            db.execute("DELETE FROM widget_state_pending WHERE widget_id=?1", [&widget.id])
+                .map_err(|error| error.to_string())?;
+        }
+        return Ok(());
+    }
     generated::evaluate_rules(
         db,
         &widget.id,
@@ -326,9 +335,6 @@ fn observe_generated_state(
     )?;
     if reactions_blocked(state, db)? {
         generated::discard_pending(db)?;
-    } else if !storage::reaction_enabled(db, &widget.id)? {
-        db.execute("DELETE FROM widget_state_pending WHERE widget_id=?1", [&widget.id])
-            .map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -660,7 +666,7 @@ fn record_action_failure(
     crate::widgets::commands::change(state, |db| {
         check_execution_current(state, epoch, cancel)?;
         if store::active_user_id(db)? != request.user_id
-            || generated::get(db, &request.widget_id)? != *before
+            || !generated::get(db, &request.widget_id)?.same_execution_source(before)
         {
             return Err("실행 중 위젯이나 사용자가 변경되어 오류 결과를 적용하지 않았어요.".into());
         }
@@ -729,27 +735,38 @@ async fn execute_registered_action(
             });
         }
     };
-    let receipt = crate::widgets::commands::change(state, |db| {
-        check_current()?;
-        if let Some(receipt) = generated::actions::replay(db, &request)? {
+    let receipt = finish_registered_action(state, &request, &before, epoch, &cancel, output)?;
+    publish(app);
+    Ok(receipt)
+}
+
+fn finish_registered_action(
+    state: &AppState,
+    request: &generated::actions::ActionRequest,
+    before: &generated::GeneratedWidget,
+    epoch: Option<u64>,
+    cancel: &Arc<AtomicBool>,
+    output: generated::execution::ExecutionOutput,
+) -> Result<generated::actions::GeneratedReceipt> {
+    crate::widgets::commands::change(state, |db| {
+        check_execution_current(state, epoch, cancel)?;
+        if let Some(receipt) = generated::actions::replay(db, request)? {
             return Ok(receipt);
         }
-        if generated::get(db, &request.widget_id)? != before {
+        if !generated::get(db, &request.widget_id)?.same_execution_source(before) {
             return Err("실행 중 위젯이 변경되어 결과를 저장하지 않았어요.".into());
         }
         // Observe the old state before the transaction so only the committed transition can react.
         sync_epoch(state, db)?;
-        observe_generated_state(state, db, &before)?;
-        let receipt = generated::actions::commit(db, &request, &before, output.state, output.view)?;
+        observe_generated_state(state, db, before)?;
+        let receipt = generated::actions::commit(db, request, before, output.state, output.view)?;
         if let Ok(current) = generated::get(db, &request.widget_id) {
             if observe_generated_state(state, db, &current).is_err() {
                 crate::report_error!("widget_reaction_refresh", "Saved generated widget action; reaction refresh deferred");
             }
         }
         Ok(receipt)
-    })?;
-    publish(app);
-    Ok(receipt)
+    })
 }
 
 #[derive(Serialize)]
@@ -1332,7 +1349,12 @@ fn observe_official_rules(db: &rusqlite::Connection, timestamp: i64) -> Result<(
         }
         match source_state(db, &id) {
             Ok((data, revision)) => {
-                let _ = generated::evaluate_rules(db, &id, &data, revision, timestamp);
+                if storage::reaction_enabled(db, &id)? {
+                    let _ = generated::evaluate_rules(db, &id, &data, revision, timestamp);
+                } else {
+                    db.execute("DELETE FROM widget_state_pending WHERE widget_id=?1", [&id])
+                        .map_err(|error| error.to_string())?;
+                }
             }
             Err(_) => {
                 reset_rule_baseline(db, &id)?;
@@ -1626,6 +1648,77 @@ mod tests {
     }
 
     #[test]
+    fn completed_action_survives_reaction_change_at_the_caller_boundary() {
+        let state = app::tests::state();
+        let (before, request) = ready_action_fixture(&state);
+        let cancel = Arc::new(AtomicBool::new(false));
+        storage::set_reaction(&lock(&state.db).unwrap(), &before.id, false).unwrap();
+        let receipt = finish_registered_action(
+            &state,
+            &request,
+            &before,
+            Some(state.epoch.load(Ordering::SeqCst)),
+            &cancel,
+            generated::execution::ExecutionOutput {
+                state: json!({"n":1}),
+                view: json!([]),
+            },
+        ).unwrap();
+        let db = lock(&state.db).unwrap();
+        let current = generated::get(&db, &before.id).unwrap();
+        assert_eq!(current.state, json!({"n":1}));
+        assert_eq!(current.revision, before.revision + 1);
+        assert!(!current.reaction);
+        assert_eq!(generated::actions::replay(&db, &request).unwrap().unwrap().id, receipt.id);
+    }
+
+    #[test]
+    fn completed_action_rejects_cancelled_or_changed_work_at_the_caller_boundary() {
+        for mutation in ["cancel", "epoch", "user", "state", "definition", "retired"] {
+            let state = app::tests::state();
+            let (before, request) = ready_action_fixture(&state);
+            let epoch = state.epoch.load(Ordering::SeqCst);
+            let cancel = Arc::new(AtomicBool::new(false));
+            {
+                let db = lock(&state.db).unwrap();
+                match mutation {
+                    "cancel" => cancel.store(true, Ordering::SeqCst),
+                    "epoch" => { state.epoch.fetch_add(1, Ordering::SeqCst); }
+                    "user" => {
+                        db.execute("INSERT INTO kv VALUES('active_user_id','someone-else') ON CONFLICT(key) DO UPDATE SET value=excluded.value", []).unwrap();
+                    }
+                    "state" => { generated::save_state(&db, &before.id, before.revision, json!({"n":7})).unwrap(); }
+                    "definition" => {
+                        generated::replace(&db, &before.id, before.revision, generated::Definition {
+                            source: "function render(){return []} function reduce(s){return s}".into(),
+                            ..before.definition.clone()
+                        }).unwrap();
+                    }
+                    "retired" => { generated::retire(&db, &before.id, before.revision).unwrap(); }
+                    _ => unreachable!(),
+                }
+            }
+            let current = generated::get(&lock(&state.db).unwrap(), &before.id).unwrap();
+            assert!(finish_registered_action(
+                &state,
+                &request,
+                &before,
+                Some(epoch),
+                &cancel,
+                generated::execution::ExecutionOutput { state: json!({"n":1}), view: json!([]) },
+            ).is_err(), "{mutation}");
+            let db = lock(&state.db).unwrap();
+            assert_eq!(generated::get(&db, &before.id).unwrap(), current, "{mutation}");
+            let receipts: i64 = db.query_row(
+                "SELECT COUNT(*) FROM generated_action_receipts WHERE id=?1",
+                [&request.request_id],
+                |row| row.get(0),
+            ).unwrap();
+            assert_eq!(receipts, 0, "{mutation}");
+        }
+    }
+
+    #[test]
     fn action_interpreter_failure_removes_ready_capability_without_state_or_receipt_changes() {
         let state = app::tests::state();
         let (before, request) = ready_action_fixture(&state);
@@ -1666,6 +1759,24 @@ mod tests {
     }
 
     #[test]
+    fn reaction_toggle_does_not_discard_in_flight_action_errors() {
+        let state = app::tests::state();
+        let (before, request) = ready_action_fixture(&state);
+        crate::widgets::storage::set_reaction(&lock(&state.db).unwrap(), &before.id, false).unwrap();
+        let failed = record_action_failure(
+            &state,
+            &request,
+            &before,
+            Some(state.epoch.load(Ordering::SeqCst)),
+            &Arc::new(AtomicBool::new(false)),
+            "reducer failed",
+        ).unwrap();
+        assert_eq!(failed.status, "error");
+        assert!(!failed.reaction);
+        assert_eq!(failed.state, before.state);
+    }
+
+    #[test]
     fn action_interpreter_failure_cannot_overwrite_cancelled_or_changed_work() {
         for mutation in [
             "cancel",
@@ -1673,7 +1784,6 @@ mod tests {
             "user",
             "state",
             "definition",
-            "disabled",
             "retired",
         ] {
             let state = app::tests::state();
@@ -1706,9 +1816,6 @@ mod tests {
                             },
                         )
                         .unwrap();
-                    }
-                    "disabled" => {
-                        generated::set_enabled(&db, &before.id, before.revision, false).unwrap();
                     }
                     "retired" => {
                         generated::retire(&db, &before.id, before.revision).unwrap();
@@ -2159,7 +2266,6 @@ mod tests {
             "description",
             "source",
             "initialState",
-            "disabled",
             "retired",
         ] {
             let state = app::tests::state();
@@ -2174,7 +2280,6 @@ mod tests {
             .unwrap();
             let mut changed = previous.definition.clone();
             let latest = match field {
-                "disabled" => generated::set_enabled(&db, &previous.id, previous.revision, false),
                 "retired" => generated::retire(&db, &previous.id, previous.revision),
                 _ => {
                     match field {
@@ -2279,27 +2384,29 @@ mod tests {
     }
 
     #[test]
-    fn disabled_official_widget_resets_baseline_without_replaying_on_reactivation() {
+    fn official_reaction_off_discards_state_changes_without_replaying_on_reactivation() {
         let state = app::tests::state();
         let db = lock(&state.db).unwrap();
-        let id = uuid::Uuid::new_v4().to_string();
+        let id: String = db
+            .query_row("SELECT id FROM widget_instances WHERE kind='memo'", [], |row| row.get(0))
+            .unwrap();
         db.execute(
-            "INSERT INTO widget_instances VALUES(?1,'memo',1,1,1,1,'{\"count\":0}',NULL)",
+            "UPDATE widget_instances SET data='{\"count\":0}',revision=1 WHERE id=?1",
             [&id],
         )
         .unwrap();
-        generated::save_rules(&db, &id, vec![rule(&id)], &json!({"count":0})).unwrap();
+        let mut condition = rule(&id);
+        condition.cooldown_ms = 10_000;
+        generated::save_rules(&db, &id, vec![condition], &json!({"count":0})).unwrap();
+        storage::set_reaction(&db, &id, false).unwrap();
         db.execute(
-            "UPDATE widget_instances SET enabled=0,data='{\"count\":1}',revision=2 WHERE id=?1",
+            "UPDATE widget_instances SET data='{\"count\":1}',revision=2 WHERE id=?1",
             [&id],
         )
         .unwrap();
         observe_official_rules(&db, 1000).unwrap();
-        db.execute(
-            "UPDATE widget_instances SET enabled=1,revision=3 WHERE id=?1",
-            [&id],
-        )
-        .unwrap();
+        assert!(generated::take_pending(&db, 1000).unwrap().is_none());
+        storage::set_reaction(&db, &id, true).unwrap();
         observe_official_rules(&db, 1100).unwrap();
         assert!(generated::take_pending(&db, 1100).unwrap().is_none());
         db.execute(
@@ -2315,6 +2422,45 @@ mod tests {
         .unwrap();
         observe_official_rules(&db, 1300).unwrap();
         assert!(generated::take_pending(&db, 1300).unwrap().is_some());
+
+        db.execute(
+            "UPDATE widget_instances SET data='{\"count\":0}',revision=6 WHERE id=?1",
+            [&id],
+        )
+        .unwrap();
+        observe_official_rules(&db, 1400).unwrap();
+        storage::set_reaction(&db, &id, false).unwrap();
+        db.execute(
+            "UPDATE widget_instances SET data='{\"count\":1}',revision=7 WHERE id=?1",
+            [&id],
+        )
+        .unwrap();
+        storage::set_reaction(&db, &id, true).unwrap();
+        observe_official_rules(&db, 1500).unwrap();
+        assert!(generated::take_pending(&db, 1500).unwrap().is_none());
+    }
+
+    #[test]
+    fn generated_reaction_off_does_not_consume_rule_cooldown() {
+        let state = app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let widget = generated::create(
+            &db,
+            definition(),
+            generated::InstallationOrigin::Import,
+            None,
+        )
+        .unwrap();
+        let mut widget = generated::mark_ready(&db, &widget.id, widget.revision).unwrap();
+        let mut condition = rule(&widget.id);
+        condition.cooldown_ms = 60_000;
+        generated::save_rules(&db, &widget.id, vec![condition], &widget.state).unwrap();
+        storage::set_reaction(&db, &widget.id, false).unwrap();
+        widget = save_observed_state(&state, &db, &widget.id, widget.revision, json!({"count":1})).unwrap();
+        storage::set_reaction(&db, &widget.id, true).unwrap();
+        widget = save_observed_state(&state, &db, &widget.id, widget.revision, json!({"count":0})).unwrap();
+        save_observed_state(&state, &db, &widget.id, widget.revision, json!({"count":1})).unwrap();
+        assert!(generated::take_pending(&db, chrono::Utc::now().timestamp_millis()).unwrap().is_some());
     }
 
     #[test]
@@ -2404,6 +2550,22 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_ne!(next.rule_revision, pending.rule_revision);
+        let event = WidgetEvent {
+            id: next.id.clone(),
+            instance_id: widget.id.clone(),
+            widget_kind: "state-rule".into(),
+            revision: next.revision,
+            created_at: next.created_at,
+            expires_at: next.expires_at,
+            event: EventDraft {
+                kind: "state-rule".into(),
+                text: next.text.clone(),
+                payload: serde_json::to_value(&next).unwrap(),
+            },
+        };
+        assert!(event_current(&db, &event).unwrap());
+        storage::set_reaction(&db, &widget.id, false).unwrap();
+        assert!(!event_current(&db, &event).unwrap());
         assert!(generated::reaction_current(
             &db,
             &next,
@@ -2415,17 +2577,19 @@ mod tests {
     }
 
     #[test]
-    fn official_state_rule_survives_unrelated_updates_but_not_disable_and_reenable() {
+    fn official_state_rule_survives_unrelated_updates_but_not_baseline_reset() {
         let state = app::tests::state();
         let db = lock(&state.db).unwrap();
-        let id = uuid::Uuid::new_v4().to_string();
+        let id: String = db
+            .query_row("SELECT id FROM widget_instances WHERE kind='memo'", [], |row| row.get(0))
+            .unwrap();
         db.execute(
-            "INSERT INTO widget_instances VALUES(?1,'memo',1,1,1,1,'{\"count\":0}',NULL)",
+            "UPDATE widget_instances SET data='{\"count\":0}',revision=1 WHERE id=?1",
             [&id],
         )
         .unwrap();
         let condition = rule(&id);
-        generated::save_rules(&db, &id, vec![condition.clone()], &json!({"count":0})).unwrap();
+        generated::save_rules(&db, &id, vec![condition], &json!({"count":0})).unwrap();
         db.execute(
             "UPDATE widget_instances SET data='{\"count\":1,\"ticks\":0}',revision=2 WHERE id=?1",
             [&id],
@@ -2441,37 +2605,8 @@ mod tests {
         let pending = generated::take_pending(&db, 1100).unwrap().unwrap();
         let (data, revision) = source_state(&db, &id).unwrap();
         assert!(generated::reaction_current(&db, &pending, &data, revision, 1100).unwrap());
-        db.execute(
-            "UPDATE widget_instances SET enabled=0,revision=4 WHERE id=?1",
-            [&id],
-        )
-        .unwrap();
         reset_rule_baseline(&db, &id).unwrap();
-        let current: i64 = db
-            .query_row(
-                "SELECT revision FROM widget_state_rules WHERE id=?1",
-                [&condition.id],
-                |row| row.get(0),
-            )
-            .unwrap();
         observe_official_rules(&db, 1200).unwrap();
-        let repeated: i64 = db
-            .query_row(
-                "SELECT revision FROM widget_state_rules WHERE id=?1",
-                [&condition.id],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(
-            current, repeated,
-            "inactive polling must not repeatedly bump rule versions"
-        );
-        db.execute(
-            "UPDATE widget_instances SET enabled=1,revision=5 WHERE id=?1",
-            [&id],
-        )
-        .unwrap();
-        reset_rule_baseline(&db, &id).unwrap();
         let (data, revision) = source_state(&db, &id).unwrap();
         assert!(!generated::reaction_current(&db, &pending, &data, revision, 1300).unwrap());
         assert!(generated::take_pending(&db, 1300).unwrap().is_none());
