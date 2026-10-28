@@ -87,6 +87,12 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         ("environment", "weatherTemperature") => "날씨 연결의 최신 관측 기온(섭씨)",
         ("environment", "weatherCode") => "날씨 연결의 최신 WMO weatherCode 숫자",
         ("environment", "weatherName") => "날씨 연결의 관측 대상 지역 이름",
+        ("user", "hasBirthday") => "사용자 생일을 등록했는지 여부",
+        ("user", "birthdayToday") => "오늘이 사용자 생일인지 여부",
+        ("user", "daysUntilBirthday") => "다음 사용자 생일까지 남은 일수",
+        ("user", "age") => "생년을 등록한 사용자의 현재 나이",
+        (_, "birthdayToday") if prefix.starts_with("character.") => "오늘이 해당 캐릭터의 생일인지 여부",
+        (_, "birthdayExists") if prefix.starts_with("character.") => "캐릭터 생일이 실제 달력에 존재하는 날짜인지 여부",
         ("character.nadir", "present") => "활성 캐릭터 중 sourceId가 nadir인 캐릭터가 있는지 여부",
         ("character", "count") => "지금 바탕화면에 함께 지내는 캐릭터 수(1~8). speakers: random 장면의 화자 수 조건에 사용",
         (_, "sourceId") if prefix.starts_with("character.") => "현재 자리에 설치된 캐릭터의 원본 sourceId. 표시 이름·로컬 ID와 구분",
@@ -297,6 +303,10 @@ pub fn registry() -> Registry {
         add("environment", field, ValueType::Number, true, None);
     }
     add("environment", "weatherName", ValueType::String, true, None);
+    add("user", "hasBirthday", ValueType::Boolean, false, None);
+    add("user", "birthdayToday", ValueType::Boolean, false, None);
+    add("user", "daysUntilBirthday", ValueType::Number, true, None);
+    add("user", "age", ValueType::Number, true, None);
     for persona in crate::characters::SLOTS {
         for field in ["total", "stroke", "poke", "cheek", "snack", "today"] {
             add(
@@ -314,6 +324,15 @@ pub fn registry() -> Registry {
             true,
             None,
         );
+        for field in ["birthdayToday", "birthdayExists"] {
+            add(
+                &format!("character.{persona}"),
+                field,
+                ValueType::Boolean,
+                true,
+                None,
+            );
+        }
         add(
             &format!("character.{persona}"),
             "affinity",
@@ -343,6 +362,8 @@ pub fn registry() -> Registry {
         variables,
         events: [
             "idle",
+            "user.birthday",
+            "character.birthday",
             "activity.long-session",
             "activity.idle-return",
             "diary.recall",
@@ -946,6 +967,20 @@ fn body_interaction_data<'a>(
         .map(|widget| &widget.instance.data))
 }
 
+pub(crate) fn birthday_date(year: i32, month: u32, day: u32) -> Option<NaiveDate> {
+    NaiveDate::from_ymd_opt(year, month, day).or_else(|| {
+        if month == 2 && day == 29 {
+            NaiveDate::from_ymd_opt(year, 2, 28)
+        } else {
+            None
+        }
+    })
+}
+
+pub(crate) fn birthday_today(today: NaiveDate, month: u32, day: u32) -> bool {
+    birthday_date(today.year(), month, day) == Some(today)
+}
+
 pub fn build(
     db: &Connection,
     event: Option<&WidgetEvent>,
@@ -1066,6 +1101,37 @@ pub fn build(
             }
         }
     }
+    let today = DateTime::from_timestamp_millis(now_ms)
+        .unwrap_or_default()
+        .with_timezone(&Local)
+        .date_naive();
+    let birthday = crate::store::current_user_birthday(db)?;
+    values.insert("user.hasBirthday".into(), json!(birthday.is_some()));
+    values.insert(
+        "user.birthdayToday".into(),
+        json!(birthday
+            .as_ref()
+            .is_some_and(|b| birthday_today(today, b.month, b.day))),
+    );
+    if let Some(birthday) = birthday {
+        if let Some(this_year) = birthday_date(today.year(), birthday.month, birthday.day) {
+            let next = if this_year >= today {
+                Some(this_year)
+            } else {
+                birthday_date(today.year() + 1, birthday.month, birthday.day)
+            };
+            values.insert(
+                "user.daysUntilBirthday".into(),
+                json!(next.map(|date| (date - today).num_days())),
+            );
+            if let Some(year) = birthday.year {
+                values.insert(
+                    "user.age".into(),
+                    json!((today.year() - year - i32::from(today < this_year)).max(0)),
+                );
+            }
+        }
+    }
     let relationships = crate::store::relationships(db)?;
     values.insert("dialogue.variant".into(), json!(seed % 5));
     values.insert("character.nadir.present".into(), json!(false));
@@ -1100,6 +1166,19 @@ pub fn build(
             json!(character.definition.source_id),
         );
         values.insert(format!("character.{persona}.affinity"), json!(score));
+        if let Some((month, day)) = character
+            .definition
+            .birthday
+            .as_deref()
+            .and_then(crate::characters::birthday_parts)
+        {
+            let exists = NaiveDate::from_ymd_opt(2000, month, day).is_some();
+            values.insert(format!("character.{persona}.birthdayExists"), json!(exists));
+            values.insert(
+                format!("character.{persona}.birthdayToday"),
+                json!(exists && birthday_today(today, month, day)),
+            );
+        }
         if character.definition.source_id == "nadir" {
             values.insert("character.nadir.present".into(), json!(true));
             values.insert("character.nadir.affinity".into(), json!(score));

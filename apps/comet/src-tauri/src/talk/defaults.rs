@@ -33,6 +33,7 @@ pub const PACKS: &[Pack] = &[
         default_installed: true,
         files: byulkkori![
             "index.talk",
+            "situations/birthday.talk",
             "situations/duo.talk",
             "situations/group.talk",
             "situations/recall.talk",
@@ -506,6 +507,9 @@ mod tests {
             if id == BYULKKORI {
                 // 별꼬리는 장면 성격별로 쿨다운을 나눈다: 혼잣말·놀이는 짧게, 상태 안내는 길게.
                 let allowed = match scene.trigger.as_str() {
+                    "idle" if matches!(scene.id.as_str(), "birthday.week" | "birthday.tomorrow") => {
+                        24 * 60 * 60 * 1000..=24 * 60 * 60 * 1000
+                    }
                     "idle" => 10 * 60 * 1000..=6 * 60 * 60 * 1000,
                     "interaction.touch" => 0..=0,
                     _ => 0..=60 * 60 * 1000,

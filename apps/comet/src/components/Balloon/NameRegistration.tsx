@@ -2,6 +2,7 @@ import { useRef, useState, type JSX } from "react";
 import { Button, TextInput } from "@comet/ui";
 import type { Dispatch } from "../../types";
 import { errorText } from "../../hooks/useSnapshot";
+import { BirthdayFields, birthdayDraft, birthdayValue } from "../BirthdayFields";
 import * as s from "../companion.css";
 
 export function NameRegistration({
@@ -12,13 +13,16 @@ export function NameRegistration({
   dispatch: Dispatch;
 }): JSX.Element {
   const [name, setName] = useState("");
+  const [birthday, setBirthday] = useState(() => birthdayDraft(null));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const busy = useRef(false);
   const composing = useRef(false);
   const trimmed = name.trim();
   const length = Array.from(trimmed).length;
-  const valid = length > 0 && length <= 40 && !/\p{Cc}/u.test(trimmed);
+  const selectedBirthday = birthdayValue(birthday);
+  const valid =
+    length > 0 && length <= 40 && !/\p{Cc}/u.test(trimmed) && selectedBirthday !== undefined;
 
   async function save(): Promise<void> {
     if (!valid || busy.current || composing.current) return;
@@ -26,7 +30,10 @@ export function NameRegistration({
     setPending(true);
     setError(null);
     try {
-      await dispatch("register_user_name", { name: trimmed });
+      await dispatch("register_user_profile", {
+        name: trimmed,
+        birthday: selectedBirthday,
+      });
     } catch (cause: unknown) {
       setError(errorText(cause));
     } finally {
@@ -74,6 +81,9 @@ export function NameRegistration({
       <p id="first-user-name-hint" className={s.conversationMeta}>
         1~40자로 알려 줘. 나중에 설정에서 바꿀 수 있어.
       </p>
+      <span>생일 (선택)</span>
+      <BirthdayFields value={birthday} onChange={setBirthday} disabled={pending} />
+      {selectedBirthday === undefined && <p className={s.error}>올바른 월과 일을 선택해 줘.</p>}
       {error && (
         <p className={s.error} role="alert">
           {error}

@@ -1335,3 +1335,28 @@ fn legacy_placement_is_migrated_once_to_the_local_character_id() {
         .unwrap()
         .is_none());
 }
+
+#[test]
+fn birthday_date_change_clears_only_the_current_year_celebration_marker() {
+    use chrono::Datelike;
+    let db = open(std::path::Path::new(":memory:")).unwrap();
+    set_user_name(&db, "친구", 1).unwrap();
+    let birthday = crate::types::UserBirthday { month: 3, day: 4, year: Some(2000) };
+    set_user_birthday(&db, Some(&birthday)).unwrap();
+    let year = chrono::Local::now().year();
+    let current_key = format!("birthday:celebrated:{year}");
+    let previous_key = format!("birthday:celebrated:{}", year - 1);
+    for key in [&current_key, &previous_key] {
+        db.execute("INSERT INTO kv(key,value) VALUES(?1,'1')", [key]).unwrap();
+    }
+    let has_marker = |key: &str| db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM kv WHERE key=?1)", [key], |row| row.get::<_, bool>(0),
+    ).unwrap();
+    let corrected_year = crate::types::UserBirthday { year: Some(2001), ..birthday.clone() };
+    set_user_birthday(&db, Some(&corrected_year)).unwrap();
+    assert!(has_marker(&current_key));
+    let changed_date = crate::types::UserBirthday { day: 5, ..corrected_year };
+    set_user_birthday(&db, Some(&changed_date)).unwrap();
+    assert!(!has_marker(&current_key));
+    assert!(has_marker(&previous_key));
+}

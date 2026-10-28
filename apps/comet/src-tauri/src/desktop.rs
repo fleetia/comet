@@ -1517,10 +1517,13 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         .cloned()
         .collect::<Vec<_>>();
     drop((runtime, presence, guests));
+    let birthday_expired = playback.as_ref().is_some_and(|line| line.source == "talk" && line.display_started_at.is_none())
+        && !crate::talk::host::birthday_current(&state, &db)?;
     let stale_activity = playback.as_ref().is_some_and(|line| line.source == "talk")
         && crate::talk::host::activity_in_playback(&state)?
         && !crate::talk::host::current(&state, &db)?;
     let target = if super::unavailable(&state)
+        || birthday_expired
         || stale_activity
         || (crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
             && panel.as_ref().is_none_or(|panel| {
@@ -1619,6 +1622,14 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
             },
         )
         .map_err(|error| error.to_string())?;
+    if playback
+        .as_ref()
+        .is_some_and(|line| line.source == "talk" && line.display_started_at.is_none())
+        && !crate::talk::host::birthday_current(&state, &db)?
+    {
+        window.hide().map_err(|error| error.to_string())?;
+        return Ok(Some(BalloonPlacement::default()));
+    }
     show_conversation_surface(&window, conversation || target.key.contains("playback:"))?;
     if !input && layout.take_focus_request() {
         window.set_focus().map_err(|error| error.to_string())?;
@@ -1649,6 +1660,11 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
                 displayed_message = line
                     .display_started_at
                     .map(|at| (line.id.clone(), at, line.source.clone()));
+                if line.source == "talk" && line.line_index == 0 {
+                    crate::talk::host::mark_birthday_displayed(
+                        &state, &db, line.display_started_at.unwrap_or_default(),
+                    )?;
+                }
             }
         }
     }

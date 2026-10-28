@@ -5,8 +5,14 @@
       "path": "situations/recall.talk",
       "trigger": "diary.recall",
       "available": [],
-      "active": ["fixture-a"],
-      "values": {"recall.ready": true, "recall.kind": "year", "recall.snippet": "지난 기록"},
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "recall.ready": true,
+        "recall.kind": "year",
+        "recall.snippet": "지난 기록"
+      },
       "expectedScene": "recall.year"
     },
     {
@@ -14,8 +20,14 @@
       "path": "situations/recall.talk",
       "trigger": "diary.recall",
       "available": [],
-      "active": ["fixture-a"],
-      "values": {"recall.ready": true, "recall.kind": "month", "recall.snippet": "지난 기록"},
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "recall.ready": true,
+        "recall.kind": "month",
+        "recall.snippet": "지난 기록"
+      },
       "expectedScene": "recall.month"
     },
     {
@@ -23,8 +35,14 @@
       "path": "situations/recall.talk",
       "trigger": "diary.recall",
       "available": [],
-      "active": ["fixture-a"],
-      "values": {"recall.ready": true, "recall.kind": "week", "recall.snippet": "지난 기록"},
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "recall.ready": true,
+        "recall.kind": "week",
+        "recall.snippet": "지난 기록"
+      },
       "expectedScene": "recall.week"
     },
     {
@@ -3365,6 +3383,54 @@
         "activity.category": "other"
       },
       "expectedScene": "activity.idle-return"
+    },
+    {
+      "id": "birthday.user",
+      "path": "situations/birthday.talk",
+      "trigger": "user.birthday",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {},
+      "expectedScene": "birthday.user"
+    },
+    {
+      "id": "birthday.character",
+      "path": "situations/birthday.talk",
+      "trigger": "character.birthday",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {},
+      "expectedScene": "birthday.character"
+    },
+    {
+      "id": "birthday.week",
+      "path": "situations/birthday.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "user.daysUntilBirthday": 7
+      },
+      "expectedScene": "birthday.week"
+    },
+    {
+      "id": "birthday.tomorrow",
+      "path": "situations/birthday.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "user.daysUntilBirthday": 1
+      },
+      "expectedScene": "birthday.tomorrow"
     }
   ]
 }
