@@ -76,8 +76,7 @@ it("shows real focus intervals clipped to the selected day and routes the exact 
   const widget: WidgetView = {
     id: "timer",
     kind: "focus-timer",
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 1,
     version: 1,
     data: {
@@ -146,8 +145,7 @@ it("keeps focus totals when a session is excluded from the timeline", () => {
   const widget: WidgetView = {
     id: "timer",
     kind: "focus-timer",
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 1,
     version: 1,
     data: {

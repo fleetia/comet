@@ -214,8 +214,12 @@ fn moving_a_todo_updates_planning_and_history_in_one_transaction() {
     let db = database();
     storage::initialize(&db).unwrap();
     let directory = tempfile::tempdir().unwrap();
-    storage::install(&db, directory.path(), &["todo".into()]).unwrap();
-    let todo = storage::instances(&db).unwrap().remove(0);
+    storage::verify_packages(&db, directory.path()).unwrap();
+    let todo = storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|instance| instance.kind == "todo")
+                .unwrap();
     storage::execute(
         &db,
         &WidgetRequest {
@@ -273,7 +277,7 @@ fn widget_links_validate_sources_deduplicate_by_item_and_never_change_the_origin
     let db = database();
     storage::initialize(&db).unwrap();
     let directory = tempfile::tempdir().unwrap();
-    storage::install(&db, directory.path(), &["memo".into(), "clock".into()]).unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
     let widgets = storage::instances(&db).unwrap();
     let memo_id = &widgets
         .iter()
@@ -332,18 +336,14 @@ fn widget_links_validate_sources_deduplicate_by_item_and_never_change_the_origin
     let after = storage::get(&db, memo_id).unwrap();
     assert_eq!(after.data, original.data);
     assert_eq!(after.revision, original.revision);
-    assert!(after.installed);
-
-    storage::remove(&db, directory.path(), clock_id, false).unwrap();
     let state = act(&db, "page-create", json!({"title":"","date":"2026-10-04"}));
-    assert!(update(
+    let linked = update(
         &db,
         state.revision,
         "entry-add",
-        &json!({"pageId":state.pages[0].id,"kind":"widget","refId":clock_id,"text":"제거한 시계"}),
-    )
-    .is_err());
-    assert_eq!(read(&db).unwrap(), state);
+        &json!({"pageId":state.pages[0].id,"kind":"widget","refId":clock_id,"text":"시계"}),
+    ).unwrap();
+    assert_eq!(linked.pages[0].entries.len(), 1);
 }
 
 #[test]

@@ -109,7 +109,7 @@ fn prepare_with_trigger(
     let revisions = widgets::storage::instances(db)?
         .into_iter()
         .filter(|instance| {
-            dependencies.contains(&instance.kind) && instance.installed && instance.enabled
+            !widgets::is_retired(&instance.kind) && dependencies.contains(&instance.kind)
         })
         .map(|instance| (instance.id, instance.revision))
         .collect();
@@ -174,8 +174,7 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
         instances.iter().any(|instance| {
             instance.id == *id
                 && instance.revision == *revision
-                && instance.installed
-                && instance.enabled
+                && !widgets::is_retired(&instance.kind)
         })
     }) {
         return Ok(false);

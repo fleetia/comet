@@ -66,6 +66,8 @@ export const responseHost = style([
   {
     boxSizing: "border-box",
     width: 340,
+    maxHeight: "min(520px, 100dvh)",
+    overflowY: "auto",
     paddingBottom: 16,
     color: tokens["color/ink"],
   },

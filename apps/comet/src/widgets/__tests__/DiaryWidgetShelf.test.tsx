@@ -11,8 +11,7 @@ function widget(kind: string, data: WidgetView["data"]): WidgetView {
     id: `${kind}-widget`,
     kind,
     data,
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 1,
     version: 1,
     error: null,
@@ -39,7 +38,7 @@ function transfer(): Pick<DataTransfer, "getData" | "setData" | "effectAllowed" 
 it("links widgets and todos while keeping individual memo management in Diary notes", () => {
   const todo = widget("todo", { items: [{ id: "todo-1", title: "책 읽기", completedAt: null }] });
   const memo = widget("memo", { notes: [{ id: "memo-1", body: "책 모임 메모" }] });
-  const inactive = { ...widget("clock", {}), enabled: false };
+  const inactive = { ...widget("clock", {}), reaction: false };
   const snapshot: WidgetSnapshot = {
     catalog: [],
     widgets: [todo, memo, inactive],
@@ -59,7 +58,7 @@ it("links widgets and todos while keeping individual memo management in Diary no
   expect(onAdd).toHaveBeenCalledWith({ v: 1, kind: "todo", widgetId: todo.id, itemId: "todo-1" });
   fireEvent.click(screen.getByRole("button", { name: "memo 위젯 연결" }));
   expect(onAdd).toHaveBeenLastCalledWith({ v: 1, kind: "widget", widgetId: memo.id });
-  expect(screen.queryByTitle("clock 열기")).toBeNull();
+  expect(screen.getByTitle("clock 열기")).toBeTruthy();
 });
 
 it("drags a reference without embedding content, including the cross-window text fallback", () => {

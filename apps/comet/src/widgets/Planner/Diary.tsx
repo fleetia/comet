@@ -111,7 +111,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
   const [pageMenuVersion, setPageMenuVersion] = useState(0);
   const widgets = snapshot?.widgets ?? [];
   const enabled = (kind: string): WidgetView | undefined =>
-    widgets.find((widget) => widget.kind === kind && widget.installed && widget.enabled);
+    widgets.find((widget) => widget.kind === kind);
   const todo = enabled("todo"),
     calendar = enabled("calendar"),
     preparation = enabled("preparation");
@@ -403,10 +403,6 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
     });
   }
   function openSourceWidget(widget: WidgetView, itemId?: string): void {
-    if (!widget.installed || !widget.enabled) {
-      setFailure("위젯 설정에서 이 도구를 먼저 켜 주세요.");
-      return;
-    }
     if (!itemId && (widget.kind === "todo" || widget.kind === "calendar")) {
       if (widget.kind === "calendar") openDay(day, "month");
       else openTool("today");

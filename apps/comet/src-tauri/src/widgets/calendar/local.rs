@@ -311,7 +311,7 @@ mod tests {
         let db = rusqlite::Connection::open_in_memory().unwrap();
         storage::initialize(&db).unwrap();
         let directory = tempfile::tempdir().unwrap();
-        storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
+        storage::verify_packages(&db, directory.path()).unwrap();
         let calendar = storage::instances(&db)
             .unwrap()
             .into_iter()
@@ -337,13 +337,8 @@ mod tests {
         assert_eq!(storage::get(&db, &calendar.id).unwrap().data, saved.data);
         let projected = widgets::project(saved.clone(), std::slice::from_ref(&saved)).unwrap();
         assert_eq!(projected.status, "enabled");
-        storage::set_enabled(&db, &calendar.id, false).unwrap();
-        assert_eq!(
-            storage::get(&db, &calendar.id).unwrap().data["events"],
-            saved.data["events"]
-        );
-        storage::remove(&db, directory.path(), &calendar.id, false).unwrap();
-        storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
+        storage::initialize(&db).unwrap();
+        storage::verify_packages(&db, directory.path()).unwrap();
         assert_eq!(
             storage::get(&db, &calendar.id).unwrap().data["events"],
             saved.data["events"]

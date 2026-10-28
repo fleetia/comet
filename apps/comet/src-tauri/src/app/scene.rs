@@ -113,7 +113,7 @@ fn playback_link(
         })
     });
     let (instance_id, kind, label) = if let Some(instance) = instance {
-        if !instance.installed || !instance.enabled || widgets::is_retired(&instance.kind) {
+        if widgets::is_retired(&instance.kind) {
             return Ok(None);
         }
         (
@@ -127,7 +127,7 @@ fn playback_link(
             .map_or(kind.as_str(), |event| event.instance_id.as_str());
         let Some(widget) = widgets::generated::list(db)?
             .into_iter()
-            .find(|widget| widget.id == id && widget.installed && widget.enabled)
+            .find(|widget| widget.id == id && widget.installed)
         else {
             return Ok(None);
         };
@@ -407,7 +407,7 @@ pub(crate) fn line_completion_locked(
     }))
 }
 
-async fn wait_for_completed_line(
+pub(crate) async fn wait_for_completed_line(
     state: &AppState,
     epoch: u64,
     cancel: Arc<AtomicBool>,
@@ -1024,7 +1024,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn widget_links_and_model_choices_only_include_available_instances() {
+    fn official_widget_links_are_available_even_when_reactions_are_disabled() {
         let state = super::super::tests::state();
         let db = lock(&state.db).unwrap();
         db.execute("DELETE FROM widget_instances WHERE kind='device'", [])
@@ -1037,16 +1037,18 @@ mod tests {
             widget: Some("device".into()),
             motion: Default::default(),
         };
-        for (installed, enabled, available) in [(1, 1, true), (1, 0, false), (0, 1, false)] {
-            db.execute("UPDATE widget_instances SET installed=?1,enabled=?2 WHERE id='test-device'", rusqlite::params![installed, enabled]).unwrap();
+        for reaction_enabled in [true, false] {
+            if !reaction_enabled {
+                db.execute("INSERT INTO widget_preferences(key,value) VALUES('reaction:test-device','0')", []).unwrap();
+            }
             let mut prompt = Vec::new();
             let mut schema = crate::domain::reply_schema_for(&["builtin-a".into()], &["평온"]);
             let kinds = crate::domain::configure_widget_replies(&db, &mut prompt, &mut schema, false)
                 .unwrap();
-            assert_eq!(kinds.iter().any(|kind| kind == "device"), available);
+            assert!(kinds.iter().any(|kind| kind == "device"));
             assert_eq!(
                 playback_link(&db, &state, "llm", "message", &line).unwrap().is_some(),
-                available
+                true
             );
         }
     }

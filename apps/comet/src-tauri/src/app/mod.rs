@@ -69,6 +69,8 @@ pub(crate) struct AppState {
     pub(crate) talk_playback: Mutex<Option<talk::host::PreparedTalk>>,
     pub(crate) talk_turn: AtomicBool,
     pub(crate) story: Mutex<Option<story::Request>>,
+    pub(crate) follow_ups: Mutex<Option<FollowUpRequest>>,
+    pub(crate) follow_up_dismissed_epoch: AtomicU64,
     pub(crate) pack_stories: Mutex<crate::pack_stories::Runtime>,
     pub(crate) story_clock: Mutex<story::Clock>,
     pub(crate) story_catalog: Mutex<Vec<story::Scene>>,
@@ -169,6 +171,7 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
             .map(|session| store::conversation_view(&db, &session.id))
             .transpose()?,
         story: lock(&state.story)?.clone(),
+        follow_ups: lock(&state.follow_ups)?.clone(),
         wordbook: wordbook::entries(&db)?,
         characters,
         message_identities: store::message_identities(&db, 100)?,
@@ -293,6 +296,7 @@ pub(crate) fn interrupt_for_conversation(
     *lock(&state.widget_playback)? = None;
     *lock(&state.talk_playback)? = None;
     *lock(&state.story)? = None;
+    *lock(&state.follow_ups)? = None;
     let mut panel = lock(&state.panel)?;
     if panel
         .as_ref()
