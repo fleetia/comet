@@ -181,6 +181,12 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
         return Ok(false);
     }
     let mut context = talk::context::build(db, prepared.event.as_ref(), now, prepared.seed)?;
+    if prepared.text_values.get("recall.ready") == Some(&serde_json::json!(true))
+        && prepared.selection.references.iter().any(|name| name.starts_with("recall."))
+        && !crate::store::settings(db)?.diary_recall_enabled
+    {
+        return Ok(false);
+    }
     if let Some(day) = prepared.recall_day {
         if chrono::Local::now().date_naive() != day
             || !crate::store::settings(db)?.diary_recall_enabled

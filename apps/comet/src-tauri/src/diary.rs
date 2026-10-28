@@ -150,23 +150,18 @@ impl DiaryState {
         let snippet = notes
             .clone()
             .find(|entry| !entry.text.trim().is_empty())
-            .map(|entry| {
-                entry
-                    .text
-                    .replace("\r\n", "\n")
+            .map(|entry| entry.text.as_str())
+            .or_else(|| {
+                notes.clone().find_map(|entry| {
+                    entry.review.as_deref().filter(|review| !review.trim().is_empty())
+                })
+            })
+            .map(|text| {
+                text.replace("\r\n", "\n")
                     .chars()
                     .take(60)
                     .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
                     .collect()
-            })
-            .or_else(|| {
-                notes.clone().find_map(|entry| {
-                    entry
-                        .review
-                        .as_ref()
-                        .filter(|review| !review.trim().is_empty())
-                        .cloned()
-                })
             });
         let rating = notes.filter_map(|entry| entry.rating).next();
         if snippet.is_some() || rating.is_some() {

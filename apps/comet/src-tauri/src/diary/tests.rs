@@ -494,3 +494,13 @@ fn pinning_a_note_records_when_and_unpinning_or_editing_keeps_it_consistent() {
         serde_json::from_value(json!({"id":"old","title":"","body":"","pinned":true})).unwrap();
     assert_eq!(legacy.pinned_at, None);
 }
+
+#[test]
+fn recall_normalizes_and_limits_review_snippets() {
+    let db = database();
+    let review = format!("{}\r\n{}", "가".repeat(40), "나".repeat(30));
+    let data = json!({"revision":1,"pages":[{"id":"page","title":"","date":"2026-10-03","entries":[{"id":"note","kind":"note","text":"","review":review}]}],"notes":[],"moves":[]});
+    db.execute("UPDATE diary_state SET data=?1 WHERE id=1", [data.to_string()]).unwrap();
+    let (snippet, _) = read(&db).unwrap().recall("2026-10-03").unwrap();
+    assert_eq!(snippet.unwrap(), format!("{} {}", "가".repeat(40), "나".repeat(19)));
+}

@@ -368,6 +368,9 @@ fn project_recall(
     now_ms: i64,
 ) -> Result<(), String> {
     values.insert("recall.ready".into(), json!(false));
+    if !crate::store::settings(db)?.diary_recall_enabled {
+        return Ok(());
+    }
     let Some(today) =
         DateTime::from_timestamp_millis(now_ms).map(|time| time.with_timezone(&Local).date_naive())
     else {
@@ -902,6 +905,35 @@ pub fn build(
 mod tests {
     use super::*;
     use crate::widgets::{WidgetInstance, WidgetView};
+
+    #[test]
+    fn disabling_recall_hides_diary_values_from_all_talk_contexts() {
+        let db = crate::store::open(std::path::Path::new(":memory:")).unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        let date = (chrono::Local::now().date_naive() - chrono::Days::new(7)).to_string();
+        let diary = json!({"revision":1,"pages":[{"id":"page","title":"","date":date,"entries":[{"id":"note","kind":"note","text":"private diary"}]}],"notes":[],"moves":[]});
+        db.execute("UPDATE diary_state SET data=?1 WHERE id=1", [diary.to_string()]).unwrap();
+        let mut settings = crate::store::settings(&db).unwrap();
+        settings.diary_recall_enabled = false;
+        crate::store::save_settings(&db, &settings).unwrap();
+        let event = crate::widgets::WidgetEvent {
+            id: "event".into(), instance_id: "widget".into(), widget_kind: "weather".into(),
+            revision: 1, created_at: now, expires_at: now + 1000,
+            event: crate::widgets::EventDraft { kind: "weather.changed".into(), text: "".into(), payload: json!({}) },
+        };
+        for event in [None, Some(&event)] {
+            let context = build(&db, event, now, 0).unwrap();
+            assert_eq!(context.values["recall.ready"], false);
+            for name in ["kind", "date", "daysAgo", "snippet", "rating", "focusMinutes"] {
+                assert_eq!(context.values[&format!("recall.{name}")], Value::Null);
+            }
+        }
+        settings.diary_recall_enabled = true;
+        crate::store::save_settings(&db, &settings).unwrap();
+        let context = build(&db, None, now, 0).unwrap();
+        assert_eq!(context.values["recall.ready"], true);
+        assert_eq!(context.values["recall.snippet"], "private diary");
+    }
 
     #[test]
     fn body_interaction_context_requires_a_fresh_owned_receipt_and_keeps_widget_gates() {
