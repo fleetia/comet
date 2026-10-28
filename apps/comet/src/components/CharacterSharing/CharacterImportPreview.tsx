@@ -8,6 +8,7 @@ import * as styles from "./characterSharing.css";
 
 export function CharacterImportPreview({
   pack,
+  warnings,
   activeCount,
   installed,
   joinDisabled,
@@ -22,6 +23,7 @@ export function CharacterImportPreview({
   onCancel,
 }: {
   pack: CharacterPack | null;
+  warnings: string[];
   activeCount: number;
   installed: boolean;
   joinDisabled: boolean;
@@ -129,6 +131,11 @@ export function CharacterImportPreview({
       <div className={styles.importBody}>
         {pack ? (
           <>
+            {warnings.map((warning, index) => (
+              <p key={index} className={styles.error} role="status">
+                {warning}
+              </p>
+            ))}
             <section className={styles.section} aria-label="이 파일에 들어 있는 것">
               <h3 className={styles.sectionTitle}>이 파일에 들어 있는 것</h3>
               <div className={styles.contents}>

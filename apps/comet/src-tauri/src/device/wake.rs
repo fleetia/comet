@@ -27,8 +27,6 @@ fn receive_wake(app: &tauri::AppHandle) {
             let can_react = crate::widgets::connection_host::wake_event_allowed(&state, &db)?;
             for instance in crate::widgets::storage::instances(&db)? {
                 if instance.kind != "device"
-                    || !instance.installed
-                    || !instance.enabled
                     || instance.data["configured"] != true
                 {
                     continue;

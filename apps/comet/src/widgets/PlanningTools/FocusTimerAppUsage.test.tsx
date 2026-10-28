@@ -19,8 +19,7 @@ function widget(data: DataRecord): WidgetView {
   return {
     id: "focus",
     kind: "focus-timer",
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 1,
     version: 1,
     data,

@@ -80,23 +80,19 @@ export function useDiaryWidgetActions({
   }
   const act: ToolAction = async (action, input = {}, target = todo) => {
     if (!target) {
-      setFailure("이 도구를 먼저 켜 주세요.");
+      setFailure("도구를 찾을 수 없어요. 다시 시도해 주세요.");
       return false;
     }
     return Boolean(await run(() => execute(action, input, target)));
   };
   async function ensureWidget(kind: string): Promise<WidgetView> {
-    const existing = latestWidgets.current.find((widget) => widget.kind === kind);
-    if (existing?.installed && existing.enabled) return existing;
-    if (existing?.installed)
-      await command("set_widget_enabled", { id: existing.id, enabled: true });
-    else await command("install_widgets", { kinds: [kind] });
-    const fresh = await command<WidgetSnapshot>("get_widgets");
-    latestWidgets.current = fresh.widgets;
-    const widget = fresh.widgets.find(
-      (value) => value.kind === kind && value.installed && value.enabled,
-    );
-    if (!widget) throw new Error("도구를 준비하지 못했어요. 다시 시도해 주세요.");
+    let widget = latestWidgets.current.find((value) => value.kind === kind);
+    if (!widget) {
+      const fresh = await command<WidgetSnapshot>("get_widgets");
+      latestWidgets.current = fresh.widgets;
+      widget = fresh.widgets.find((value) => value.kind === kind);
+    }
+    if (!widget) throw new Error("도구를 찾을 수 없어요. 다시 시도해 주세요.");
     return widget;
   }
   return { busy, pending, latestWidgets, run, execute, act, ensureWidget };

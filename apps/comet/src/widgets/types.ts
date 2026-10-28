@@ -20,12 +20,11 @@ export type WidgetView = {
   id: string;
   kind: string;
   version: number;
-  installed: boolean;
-  enabled: boolean;
+  reaction: boolean;
   revision: number;
   data: WidgetValue;
   error: string | null;
-  status: "not-installed" | "install-error" | "disabled" | "setup" | "error" | "enabled";
+  status: "install-error" | "setup" | "error" | "enabled";
   missing: string[];
   packageBytes: number;
   backgroundUpdatedAt?: number | null;

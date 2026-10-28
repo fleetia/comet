@@ -188,6 +188,22 @@ export function ConversationSettings({
             </div>
           </section>
           <section className={styles.section}>
+            <h2 className={styles.sectionTitle}>직접 대화</h2>
+            <div className={styles.group}>
+              <SettingControlRow
+                className={styles.row}
+                title="답변 뒤 이어서 할 말 보여주기"
+                control={
+                  <Switch
+                    aria-label="답변 뒤 이어서 할 말 보여주기"
+                    checked={settings.showFollowUps}
+                    onChange={(event) => draft.change("showFollowUps", event.target.checked)}
+                  />
+                }
+              />
+            </div>
+          </section>
+          <section className={styles.section}>
             <h2 className={styles.sectionTitle}>조용한 시간</h2>
             <div className={styles.group}>
               <SettingControlRow

@@ -139,7 +139,6 @@ fn validate_view_target(
             .iter()
             .any(|widget| {
                 widget.kind == "preparation"
-                    && widget.installed
                     && widget.data["envelopes"]
                         .as_array()
                         .is_some_and(|envelopes| envelopes.iter().any(|value| value["id"] == id))
@@ -148,8 +147,6 @@ fn validate_view_target(
             .iter()
             .any(|widget| {
                 widget.kind == "calendar"
-                    && widget.installed
-                    && widget.enabled
                     && widget.data["events"].as_array().is_some_and(|events| {
                         events.iter().any(|event| {
                             event["id"] == id
@@ -405,7 +402,7 @@ pub(crate) fn preview_planner_recurrence(
 ) -> Result<Vec<String>, String> {
     let db = crate::lock(&state.db)?;
     let widget = crate::widgets::storage::get(&db, &id)?;
-    if widget.kind != "todo" || !widget.installed || !widget.enabled {
+    if widget.kind != "todo" {
         return Err("사용 중인 할 일 도구가 필요합니다.".into());
     }
     crate::widgets::planning::recurrence_preview(

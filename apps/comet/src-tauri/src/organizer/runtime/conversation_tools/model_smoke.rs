@@ -379,11 +379,7 @@ async fn chain(
         let installed = characters::import_pack(&db, &characters::byulkkori_pack())?;
         let target = installed[0].id.clone();
         characters::apply_roster(&db, vec![target.clone()])?;
-        crate::widgets::storage::install(
-            &db,
-            widgets,
-            &["todo".into(), "memo".into(), "calendar".into()],
-        )?;
+        crate::widgets::storage::verify_packages(&db, widgets)?;
         target
     };
     let mut turns = vec![];
