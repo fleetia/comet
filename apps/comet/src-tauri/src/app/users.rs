@@ -64,8 +64,34 @@ fn save_profile(
         runtime.phase = RuntimePhase::Idle;
         runtime.persona = None;
         runtime.error = None;
+        drop(runtime);
         if first {
             schedule_idle(state, store::settings(&db)?.idle_minutes);
+            let user = store::active_user_id(&db)?;
+            for character in presence::present_ids(state, &characters::active_ids(&db)?)? {
+                store::insert_moment(
+                    &db,
+                    &character,
+                    &user,
+                    "first-meeting",
+                    "처음 만난 날",
+                    at,
+                    None,
+                    serde_json::json!({}),
+                )?;
+                if birthday.is_some() {
+                    store::insert_moment(
+                        &db,
+                        &character,
+                        &user,
+                        "birthday-told",
+                        "생일을 알려 준 날",
+                        at,
+                        None,
+                        serde_json::json!({}),
+                    )?;
+                }
+            }
         }
     }
     Ok((changed, first))
@@ -112,6 +138,22 @@ pub(crate) fn set_user_birthday(
             runtime.phase = RuntimePhase::Idle;
             runtime.persona = None;
             runtime.error = None;
+            drop(runtime);
+            if birthday.is_some() {
+                let at = chrono::Utc::now().timestamp_millis();
+                for character in presence::present_ids(&state, &characters::active_ids(&db)?)? {
+                    store::insert_moment(
+                        &db,
+                        &character,
+                        &user_id,
+                        "birthday-told",
+                        "생일을 알려 준 날",
+                        at,
+                        None,
+                        serde_json::json!({}),
+                    )?;
+                }
+            }
         }
     }
     publish(&app, &state);
@@ -223,6 +265,45 @@ pub(crate) fn count_character_memories(
         |row| row.get(0),
     )
     .map_err(|error| error.to_string())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SharedMomentStats {
+    days_together: Option<i64>,
+    moment_count: i64,
+}
+
+#[tauri::command]
+pub(crate) fn get_shared_moment_stats(
+    state: tauri::State<'_, Arc<AppState>>,
+    character_id: String,
+) -> Result<SharedMomentStats, String> {
+    let db = lock(&state.db)?;
+    characters::get(&db, &character_id)?;
+    let Some(user) = store::current_user(&db)? else {
+        return Ok(SharedMomentStats {
+            days_together: None,
+            moment_count: 0,
+        });
+    };
+    let started = chrono::DateTime::from_timestamp_millis(user.started_at)
+        .ok_or("처음 만난 날짜가 올바르지 않아요.")?
+        .with_timezone(&chrono::Local)
+        .date_naive();
+    let days_together = (chrono::Local::now().date_naive() - started)
+        .num_days()
+        .saturating_add(1)
+        .max(1);
+    let moment_count = db.query_row(
+        "SELECT COUNT(*) FROM memories WHERE character_id=?1 AND user_id=?2 AND kind='experience' AND source LIKE 'moment:%' AND deleted=0 AND expired=0",
+        rusqlite::params![character_id, user.id],
+        |row| row.get(0),
+    ).map_err(|error| error.to_string())?;
+    Ok(SharedMomentStats {
+        days_together: Some(days_together),
+        moment_count,
+    })
 }
 
 #[tauri::command]

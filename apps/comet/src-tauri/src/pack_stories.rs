@@ -1117,15 +1117,15 @@ pub fn display_finished(
                 tx.execute("INSERT INTO pack_story_progress VALUES(?1,?2,?3) ON CONFLICT(scope) DO UPDATE SET wait_turn=excluded.wait_turn,flags=excluded.flags",params![scope_key(&ticket.scope)?,current_turn(tx,&ticket.scope.user_id)?+3,serde_json::to_string(&flags).map_err(|e|e.to_string())?]).map_err(|e|e.to_string())?;
                 if let Some(template) = &definition.completion.memory_template {
                     let text = template.replace("{scenarioTitle}", &definition.title);
-                    crate::store::insert_experience(
+                    crate::store::insert_moment(
                         tx,
                         &ticket.scope.center_id,
                         &ticket.scope.user_id,
-                        &format!("pack-story:{}", ticket.run_id),
+                        "story-complete",
                         &text,
-                        &serde_json::to_string(&definition.ending).map_err(|e| e.to_string())?,
                         proof.now,
-                        None,
+                        ticket.scenario_id.as_deref(),
+                        serde_json::json!({"scenarioId":ticket.scenario_id}),
                     )?;
                 }
             }

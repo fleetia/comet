@@ -31,7 +31,7 @@ pub use memory::memories;
 pub use memory::{
     analysis_memories, analyze_apply_batch, assign_legacy_memories, completed_conversation_sources,
     copy_recall, delete_memory_for, edit_memory_for, forget_character_memories, idle_memories,
-    inherit_recall, insert_experience, legacy_memory_count, legacy_memory_page, recall_valid,
+    inherit_recall, insert_experience, insert_moment, legacy_memory_count, legacy_memory_page, recall_valid,
     record_recall, relationships, scoped_memory_page,
 };
 #[cfg(test)]

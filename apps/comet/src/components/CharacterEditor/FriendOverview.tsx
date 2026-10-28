@@ -115,6 +115,12 @@ export function FriendOverview({
     snack: number;
   } | null>(null);
   const [touchesError, setTouchesError] = useState(false);
+  const [moments, setMoments] = useState<{
+    characterId: string;
+    daysTogether: number | null;
+    momentCount: number;
+  } | null>(null);
+  const [momentsError, setMomentsError] = useState(false);
   const [mood, setMood] = useState<{ characterId: string; value: number } | null>(null);
   const [moodError, setMoodError] = useState(false);
   const characterId = character?.id;
@@ -166,6 +172,8 @@ export function FriendOverview({
     const unlisten: (() => void)[] = [];
     setTouches(null);
     setTouchesError(false);
+    setMoments(null);
+    setMomentsError(false);
     const refresh = () => {
       const current = ++revision;
       void command<{ stroke: number; poke: number; snack: number }>("get_character_touches", {
@@ -181,6 +189,22 @@ export function FriendOverview({
           if (active && current === revision) {
             setTouches(null);
             setTouchesError(true);
+          }
+        });
+      void command<{ daysTogether: number | null; momentCount: number }>(
+        "get_shared_moment_stats",
+        { characterId },
+      )
+        .then((result) => {
+          if (active && current === revision) {
+            setMoments({ characterId, ...result });
+            setMomentsError(false);
+          }
+        })
+        .catch(() => {
+          if (active && current === revision) {
+            setMoments(null);
+            setMomentsError(true);
           }
         });
     };
@@ -344,6 +368,16 @@ export function FriendOverview({
         </section>
         <section className={styles.section} aria-label="함께한 기록">
           <h2 className={styles.sectionTitle}>함께한 기록</h2>
+          {moments && moments.characterId === characterId && moments.daysTogether !== null && (
+            <p className={styles.caption}>
+              함께한 지 {moments.daysTogether}일 · 추억 {moments.momentCount}개
+            </p>
+          )}
+          {momentsError && (
+            <p className={styles.caption} role="alert">
+              함께한 추억을 불러오지 못했어요.
+            </p>
+          )}
           {touches && touches.characterId === characterId && (
             <p className={styles.caption}>
               쓰다듬기 {touches.stroke} · 찌르기 {touches.poke} · 간식 {touches.snack}

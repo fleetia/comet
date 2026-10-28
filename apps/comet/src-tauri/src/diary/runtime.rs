@@ -43,6 +43,66 @@ fn completed(state: &DiaryState, habit: &Habit, day: &str) -> bool {
     })
 }
 
+fn record_travel_moments(
+    db: &Connection,
+    state: &AppState,
+    diary: &DiaryState,
+    now: i64,
+) -> Result<()> {
+    let Some(user) = store::current_user(db)? else {
+        return Ok(());
+    };
+    let present = app::presence::present_ids(state, &characters::active_ids(db)?)?;
+    let instant = chrono::DateTime::from_timestamp_millis(now).ok_or("시각이 올바르지 않아요.")?;
+    let tx = db.unchecked_transaction().map_err(err)?;
+    for travel in &diary.travels {
+        let Ok(zone) = travel.time_zone.parse::<chrono_tz::Tz>() else {
+            continue;
+        };
+        let today = instant.with_timezone(&zone).format("%Y-%m-%d").to_string();
+        for (date, stage, summary) in [
+            (
+                &travel.start_date,
+                "start",
+                format!("‘{}’ 여행 출발", travel.title),
+            ),
+            (
+                &travel.end_date,
+                "end",
+                format!("‘{}’ 여행 마지막 날", travel.title),
+            ),
+        ] {
+            if *date != today {
+                continue;
+            }
+            let reference = format!("{}:{stage}", travel.id);
+            let receipt = format!("moment:travel-stage:{}:{reference}:{today}", user.id);
+            let claimed = tx
+                .execute(
+                    "INSERT OR IGNORE INTO diary_runtime(key,value) VALUES(?1,'recorded')",
+                    [&receipt],
+                )
+                .map_err(err)?;
+            if claimed == 0 {
+                continue;
+            }
+            for character_id in &present {
+                store::insert_moment(
+                    &tx,
+                    character_id,
+                    &user.id,
+                    "travel-stage",
+                    &summary,
+                    now,
+                    Some(&reference),
+                    serde_json::json!({"travelId":travel.id,"stage":stage}),
+                )?;
+            }
+        }
+    }
+    tx.commit().map_err(err)
+}
+
 fn due(state: &DiaryState, at: NaiveDateTime) -> Result<Vec<Reminder>> {
     let day = at.date().format("%Y-%m-%d").to_string();
     let clock = at.format("%H:%M").to_string();
@@ -234,6 +294,7 @@ pub(crate) fn tick(app: &tauri::AppHandle, state: &Arc<AppState>) -> Result<()> 
         let at = Local::now().naive_local();
         let current = read(&db)?;
         let saved = generate(&db, &current, at.date())?;
+        record_travel_moments(&db, state, &saved, now)?;
         if saved.revision != current.revision {
             let _ = app.emit("diary-updated", &saved);
         }

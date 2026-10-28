@@ -330,11 +330,22 @@ fn timer_moods(
     lines
 }
 
+#[cfg(test)]
 pub fn advance(
     db: &Connection,
     clocks: &mut BTreeMap<String, i64>,
     now: i64,
     quiet: bool,
+) -> Result<Advance, String> {
+    advance_with_presence(db, clocks, now, quiet, &[])
+}
+
+pub fn advance_with_presence(
+    db: &Connection,
+    clocks: &mut BTreeMap<String, i64>,
+    now: i64,
+    quiet: bool,
+    present: &[String],
 ) -> Result<Advance, String> {
     let local = Local
         .timestamp_millis_opt(now)
@@ -466,7 +477,15 @@ pub fn advance(
         {
             let (data, drafts) = anniversary_greetings(&instance.data, local.date_naive());
             if !drafts.is_empty() {
-                storage::commit_data(db, &instance.id, instance.revision, data, drafts, now)?;
+                storage::commit_data_with_presence(
+                    db,
+                    &instance.id,
+                    instance.revision,
+                    data,
+                    drafts,
+                    now,
+                    present,
+                )?;
                 result.changed = true;
             }
         }

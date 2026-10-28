@@ -114,6 +114,24 @@ export function MemorySettings({
 }
 
 type Draft = { content: string; dirty: boolean };
+function momentSummary(memory: Memory): string | null {
+  if (memory.kind !== "experience" || !memory.sourceMessageId.startsWith("moment:")) return null;
+  try {
+    const source: unknown = JSON.parse(memory.sourceText);
+    if (
+      source &&
+      typeof source === "object" &&
+      "summary" in source &&
+      typeof source.summary === "string"
+    ) {
+      return source.summary;
+    }
+  } catch {
+    // Older or imported records may not contain valid moment metadata.
+  }
+  return memory.content;
+}
+
 export function MemoryEditor({
   characterId,
   characterName,
@@ -240,8 +258,15 @@ export function MemoryEditor({
                   {drafts[memory.id]?.dirty ? " · 미저장" : ""}
                 </span>
                 <span className={layout.metadata}>
-                  {memory.userName} · {new Date(memory.updatedAt).toLocaleDateString("ko-KR")} ·{" "}
-                  {memory.kind === "user_fact" ? "사용자 사실" : "대화 경험"}
+                  {memory.userName} ·{" "}
+                  {new Date(
+                    momentSummary(memory) !== null ? memory.sourceCreatedAt : memory.updatedAt,
+                  ).toLocaleDateString("ko-KR")} ·{" "}
+                  {momentSummary(memory) !== null
+                    ? "함께한 추억"
+                    : memory.kind === "user_fact"
+                      ? "사용자 사실"
+                      : "대화 경험"}
                 </span>
               </SelectableListRow>
             ))}
@@ -256,7 +281,11 @@ export function MemoryEditor({
               </div>
               <p className={s.quiet}>
                 {characterName ? `${characterName} · ` : ""}
-                {current.userName} · {new Date(current.updatedAt).toLocaleDateString("ko-KR")}
+                {current.userName} ·{" "}
+                {new Date(
+                  momentSummary(current) !== null ? current.sourceCreatedAt : current.updatedAt,
+                ).toLocaleDateString("ko-KR")}
+                {momentSummary(current) !== null ? " · 함께한 추억" : ""}
               </p>
               <FormField className={s.field} label="기억 내용">
                 <Textarea
@@ -282,7 +311,9 @@ export function MemoryEditor({
                   <p className={s.quiet}>
                     {new Date(current.sourceCreatedAt).toLocaleDateString("ko-KR")}
                   </p>
-                  <p className={layout.original}>{current.sourceText || "근거 원문이 없어요."}</p>
+                  <p className={layout.original}>
+                    {momentSummary(current) ?? (current.sourceText || "근거 원문이 없어요.")}
+                  </p>
                 </Surface>
               </details>
               <p className={s.quiet}>기억 내용만 수정해요. 대화 원문과 친밀도는 유지돼요.</p>

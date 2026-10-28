@@ -49,6 +49,74 @@ fn context(prompt: &[ChatMessage]) -> Value {
 }
 
 #[test]
+fn shared_moment_rules_and_data_fit_after_the_latest_input_is_reserved() {
+    for count in [1, 2] {
+        let cast = members(count);
+        let actor = &cast[0].id;
+        let moment = Memory {
+            kind: "experience".into(),
+            content: "사용자가 편집한 함께한 날".into(),
+            source_message_id: "moment:focus-day:2026-10-28".into(),
+            source_text: "원본 사건 데이터".into(),
+            ..user_fact(actor)
+        };
+        let latest = message("latest", "user", actor, "오늘을 기억해?");
+        let prompt = roster_turn_prompt(
+            &cast,
+            &vec![vec![latest.clone()]; count],
+            std::slice::from_ref(&moment),
+            &[],
+            &latest,
+            &cast,
+            0,
+        );
+        let data = context(&prompt);
+        assert_eq!(data["sharedMoments"][0]["summary"], moment.content);
+        assert_eq!(data["sharedMoments"][0]["date"], "2026-10-28");
+        assert!(prompt[0].content.contains(SHARED_MOMENT_RULES));
+        assert!(prompt[0].content.contains("편집했을 수 있다"));
+        assert!(prompt.iter().map(|message| message.content.len() + 40).sum::<usize>() <= PAIR_PROMPT_BYTES);
+        if count == 1 {
+            let mut small = prompt.clone();
+            let total = small.iter().map(|message| message.content.len() + 40).sum::<usize>();
+            drop_moments_if_over_budget(&mut small, total);
+            assert!(context(&small).get("sharedMoments").is_some());
+            drop_moments_if_over_budget(&mut small, total - 1);
+            assert!(context(&small).get("sharedMoments").is_none());
+            assert!(!small[0].content.contains(SHARED_MOMENT_RULES));
+            assert_eq!(small.last().unwrap().content, latest.content);
+        }
+
+        let latest = message("long", "user", actor, &"한".repeat(1000));
+        let mut oversized = moment.clone();
+        oversized.content = "긴 추억".repeat(3000);
+        let prompt = roster_turn_prompt(
+            &cast,
+            &vec![vec![latest.clone()]; count],
+            &[oversized],
+            &[],
+            &latest,
+            &cast,
+            0,
+        );
+        let data = context(&prompt);
+        if count == 1 {
+            assert_eq!(prompt.last().unwrap().content, latest.content);
+        } else {
+            assert_eq!(data["latestUser"], latest.content);
+        }
+        assert!(data.get("sharedMoments").is_none());
+        assert!(!prompt[0].content.contains(SHARED_MOMENT_RULES));
+        assert!(prompt.iter().map(|message| message.content.len() + 40).sum::<usize>() <= PAIR_PROMPT_BYTES);
+
+        let scene = roster_scene_prompt(&cast, std::slice::from_ref(&moment), &[], false, &cast);
+        assert_eq!(context(&scene)["sharedMoments"][0]["summary"], moment.content);
+        assert!(scene[0].content.contains(SHARED_MOMENT_RULES));
+        assert!(scene.iter().map(|message| message.content.len() + 40).sum::<usize>() <= PAIR_PROMPT_BYTES);
+    }
+}
+
+#[test]
 fn single_turn_keeps_fact_subject_settings_and_actual_speakers_separate() {
     let cast = members(1);
     let actor = &cast[0].id;

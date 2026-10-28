@@ -11,6 +11,36 @@ fn database() -> Connection {
 }
 
 #[test]
+fn focus_moment_waits_for_a_present_character_without_consuming_the_daily_marker() {
+    use chrono::{Local, TimeZone};
+
+    let db = crate::store::open(Path::new(":memory:")).unwrap();
+    crate::store::set_user_name(&db, "친구", 1).unwrap();
+    let character = crate::characters::active_ids(&db).unwrap().remove(0);
+    let before = instance(&db, "focus-timer");
+    let start = Local
+        .from_local_datetime(&Local::now().date_naive().and_hms_opt(12, 0, 0).unwrap())
+        .single()
+        .unwrap()
+        .timestamp_millis();
+    let now = start + 3_600_000;
+    let mut after = before.clone();
+    after.data["sessions"] = json!([{ "segments": [{ "startAt": start, "endAt": now }] }]);
+
+    assert!(!storage::record_widget_moments(&db, &before, &after, &[], now).unwrap());
+    assert!(storage::record_widget_moments(&db, &before, &after, &[character], now).unwrap());
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:focus-day:%'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap(),
+        1
+    );
+}
+
+#[test]
 fn package_migration_repairs_existing_invalid_manifests_without_resetting_data() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();

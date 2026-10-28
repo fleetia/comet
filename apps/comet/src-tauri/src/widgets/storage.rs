@@ -931,6 +931,83 @@ fn apply_effect(
     Ok(())
 }
 
+pub(crate) fn record_widget_moments(
+    db: &Connection,
+    before: &WidgetInstance,
+    after: &WidgetInstance,
+    present: &[String],
+    now: i64,
+) -> Result<bool> {
+    record_widget_moments_since(db, before, after, present, now, None)
+}
+
+fn record_widget_moments_since(
+    db: &Connection,
+    before: &WidgetInstance,
+    after: &WidgetInstance,
+    present: &[String],
+    now: i64,
+    previous: Option<i64>,
+) -> Result<bool> {
+    use chrono::TimeZone;
+    if present.is_empty() {
+        return Ok(false);
+    }
+    let Some(user) = crate::store::current_user(db)? else {
+        return Ok(false);
+    };
+    let moment = match before.kind.as_str() {
+        "fishing" => after.data["collected"].as_object().and_then(|collected| {
+            collected.iter().find_map(|(id, count)| {
+                (count.as_u64() == Some(1) && before.data["collected"][id].as_u64().unwrap_or(0) == 0)
+                    .then(|| ("first-catch", format!("처음 잡은 {}", after.data["lastCatch"].as_str().unwrap_or("물고기")), Some(id.clone()), json!({"itemId": id})))
+            })
+        }),
+        "plant" if before.data["stage"].as_u64().unwrap_or(0) < 3 && after.data["stage"].as_u64() == Some(3) => {
+            Some(("bloom", "꽃이 핀 날".into(), Some(before.id.clone()), json!({"widgetId":before.id})))
+        }
+        "focus-timer" => {
+            let local = chrono::Local.timestamp_millis_opt(now).single().ok_or("시각이 올바르지 않아요.")?;
+            let midnight = local.date_naive().and_hms_opt(0, 0, 0).ok_or("시각이 올바르지 않아요.")?;
+            let start = chrono::Local.from_local_datetime(&midnight).earliest().ok_or("시각이 올바르지 않아요.")?.timestamp_millis();
+            let total = |data: &Value, at: i64, include_running: bool| -> i64 {
+                let closed: i64 = data["sessions"].as_array().into_iter().flatten().chain(data.get("activeSession").filter(|session| session.is_object())).flat_map(|session| session["segments"].as_array().into_iter().flatten()).filter_map(|segment| {
+                    let from = segment["startAt"].as_i64()?.max(start);
+                    let until = segment["endAt"].as_i64()?.min(at);
+                    Some(until.saturating_sub(from).max(0))
+                }).sum();
+                let active = &data["activeSession"];
+                let running = if include_running {
+                    active["runningSince"].as_i64().map(|running_since| {
+                        let remaining = active["durationMs"].as_i64().unwrap_or(0).saturating_sub(active["elapsedMs"].as_i64().unwrap_or(0)).max(0);
+                        let end = at.min(data["deadline"].as_i64().unwrap_or(at)).min(running_since.saturating_add(remaining));
+                        end.saturating_sub(running_since.max(start)).max(0)
+                    }).unwrap_or(0)
+                } else { 0 };
+                closed.saturating_add(running)
+            };
+            let before_ms = total(&before.data, previous.unwrap_or(now), previous.is_some());
+            let after_ms = total(&after.data, now, true);
+            (before_ms < 3_600_000 && after_ms >= 3_600_000).then(|| ("focus-day", format!("오늘 {}분 집중한 날", after_ms / 60_000), None, json!({"minutes":after_ms / 60_000})))
+        }
+        _ => None,
+    };
+    let mut changed = false;
+    if let Some((event, summary, reference, refs)) = moment {
+        if event == "focus-day" {
+            let day = chrono::Local.timestamp_millis_opt(now).single().ok_or("시각이 올바르지 않아요.")?.format("%Y-%m-%d").to_string();
+            let key = format!("moment:focus-day:{}:{day}", user.id);
+            if db.execute("INSERT OR IGNORE INTO widget_preferences(key,value) VALUES(?1,'recorded')", [&key]).map_err(err)? == 0 {
+                return Ok(false);
+            }
+        }
+        for character_id in present {
+            changed |= crate::store::insert_moment(db, character_id, &user.id, event, &summary, now, reference.as_deref(), refs.clone())?;
+        }
+    }
+    Ok(changed)
+}
+
 pub fn commit_data(
     db: &Connection,
     id: &str,
@@ -939,10 +1016,33 @@ pub fn commit_data(
     events: Vec<EventDraft>,
     now: i64,
 ) -> Result<()> {
+    commit_data_with_presence(db, id, expected_revision, data, events, now, &[])
+}
+
+pub(crate) fn commit_data_with_presence(
+    db: &Connection,
+    id: &str,
+    expected_revision: i64,
+    data: Value,
+    events: Vec<EventDraft>,
+    now: i64,
+    present: &[String],
+) -> Result<()> {
     let tx = db.unchecked_transaction().map_err(err)?;
     let instance = get(&tx, id)?;
     if super::is_retired(&instance.kind) || instance.revision != expected_revision {
         return Err("이미 변경되거나 중지된 위젯의 결과는 적용하지 않았어요.".into());
+    }
+    if !present.is_empty() {
+        if let Some(user) = crate::store::current_user(&tx)? {
+            for event in events.iter().filter(|event| event.kind == "planner-anniversary") {
+                if let (Some(id), Some(title)) = (event.payload["anniversaryId"].as_str(), event.payload["title"].as_str()) {
+                    for character_id in present {
+                        crate::store::insert_moment(&tx, character_id, &user.id, "anniversary", &format!("‘{title}’ 기념일을 함께"), now, Some(id), json!({"anniversaryId":id}))?;
+                    }
+                }
+            }
+        }
     }
     apply_effect(&tx, instance, WidgetEffect { data, events }, now)?;
     tx.commit().map_err(err)
@@ -1152,7 +1252,12 @@ pub fn advance(db: &Connection, now: i64) -> Result<bool> {
     advance_with_continuity(db, now, true)
 }
 
+#[cfg(test)]
 pub fn advance_with_continuity(db: &Connection, now: i64, continuous: bool) -> Result<bool> {
+    advance_with_presence(db, now, continuous, &[], None)
+}
+
+pub fn advance_with_presence(db: &Connection, now: i64, continuous: bool, present: &[String], previous: Option<i64>) -> Result<bool> {
     let tx = db.unchecked_transaction().map_err(err)?;
     let mut changed = false;
     let all = instances(&tx)?;
@@ -1179,10 +1284,19 @@ pub fn advance_with_continuity(db: &Connection, now: i64, continuous: bool) -> R
         };
         match effect {
             Ok(Some(effect)) => {
+                let before = instance.clone();
                 apply_effect(&tx, instance, effect, now)?;
+                let after = get(&tx, &before.id)?;
+                if continuous || before.kind != "focus-timer" {
+                    record_widget_moments_since(&tx, &before, &after, present, now, previous)?;
+                }
                 changed = true;
             }
-            Ok(None) => {}
+            Ok(None) => {
+                if continuous && instance.kind == "focus-timer" {
+                    changed |= record_widget_moments_since(&tx, &instance, &instance, present, now, previous)?;
+                }
+            }
             Err(error) => {
                 let mut failed = instance;
                 if !super::is_package_error(failed.error.as_deref())

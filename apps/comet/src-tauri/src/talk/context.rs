@@ -97,6 +97,8 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         ("character", "count") => "지금 바탕화면에 함께 지내는 캐릭터 수(1~8). speakers: random 장면의 화자 수 조건에 사용",
         (_, "sourceId") if prefix.starts_with("character.") => "현재 자리에 설치된 캐릭터의 원본 sourceId. 표시 이름·로컬 ID와 구분",
         (_, "affinity") if prefix.starts_with("character.") => "해당 캐릭터의 현재 친밀도 점수",
+        (_, "daysTogether") if prefix.starts_with("character.") => "현재 사용자와 처음 만난 날부터 지난 날짜를 포함한 일수",
+        (_, "momentCount") if prefix.starts_with("character.") => "현재 사용자와 해당 캐릭터의 유효한 함께한 추억 수",
         (_, "mood") if prefix.starts_with("character.") => "해당 캐릭터의 현재 단기 기분(-2~2)",
         ("event", "from") => "기분 변경 전 값(-2~2)",
         ("event", "to") => "기분 변경 후 값(-2~2)",
@@ -203,6 +205,9 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         ("event", "outcome") => "작은 승부 또는 맞히기 결과의 기계 식별자. 공개된 결과만 제공",
         ("event", "mode") => "사건의 timer 모드, 승부 종류 또는 맞히기 종류",
         ("event", "itemName") => "실제 item-acquired 사건에서 획득한 물건 이름",
+        ("event", "event") => "추가된 함께한 추억의 사건 종류",
+        ("event", "summary") => "추가된 함께한 추억의 요약",
+        ("recall", "moment") => "1년 전 오늘 함께한 추억의 요약",
         _ => "읽기 전용 위젯 관측값",
     };
     if prefix == "environment" && field == "hour" {
@@ -254,6 +259,8 @@ pub fn registry() -> Registry {
         "outcome",
         "mode",
         "itemName",
+        "event",
+        "summary",
     ] {
         add("event", name, ValueType::String, true, None);
     }
@@ -301,6 +308,7 @@ pub fn registry() -> Registry {
     add("user", "birthdayToday", ValueType::Boolean, false, None);
     add("user", "daysUntilBirthday", ValueType::Number, true, None);
     add("user", "age", ValueType::Number, true, None);
+    add("recall", "moment", ValueType::String, true, None);
     for persona in crate::characters::SLOTS {
         for field in ["total", "stroke", "poke", "cheek", "snack", "today"] {
             add(
@@ -334,6 +342,15 @@ pub fn registry() -> Registry {
             true,
             None,
         );
+        for field in ["daysTogether", "momentCount"] {
+            add(
+                &format!("character.{persona}"),
+                field,
+                ValueType::Number,
+                true,
+                None,
+            );
+        }
         add(
             &format!("character.{persona}"),
             "mood",
@@ -356,6 +373,8 @@ pub fn registry() -> Registry {
         variables,
         events: [
             "idle",
+            "relationship.anniversary",
+            "moment.added",
             "user.birthday",
             "character.birthday",
             "activity.long-session",
@@ -974,6 +993,74 @@ pub(crate) fn birthday_today(today: NaiveDate, month: u32, day: u32) -> bool {
     birthday_date(today.year(), month, day) == Some(today)
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct MomentRecall {
+    pub user_id: String,
+    pub source: String,
+    pub summary: String,
+    pub date: NaiveDate,
+    pub today: NaiveDate,
+    pub keepers: Vec<String>,
+}
+
+pub(crate) fn moment_recall(
+    db: &Connection,
+    visible: &[String],
+    now_ms: i64,
+) -> Result<Option<MomentRecall>, String> {
+    let Some(user) = crate::store::current_user(db)? else {
+        return Ok(None);
+    };
+    let today = DateTime::from_timestamp_millis(now_ms)
+        .ok_or("회상 날짜가 올바르지 않아요.")?
+        .with_timezone(&Local)
+        .date_naive();
+    let Some(date) = birthday_date(today.year() - 1, today.month(), today.day()) else {
+        return Ok(None);
+    };
+    let key = format!("recall:moment:{}:{date}", user.id);
+    let last: Option<i64> = db
+        .query_row(
+            "SELECT CAST(value AS INTEGER) FROM widget_preferences WHERE key=?1",
+            [&key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    if last.is_some_and(|last| now_ms.saturating_sub(last) < 30 * 24 * 60 * 60 * 1000) {
+        return Ok(None);
+    }
+    let visible_json = serde_json::to_string(visible).map_err(|error| error.to_string())?;
+    let row: Option<(String, String)> = db.query_row(
+        "SELECT source,content FROM memories WHERE user_id=?1 AND kind='experience' AND deleted=0 AND expired=0 AND required_chapter IS NULL
+         AND (source LIKE ?2 OR source LIKE ?3) AND character_id IN (SELECT value FROM json_each(?4))
+         ORDER BY source_created_at DESC,id LIMIT 1",
+        rusqlite::params![user.id, format!("moment:%:{date}"), format!("moment:%:{date}:%"), visible_json],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).optional().map_err(|error| error.to_string())?;
+    let Some((source, summary)) = row else {
+        return Ok(None);
+    };
+    let mut query = db.prepare(
+        "SELECT character_id FROM memories WHERE user_id=?1 AND source=?2 AND content=?3 AND kind='experience' AND deleted=0 AND expired=0 AND required_chapter IS NULL ORDER BY character_id"
+    ).map_err(|error| error.to_string())?;
+    let keepers = query
+        .query_map(rusqlite::params![user.id, source, summary], |row| {
+            row.get(0)
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<Vec<String>>>()
+        .map_err(|error| error.to_string())?;
+    Ok(Some(MomentRecall {
+        user_id: user.id,
+        source,
+        summary,
+        date,
+        today,
+        keepers,
+    }))
+}
+
 pub fn build(
     db: &Connection,
     event: Option<&WidgetEvent>,
@@ -1062,6 +1149,8 @@ pub fn build(
             ("outcome", "outcome"),
             ("mode", "mode"),
             ("itemName", "name"),
+            ("event", "event"),
+            ("summary", "summary"),
             ("source", "source"),
         ] {
             let value = event.event.payload[source]
@@ -1121,10 +1210,26 @@ pub fn build(
         }
     }
     let relationships = crate::store::relationships(db)?;
+    let user = crate::store::current_user(db)?;
     values.insert("dialogue.variant".into(), json!(seed % 5));
     values.insert("character.nadir.present".into(), json!(false));
     values.insert("character.count".into(), json!(characters.len()));
     for (persona, character) in crate::characters::SLOTS.into_iter().zip(&characters) {
+        if let Some(user) = &user {
+            if let Some(started) = DateTime::from_timestamp_millis(user.started_at) {
+                let started = started.with_timezone(&Local).date_naive();
+                values.insert(
+                    format!("character.{persona}.daysTogether"),
+                    json!(((today - started).num_days() + 1).max(1)),
+                );
+            }
+            let count: i64 = db.query_row(
+                "SELECT COUNT(*) FROM memories WHERE character_id=?1 AND user_id=?2 AND kind='experience' AND source LIKE 'moment:%' AND deleted=0 AND expired=0",
+                rusqlite::params![character.id, user.id],
+                |row| row.get(0),
+            ).map_err(|error| error.to_string())?;
+            values.insert(format!("character.{persona}.momentCount"), json!(count));
+        }
         if event.is_some_and(|event| {
             event.event.kind == "mood.changed"
                 && event.event.payload["character"].as_str() == Some(&character.id)
@@ -1172,6 +1277,9 @@ pub fn build(
             values.insert("character.nadir.affinity".into(), json!(score));
         }
     }
+    if let Some(moment) = moment_recall(db, &active, now_ms)? {
+        values.insert("recall.moment".into(), json!(moment.summary));
+    }
     Ok(EvalContext {
         values,
         visible: active.clone(),
@@ -1189,6 +1297,29 @@ pub fn build(
 mod tests {
     use super::*;
     use crate::widgets::{WidgetInstance, WidgetView};
+
+    #[test]
+    fn mood_event_keeps_character_identity_and_shared_moment_context() {
+        let db = crate::store::open(std::path::Path::new(":memory:")).unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        crate::store::set_user_name(&db, "친구", now).unwrap();
+        let character = crate::characters::active_character(&db, "a").unwrap();
+        let event = crate::widgets::WidgetEvent {
+            id: "mood".into(), instance_id: "mood".into(), widget_kind: "mood".into(),
+            revision: 0, created_at: now, expires_at: now + 1000,
+            event: crate::widgets::EventDraft {
+                kind: "mood.changed".into(), text: "".into(),
+                payload: json!({"character": character.id, "source": "focus", "from": 0, "to": 1}),
+            },
+        };
+        let context = build(&db, Some(&event), now, 0).unwrap();
+        assert_eq!(context.values["event.character"], "a");
+        assert_eq!(context.values["event.source"], "focus");
+        assert_eq!(context.values["event.from"], 0);
+        assert_eq!(context.values["event.to"], 1);
+        assert_eq!(context.values["character.a.daysTogether"], 1);
+        assert_eq!(context.values["character.a.momentCount"], 0);
+    }
 
     #[test]
     fn disabling_recall_hides_diary_values_from_all_talk_contexts() {

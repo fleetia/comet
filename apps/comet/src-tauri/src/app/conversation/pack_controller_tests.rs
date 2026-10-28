@@ -174,7 +174,7 @@ fn effects(db: &Connection) -> (i64, i64) {
         )
         .unwrap(),
         db.query_row(
-            "SELECT COUNT(*) FROM memories WHERE source LIKE 'pack-story:%'",
+            "SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:story-complete:%'",
             [],
             |row| row.get(0),
         )
