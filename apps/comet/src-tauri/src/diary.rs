@@ -137,6 +137,44 @@ impl DiaryState {
     pub(crate) fn travels(&self) -> &[travel::Travel] {
         &self.travels
     }
+
+    pub(crate) fn recall(&self, date: &str) -> Option<(Option<String>, Option<u8>)> {
+        let page = self
+            .pages
+            .iter()
+            .find(|page| page.date.as_deref() == Some(date))?;
+        let notes = page
+            .entries
+            .iter()
+            .filter(|entry| entry.kind == EntryKind::Note);
+        let snippet = notes
+            .clone()
+            .find(|entry| !entry.text.trim().is_empty())
+            .map(|entry| {
+                entry
+                    .text
+                    .replace("\r\n", "\n")
+                    .chars()
+                    .take(60)
+                    .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
+                    .collect()
+            })
+            .or_else(|| {
+                notes.clone().find_map(|entry| {
+                    entry
+                        .review
+                        .as_ref()
+                        .filter(|review| !review.trim().is_empty())
+                        .cloned()
+                })
+            });
+        let rating = notes.filter_map(|entry| entry.rating).next();
+        if snippet.is_some() || rating.is_some() {
+            Some((snippet, rating))
+        } else {
+            None
+        }
+    }
 }
 
 pub(crate) fn travel_exists(db: &Connection, id: &str) -> Result<bool> {

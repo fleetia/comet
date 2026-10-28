@@ -129,6 +129,9 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
     if let Err(error) = add_revived_widget_dialogue(&root) {
         crate::report_error!("talk_migration_revived_widget", ".talk revived widget dialogue: {error}");
     }
+    if let Err(error) = add_recall_dialogue(&root) {
+        crate::report_error!("talk_migration_recall", ".talk recall dialogue: {error}");
+    }
     migrate_encryption(&root);
     Ok(root)
 }
@@ -175,7 +178,65 @@ fn add_revived_widget_dialogue(root: &Path) -> Result<(), String> {
             }
         }
         // The entry goes last: until it imports them, the added files stay inert.
-        super::files::atomic_write(&entry, bundled("index.talk")?.as_bytes())?;
+        super::files::atomic_write(
+            &entry,
+            include_str!("../../content/previous-byulkkori-index-v5.talk").as_bytes(),
+        )?;
+    }
+    super::files::atomic_write(&marker, b"1\n")
+}
+
+/// Add recall scenes only when the installed index is the known previous factory index.
+fn add_recall_dialogue(root: &Path) -> Result<(), String> {
+    let marker = app_data_of(root)?.join(".talk-byulkkori-recall-v1");
+    if marker.try_exists().map_err(|error| error.to_string())? || !root.exists() {
+        return Ok(());
+    }
+    let pack = defaults::pack(defaults::BYULKKORI).ok_or("기본 대본을 찾지 못했어요.")?;
+    let target = root.join(PACKS_DIRECTORY).join(pack.id);
+    let entry = target.join("index.talk");
+    let previous = super::encryption::decode(
+        include_str!("../../content/previous-byulkkori-index-v5.talk").as_bytes(),
+    )?;
+    let current = match fs::read(&entry) {
+        Ok(bytes) => Some(super::encryption::decode(&bytes)?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.to_string()),
+    };
+    if current.as_deref() == Some(previous.as_str()) {
+        let bundled = |name: &str| {
+            pack.files
+                .iter()
+                .find(|(path, _)| *path == name)
+                .map(|(_, source)| *source)
+                .ok_or("기본 대본을 찾지 못했어요.")
+        };
+        let scene = target.join("situations/recall.talk");
+        let bundled_scene = bundled("situations/recall.talk")?;
+        let missing = match fs::symlink_metadata(&scene) {
+            Ok(metadata) if metadata.file_type().is_file() => {
+                let current = fs::read(&scene)
+                    .ok()
+                    .and_then(|bytes| super::encryption::decode(&bytes).ok());
+                let expected = super::encryption::decode(bundled_scene.as_bytes())?;
+                if current.as_deref() != Some(expected.as_str()) {
+                    return super::files::atomic_write(&marker, b"1\n");
+                }
+                false
+            }
+            Ok(_) => return super::files::atomic_write(&marker, b"1\n"),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+            Err(error) => return Err(error.to_string()),
+        };
+        if missing {
+            super::files::atomic_write(&scene, bundled_scene.as_bytes())?;
+        }
+        if let Err(error) = super::files::atomic_write(&entry, bundled("index.talk")?.as_bytes()) {
+            if missing {
+                let _ = fs::remove_file(&scene);
+            }
+            return Err(error);
+        }
     }
     super::files::atomic_write(&marker, b"1\n")
 }

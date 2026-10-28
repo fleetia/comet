@@ -1,8 +1,8 @@
 use super::{EvalContext, Registry, ValueType, Variable};
 pub use crate::widgets::WidgetEvent;
 use crate::widgets::{self, storage, WidgetSnapshot};
-use chrono::{DateTime, Local, NaiveDate, Timelike};
-use rusqlite::{Connection, OptionalExtension};
+use chrono::{DateTime, Days, Local, Months, NaiveDate, TimeZone, Timelike};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -79,6 +79,13 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         ("travel", "daysUntil") => "가장 가까운 여행의 첫날까지 남은 일수(그곳 날짜 기준). 이미 시작했으면 0 이하",
         ("travel", "title") => "가장 가까운 여행의 이름. 여행이 없으면 null",
         ("travel", "stage") => "가장 가까운 여행의 단계: planning, before, traveling, wrapping",
+        ("recall", "ready") => "오늘 회상할 날짜 페이지가 있는지 여부",
+        ("recall", "kind") => "회상 시점: year, month, week",
+        ("recall", "date") => "회상할 날짜(YYYY-MM-DD)",
+        ("recall", "daysAgo") => "회상 날짜부터 오늘까지의 일수",
+        ("recall", "snippet") => "날짜 페이지의 한 줄 기록 또는 한 줄 평",
+        ("recall", "rating") => "날짜 페이지에 저장된 별점",
+        ("recall", "focusMinutes") => "그날의 실제 집중 시간(분)",
         (_, "ready") => "설치·활성·의존성과 데이터 최신성 검사를 통과했는지 여부",
         (_, "status") => "설치 상태 또는 연결 상태. unavailable·실패·stale은 성공한 빈 값과 구분",
         (_, "openCount") => "완료하지 않은 할 일 수",
@@ -200,6 +207,13 @@ pub fn registry() -> Registry {
     ] {
         add("event", name, ValueType::String, true, None);
     }
+    add("recall", "ready", ValueType::Boolean, false, None);
+    for name in ["kind", "date", "snippet"] {
+        add("recall", name, ValueType::String, true, None);
+    }
+    for name in ["daysAgo", "rating", "focusMinutes"] {
+        add("recall", name, ValueType::Number, true, None);
+    }
     add("dialogue", "variant", ValueType::Number, false, None);
     add("environment", "hour", ValueType::Number, true, None);
     add(
@@ -249,6 +263,7 @@ pub fn registry() -> Registry {
         variables,
         events: [
             "idle",
+            "diary.recall",
             "todo-completed",
             "todo-undone",
             "timer-finished",
@@ -278,6 +293,145 @@ pub fn registry() -> Registry {
 fn rows(value: &Value) -> &[Value] {
     value.as_array().map(Vec::as_slice).unwrap_or(&[])
 }
+
+fn recalled_recently(db: &Connection, date: &str, now_ms: i64) -> Result<bool, String> {
+    let value: Option<String> = db
+        .query_row(
+            "SELECT value FROM widget_preferences WHERE key=?1",
+            [format!("recall:{date}")],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    Ok(value
+        .and_then(|value| value.parse::<i64>().ok())
+        .is_some_and(|at| now_ms.saturating_sub(at) < 30 * 24 * 60 * 60 * 1000))
+}
+
+/// Store only a date and the display time, after a recall line was actually shown.
+pub(crate) fn record_recall(db: &Connection, date: &str, now_ms: i64) -> Result<(), String> {
+    let parsed = NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|error| error.to_string())?;
+    if parsed.format("%Y-%m-%d").to_string() != date {
+        return Err("회상 날짜가 올바르지 않습니다.".into());
+    }
+    db.execute(
+        "INSERT INTO widget_preferences(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        params![format!("recall:{date}"), now_ms.to_string()],
+    ).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn focus_minutes(snapshot: &WidgetSnapshot, date: NaiveDate, now_ms: i64) -> Option<i64> {
+    let start = Local
+        .from_local_datetime(&date.and_hms_opt(0, 0, 0)?)
+        .earliest()?
+        .timestamp_millis();
+    let end = Local
+        .from_local_datetime(&date.succ_opt()?.and_hms_opt(0, 0, 0)?)
+        .earliest()?
+        .timestamp_millis();
+    let mut elapsed = 0_i64;
+    for widget in snapshot
+        .widgets
+        .iter()
+        .filter(|widget| widget.instance.kind == "focus-timer")
+    {
+        let data = &widget.instance.data;
+        for session in rows(&data["sessions"])
+            .iter()
+            .chain(std::iter::once(&data["activeSession"]))
+        {
+            for segment in rows(&session["segments"]) {
+                if let (Some(from), Some(to)) =
+                    (segment["startAt"].as_i64(), segment["endAt"].as_i64())
+                {
+                    elapsed =
+                        elapsed.saturating_add(to.min(end).saturating_sub(from.max(start)).max(0));
+                }
+            }
+        }
+        if data["status"] == "running" && data["mode"] != "rest" {
+            if let Some(from) = data["activeSession"]["runningSince"].as_i64() {
+                let to = data["deadline"].as_i64().unwrap_or(now_ms).min(now_ms);
+                elapsed =
+                    elapsed.saturating_add(to.min(end).saturating_sub(from.max(start)).max(0));
+            }
+        }
+    }
+    (elapsed > 0).then_some(elapsed / 60_000)
+}
+
+fn project_recall(
+    db: &Connection,
+    snapshot: &WidgetSnapshot,
+    values: &mut BTreeMap<String, Value>,
+    now_ms: i64,
+) -> Result<(), String> {
+    values.insert("recall.ready".into(), json!(false));
+    let Some(today) =
+        DateTime::from_timestamp_millis(now_ms).map(|time| time.with_timezone(&Local).date_naive())
+    else {
+        return Ok(());
+    };
+    let today_text = today.format("%Y-%m-%d").to_string();
+    let diary = crate::diary::read(db)?;
+    let cached: Option<String> = db
+        .query_row(
+            "SELECT value FROM widget_preferences WHERE key='recall:daily'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    let cached = cached
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .filter(|value| value["today"] == today_text);
+    let choice = if let Some(cached) = cached {
+        cached
+    } else {
+        let mut choice = json!({"today": today_text, "date": null, "kind": null});
+        for (kind, date) in [
+            ("year", today.checked_sub_months(Months::new(12))),
+            ("month", today.checked_sub_months(Months::new(1))),
+            ("week", today.checked_sub_days(Days::new(7))),
+        ] {
+            let Some(date) = date else {
+                continue;
+            };
+            let date = date.format("%Y-%m-%d").to_string();
+            if diary.recall(&date).is_some() && !recalled_recently(db, &date, now_ms)? {
+                choice["date"] = json!(date);
+                choice["kind"] = json!(kind);
+                break;
+            }
+        }
+        db.execute("INSERT INTO widget_preferences(key,value) VALUES('recall:daily',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [choice.to_string()]).map_err(|error| error.to_string())?;
+        choice
+    };
+    let (Some(date_text), Some(kind)) = (choice["date"].as_str(), choice["kind"].as_str()) else {
+        return Ok(());
+    };
+    if recalled_recently(db, date_text, now_ms)? {
+        return Ok(());
+    }
+    let Some((snippet, rating)) = diary.recall(date_text) else {
+        return Ok(());
+    };
+    let date =
+        NaiveDate::parse_from_str(date_text, "%Y-%m-%d").map_err(|error| error.to_string())?;
+    values.insert("recall.ready".into(), json!(true));
+    values.insert("recall.kind".into(), json!(kind));
+    values.insert("recall.date".into(), json!(date_text));
+    values.insert("recall.daysAgo".into(), json!((today - date).num_days()));
+    values.insert("recall.snippet".into(), json!(snippet));
+    values.insert("recall.rating".into(), json!(rating));
+    values.insert(
+        "recall.focusMinutes".into(),
+        json!(focus_minutes(snapshot, date, now_ms)),
+    );
+    Ok(())
+}
+
 fn fresh(data: &Value, now: i64, age: i64) -> bool {
     matches!(data["status"].as_str(), Some("ready" | "syncing"))
         && data["lastSuccessAt"]
@@ -639,6 +793,7 @@ pub fn build(
 ) -> Result<EvalContext, String> {
     let snapshot = storage::snapshot(db)?;
     let (mut values, mut available) = project(&snapshot, now_ms);
+    project_recall(db, &snapshot, &mut values, now_ms)?;
     let characters = crate::characters::active_members(db)?;
     let active = characters
         .iter()

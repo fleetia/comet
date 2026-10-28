@@ -6,6 +6,7 @@ import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 export type DiaryViewTarget = {
   entity: "page" | "event" | "envelope" | "todo" | "habit";
   targetId: string;
+  fallbackToToday?: boolean;
 };
 
 const NATIVE_TABS = [
@@ -111,7 +112,13 @@ export function useDiaryNativeEvents({
         setFailure("열 기록의 정보를 확인하지 못했어요.");
         return;
       }
-      setViewTarget({ entity: value.entity, targetId: value.targetId });
+      setViewTarget({
+        entity: value.entity,
+        targetId: value.targetId,
+        ...("fallbackToToday" in value && value.fallbackToToday === true
+          ? { fallbackToToday: true }
+          : {}),
+      });
     }
     void listen("planner-view-target", (event) => {
       if (!active) return;

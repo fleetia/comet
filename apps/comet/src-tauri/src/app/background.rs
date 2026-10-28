@@ -31,6 +31,7 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         if state.update_installing.load(Ordering::SeqCst) {
             continue;
         }
+        let _ = skip_blocked_recall_opportunity(&state);
         if super::windows::expire_pause(&state, chrono::Utc::now().timestamp_millis())
             .unwrap_or(false)
         {
@@ -142,6 +143,48 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
     }
 }
 
+fn claim_recall_opportunity(db: &Connection) -> Result<bool, String> {
+    let today = chrono::Local::now().date_naive().to_string();
+    let previous: Option<String> = db
+        .query_row(
+            "SELECT value FROM widget_preferences WHERE key='recall:opportunity'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    if previous.as_deref() == Some(today.as_str()) {
+        return Ok(false);
+    }
+    db.execute(
+        "INSERT INTO widget_preferences(key,value) VALUES('recall:opportunity',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        [&today],
+    ).map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+fn skip_blocked_recall_opportunity(state: &AppState) -> Result<(), String> {
+    if now() < state.next_idle.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    let _action = lock(&state.action)?;
+    let status = lock(&state.runtime)?.clone();
+    let db = lock(&state.db)?;
+    let settings = store::settings(&db)?;
+    if settings.autonomous_enabled
+        && settings.diary_recall_enabled
+        && (status.hidden
+            || status.paused
+            || now() - state.last_input.load(Ordering::SeqCst) < 15
+            || super::quiet_hours::automatic_blocked(state, &settings)?
+            || storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
+            || behavior::reactions_blocked(state)?)
+    {
+        claim_recall_opportunity(&db)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn expire_idle_recall(state: &AppState, at: i64) -> Result<bool, String> {
     let _action = lock(&state.action)?;
     if unavailable(state) || !["idle", "error"].contains(&lock(&state.runtime)?.phase.as_str()) {
@@ -238,7 +281,19 @@ pub(crate) async fn run_background(
             }
             schedule_idle(state, settings.idle_minutes);
             state.last_scene.store(now(), Ordering::SeqCst);
-            next_scene(state)?
+            let recall = {
+                let db = lock(&state.db)?;
+                if settings.diary_recall_enabled && claim_recall_opportunity(&db)? {
+                    crate::talk::host::prepare_recall(state, &db)?
+                } else {
+                    None
+                }
+            };
+            if let Some(lines) = recall {
+                (lines, "talk")
+            } else {
+                next_scene(state)?
+            }
         };
         return run_scene(
             app,

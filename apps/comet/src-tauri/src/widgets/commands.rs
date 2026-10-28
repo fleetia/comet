@@ -700,6 +700,7 @@ pub(crate) async fn open_playback_link(
         .item
         .as_ref()
         .and_then(|item| match item.entity.as_str() {
+            "page" => Some(("today", Some("page"), Some(item.id.as_str()))),
             "event" => Some(("calendar", Some("event"), Some(item.id.as_str()))),
             "envelope" => Some(("envelopes", Some("envelope"), Some(item.id.as_str()))),
             "todo" => Some(("todos", Some("todo"), Some(item.id.as_str()))),

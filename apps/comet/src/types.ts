@@ -403,6 +403,7 @@ export type Settings = {
   apiProvider: ApiProvider;
   apiProfiles: Partial<Record<ApiProvider, ApiProfile>>;
   autonomousEnabled: boolean;
+  diaryRecallEnabled: boolean;
   randomPresenceEnabled: boolean;
   localModel: LocalModel;
   localModelPath: string;
