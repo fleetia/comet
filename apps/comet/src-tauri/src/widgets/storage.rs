@@ -1219,6 +1219,8 @@ pub(crate) fn set_reaction(db: &Connection, id: &str, enabled: bool) -> Result<(
     tx.execute("DELETE FROM widget_state_pending WHERE widget_id=?1", [id])
         .map_err(err)?;
     if enabled {
+        // Changes made while reactions were off become the next observation baseline.
+        super::generated::invalidate_rule_source(&tx, id)?;
         tx.execute(
             "DELETE FROM widget_preferences WHERE key=?1",
             [format!("reaction:{id}")],

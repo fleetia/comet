@@ -1175,7 +1175,7 @@ mod tests {
             store::set_window_position(&db, &label, &WindowPosition { x: 10.0, y: 20.0 }).unwrap();
             let ticket = capture(&state, &db, &request.guest_ids, 0).unwrap();
             if focus {
-                db.execute("INSERT INTO widget_instances VALUES('timer','focus-timer',1,1,1,0,?1,NULL)", [serde_json::json!({"status":"running","mode":"focus","deadline":chrono::Utc::now().timestamp_millis()+60000}).to_string()]).unwrap();
+                db.execute("UPDATE widget_instances SET data=?1 WHERE kind='focus-timer'", [serde_json::json!({"status":"running","mode":"focus","deadline":chrono::Utc::now().timestamp_millis()+60000}).to_string()]).unwrap();
             } else {
                 lock(&state.runtime).unwrap().hidden = true;
             }
