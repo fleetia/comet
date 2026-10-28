@@ -15,7 +15,7 @@ pub(crate) async fn get_planner_notification_permission(
 pub(crate) async fn request_planner_notification_permission(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    // This is only invoked by the explicit permission button, never by a timer.
+    // Only explicit user actions request permission, never an automatic event.
     native::permission(&app, true).await
 }
 
@@ -99,6 +99,35 @@ pub(crate) fn deliver(
     });
 }
 
+pub(crate) fn deliver_automatic_widget(
+    app: &tauri::AppHandle,
+    db: &rusqlite::Connection,
+    event: &crate::widgets::WidgetEvent,
+) -> Result<(), String> {
+    if !automatic_delivery_current(db, event)? {
+        return Ok(());
+    }
+    native::show(
+        app,
+        &event.instance_id,
+        event.created_at,
+        &event.event.text,
+        false,
+        true,
+        &event.id,
+    )
+}
+
+fn automatic_delivery_current(
+    db: &rusqlite::Connection,
+    event: &crate::widgets::WidgetEvent,
+) -> Result<bool, String> {
+    let current = crate::widgets::storage::get(db, &event.instance_id)?;
+    Ok(current.kind == "device"
+        && current.data["config"]["criticalNotification"] == true
+        && delivery_event_current(db, event)?)
+}
+
 fn show_delivery(
     app: &tauri::AppHandle,
     delivery: &crate::widgets::reminders::Delivery,
@@ -128,6 +157,7 @@ fn delivery_event_current(
 ) -> Result<bool, String> {
     let current = crate::widgets::storage::get(db, &event.instance_id)?;
     Ok(event.expires_at > chrono::Utc::now().timestamp_millis()
+        && !crate::widgets::is_retired(&current.kind)
         && current.revision == event.revision
         && crate::widgets::reminders::event_current(db, &bubble_fallback(event))?)
 }

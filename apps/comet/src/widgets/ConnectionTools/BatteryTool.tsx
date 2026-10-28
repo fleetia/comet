@@ -1,17 +1,27 @@
-import type { ReactElement } from "react";
-import { Button } from "@comet/ui";
+import { useEffect, useRef, useState, type ReactElement } from "react";
+import { Button, Select, Switch } from "@comet/ui";
 import { Icon } from "@comet/icon";
-import { record, rows, text } from "../toolData";
+import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
+import { record, rows, text, type DataRecord } from "../toolData";
 import { useConnectionCommand } from "../useConnectionCommand";
 import type { WidgetView } from "../types";
 import * as toy from "../ToyTools/toyTools.css";
 import * as s from "../ToyTools/playWidgets.css";
+import * as settings from "./weatherSettings.css";
+
+type BatteryConfig = {
+  allowTalk: boolean;
+  lowThreshold: number;
+  criticalNotification: boolean;
+};
 
 const BATTERY_STATUS: Record<string, string> = {
   charging: "충전 중",
   discharging: "배터리 사용 중",
   charged: "충전 완료",
   "not-charging": "충전 안 함",
+  "partially-charged": "일부 충전됨",
+  ac: "전원 연결됨",
 };
 
 function BatteryLevel({ percent, charging }: { percent: number; charging: boolean }): ReactElement {
@@ -35,10 +45,53 @@ function BatteryLevel({ percent, charging }: { percent: number; charging: boolea
 /** The battery widget asks once, then shows the latest observation and a refresh. */
 export function BatteryTool({ widget }: { widget: WidgetView }): ReactElement {
   const data = record(widget.data);
+  const storedConfig = record(data.config);
+  const stored: BatteryConfig = {
+    allowTalk: storedConfig.allowTalk !== false,
+    lowThreshold: typeof storedConfig.lowThreshold === "number" ? storedConfig.lowThreshold : 20,
+    criticalNotification: storedConfig.criticalNotification === true,
+  };
+  const [draft, setDraft] = useState<BatteryConfig | null>(null);
+  const [permission, setPermission] = useState("unknown");
+  const [permissionBusy, setPermissionBusy] = useState(false);
+  const [permissionError, setPermissionError] = useState("");
+  const permissionPending = useRef(false);
+  const permissionGeneration = useRef(0);
+  const config = draft ?? stored;
   const observation = record(data.observation);
   const { busy, error, run } = useConnectionCommand();
+  useEffect(() => {
+    const generation = ++permissionGeneration.current;
+    if (isDesktop()) {
+      void command<string>("get_planner_notification_permission")
+        .then((value) => {
+          if (permissionGeneration.current === generation) setPermission(value);
+        })
+        .catch(() => {});
+    }
+    return () => {
+      permissionGeneration.current += 1;
+    };
+  }, []);
+  useEffect(() => {
+    if (
+      draft &&
+      draft.allowTalk === stored.allowTalk &&
+      draft.lowThreshold === stored.lowThreshold &&
+      draft.criticalNotification === stored.criticalNotification
+    ) {
+      setDraft(null);
+    }
+  }, [draft, stored.allowTalk, stored.lowThreshold, stored.criticalNotification]);
   const device = navigator.userAgent.includes("Mac") ? "이 Mac" : "이 PC";
-  const battery = rows(observation.batteries)[0];
+  const battery = rows(observation.batteries).reduce<DataRecord | undefined>(
+    (lowest, current) => {
+      const value = typeof current.percent === "number" ? current.percent : 101;
+      const previous = typeof lowest?.percent === "number" ? lowest.percent : 101;
+      return !lowest || value < previous ? current : lowest;
+    },
+    undefined,
+  );
   const percent = typeof battery?.percent === "number" ? battery.percent : null;
   const power =
     observation.powerSource === "ac"
@@ -54,6 +107,37 @@ export function BatteryTool({ widget }: { widget: WidgetView }): ReactElement {
       return;
     await run("refresh_connection_widget", { id: widget.id });
   };
+  async function save(next: BatteryConfig): Promise<void> {
+    setDraft(next);
+    if (!(await run("configure_connection_widget", { id: widget.id, input: next }))) {
+      setDraft(null);
+    }
+  }
+  async function enableNotification(): Promise<void> {
+    if (permissionPending.current) return;
+    if (!isDesktop()) {
+      setPermissionError("OS 알림은 데스크톱 앱에서 사용할 수 있어요.");
+      return;
+    }
+    permissionPending.current = true;
+    setPermissionBusy(true);
+    setPermissionError("");
+    const generation = ++permissionGeneration.current;
+    try {
+      let value = await command<string>("get_planner_notification_permission");
+      if (value === "prompt") {
+        value = await command<string>("request_planner_notification_permission");
+      }
+      if (permissionGeneration.current !== generation) return;
+      setPermission(value);
+      await save({ ...config, criticalNotification: true });
+    } catch (cause: unknown) {
+      if (permissionGeneration.current === generation) setPermissionError(errorText(cause));
+    } finally {
+      permissionPending.current = false;
+      if (permissionGeneration.current === generation) setPermissionBusy(false);
+    }
+  }
   return (
     <section className={toy.card} aria-label="배터리">
       <header className={toy.header}>
@@ -62,7 +146,8 @@ export function BatteryTool({ widget }: { widget: WidgetView }): ReactElement {
       </header>
       {!data.observation ? (
         <p className={s.status}>
-          {device}의 배터리 잔량과 전원 상태를 읽어요. macOS와 Windows에서 써요.
+          새로고침을 누르면 {device}의 배터리 잔량과 전원 상태를 주기적으로 확인해요. macOS와
+          Windows에서 써요.
         </p>
       ) : observation.hasBattery === false ? (
         <p className={s.status} role="status">
@@ -81,19 +166,79 @@ export function BatteryTool({ widget }: { widget: WidgetView }): ReactElement {
             .join(" · ")}
         </p>
       )}
-      {(error || text(data.error)) && (
+      {(error || permissionError || text(data.error)) && (
         <p role="alert" className={toy.error}>
-          {error || text(data.error)}
+          {error || permissionError || text(data.error)}
         </p>
       )}
       <Button
         variant={data.observation ? "ghost" : "primary"}
         className={s.wide}
-        disabled={busy}
+        disabled={busy || permissionBusy}
         onClick={() => void refresh()}
       >
         새로고침
       </Button>
+      <fieldset
+        className={settings.settings}
+        disabled={busy || permissionBusy || data.configured !== true}
+      >
+        <div className={settings.group}>
+          <div className={settings.row}>
+            <span className={settings.copy}>캐릭터가 배터리 얘기하기</span>
+            <Switch
+              aria-label="캐릭터가 배터리 얘기하기"
+              checked={config.allowTalk}
+              onChange={(event) => void save({ ...config, allowTalk: event.target.checked })}
+            />
+          </div>
+          <div className={settings.row}>
+            <span className={settings.copy}>낮은 배터리 기준</span>
+            <Select
+              aria-label="낮은 배터리 기준"
+              value={config.lowThreshold}
+              onChange={(event) =>
+                void save({ ...config, lowThreshold: Number(event.target.value) })
+              }
+            >
+              {Array.from({ length: 41 }, (_, index) => index + 10).map((percent) => (
+                <option key={percent} value={percent}>
+                  {percent}%
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className={settings.row}>
+            <span className={settings.copy}>위험 수준은 OS 알림도</span>
+            <Switch
+              aria-label="위험 수준은 OS 알림도"
+              checked={config.criticalNotification}
+              onChange={(event) => {
+                if (event.target.checked) {
+                  void enableNotification();
+                } else {
+                  void save({ ...config, criticalNotification: false });
+                }
+              }}
+            />
+          </div>
+        </div>
+      </fieldset>
+      {config.criticalNotification && permission === "denied" && (
+        <p className={s.status}>OS 알림이 꺼져 있어요. 시스템 설정에서 허용해 주세요.</p>
+      )}
+      {config.criticalNotification && (permission === "prompt" || permission === "unknown") && (
+        <Button
+          variant="ghost"
+          disabled={busy || permissionBusy}
+          onClick={() => void enableNotification()}
+        >
+          OS 알림 권한 확인
+        </Button>
+      )}
+      {data.configured !== true && (
+        <p className={s.status}>새로고침으로 조회를 허용한 뒤 설정할 수 있어요.</p>
+      )}
     </section>
   );
 }
