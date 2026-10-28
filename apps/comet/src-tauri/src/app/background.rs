@@ -11,6 +11,7 @@ use crate::{
     widgets::connection_host::start_due_widget_refreshes,
     widgets::storage,
 };
+use chrono::Datelike;
 use rusqlite::{Connection, OptionalExtension};
 use std::{
     sync::{
@@ -125,7 +126,10 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
                     if is_current(&worker_state, epoch, &cancel) {
                         if result.is_err() {
                             // User content and model responses are deliberately omitted.
-                            crate::report_error!("automatic_preparation", "Automatic preparation deferred");
+                            crate::report_error!(
+                                "automatic_preparation",
+                                "Automatic preparation deferred"
+                            );
                         }
                         phase(
                             &worker_app,
@@ -238,7 +242,20 @@ pub(crate) async fn run_background(
             }
             schedule_idle(state, settings.idle_minutes);
             state.last_scene.store(now(), Ordering::SeqCst);
-            next_scene(state)?
+            let db = lock(&state.db)?;
+            let mut selected = None;
+            for birthday in due_birthdays(state, &db)? {
+                if let Some(lines) = crate::talk::host::prepare_birthday(state, &db, birthday)? {
+                    selected = Some(lines);
+                    break;
+                }
+            }
+            drop(db);
+            if let Some(lines) = selected {
+                (lines, "talk")
+            } else {
+                next_scene(state)?
+            }
         };
         return run_scene(
             app,
@@ -491,6 +508,73 @@ pub(crate) async fn run_background(
         },
     )?;
     Ok(())
+}
+
+fn due_birthdays(
+    state: &AppState,
+    db: &Connection,
+) -> Result<Vec<crate::talk::host::BirthdayTrigger>, String> {
+    let mut birthdays = Vec::new();
+    let today = chrono::Local::now().date_naive();
+    let pending = |key: &str| -> Result<bool, String> {
+        db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM kv WHERE key=?1)",
+            [key],
+            |row| row.get::<_, bool>(0),
+        )
+        .map(|exists| !exists)
+        .map_err(|error| error.to_string())
+    };
+    if let Some(birthday) = store::current_user_birthday(db)? {
+        let key = format!("birthday:celebrated:{}", today.year());
+        if crate::talk::context::birthday_today(today, birthday.month, birthday.day)
+            && pending(&key)?
+        {
+            birthdays.push(crate::talk::host::BirthdayTrigger {
+                kind: "user.birthday",
+                key,
+                date: today,
+                character: None,
+                character_id: None,
+            });
+        }
+    }
+    let members = characters::active_members(db)?;
+    let present = presence::present_ids(
+        state,
+        &members
+            .iter()
+            .map(|member| member.id.clone())
+            .collect::<Vec<_>>(),
+    )?;
+    for (slot, member) in characters::SLOTS.into_iter().zip(members) {
+        let Some((month, day)) = member
+            .definition
+            .birthday
+            .as_deref()
+            .and_then(characters::birthday_parts)
+        else {
+            continue;
+        };
+        if !present.contains(&member.id)
+            || crate::characters::life::sleeping(state, &member.id)?
+            || chrono::NaiveDate::from_ymd_opt(2000, month, day).is_none()
+            || !crate::talk::context::birthday_today(today, month, day)
+        {
+            continue;
+        }
+        let key = format!("birthday:character:{}:{}", member.id, today.year());
+        if pending(&key)? {
+            birthdays.push(crate::talk::host::BirthdayTrigger {
+                kind: "character.birthday",
+                key,
+                date: today,
+                character: Some(slot.to_ascii_uppercase()),
+                character_id: Some(member.id),
+            });
+        }
+    }
+    Ok(birthdays)
 }
 
 pub(crate) async fn background_generate(

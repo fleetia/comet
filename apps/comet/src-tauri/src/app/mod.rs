@@ -154,6 +154,7 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
         reactions: lock(&state.reactions)?.views(),
         animation_states: lock(&state.animation_states)?.states.clone(),
         user: store::current_user(&db)?,
+        user_birthday: store::current_user_birthday(&db)?,
         legacy_memory_count: store::legacy_memory_count(&db)?,
         messages: store::messages(&db, 100)?,
         memory_count: store::memory_count(&db)?,

@@ -1,5 +1,6 @@
 use super::{bump_revision, err, get, put, Result};
-use crate::types::UserIdentity;
+use crate::types::{UserBirthday, UserIdentity};
+use chrono::Datelike;
 use rusqlite::{params, Connection, OptionalExtension};
 
 pub const MEMORY_LIFETIME_MILLIS: i64 = 90 * 24 * 60 * 60 * 1000;
@@ -29,7 +30,7 @@ pub(super) fn add_column(
 pub(super) fn initialize(conn: &Connection) -> Result<()> {
     let tx = conn.unchecked_transaction().map_err(err)?;
     tx.execute_batch("CREATE TABLE IF NOT EXISTS user_identities(id TEXT PRIMARY KEY,name TEXT NOT NULL,started_at INTEGER NOT NULL,ended_at INTEGER);
-        INSERT OR IGNORE INTO user_identities VALUES('legacy-user','',0,NULL);
+        INSERT OR IGNORE INTO user_identities(id,name,started_at,ended_at) VALUES('legacy-user','',0,NULL);
         CREATE TABLE IF NOT EXISTS message_users(message_id TEXT PRIMARY KEY,user_id TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS message_presentations(message_id TEXT PRIMARY KEY,shown_at INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS memory_exclusions(character_id TEXT NOT NULL,user_id TEXT NOT NULL,source TEXT NOT NULL,PRIMARY KEY(character_id,user_id,source));
@@ -37,6 +38,9 @@ pub(super) fn initialize(conn: &Connection) -> Result<()> {
         CREATE TABLE IF NOT EXISTS recall_dependencies(key TEXT NOT NULL,memory_id TEXT NOT NULL,content_version INTEGER NOT NULL,PRIMARY KEY(key,memory_id));
         CREATE TABLE IF NOT EXISTS recall_sources(key TEXT NOT NULL,message_id TEXT NOT NULL,character_id TEXT NOT NULL,user_id TEXT NOT NULL,PRIMARY KEY(key,message_id,character_id));")
         .map_err(err)?;
+    for column in ["birthday_month", "birthday_day", "birthday_year"] {
+        add_column(&tx, "user_identities", column, "INTEGER")?;
+    }
     add_column(
         &tx,
         "message_presentations",
@@ -123,13 +127,71 @@ pub fn current_user(conn: &Connection) -> Result<Option<UserIdentity>> {
     Ok(user_identity(conn, &active_user_id(conn)?)?.filter(|user| !user.name.is_empty()))
 }
 
+pub fn current_user_birthday(conn: &Connection) -> Result<Option<UserBirthday>> {
+    let Some(user) = current_user(conn)? else {
+        return Ok(None);
+    };
+    conn.query_row(
+        "SELECT birthday_month,birthday_day,birthday_year FROM user_identities WHERE id=?1",
+        [user.id],
+        |row| {
+            let month: Option<u32> = row.get(0)?;
+            let day: Option<u32> = row.get(1)?;
+            let year: Option<i32> = row.get(2)?;
+            Ok(month
+                .zip(day)
+                .map(|(month, day)| UserBirthday { month, day, year }))
+        },
+    )
+    .map_err(err)
+}
+
+fn validate_birthday(birthday: &UserBirthday) -> Result<()> {
+    let year = birthday.year.unwrap_or(2000);
+    if birthday
+        .year
+        .is_some_and(|year| year < 1900 || year > chrono::Local::now().year())
+        || chrono::NaiveDate::from_ymd_opt(year, birthday.month, birthday.day).is_none()
+    {
+        return Err(
+            "생일을 올바른 날짜로 입력해 주세요. 연도는 1900년부터 올해까지 선택할 수 있어요."
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+pub fn set_user_birthday(conn: &Connection, birthday: Option<&UserBirthday>) -> Result<bool> {
+    if let Some(birthday) = birthday {
+        validate_birthday(birthday)?;
+    }
+    let tx = conn.unchecked_transaction().map_err(err)?;
+    let user = current_user(&tx)?.ok_or_else(|| "먼저 이름을 등록해 주세요.".to_string())?;
+    if current_user_birthday(&tx)?.as_ref() == birthday {
+        return Ok(false);
+    }
+    tx.execute(
+        "UPDATE user_identities SET birthday_month=?2,birthday_day=?3,birthday_year=?4 WHERE id=?1",
+        params![
+            user.id,
+            birthday.map(|b| b.month),
+            birthday.map(|b| b.day),
+            birthday.and_then(|b| b.year)
+        ],
+    )
+    .map_err(err)?;
+    bump_revision(&tx)?;
+    tx.commit().map_err(err)?;
+    Ok(true)
+}
+
 #[cfg(test)]
 pub fn require_user(conn: &Connection) -> Result<UserIdentity> {
     current_user(conn)?.ok_or_else(|| "먼저 어떻게 불러드릴지 이름을 알려 주세요.".into())
 }
 
 pub fn set_user_name(conn: &Connection, name: &str, at: i64) -> Result<bool> {
-    save_user_name(conn, name, at, None)
+    save_user_name(conn, name, at, None, None)
 }
 
 pub fn register_user_name(
@@ -138,7 +200,20 @@ pub fn register_user_name(
     at: i64,
     analytics_consent: bool,
 ) -> Result<bool> {
-    save_user_name(conn, name, at, Some(analytics_consent))
+    save_user_name(conn, name, at, Some(analytics_consent), None)
+}
+
+pub fn register_user_profile(
+    conn: &Connection,
+    name: &str,
+    birthday: Option<&UserBirthday>,
+    at: i64,
+    analytics_consent: bool,
+) -> Result<bool> {
+    if let Some(birthday) = birthday {
+        validate_birthday(birthday)?;
+    }
+    save_user_name(conn, name, at, Some(analytics_consent), birthday)
 }
 
 fn save_user_name(
@@ -146,6 +221,7 @@ fn save_user_name(
     name: &str,
     at: i64,
     analytics_consent: Option<bool>,
+    birthday: Option<&UserBirthday>,
 ) -> Result<bool> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > 40 || name.chars().any(char::is_control) {
@@ -168,16 +244,23 @@ fn save_user_name(
         .map_err(err)?;
         let id = uuid::Uuid::new_v4().to_string();
         tx.execute(
-            "INSERT INTO user_identities VALUES(?1,?2,?3,NULL)",
-            params![id, name, at],
+            "INSERT INTO user_identities(id,name,started_at,ended_at,birthday_month,birthday_day,birthday_year) SELECT ?1,?2,?3,NULL,birthday_month,birthday_day,birthday_year FROM user_identities WHERE id=?4",
+            params![id, name, at, current.id],
         )
         .map_err(err)?;
         put(&tx, "active_user_id", &id)?;
     } else {
         let id = active_user_id(&tx)?;
         tx.execute(
-            "UPDATE user_identities SET name=?2,started_at=?3 WHERE id=?1",
-            params![id, name, at],
+            "UPDATE user_identities SET name=?2,started_at=?3,birthday_month=?4,birthday_day=?5,birthday_year=?6 WHERE id=?1",
+            params![
+                id,
+                name,
+                at,
+                birthday.map(|b| b.month),
+                birthday.map(|b| b.day),
+                birthday.and_then(|b| b.year)
+            ],
         )
         .map_err(err)?;
     }

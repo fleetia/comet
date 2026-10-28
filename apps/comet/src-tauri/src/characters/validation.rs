@@ -45,6 +45,13 @@ pub(crate) fn validate_definition(definition: &CharacterDefinition) -> Result<()
     {
         return Err("캐릭터 이름·정의·표정·대사 개수를 확인해 주세요.".into());
     }
+    if definition
+        .birthday
+        .as_deref()
+        .is_some_and(|birthday| super::birthday_parts(birthday).is_none())
+    {
+        return Err("캐릭터 생일은 MM-DD 형식으로 입력해 주세요.".into());
+    }
     let style = &definition.balloon_style;
     if !BALLOON_FONT_SIZE_RANGE.contains(&style.font_size)
         || style.text_speed > 100

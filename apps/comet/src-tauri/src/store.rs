@@ -63,8 +63,9 @@ pub use search::{current_user_facts_for, memory_page, revalidate_search_hits, se
 #[cfg(test)]
 pub use users::require_user;
 pub use users::{
-    active_user_id, current_user, effective_memory_time, expire_memories, message_user_id,
-    message_user_names, register_user_name, set_user_name, user_identity, MEMORY_LIFETIME_MILLIS,
+    active_user_id, current_user, current_user_birthday, effective_memory_time, expire_memories,
+    message_user_id, message_user_names, register_user_name, register_user_profile, set_user_birthday,
+    set_user_name, user_identity, MEMORY_LIFETIME_MILLIS,
 };
 
 use crate::types::*;

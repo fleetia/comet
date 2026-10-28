@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import { Button, Checkbox, SettingsSummary, Surface, TextInput } from "@comet/ui";
 import { MemoryIcon, PetIcon } from "@comet/icon";
+import { BirthdayFields, birthdayDraft, birthdayValue } from "../BirthdayFields";
 import { spriteSource } from "../characterIdentity";
 import * as figma from "../SettingsPanel/figmaSettings.css";
 import type { MemoryPage, Snapshot } from "../../types";
@@ -17,6 +18,13 @@ export function UserSettings({
 }): JSX.Element {
   const [name, setName] = useState(snapshot.user?.name ?? "");
   const [savedName, setSavedName] = useState(snapshot.user?.name ?? "");
+  const [birthday, setBirthday] = useState(() => birthdayDraft(snapshot.userBirthday));
+  const [savedBirthday, setSavedBirthday] = useState(snapshot.userBirthday ?? null);
+  const [birthdayUserId, setBirthdayUserId] = useState(snapshot.user?.id);
+  const [birthdayPending, setBirthdayPending] = useState(false);
+  const [birthdayError, setBirthdayError] = useState<string | null>(null);
+  const [birthdayNotice, setBirthdayNotice] = useState<string | null>(null);
+  const birthdayBusy = useRef(false);
   const [showLegacy, setShowLegacy] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [pending, setPending] = useState(false);
@@ -25,15 +33,29 @@ export function UserSettings({
   const busy = useRef(false);
   const trimmed = name.trim();
   const dirty = trimmed !== savedName;
+  const selectedBirthday = birthdayValue(birthday);
+  const birthdayDirty = JSON.stringify(birthday) !== JSON.stringify(birthdayDraft(savedBirthday));
   const valid = Array.from(trimmed).length >= 1 && Array.from(trimmed).length <= 40;
   useEffect(() => {
-    onDirtyChange?.(dirty);
-  }, [dirty, onDirtyChange]);
+    onDirtyChange?.(dirty || birthdayDirty);
+  }, [dirty, birthdayDirty, onDirtyChange]);
   useEffect(() => {
     const next = snapshot.user?.name ?? "";
     setName((previous) => (previous.trim() === savedName ? next : previous));
     setSavedName(next);
   }, [snapshot.user?.id]);
+  useEffect(() => {
+    if (birthdayDirty) return;
+    const next = snapshot.userBirthday ?? null;
+    setBirthday(birthdayDraft(next));
+    setSavedBirthday(next);
+    setBirthdayUserId(snapshot.user?.id);
+  }, [
+    snapshot.user?.id,
+    snapshot.userBirthday?.month,
+    snapshot.userBirthday?.day,
+    snapshot.userBirthday?.year,
+  ]);
   async function save(): Promise<void> {
     if (!valid || !dirty || busy.current) return;
     busy.current = true;
@@ -50,6 +72,28 @@ export function UserSettings({
     } finally {
       busy.current = false;
       setPending(false);
+    }
+  }
+  async function saveBirthday(): Promise<void> {
+    if (!birthdayUserId || selectedBirthday === undefined || !birthdayDirty || birthdayBusy.current) {
+      return;
+    }
+    birthdayBusy.current = true;
+    setBirthdayPending(true);
+    setBirthdayError(null);
+    try {
+      await command("set_user_birthday", {
+        birthday: selectedBirthday,
+        expected: savedBirthday,
+        userId: birthdayUserId,
+      });
+      setSavedBirthday(selectedBirthday);
+      setBirthdayNotice(selectedBirthday ? "생일을 저장했어요." : "생일을 지웠어요.");
+    } catch (cause) {
+      setBirthdayError(errorText(cause));
+    } finally {
+      birthdayBusy.current = false;
+      setBirthdayPending(false);
     }
   }
   const character = snapshot.characters.installed.find((item) =>
@@ -146,6 +190,70 @@ export function UserSettings({
             <Button variant="ghost" size="small" onClick={() => setName(savedName)}>
               변경 취소
             </Button>
+          )}
+        </section>
+        <section className={figma.section} aria-label="사용자 생일">
+          <h2 className={figma.sectionTitle}>생일</h2>
+          <form
+            className={figma.group}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveBirthday();
+            }}
+          >
+            <fieldset disabled={birthdayPending || !snapshot.user} className={styles.nameForm}>
+              <BirthdayFields
+                value={birthday}
+                onChange={(next) => {
+                  setBirthday(next);
+                  setBirthdayNotice(null);
+                  setBirthdayError(null);
+                }}
+              />
+              <p className={figma.caption}>생일과 태어난 연도는 선택 사항이에요.</p>
+              {selectedBirthday === undefined && (
+                <p className={s.error}>올바른 월과 일을 선택해 주세요.</p>
+              )}
+              <div className={styles.confirmActions}>
+                <Button
+                  variant="ghost"
+                  disabled={!savedBirthday && !birthdayDirty}
+                  onClick={() => {
+                    setBirthday(birthdayDraft(null));
+                    setBirthdayNotice(null);
+                    setBirthdayError(null);
+                  }}
+                >
+                  지우기
+                </Button>
+                {birthdayDirty && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setBirthday(birthdayDraft(snapshot.userBirthday));
+                      setSavedBirthday(snapshot.userBirthday ?? null);
+                      setBirthdayUserId(snapshot.user?.id);
+                      setBirthdayError(null);
+                    }}
+                  >
+                    변경 취소
+                  </Button>
+                )}
+                <Button type="submit" disabled={!birthdayDirty || selectedBirthday === undefined}>
+                  {birthdayPending ? "저장 중…" : "생일 저장"}
+                </Button>
+              </div>
+            </fieldset>
+          </form>
+          {birthdayError && (
+            <p role="alert" className={s.error}>
+              {birthdayError}
+            </p>
+          )}
+          {birthdayNotice && (
+            <p role="status" className={s.success}>
+              {birthdayNotice}
+            </p>
           )}
         </section>
         {!!snapshot.legacyMemoryCount && (

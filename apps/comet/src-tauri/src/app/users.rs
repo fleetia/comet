@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     characters, store,
-    types::{PanelState, RuntimePhase},
+    types::{PanelState, RuntimePhase, UserBirthday},
     widgets,
 };
 use std::sync::{
@@ -22,6 +22,16 @@ fn save_name(
     first_only: bool,
     analytics_consent: Option<bool>,
 ) -> Result<(bool, bool), String> {
+    save_profile(state, name, first_only, analytics_consent, None)
+}
+
+fn save_profile(
+    state: &AppState,
+    name: &str,
+    first_only: bool,
+    analytics_consent: Option<bool>,
+    birthday: Option<&UserBirthday>,
+) -> Result<(bool, bool), String> {
     let _action = lock(&state.action)?;
     if unavailable(state) {
         return Err("앱을 정리하고 있어요.".into());
@@ -33,7 +43,17 @@ fn save_name(
     }
     let at = chrono::Utc::now().timestamp_millis();
     let changed = if first_only {
-        store::register_user_name(&db, name, at, analytics_consent.unwrap_or(false))?
+        if birthday.is_some() {
+            store::register_user_profile(
+                &db,
+                name,
+                birthday,
+                at,
+                analytics_consent.unwrap_or(false),
+            )?
+        } else {
+            store::register_user_name(&db, name, at, analytics_consent.unwrap_or(false))?
+        }
     } else {
         store::set_user_name(&db, name, at)?
     };
@@ -49,6 +69,53 @@ fn save_name(
         }
     }
     Ok((changed, first))
+}
+
+#[tauri::command]
+pub(crate) async fn register_user_profile(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    name: String,
+    birthday: Option<UserBirthday>,
+    analytics_consent: Option<bool>,
+) -> Result<(), String> {
+    crate::analytics::commit_consent_change(&app, &state, || {
+        save_profile(&state, &name, true, analytics_consent, birthday.as_ref())
+    })
+    .await?;
+    publish(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn set_user_birthday(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    user_id: String,
+    birthday: Option<UserBirthday>,
+    expected: Option<UserBirthday>,
+) -> Result<(), String> {
+    {
+        let _action = lock(&state.action)?;
+        if unavailable(&state) {
+            return Err("앱을 정리하고 있어요.".into());
+        }
+        let db = lock(&state.db)?;
+        if store::current_user(&db)?.as_ref().map(|user| user.id.as_str()) != Some(user_id.as_str())
+            || store::current_user_birthday(&db)? != expected
+        {
+            return Err("사용자 정보가 변경되었어요. 최신 정보를 확인해 주세요.".into());
+        }
+        if store::set_user_birthday(&db, birthday.as_ref())? {
+            super::interrupt_with_db(&state, false, &db)?;
+            let mut runtime = lock(&state.runtime)?;
+            runtime.phase = RuntimePhase::Idle;
+            runtime.persona = None;
+            runtime.error = None;
+        }
+    }
+    publish(&app, &state);
+    Ok(())
 }
 
 #[tauri::command]

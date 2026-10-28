@@ -33,6 +33,7 @@ pub const PACKS: &[Pack] = &[
         default_installed: true,
         files: byulkkori![
             "index.talk",
+            "situations/birthday.talk",
             "situations/duo.talk",
             "situations/group.talk",
             "situations/solo.talk",

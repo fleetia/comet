@@ -18,12 +18,50 @@ pub(crate) struct PreparedTalk {
     text_values: BTreeMap<String, serde_json::Value>,
     event: Option<widgets::WidgetEvent>,
     seed: u64,
+    birthday: Option<BirthdayTrigger>,
+}
+
+#[derive(Clone)]
+pub(crate) struct BirthdayTrigger {
+    pub kind: &'static str,
+    pub key: String,
+    pub date: chrono::NaiveDate,
+    pub character: Option<String>,
+    pub character_id: Option<String>,
 }
 
 pub(crate) fn prepare(
     state: &AppState,
     db: &Connection,
     event: Option<&widgets::WidgetEvent>,
+) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
+    prepare_with_birthday(state, db, event, None)
+}
+
+pub(crate) fn prepare_birthday(
+    state: &AppState,
+    db: &Connection,
+    birthday: BirthdayTrigger,
+) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
+    prepare_with_birthday(state, db, None, Some(birthday))
+}
+
+fn apply_birthday(context: &mut talk::EvalContext, birthday: &BirthdayTrigger) {
+    context.trigger = birthday.kind.into();
+    context
+        .values
+        .insert("event.kind".into(), serde_json::json!(birthday.kind));
+    context.values.insert(
+        "event.character".into(),
+        serde_json::json!(birthday.character),
+    );
+}
+
+fn prepare_with_birthday(
+    state: &AppState,
+    db: &Connection,
+    event: Option<&widgets::WidgetEvent>,
+    birthday: Option<BirthdayTrigger>,
 ) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
     let (program, generation) = {
         let active = lock(&state.talk)?;
@@ -38,6 +76,9 @@ pub(crate) fn prepare(
         chrono::Utc::now().timestamp_millis(),
         uuid::Uuid::new_v4().as_u128() as u64,
     )?;
+    if let Some(birthday) = &birthday {
+        apply_birthday(&mut context, birthday);
+    }
     context.visible = presence::present_ids(state, &context.active)?;
     context.values.insert(
         "character.count".into(),
@@ -56,7 +97,12 @@ pub(crate) fn prepare(
         .iter()
         .filter(|candidate| candidate.reason.starts_with("motion_error:"))
     {
-        crate::report_error!("talk_scene_motion", "talk scene {}: {}", candidate.scene_id, candidate.reason);
+        crate::report_error!(
+            "talk_scene_motion",
+            "talk scene {}: {}",
+            candidate.scene_id,
+            candidate.reason
+        );
     }
     let Some(selection) = simulation.selected else {
         return Ok(None);
@@ -92,6 +138,7 @@ pub(crate) fn prepare(
         text_values: context.values,
         event: event.cloned(),
         seed: context.seed,
+        birthday,
     });
     Ok(Some(lines))
 }
@@ -131,6 +178,30 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
         return Ok(false);
     }
     let mut context = talk::context::build(db, prepared.event.as_ref(), now, prepared.seed)?;
+    if let Some(birthday) = &prepared.birthday {
+        if chrono::Local::now().date_naive() != birthday.date {
+            return Ok(false);
+        }
+        let still_due = if let Some(id) = &birthday.character_id {
+            let slot = birthday
+                .character
+                .as_deref()
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            crate::characters::active_character(db, &slot)
+                .is_ok_and(|character| character.id == *id)
+                && context
+                    .values
+                    .get(&format!("character.{slot}.birthdayToday"))
+                    == Some(&serde_json::json!(true))
+        } else {
+            context.values.get("user.birthdayToday") == Some(&serde_json::json!(true))
+        };
+        if !still_due {
+            return Ok(false);
+        }
+        apply_birthday(&mut context, birthday);
+    }
     context.visible = presence::present_ids(state, &context.active)?;
     context.values.insert(
         "character.count".into(),
@@ -158,11 +229,48 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
         }))
 }
 
+pub(crate) fn birthday_current(state: &AppState, db: &Connection) -> Result<bool, String> {
+    let is_birthday = lock(&state.talk_playback)?
+        .as_ref()
+        .is_some_and(|prepared| prepared.birthday.is_some());
+    if is_birthday {
+        current(state, db)
+    } else {
+        Ok(true)
+    }
+}
+
+pub(crate) fn mark_birthday_displayed(
+    state: &AppState,
+    db: &Connection,
+    at: i64,
+) -> Result<(), String> {
+    let prepared = lock(&state.talk_playback)?;
+    let Some(birthday) = prepared
+        .as_ref()
+        .and_then(|prepared| prepared.birthday.as_ref())
+    else {
+        return Ok(());
+    };
+    let date = chrono::DateTime::from_timestamp_millis(at)
+        .map(|time| time.with_timezone(&chrono::Local).date_naive());
+    if date == Some(birthday.date) {
+        db.execute("INSERT INTO kv(key,value) VALUES(?1,'1') ON CONFLICT(key) DO UPDATE SET value=excluded.value", [&birthday.key])
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 fn log_diagnostics(diagnostics: &[talk::Diagnostic]) {
     for error in diagnostics {
-        crate::report_error!("talk_diagnostic", 
+        crate::report_error!(
+            "talk_diagnostic",
             ".talk {}:{}:{} [{}] {}",
-            error.path, error.line, error.column, error.code, error.message
+            error.path,
+            error.line,
+            error.column,
+            error.code,
+            error.message
         );
     }
 }

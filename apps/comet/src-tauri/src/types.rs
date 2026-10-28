@@ -306,6 +306,14 @@ pub struct UserIdentity {
     pub ended_at: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UserBirthday {
+    pub month: u32,
+    pub day: u32,
+    pub year: Option<i32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Relationship {
@@ -512,6 +520,8 @@ pub struct Snapshot {
         std::collections::BTreeMap<String, crate::characters::reactions::ReactionRun>,
     #[serde(default)]
     pub user: Option<UserIdentity>,
+    #[serde(default)]
+    pub user_birthday: Option<UserBirthday>,
     #[serde(default)]
     pub legacy_memory_count: usize,
     #[serde(default)]

@@ -116,18 +116,36 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
         write_marker(&marker)?;
     }
     if let Err(error) = super::retired::migrate(&root) {
-        crate::report_error!("talk_migration_retired_widget", ".talk retired-widget migration: {error}");
+        crate::report_error!(
+            "talk_migration_retired_widget",
+            ".talk retired-widget migration: {error}"
+        );
     }
     migrate_defaults(&root);
     migrate_packs(&root);
     if let Err(error) = upgrade_bundled_dialogue(&root) {
-        crate::report_error!("talk_migration_dialogue", ".talk dialogue migration: {error}");
+        crate::report_error!(
+            "talk_migration_dialogue",
+            ".talk dialogue migration: {error}"
+        );
     }
     if let Err(error) = replace_byulkkori_dialogue(&root) {
-        crate::report_error!("talk_migration_byulkkori", ".talk byulkkori dialogue replacement: {error}");
+        crate::report_error!(
+            "talk_migration_byulkkori",
+            ".talk byulkkori dialogue replacement: {error}"
+        );
     }
     if let Err(error) = add_revived_widget_dialogue(&root) {
-        crate::report_error!("talk_migration_revived_widget", ".talk revived widget dialogue: {error}");
+        crate::report_error!(
+            "talk_migration_revived_widget",
+            ".talk revived widget dialogue: {error}"
+        );
+    }
+    if let Err(error) = add_birthday_dialogue(&root) {
+        crate::report_error!(
+            "talk_migration_birthday",
+            ".talk birthday dialogue: {error}"
+        );
     }
     migrate_encryption(&root);
     Ok(root)
@@ -141,6 +159,46 @@ const REVIVED_WIDGET_FILES: [&str; 6] = [
     "widgets/plant.talk",
     "widgets/pet.talk",
 ];
+
+fn add_birthday_dialogue(root: &Path) -> Result<(), String> {
+    let marker = app_data_of(root)?.join(".talk-byulkkori-birthday-v1");
+    if marker.try_exists().map_err(|error| error.to_string())? || !root.exists() {
+        return Ok(());
+    }
+    let pack = defaults::pack(defaults::BYULKKORI).ok_or("기본 대본을 찾지 못했어요.")?;
+    let target = root.join(PACKS_DIRECTORY).join(pack.id);
+    let entry = target.join("index.talk");
+    let bundled = |name: &str| {
+        pack.files
+            .iter()
+            .find(|(path, _)| *path == name)
+            .map(|(_, source)| *source)
+            .ok_or("기본 대본을 찾지 못했어요.")
+    };
+    let new_index = super::encryption::decode(bundled("index.talk")?.as_bytes())?;
+    let previous = new_index.replace("import \"./situations/birthday.talk\"\n", "");
+    let current = match fs::read(&entry) {
+        Ok(bytes) => Some(super::encryption::decode(&bytes)?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.to_string()),
+    };
+    if current.as_deref() == Some(previous.as_str()) {
+        let path = target.join("situations/birthday.talk");
+        if path.try_exists().map_err(|error| error.to_string())? {
+            let existing =
+                super::encryption::decode(&fs::read(&path).map_err(|error| error.to_string())?)?;
+            let expected =
+                super::encryption::decode(bundled("situations/birthday.talk")?.as_bytes())?;
+            if existing != expected {
+                return super::files::atomic_write(&marker, b"1\n");
+            }
+        } else {
+            super::files::atomic_write(&path, bundled("situations/birthday.talk")?.as_bytes())?;
+        }
+        super::files::atomic_write(&entry, bundled("index.talk")?.as_bytes())?;
+    }
+    super::files::atomic_write(&marker, b"1\n")
+}
 
 /// One-time addition of the revived widget scripts to an installed Byulkkori pack. Only an
 /// entry that still matches the previous factory index is updated, so user imports survive.
@@ -175,7 +233,9 @@ fn add_revived_widget_dialogue(root: &Path) -> Result<(), String> {
             }
         }
         // The entry goes last: until it imports them, the added files stay inert.
-        super::files::atomic_write(&entry, bundled("index.talk")?.as_bytes())?;
+        let current_index = super::encryption::decode(bundled("index.talk")?.as_bytes())?;
+        let revived_index = current_index.replace("import \"./situations/birthday.talk\"\n", "");
+        super::files::atomic_write(&entry, &super::encryption::encode(&revived_index)?)?;
     }
     super::files::atomic_write(&marker, b"1\n")
 }
@@ -635,7 +695,10 @@ fn migrate_encryption(root: &Path) {
         return;
     }
     if let Err(error) = super::files::seal_bundle(root, &super::context::registry()) {
-        crate::report_error!("talk_migration_encryption", ".talk encryption migration: {error}");
+        crate::report_error!(
+            "talk_migration_encryption",
+            ".talk encryption migration: {error}"
+        );
     }
 }
 
