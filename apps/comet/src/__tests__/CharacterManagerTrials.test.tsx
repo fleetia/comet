@@ -299,6 +299,7 @@ it.each([
           ([name]) =>
             ![
               "get_character_touches",
+              "get_character_mood",
               "get_character_dialogue",
               "get_character_packs",
               "get_character_reaction_events",

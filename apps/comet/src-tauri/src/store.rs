@@ -1,6 +1,7 @@
 mod analysis;
 mod conversations;
 mod memory;
+pub(crate) use memory::direct_affinity;
 mod messages;
 mod quiet_hours;
 mod search;

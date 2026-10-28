@@ -275,6 +275,24 @@
       "expectedScene": null
     },
     {
+      "id": "solo.mood-high",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": ["fixture-a"],
+      "values": {"character.a.mood": 1},
+      "expectedScene": "solo.mood-high"
+    },
+    {
+      "id": "solo.mood-low",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": ["fixture-a"],
+      "values": {"character.a.mood": -1},
+      "expectedScene": "solo.mood-low"
+    },
+    {
       "id": "solo.stretch",
       "path": "situations/solo.talk",
       "trigger": "idle",

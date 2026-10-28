@@ -746,6 +746,14 @@ pub(crate) async fn send_message_inner(
             &client_message_id,
             false,
         );
+        let recorded = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM messages WHERE id=?1)",
+            [&client_message_id],
+            |row| row.get::<_, bool>(0),
+        ).map_err(|error| error.to_string())?;
+        if recorded {
+            crate::characters::life::note_mood_input(&state)?;
+        }
         if choice.is_some() {
             db.execute("UPDATE message_context SET source='follow-up' WHERE message_id=?1 AND source='user'", [&client_message_id])
                 .map_err(|error| error.to_string())?;
@@ -768,6 +776,11 @@ pub(crate) async fn send_message_inner(
         }
         let token =
             super::tasks::reserve_conversation(&state, Some(&session.id), &client_message_id)?;
+        if recorded && store::direct_affinity(content).is_some_and(|(_, delta)| delta < 0) {
+            for id in store::message_targets(&db, &client_message_id)? {
+                crate::characters::life::change_mood(&app, &state, &id, "insult", -1)?;
+            }
+        }
         retain_waiting_story(&state, waiting, token.0)?;
         if plan.is_none() {
             retain_pack_run(&state, &db, waiting_pack, token.0)?;
@@ -1702,6 +1715,10 @@ async fn generate_turn_with_follow_ups(
             prompt_with_history(&db, targets, message_id, &recalled)?
         };
         let small = use_small_model_prompt(state, &db, targets, bundle, &mut prompt)?;
+        let moods = targets.iter().map(|target| {
+            let actor = characters::guests::actor(state, &db, target)?;
+            Ok((target.clone(), characters::life::mood(state, &actor.id)?))
+        }).collect::<Result<std::collections::BTreeMap<_, _>, String>>()?;
         #[cfg(debug_assertions)]
         if !context.selected_knowledge_ids.is_empty() {
             eprintln!(
@@ -1748,6 +1765,8 @@ async fn generate_turn_with_follow_ups(
                 system.content.push_str(domain::FOLLOW_UP_PROMPT);
             }
         }
+        let mood_budget = if bundle || targets.len() > 1 { 7200 } else { 4800 };
+        domain::with_moods(&mut prompt, &moods, !small, mood_budget);
         let input: String = db
             .query_row(
                 "SELECT json_extract(data, '$.content') FROM messages WHERE id=?1 AND role='user'",
