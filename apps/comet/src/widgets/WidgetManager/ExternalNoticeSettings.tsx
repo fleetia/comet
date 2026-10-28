@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Button, SettingControlRow, Surface, Switch, TextInput } from "@comet/ui";
-import { errorText } from "../../hooks/useSnapshot";
+import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { record, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import * as s from "../PreparationTool/preparationSettings.css";
@@ -24,6 +24,11 @@ export function ExternalNoticeSettings({
   const [prefix, setPrefix] = useState(savedPrefix);
   const [base, setBase] = useState(savedPrefix);
   const [busy, setBusy] = useState(false);
+  const [permission, setPermission] = useState(isDesktop() ? "unknown" : "system");
+  const [permissionBusy, setPermissionBusy] = useState(false);
+  const permissionRequest = useRef(0);
+  const permissionLock = useRef(false);
+  const mounted = useRef(false);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
   const locked = useRef(false);
@@ -39,8 +44,49 @@ export function ExternalNoticeSettings({
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
   useEffect(() => {
-    onBusyChange(busy);
-  }, [busy, onBusyChange]);
+    onBusyChange(busy || permissionBusy);
+  }, [busy, permissionBusy, onBusyChange]);
+  useEffect(() => {
+    mounted.current = true;
+    function refreshPermission(): void {
+      if (!isDesktop() || permissionLock.current) return;
+      const request = ++permissionRequest.current;
+      void command<string>("get_planner_notification_permission")
+        .then((value) => {
+          if (mounted.current && permissionRequest.current === request) setPermission(value);
+        })
+        .catch((cause: unknown) => {
+          if (mounted.current && permissionRequest.current === request) {
+            setPermission("unknown");
+            setError(errorText(cause));
+          }
+        });
+    }
+    refreshPermission();
+    window.addEventListener("focus", refreshPermission);
+    return () => {
+      mounted.current = false;
+      permissionRequest.current += 1;
+      window.removeEventListener("focus", refreshPermission);
+    };
+  }, []);
+
+  async function requestPermission(): Promise<void> {
+    if (permissionLock.current) return;
+    permissionLock.current = true;
+    setPermissionBusy(true);
+    setError("");
+    const request = ++permissionRequest.current;
+    try {
+      const value = await command<string>("request_planner_notification_permission");
+      if (mounted.current && permissionRequest.current === request) setPermission(value);
+    } catch (cause: unknown) {
+      if (mounted.current && permissionRequest.current === request) setError(errorText(cause));
+    } finally {
+      permissionLock.current = false;
+      if (mounted.current) setPermissionBusy(false);
+    }
+  }
   useEffect(() => {
     if (
       !dirty &&
@@ -74,7 +120,7 @@ export function ExternalNoticeSettings({
   }
 
   useEffect(() => {
-    if (!dirty || conflict || busy || failedPrefix.current === prefix) return;
+    if (!dirty || conflict || busy || permissionBusy || failedPrefix.current === prefix) return;
     const value = prefix;
     const revision = widget.revision;
     const timer = window.setTimeout(() => {
@@ -89,7 +135,7 @@ export function ExternalNoticeSettings({
       });
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [prefix, dirty, conflict, busy, retry, widget.revision]);
+  }, [prefix, dirty, conflict, busy, permissionBusy, retry, widget.revision]);
 
   return (
     <section className={s.root} aria-label="바깥 알림 설정">
@@ -102,7 +148,7 @@ export function ExternalNoticeSettings({
             <Switch
               aria-label="바깥 알림 받기 허용"
               checked={data.enabled !== false}
-              disabled={busy}
+              disabled={busy || permissionBusy}
               onChange={(event) => void configure({ enabled: event.target.checked })}
             />
           }
@@ -114,10 +160,19 @@ export function ExternalNoticeSettings({
             <Switch
               aria-label="OS 알림 병행"
               checked={data.osNotifications === true}
-              disabled={busy}
+              disabled={busy || permissionBusy || (data.osNotifications !== true && !["granted", "system"].includes(permission))}
               onChange={(event) => void configure({ osNotifications: event.target.checked })}
             />
           }
+        />
+        <SettingControlRow
+          title={`OS 알림 권한: ${({ granted: "허용됨", denied: "꺼짐 · 시스템 설정에서 변경", prompt: "권한 요청 전", system: "시스템 설정을 따름", unknown: "확인 필요" } as Record<string, string>)[permission] || "확인 필요"}`}
+          description={permission === "prompt" ? "허용 후 OS 알림 병행을 켤 수 있어요" : undefined}
+          control={isDesktop() && permission !== "granted" && permission !== "system" ? (
+            <Button type="button" variant="ghost" disabled={busy || permissionBusy} onClick={() => void requestPermission()}>
+              OS 알림 권한 요청
+            </Button>
+          ) : undefined}
         />
         <SettingControlRow
           title="접두 문구"
