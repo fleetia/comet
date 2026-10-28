@@ -20,6 +20,8 @@ pub(crate) struct PreparedTalk {
     activity_event: Option<String>,
     activity_id: Option<String>,
     seed: u64,
+    pub(crate) recall_date: Option<String>,
+    recall_day: Option<chrono::NaiveDate>,
 }
 
 pub(crate) fn prepare(
@@ -68,6 +70,23 @@ fn prepare_with_activity_event(
     event: Option<&widgets::WidgetEvent>,
     activity_event: Option<&str>,
 ) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
+    prepare_with_triggers(state, db, event, activity_event, false)
+}
+
+pub(crate) fn prepare_recall(
+    state: &AppState,
+    db: &Connection,
+) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
+    prepare_with_triggers(state, db, None, None, true)
+}
+
+fn prepare_with_triggers(
+    state: &AppState,
+    db: &Connection,
+    event: Option<&widgets::WidgetEvent>,
+    activity_event: Option<&str>,
+    recall: bool,
+) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
     let (program, generation) = {
         let active = lock(&state.talk)?;
         (active.program.clone(), active.generation)
@@ -88,6 +107,19 @@ fn prepare_with_activity_event(
             .values
             .insert("event.kind".into(), serde_json::json!(kind));
     }
+    let recall_date = if recall {
+        if context.values.get("recall.ready") != Some(&serde_json::json!(true)) {
+            return Ok(None);
+        }
+        context.trigger = "diary.recall".into();
+        context
+            .values
+            .get("recall.date")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned)
+    } else {
+        None
+    };
     context.visible = presence::present_ids(state, &context.active)?;
     context.values.insert(
         "character.count".into(),
@@ -159,8 +191,27 @@ fn prepare_with_activity_event(
         activity_event: activity_event.map(str::to_owned),
         activity_id,
         seed: context.seed,
+        recall_day: recall_date
+            .as_ref()
+            .map(|_| chrono::Local::now().date_naive()),
+        recall_date,
     });
     Ok(Some(lines))
+}
+
+pub(crate) fn record_recall_displayed(
+    state: &AppState,
+    db: &Connection,
+    at: i64,
+) -> Result<(), String> {
+    let prepared = lock(&state.talk_playback)?;
+    if let Some(date) = prepared
+        .as_ref()
+        .and_then(|talk| talk.recall_date.as_deref())
+    {
+        talk::context::record_recall(db, date, at)?;
+    }
+    Ok(())
 }
 
 fn muted_reactions(
@@ -245,6 +296,25 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
             || activity_id != prepared.activity_id)
     {
         return Ok(false);
+    }
+    if prepared.text_values.get("recall.ready") == Some(&serde_json::json!(true))
+        && prepared.selection.references.iter().any(|name| name.starts_with("recall."))
+        && !crate::store::settings(db)?.diary_recall_enabled
+    {
+        return Ok(false);
+    }
+    if let Some(day) = prepared.recall_day {
+        if chrono::Local::now().date_naive() != day
+            || !crate::store::settings(db)?.diary_recall_enabled
+        {
+            return Ok(false);
+        }
+        context.trigger = "diary.recall".into();
+        for (name, value) in &prepared.text_values {
+            if name.starts_with("recall.") {
+                context.values.insert(name.clone(), value.clone());
+            }
+        }
     }
     context.visible = presence::present_ids(state, &context.active)?;
     context.values.insert(
@@ -550,6 +620,49 @@ mod tests {
             lock(&state.life).unwrap().activity.clear();
             assert!(lock(&state.life).unwrap().activity.private_history().is_empty());
         }
+    }
+
+    #[test]
+    fn activity_based_diary_recall_remains_private_and_records_only_its_date() {
+        let state = crate::app::tests::state();
+        lock(&state.life).unwrap().activity.observe(
+            crate::app_usage::DetailedSample {
+                sample: crate::app_usage::Sample { app_id: Some("private-app".into()), eligible: true, status: "active".into() },
+                application: Some(crate::app_usage::Application { id: "private-app".into(), name: "비밀 앱".into() }),
+                idle_seconds: Some(0.0),
+            }, &[], Instant::now(),
+        );
+        let date = (chrono::Local::now().date_naive() - chrono::Days::new(7)).to_string();
+        {
+            let db = lock(&state.db).unwrap();
+            let diary = serde_json::json!({"revision":1,"pages":[{"id":"page","title":"","date":date.clone(),"entries":[{"id":"note","kind":"note","text":"추억"}]}],"notes":[],"moves":[]});
+            db.execute("UPDATE diary_state SET data=?1 WHERE id=1", [diary.to_string()]).unwrap();
+            let mut settings = crate::store::settings(&db).unwrap();
+            settings.diary_recall_enabled = true;
+            crate::store::save_settings(&db, &settings).unwrap();
+        }
+        let program = talk::validate_source(
+            Path::new("private-recall.talk"),
+            "format: 1\nscene: private\non: diary.recall\n---\nA: ${activity.minutes}분과 ${recall.snippet}\n===\n",
+            &talk::context::registry(),
+        ).unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        let token = interrupt(&state, true).unwrap();
+        let (lines, revision) = {
+            let db = lock(&state.db).unwrap();
+            (prepare_recall(&state, &db).unwrap().unwrap(), crate::store::revision(&db).unwrap())
+        };
+        assert!(crate::app::scene::present_line(
+            &state, &lines[0], "talk", "private-recall", 0, 1, revision, token.0, &token.1, false,
+        ).unwrap());
+        let db = lock(&state.db).unwrap();
+        assert!(crate::store::messages(&db, 10).unwrap().is_empty());
+        record_recall_displayed(&state, &db, chrono::Utc::now().timestamp_millis()).unwrap();
+        let recorded: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM widget_preferences WHERE key=?1)",
+            [format!("recall:{date}")], |row| row.get(0),
+        ).unwrap();
+        assert!(recorded);
     }
 
     #[test]

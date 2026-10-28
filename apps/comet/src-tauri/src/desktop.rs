@@ -1655,7 +1655,12 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         }
     }
     drop((playback, story));
-    if let Some((id, at, _)) = displayed_message.filter(|(_, _, source)| {
+    if let Some((_, at, source)) = displayed_message.as_ref() {
+        if source == "talk" && crate::talk::host::activity_in_playback(&state)? {
+            crate::talk::host::record_recall_displayed(&state, &db, *at)?;
+        }
+    }
+    if let Some((id, at, source)) = displayed_message.filter(|(_, _, source)| {
         source != "talk" || !crate::talk::host::activity_in_playback(&state).unwrap_or(true)
     }) {
         store::mark_message_displayed_with_provenance(
@@ -1664,6 +1669,9 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
             at,
             Some(state.automatic.load(Ordering::SeqCst)),
         )?;
+        if source == "talk" && store::message_displayed(&db, &id)? {
+            crate::talk::host::record_recall_displayed(&state, &db, at)?;
+        }
         if let Some(ticket) = super::lock(&state.tasks)?.participants.clone() {
             crate::characters::guests::hear_displayed_locked(&state, &db, &ticket, &id, at)?;
         }
