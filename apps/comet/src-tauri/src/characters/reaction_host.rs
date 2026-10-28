@@ -40,6 +40,8 @@ pub(crate) struct Run {
     #[serde(skip)]
     widget: Option<crate::widgets::WidgetEvent>,
     #[serde(skip)]
+    widget_visual_epoch: Option<u64>,
+    #[serde(skip)]
     created_at: i64,
     #[serde(skip)]
     ready: bool,
@@ -493,6 +495,7 @@ fn prepare_direct_checked(
         window,
         roster,
         widget: None,
+        widget_visual_epoch: None,
         created_at: chrono::Utc::now().timestamp_millis(),
         ready: false,
         actor: Some(actor),
@@ -1083,6 +1086,7 @@ fn prepare_reaction(
             window,
             roster,
             widget: widget.map(|(event, _)| event.clone()),
+            widget_visual_epoch: widget.map(|(_, epoch)| epoch),
             created_at: at,
             ready: false,
             actor: Some(actor),
@@ -1109,6 +1113,9 @@ fn prepare_reaction(
                 .unwrap_or_else(|| "평온".into());
             let token = app::interrupt(state, false)?;
             if let Some((widget, _)) = widget {
+                if let Some(run) = lock(&state.reactions)?.runs.get_mut(character_id) {
+                    run.widget_visual_epoch = None;
+                }
                 state.widget_epoch.store(token.0, Ordering::SeqCst);
                 *lock(&state.widget_playback)? = Some(widget.clone());
             }
@@ -1314,7 +1321,8 @@ fn acknowledge_current(
     revision: Option<&str>,
 ) -> Result<bool> {
     let _action = lock(&state.action)?;
-    if lock(&state.runtime)?.hidden || app::unavailable(state) {
+    let status = lock(&state.runtime)?.clone();
+    if status.hidden || app::unavailable(state) {
         return Ok(false);
     }
     let db = lock(&state.db)?;
@@ -1338,6 +1346,16 @@ fn acknowledge_current(
     };
     match phase {
         "ready" => {
+            if !run.ready && run.widget_visual_epoch == Some(state.epoch.load(Ordering::SeqCst)) {
+                if let Some(event) = run.widget.as_ref() {
+                    if (!status.paused || app::quiet_hours::event_allowed(&event.event))
+                        && crate::store::settings(&db)?.autonomous_enabled
+                        && crate::widgets::commands::event_current(&db, event)?
+                    {
+                        crate::widgets::storage::mark_weather_reaction_started(&db, event)?;
+                    }
+                }
+            }
             run.ready = true;
             Ok(false)
         }
