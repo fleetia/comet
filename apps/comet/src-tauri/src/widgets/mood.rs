@@ -81,24 +81,67 @@ pub(crate) fn advance(app: &AppHandle, state: &AppState, cursor: &mut i64) -> Re
     Ok(())
 }
 
-pub(crate) fn interaction_target(
+// Called under the action lock before the transaction. The caller applies the mood
+// only after successful execution, and an existing receipt must never apply it again.
+pub(crate) fn pending_interaction_target(
     db: &Connection,
-    event: &super::WidgetEvent,
+    request: &super::WidgetRequest,
 ) -> Result<Option<(String, String)>, String> {
-    if event.widget_kind != "interaction" || event.event.kind != "interaction.touch" {
+    if !matches!(request.action.as_str(), "stroke" | "snack")
+        || super::storage::get(db, &request.instance_id)?.kind != "interaction"
+    {
         return Ok(None);
     }
-    let Some(action @ ("stroke" | "snack")) = event.event.payload["action"].as_str() else {
+    let already_applied: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM widget_requests WHERE id=?1)",
+            [&request.request_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if already_applied {
         return Ok(None);
-    };
-    let members = characters::active_members(db)?;
-    let target = if let Some(owner) = event.event.payload["owner"].as_str() {
-        members.iter().find(|member| member.id == owner)
-    } else {
-        event.event.payload["character"]
-            .as_str()
-            .and_then(|slot| characters::slot_index(&slot.to_ascii_lowercase()).ok())
-            .and_then(|index| members.get(index))
-    };
-    Ok(target.map(|member| (member.id.clone(), action.into())))
+    }
+    let slot = request.input["character"]
+        .as_str()
+        .ok_or("캐릭터를 골라 주세요.")?;
+    let character = characters::active_character(db, &slot.to_ascii_lowercase())?;
+    Ok(Some((character.id, request.action.clone())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::widgets::{storage, WidgetRequest};
+    use serde_json::json;
+
+    #[test]
+    fn interaction_target_is_recorded_once_and_rejected_actions_do_not_commit() {
+        let db = crate::store::open(std::path::Path::new(":memory:")).unwrap();
+        let actor = characters::active_character(&db, "a").unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        db.execute(
+            "INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data,error) VALUES(?1,'interaction',1,1,1,0,?2,NULL)",
+            rusqlite::params![id, super::super::toys::initial("interaction").to_string()],
+        ).unwrap();
+        let request = WidgetRequest {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            instance_id: id.clone(),
+            expected_revision: 0,
+            action: "stroke".into(),
+            input: json!({"character":"A","owner":actor.id.clone()}),
+        };
+        assert_eq!(pending_interaction_target(&db, &request).unwrap(), Some((actor.id.clone(), "stroke".into())));
+        storage::execute(&db, &request, 1_000, 0).unwrap();
+        assert!(pending_interaction_target(&db, &request).unwrap().is_none());
+        let bad = WidgetRequest {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            expected_revision: 1,
+            action: "snack".into(),
+            ..request
+        };
+        db.execute("UPDATE widget_instances SET data=json_set(data,'$.snacks',0) WHERE id=?1", [&id]).unwrap();
+        assert!(storage::execute(&db, &bad, 2_000, 0).is_err());
+        assert!(pending_interaction_target(&db, &bad).unwrap().is_some());
+    }
 }

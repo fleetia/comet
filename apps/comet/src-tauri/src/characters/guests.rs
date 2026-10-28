@@ -530,7 +530,7 @@ pub(crate) fn interact_locked(
     action: &str,
     request_id: &str,
     now: i64,
-) -> Result<Option<crate::widgets::WidgetEvent>> {
+) -> Result<crate::widgets::storage::BodyInteraction> {
     let actor = actor(state, db, id)?;
     let slot = display_ids(state, db)?
         .iter()
@@ -1269,10 +1269,10 @@ mod tests {
         let gesture = uuid::Uuid::new_v4().to_string();
         assert!(interact_locked(&state, &db, id, "poke", &gesture, 10000)
             .unwrap()
-            .is_some());
+            .event.is_some());
         assert!(interact_locked(&state, &db, id, "poke", &gesture, 11000)
             .unwrap()
-            .is_none());
+            .event.is_none());
         assert!(interact_locked(
             &state,
             &db,
@@ -1282,7 +1282,7 @@ mod tests {
             11000
         )
         .unwrap()
-        .is_none());
+        .event.is_none());
         assert_eq!(
             characters::active_ids(&db).unwrap(),
             vec![request.center_id]

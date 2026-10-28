@@ -1622,7 +1622,6 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
     drop(layout);
     let mut first_display = false;
     let mut displayed_message = None;
-    let mut displayed_widget = None;
     if let Some(line) = playback.as_mut() {
         if target.key == format!("playback:{}", line.id)
             || target
@@ -1640,12 +1639,6 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
             if first_display && line.source != "update" {
                 displayed_message = line.display_started_at.map(|at| (line.id.clone(), at));
             }
-            if first_display
-                && line.line_index == 0
-                && matches!(line.source.as_str(), "widget" | "talk")
-            {
-                displayed_widget = Some(line.id.clone());
-            }
         }
     }
     if let Some(request) = story.as_mut() {
@@ -1655,16 +1648,6 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         }
     }
     drop((playback, story));
-    if let Some(id) = displayed_widget {
-        let event = super::lock(&state.widget_playback)?.clone();
-        if let Some(event) = event.filter(|event| id == format!("scene:{}:0", event.id)) {
-            if let Some((character, action)) =
-                crate::widgets::mood::interaction_target(&db, &event)?
-            {
-                let _ = crate::characters::life::change_mood(app, &state, &character, &action, 1);
-            }
-        }
-    }
     if let Some((id, at)) = displayed_message {
         store::mark_message_displayed_with_provenance(
             &db,

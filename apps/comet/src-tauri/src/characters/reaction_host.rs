@@ -239,10 +239,34 @@ pub(crate) fn direct_start(
     region_id: Option<&str>,
     window: usize,
 ) -> Result<Option<String>> {
+    direct_start_impl(app, state, character_id, gesture, region_id, window, None)
+}
+
+pub(crate) fn direct_start_interaction(
+    app: &AppHandle,
+    state: Arc<AppState>,
+    character_id: &str,
+    gesture: &str,
+    region_id: Option<&str>,
+    window: usize,
+    request_id: &str,
+) -> Result<Option<String>> {
+    direct_start_impl(app, state, character_id, gesture, region_id, window, Some(request_id))
+}
+
+fn direct_start_impl(
+    app: &AppHandle,
+    state: Arc<AppState>,
+    character_id: &str,
+    gesture: &str,
+    region_id: Option<&str>,
+    window: usize,
+    interaction_id: Option<&str>,
+) -> Result<Option<String>> {
     let mut id = prepare_direct(&state, character_id, gesture, region_id, window)?;
     if id.is_none()
         && gesture == "poke"
-        && trigger(app, state.clone(), character_id, "click", window, None)?
+        && trigger_inner(app, state.clone(), character_id, "click", window, None, interaction_id)?
     {
         id = lock(&state.reactions)?
             .runs
@@ -251,13 +275,14 @@ pub(crate) fn direct_start(
     }
     if id.is_none()
         && ["poke", "stroke", "snack"].contains(&gesture)
-        && trigger(
+        && trigger_inner(
             app,
             state.clone(),
             character_id,
             "interaction.touch",
             window,
             None,
+            interaction_id,
         )?
     {
         id = lock(&state.reactions)?
@@ -326,7 +351,9 @@ pub(crate) fn direct_common(
             };
             (Some(lines), token)
         } else {
+            let previous = state.epoch.load(Ordering::SeqCst);
             let token = app::interrupt_with_db(&state, false, &db)?;
+            crate::characters::life::advance_interaction_mood_epoch(&state, &event.id, previous, token.0)?;
             (crate::talk::host::prepare(&state, &db, Some(event))?, token)
         };
         if let Some(lines) = lines {
@@ -366,7 +393,9 @@ fn prepare_milestone(
         return Ok(None);
     };
     let prepared = lock(&state.talk_playback)?.take();
+    let previous = state.epoch.load(Ordering::SeqCst);
     let token = app::interrupt_with_db(state, true, db)?;
+    crate::characters::life::advance_interaction_mood_epoch(state, &event.id, previous, token.0)?;
     *lock(&state.talk_playback)? = prepared;
     Ok(Some((lines, token)))
 }
@@ -969,7 +998,19 @@ pub(crate) fn trigger(
     window: usize,
     gesture: Option<(&AppHandle, &GestureEvent)>,
 ) -> Result<bool> {
-    let Some(prepared) = prepare_reaction(&state, character_id, event, window, None, gesture)?
+    trigger_inner(app, state, character_id, event, window, gesture, None)
+}
+
+fn trigger_inner(
+    app: &AppHandle,
+    state: Arc<AppState>,
+    character_id: &str,
+    event: &str,
+    window: usize,
+    gesture: Option<(&AppHandle, &GestureEvent)>,
+    interaction_id: Option<&str>,
+) -> Result<bool> {
+    let Some(prepared) = prepare_reaction_inner(&state, character_id, event, window, None, gesture, interaction_id)?
     else {
         return Ok(false);
     };
@@ -989,6 +1030,18 @@ fn prepare_reaction(
     window: usize,
     widget: Option<(&crate::widgets::WidgetEvent, u64)>,
     gesture: Option<(&AppHandle, &GestureEvent)>,
+) -> Result<Option<Prepared>> {
+    prepare_reaction_inner(state, character_id, event, window, widget, gesture, None)
+}
+
+fn prepare_reaction_inner(
+    state: &AppState,
+    character_id: &str,
+    event: &str,
+    window: usize,
+    widget: Option<(&crate::widgets::WidgetEvent, u64)>,
+    gesture: Option<(&AppHandle, &GestureEvent)>,
+    interaction_id: Option<&str>,
 ) -> Result<Option<Prepared>> {
     let speech = {
         let _action = lock(&state.action)?;
@@ -1107,7 +1160,11 @@ fn prepare_reaction(
                 .clone()
                 .or(current)
                 .unwrap_or_else(|| "평온".into());
+            let previous = state.epoch.load(Ordering::SeqCst);
             let token = app::interrupt(state, false)?;
+            if let Some(request_id) = interaction_id {
+                crate::characters::life::advance_interaction_mood_epoch(state, request_id, previous, token.0)?;
+            }
             if let Some((widget, _)) = widget {
                 state.widget_epoch.store(token.0, Ordering::SeqCst);
                 *lock(&state.widget_playback)? = Some(widget.clone());
@@ -1223,22 +1280,6 @@ pub(crate) fn trigger_widget(
         Some((event, epoch)),
         None,
     )? {
-        {
-            let _action = lock(&state.action)?;
-            let db = lock(&state.db)?;
-            let current = lock(&state.reactions)?
-                .runs
-                .get(character_id)
-                .and_then(|run| run.widget.as_ref())
-                .is_some_and(|current| current.id == event.id);
-            if current {
-                if let Some((id, action)) = crate::widgets::mood::interaction_target(&db, event)?
-                    .filter(|(id, _)| id == character_id)
-                {
-                    crate::characters::life::change_mood(app, &state, &id, &action, 1)?;
-                }
-            }
-        }
         finish_reaction(app, state, prepared);
     }
     Ok(())

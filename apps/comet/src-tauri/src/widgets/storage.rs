@@ -507,7 +507,12 @@ pub(crate) fn body_interaction(
         .iter()
         .position(|id| id == character_id)
         .ok_or("활성 캐릭터가 아니에요.")?;
-    body_interaction_at(db, character_id, slot, action, request_id, now)
+    Ok(body_interaction_at(db, character_id, slot, action, request_id, now)?.event)
+}
+
+pub(crate) struct BodyInteraction {
+    pub accepted: bool,
+    pub event: Option<WidgetEvent>,
 }
 
 // A runtime actor ticket is validated by the caller under action before this
@@ -519,7 +524,7 @@ pub(crate) fn body_interaction_with_actor(
     action: &str,
     request_id: &str,
     now: i64,
-) -> Result<Option<WidgetEvent>> {
+) -> Result<BodyInteraction> {
     if slot >= crate::characters::MAX_ROSTER
         || crate::characters::get(db, &actor.id)?.definition != actor.definition
     {
@@ -535,7 +540,7 @@ fn body_interaction_at(
     action: &str,
     request_id: &str,
     now: i64,
-) -> Result<Option<WidgetEvent>> {
+) -> Result<BodyInteraction> {
     uuid::Uuid::parse_str(request_id)
         .map_err(|_| "교감 요청 식별자가 올바르지 않아요.".to_string())?;
     if !matches!(
@@ -558,7 +563,10 @@ fn body_interaction_at(
         if previous != fingerprint {
             return Err("이미 사용한 교감 요청의 내용이 달라졌어요.".into());
         }
-        return Ok(None);
+        return Ok(BodyInteraction {
+            accepted: false,
+            event: None,
+        });
     }
     let mut instance = instances(&tx)?
         .into_iter()
@@ -616,15 +624,18 @@ fn body_interaction_at(
     )
     .map_err(err)?;
     tx.commit().map_err(err)?;
-    Ok(draft.map(|event| WidgetEvent {
-        id: request_id.into(),
-        instance_id: instance.id,
-        widget_kind: "interaction".into(),
-        revision: instance.revision,
-        created_at: now,
-        expires_at: now + 30_000,
-        event,
-    }))
+    Ok(BodyInteraction {
+        accepted: true,
+        event: draft.map(|event| WidgetEvent {
+            id: request_id.into(),
+            instance_id: instance.id,
+            widget_kind: "interaction".into(),
+            revision: instance.revision,
+            created_at: now,
+            expires_at: now + 30_000,
+            event,
+        }),
+    })
 }
 
 pub fn execute(db: &Connection, request: &WidgetRequest, now: i64, entropy: u64) -> Result<()> {

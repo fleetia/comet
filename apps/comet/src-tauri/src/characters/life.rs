@@ -46,6 +46,8 @@ pub(crate) struct MoodChange {
     pub at: i64,
     #[serde(skip)]
     pub epoch: u64,
+    #[serde(skip)]
+    interaction_id: Option<String>,
 }
 
 struct MoodIdle {
@@ -75,6 +77,7 @@ impl Runtime {
             source: source.into(),
             at: now,
             epoch,
+            interaction_id: None,
         };
         if self.mood_changes.len() == 32 {
             self.mood_changes.pop_front();
@@ -101,6 +104,26 @@ impl Runtime {
         mood.updated_at += i64::from(amount) * MOOD_DECAY_MS;
         let to = mood.value;
         Some(self.record_mood(id, from, to, "decay", now, epoch))
+    }
+
+    pub(crate) fn apply_interaction(
+        &mut self,
+        id: &str,
+        action: &str,
+        accepted: bool,
+        request_id: &str,
+        now: i64,
+        epoch: u64,
+    ) -> Vec<MoodChange> {
+        if !accepted || !matches!(action, "stroke" | "snack") {
+            return Vec::new();
+        }
+        let mut changes = self.apply_mood(id, action, 1, now, epoch);
+        for (queued, change) in self.mood_changes.iter_mut().rev().zip(changes.iter_mut().rev()) {
+            queued.interaction_id = Some(request_id.into());
+            change.interaction_id = queued.interaction_id.clone();
+        }
+        changes
     }
 
     fn apply_mood(
@@ -167,6 +190,28 @@ pub(crate) fn change_mood(
     Ok(())
 }
 
+pub(crate) fn change_interaction_mood(
+    app: &AppHandle,
+    state: &AppState,
+    character_id: &str,
+    action: &str,
+    accepted: bool,
+    request_id: &str,
+) -> Result<()> {
+    let changes = lock(&state.life)?.apply_interaction(
+        character_id,
+        action,
+        accepted,
+        request_id,
+        chrono::Utc::now().timestamp_millis(),
+        state.epoch.load(Ordering::SeqCst),
+    );
+    for change in &changes {
+        emit_mood(app, change);
+    }
+    Ok(())
+}
+
 pub(crate) fn pop_mood_change(state: &AppState) -> Result<Option<MoodChange>> {
     let now = chrono::Utc::now().timestamp_millis();
     let mut life = lock(&state.life)?;
@@ -186,6 +231,20 @@ pub(crate) fn discard_mood_changes(state: &AppState) -> Result<()> {
 pub(crate) fn advance_mood_changes_epoch(state: &AppState, previous: u64, next: u64) -> Result<()> {
     for change in &mut lock(&state.life)?.mood_changes {
         if change.epoch == previous {
+            change.epoch = next;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn advance_interaction_mood_epoch(
+    state: &AppState,
+    request_id: &str,
+    previous: u64,
+    next: u64,
+) -> Result<()> {
+    for change in &mut lock(&state.life)?.mood_changes {
+        if change.epoch == previous && change.interaction_id.as_deref() == Some(request_id) {
             change.epoch = next;
         }
     }
@@ -569,6 +628,7 @@ pub(crate) fn set_character_sleep(
             source: "decay".into(),
             at: chrono::Utc::now().timestamp_millis(),
             epoch: state.epoch.load(Ordering::SeqCst),
+            interaction_id: None,
         })
     };
     if let Some(change) = change {
@@ -628,7 +688,7 @@ pub(crate) fn give_character_item(
         event
     };
     wandering::cancel(&app, state.inner(), &character_id)?;
-    let reaction_started = event.is_some()
+    let reaction_started = event.event.is_some()
         && characters::reaction_host::direct_start(
             &app,
             state.inner().clone(),
@@ -648,6 +708,39 @@ pub(crate) fn give_character_item(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accepted_interactions_change_mood_without_a_reaction_and_ignore_retries() {
+        let state = app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let id = characters::active_ids(&db).unwrap()[0].clone();
+        let actor = characters::get(&db, &id).unwrap();
+        crate::widgets::storage::body_interaction_with_actor(
+            &db, &actor, 0, "stroke", &uuid::Uuid::new_v4().to_string(), 500,
+        ).unwrap();
+        let first = uuid::Uuid::new_v4().to_string();
+        let accepted = crate::widgets::storage::body_interaction_with_actor(
+            &db, &actor, 0, "stroke", &first, 1_000,
+        ).unwrap();
+        assert!(accepted.accepted && accepted.event.is_none());
+        let mut life = Runtime::default();
+        life.apply_interaction(&id, "stroke", accepted.accepted, &first, 1_000, 0);
+        assert_eq!(life.mood[&id].value, 1);
+        let retry = crate::widgets::storage::body_interaction_with_actor(
+            &db, &actor, 0, "stroke", &first, 400_000,
+        ).unwrap();
+        assert!(!retry.accepted);
+        life.apply_interaction(&id, "stroke", retry.accepted, &first, 400_000, 0);
+        assert_eq!(life.mood[&id].value, 1);
+        let second = crate::widgets::storage::body_interaction_with_actor(
+            &db, &actor, 0, "snack", &uuid::Uuid::new_v4().to_string(), 1_001,
+        ).unwrap();
+        assert!(second.accepted);
+        life.apply_interaction(&id, "snack", second.accepted, "snack", 1_001, 0);
+        assert_eq!(life.mood[&id].value, 2);
+        life.apply_interaction(&id, "poke", true, "poke", 1_002, 0);
+        assert_eq!(life.mood[&id].value, 2);
+    }
 
     #[test]
     fn idle_variations_do_not_queue_while_a_higher_priority_state_is_active() {
