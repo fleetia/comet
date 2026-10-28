@@ -17,6 +17,7 @@ pub(crate) struct Runtime {
     sleeping: BTreeMap<String, String>,
     idle: BTreeMap<String, IdlePeriod>,
     pub(crate) wandering: wandering::Runtime,
+    pub(crate) activity: crate::app_usage::activity::Runtime,
 }
 
 struct IdlePeriod {

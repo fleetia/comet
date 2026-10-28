@@ -15,6 +15,8 @@ pub(crate) struct Preferences {
     pub characters_visible: bool,
     pub pranks_enabled: bool,
     pub allowed_toys: Vec<String>,
+    pub activity_enabled: bool,
+    pub activity_excluded_apps: Vec<String>,
 }
 
 impl Default for Preferences {
@@ -23,6 +25,8 @@ impl Default for Preferences {
             characters_visible: true,
             pranks_enabled: false,
             allowed_toys: TOYS.iter().map(|kind| (*kind).into()).collect(),
+            activity_enabled: false,
+            activity_excluded_apps: Vec::new(),
         }
     }
 }
@@ -175,6 +179,12 @@ pub(crate) async fn set_desktop_preferences(
             return Err("앱을 정리하고 있어요.".into());
         }
         let db = lock(&state.db)?;
+        let current = self::preferences(&db)?;
+        let preferences = Preferences {
+            activity_enabled: current.activity_enabled,
+            activity_excluded_apps: current.activity_excluded_apps,
+            ..preferences.clone()
+        };
         save(&db, &preferences)?;
         widgets::storage::discard_automatic_desktop_pending(&db)?;
         cancel_automatic_reaction(&state)?;
@@ -188,9 +198,53 @@ pub(crate) async fn set_desktop_preferences(
         crate::hide_boxes(app.clone(), app.state::<Arc<AppState>>()).await?;
     }
     crate::publish(&app, &state);
-    let _ = app.emit("desktop-preferences", &preferences);
+    let _ = app.emit("desktop-preferences", self::preferences(&*lock(&state.db)?)?);
     crate::desktop::menu::refresh(&app);
     Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn set_activity_preferences(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    enabled: bool,
+    excluded_apps: Vec<String>,
+) -> Result<Preferences, String> {
+    if enabled && !cfg!(target_os = "windows") {
+        return Err("이 기기에서는 아직 안 돼요.".into());
+    }
+    if excluded_apps.len() > 256
+        || excluded_apps.iter().any(|id| {
+            !id.strip_prefix("windows:").is_some_and(|hash| {
+                hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
+        })
+    {
+        return Err("제외할 앱을 확인해 주세요.".into());
+    }
+    let preferences = {
+        let _action = lock(&state.action)?;
+        if crate::unavailable(&state) {
+            return Err("앱을 정리하고 있어요.".into());
+        }
+        let db = lock(&state.db)?;
+        let mut preferences = self::preferences(&db)?;
+        preferences.activity_enabled = enabled;
+        preferences.activity_excluded_apps = excluded_apps;
+        save(&db, &preferences)?;
+        lock(&state.life)?.activity.clear();
+        if crate::talk::host::activity_in_playback(&state)? {
+            crate::app::interrupt_with_db(&state, false, &db)?;
+            let mut runtime = lock(&state.runtime)?;
+            runtime.phase = crate::types::RuntimePhase::Idle;
+            runtime.persona = None;
+            runtime.error = None;
+        }
+        preferences
+    };
+    crate::publish(&app, &state);
+    let _ = app.emit("desktop-preferences", &preferences);
+    Ok(preferences)
 }
 
 #[tauri::command]

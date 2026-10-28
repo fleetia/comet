@@ -129,8 +129,49 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
     if let Err(error) = add_revived_widget_dialogue(&root) {
         crate::report_error!("talk_migration_revived_widget", ".talk revived widget dialogue: {error}");
     }
+    if let Err(error) = add_activity_dialogue(&root) {
+        crate::report_error!(
+            "talk_migration_activity",
+            ".talk activity dialogue: {error}"
+        );
+    }
     migrate_encryption(&root);
     Ok(root)
+}
+
+fn add_activity_dialogue(root: &Path) -> Result<(), String> {
+    let marker = app_data_of(root)?.join(".talk-byulkkori-activity-v1");
+    if marker.try_exists().map_err(|error| error.to_string())? || !root.exists() {
+        return Ok(());
+    }
+    let target = root
+        .join(PACKS_DIRECTORY)
+        .join(defaults::BYULKKORI)
+        .join("situations/solo.talk");
+    let current = match fs::read(&target) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.to_string()),
+    };
+    let previous = super::encryption::decode(include_bytes!(
+        "../../content/previous-byulkkori-solo-activity.talk"
+    ))?;
+    if let Some(original) = current {
+        if super::encryption::decode(&original)? == previous {
+            let pack = defaults::pack(defaults::BYULKKORI).ok_or("기본 대본을 찾지 못했어요.")?;
+            let replacement = pack
+                .files
+                .iter()
+                .find(|(name, _)| *name == "situations/solo.talk")
+                .map(|(_, source)| *source)
+                .ok_or("기본 대본을 찾지 못했어요.")?;
+            if fs::read(&target).map_err(|error| error.to_string())? != original {
+                return Err("기본 대본을 갱신하는 동안 파일이 바뀌었어요.".into());
+            }
+            super::files::atomic_write(&target, replacement.as_bytes())?;
+        }
+    }
+    super::files::atomic_write(&marker, b"1\n")
 }
 
 const REVIVED_WIDGET_FILES: [&str; 6] = [

@@ -127,17 +127,20 @@ pub(crate) fn present_line(
         created_at: chrono::Utc::now().timestamp_millis(),
         status: "complete".into(),
     };
-    if ticket.is_some() {
-        store::insert_message_with_actor(&db, &message, source, direct_reply, line, &actor)?;
-    } else {
-        store::insert_message_with_playback(
-            &db,
-            &message,
-            source,
-            scene_key.as_deref(),
-            direct_reply,
-            Some(line),
-        )?;
+    let private_activity = source == "talk" && talk::host::activity_name_is_private(state)?;
+    if !private_activity {
+        if ticket.is_some() {
+            store::insert_message_with_actor(&db, &message, source, direct_reply, line, &actor)?;
+        } else {
+            store::insert_message_with_playback(
+                &db,
+                &message,
+                source,
+                scene_key.as_deref(),
+                direct_reply,
+                Some(line),
+            )?;
+        }
     }
     *lock(&state.playback)? = Some(Playback {
         id: id.into(),
@@ -307,6 +310,13 @@ async fn wait_for_displayed_line_until(
             if !is_current(state, epoch, &cancel) {
                 return Ok(None);
             }
+            if talk::host::activity_in_playback(state)? {
+                let db = lock(&state.db)?;
+                if !talk::host::current(state, &db)? {
+                    *lock(&state.playback)? = None;
+                    return Ok(None);
+                }
+            }
             let mut playback = lock(&state.playback)?;
             let Some(line) = playback.as_ref().filter(|line| line.id == line_id) else {
                 drop(playback);
@@ -385,6 +395,13 @@ async fn wait_for_valid_line(
         if matches!(line.source.as_str(), "llm" | "question") {
             let db = lock(&state.db)?;
             if !store::recall_valid(&db, &line.id, at)? {
+                return Ok(false);
+            }
+        }
+        if line.source == "talk" && talk::host::activity_in_playback(state)? {
+            let _action = lock(&state.action)?;
+            let db = lock(&state.db)?;
+            if !is_current(state, epoch, &cancel) || !talk::host::current(state, &db)? {
                 return Ok(false);
             }
         }

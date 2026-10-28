@@ -1517,7 +1517,11 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         .cloned()
         .collect::<Vec<_>>();
     drop((runtime, presence, guests));
+    let stale_activity = playback.as_ref().is_some_and(|line| line.source == "talk")
+        && crate::talk::host::activity_in_playback(&state)?
+        && !crate::talk::host::current(&state, &db)?;
     let target = if super::unavailable(&state)
+        || stale_activity
         || (crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
             && panel.as_ref().is_none_or(|panel| {
                 matches!(
@@ -1637,7 +1641,9 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
             first_display =
                 crate::app::scene::mark_line_displayed(line, chrono::Utc::now().timestamp_millis());
             if first_display && line.source != "update" {
-                displayed_message = line.display_started_at.map(|at| (line.id.clone(), at));
+                displayed_message = line
+                    .display_started_at
+                    .map(|at| (line.id.clone(), at, line.source.clone()));
             }
         }
     }
@@ -1648,7 +1654,9 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         }
     }
     drop((playback, story));
-    if let Some((id, at)) = displayed_message {
+    if let Some((id, at, _)) = displayed_message.filter(|(_, _, source)| {
+        source != "talk" || !crate::talk::host::activity_name_is_private(&state).unwrap_or(true)
+    }) {
         store::mark_message_displayed_with_provenance(
             &db,
             &id,

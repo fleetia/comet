@@ -1,4 +1,4 @@
-use super::{observation, Application, Sample};
+use super::{observation, Application, DetailedSample, Sample};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, mem::size_of, ptr};
 use windows_sys::Win32::{
@@ -166,27 +166,57 @@ pub(super) fn applications() -> Result<Vec<Application>, String> {
     Ok(state.pids.into_iter().filter_map(application).collect())
 }
 
-pub(super) fn sample() -> Sample {
+pub(super) fn detailed_sample(activity: bool) -> DetailedSample {
     let unlocked = unlocked();
     if unlocked != Some(true) {
-        return observation(None, None, unlocked);
+        return DetailedSample {
+            sample: observation(None, None, unlocked),
+            application: None,
+            idle_seconds: None,
+        };
     }
     let idle = idle_seconds();
-    if idle.is_none_or(|seconds| seconds >= 60.0) {
-        return observation(None, idle, unlocked);
+    if idle.is_none() || (!activity && idle.is_some_and(|seconds| seconds >= 60.0)) {
+        return DetailedSample {
+            sample: observation(None, idle, unlocked),
+            application: None,
+            idle_seconds: idle,
+        };
     }
     let window = unsafe { GetForegroundWindow() };
     if window.is_null() || window == unsafe { GetShellWindow() } {
-        return Sample::inactive("unavailable");
+        return DetailedSample {
+            sample: Sample::inactive("unavailable"),
+            application: None,
+            idle_seconds: None,
+        };
     }
     let mut pid = 0;
     unsafe { GetWindowThreadProcessId(window, &mut pid) };
-    let app_id = application(pid).map(|app| app.id);
+    let application = application(pid);
     // Reject a focus/lock transition that happened during process lookup.
     if unsafe { GetForegroundWindow() } != window {
-        return Sample::inactive("unavailable");
+        return DetailedSample {
+            sample: Sample::inactive("unavailable"),
+            application: None,
+            idle_seconds: None,
+        };
     }
-    observation(app_id, idle, self::unlocked())
+    let sample = observation(
+        application.as_ref().map(|app| app.id.clone()),
+        idle,
+        self::unlocked(),
+    );
+    let application = if sample.eligible || (activity && sample.status == "idle") {
+        application
+    } else {
+        None
+    };
+    DetailedSample {
+        sample,
+        application,
+        idle_seconds: idle,
+    }
 }
 
 #[cfg(test)]

@@ -6,10 +6,19 @@ import { Button, SettingControlRow, SettingsSummary, Switch, ToggleChip } from "
 import { useWidgets } from "../../widgets/useWidgets";
 import * as figma from "../SettingsPanel/figmaSettings.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
+import { readUsageTarget, type FocusUsageTarget } from "../../widgets/PlanningTools/FocusTimerData";
+import { rows, type DataRecord } from "../../widgets/toolData";
+import type { DeviceInfo } from "../../types";
 import * as layout from "../SettingsPanel/settings.css";
 import * as styles from "./desktopPreferences.css";
 
-type Preferences = { charactersVisible: boolean; pranksEnabled: boolean; allowedToys: string[] };
+type Preferences = {
+  charactersVisible: boolean;
+  pranksEnabled: boolean;
+  allowedToys: string[];
+  activityEnabled: boolean;
+  activityExcludedApps: string[];
+};
 const toys = [
   { id: "ball", name: "공" },
   { id: "paper-plane", name: "종이비행기" },
@@ -18,10 +27,12 @@ const toys = [
 
 export function DesktopPreferences({
   hidden,
+  platform,
   onDirtyChange,
   children,
 }: {
   hidden: boolean;
+  platform?: DeviceInfo["platform"];
   onDirtyChange?: (dirty: boolean) => void;
   children?: ReactNode;
 }): JSX.Element {
@@ -30,11 +41,14 @@ export function DesktopPreferences({
     charactersVisible: !hidden,
     pranksEnabled: false,
     allowedToys: toys.map((toy) => toy.id),
+    activityEnabled: false,
+    activityExcludedApps: [],
   });
   const [loaded, setLoaded] = useState(!isDesktop());
   const [dirty, setDirty] = useState(false);
   const dirtyFields = useRef(new Set<"pranksEnabled" | "allowedToys">());
   const saved = useRef(preferences);
+  const refreshPreferences = useRef<() => Promise<void>>(async () => {});
   function edit(next: Preferences): void {
     if (!loaded || pending) return;
     setPreferences(next);
@@ -55,40 +69,49 @@ export function DesktopPreferences({
   useEffect(() => {
     if (!isDesktop()) return;
     let active = true;
-    let received = false;
+    let request = 0;
+    let latest: Promise<void> = Promise.resolve();
     let unlisten: (() => void) | undefined;
-    void listen<Preferences>("desktop-preferences", (event) => {
-      received = true;
-      if (active) {
-        setLoaded(true);
-        saved.current = event.payload;
-        setPreferences((previous) => ({
-          ...event.payload,
-          ...Object.fromEntries([...dirtyFields.current].map((key) => [key, previous[key]])),
-        }));
-      }
-    })
-      .then(async (cleanup) => {
-        if (!active) {
-          cleanup();
-          return;
-        }
-        unlisten = cleanup;
-        const value = await command<Preferences>("get_desktop_preferences");
-        if (active && !received) {
+    function refresh(): Promise<void> {
+      const sequence = ++request;
+      latest = (async () => {
+        try {
+          const value = await command<Preferences>("get_desktop_preferences");
+          if (!active || sequence !== request) return;
           setLoaded(true);
           saved.current = value;
           setPreferences((previous) => ({
             ...value,
             ...Object.fromEntries([...dirtyFields.current].map((key) => [key, previous[key]])),
           }));
+        } catch (cause) {
+          if (active && sequence === request) setError(errorText(cause));
         }
+      })();
+      return latest.then(async () => {
+        while (active && sequence !== request) {
+          const current = request;
+          await latest;
+          if (current === request) break;
+        }
+      });
+    }
+    refreshPreferences.current = refresh;
+    void listen<Preferences>("desktop-preferences", () => void refresh())
+      .then((cleanup) => {
+        if (!active) {
+          cleanup();
+          return;
+        }
+        unlisten = cleanup;
+        void refresh();
       })
       .catch((cause: unknown) => {
         if (active) setError(errorText(cause));
       });
     return () => {
       active = false;
+      refreshPreferences.current = async () => {};
       unlisten?.();
     };
   }, []);
@@ -101,9 +124,9 @@ export function DesktopPreferences({
       await command("set_desktop_preferences", {
         preferences: { ...preferences, charactersVisible: !hidden },
       });
-      saved.current = preferences;
       dirtyFields.current.clear();
       setDirty(false);
+      await refreshPreferences.current();
       setNotice("장난 설정을 저장했어요.");
     } catch (cause) {
       setError(errorText(cause));
@@ -147,6 +170,12 @@ export function DesktopPreferences({
       </aside>
       <div className={figma.right}>
         {children}
+        <ActivityPreferences
+          preferences={preferences}
+          loaded={loaded}
+          supported={isDesktop() && platform === "windows"}
+          onSaved={() => refreshPreferences.current()}
+        />
         <section className={figma.section}>
           <h2 className={figma.sectionTitle}>장난 모드</h2>
           <div className={figma.group}>
@@ -291,5 +320,128 @@ export function DesktopPreferences({
         )}
       </div>
     </div>
+  );
+}
+
+function ActivityPreferences({ preferences, loaded, supported, onSaved }: {
+  preferences: Preferences;
+  loaded: boolean;
+  supported: boolean;
+  onSaved: () => Promise<void>;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [applications, setApplications] = useState<FocusUsageTarget[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState(false);
+  const saving = useRef(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function refresh(): Promise<void> {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await command<DataRecord>("list_usage_applications");
+      if (result.supported !== true) throw new Error("프로그램 목록을 불러올 수 없어요.");
+      setApplications(rows(result.applications).flatMap((item) => {
+        const app = readUsageTarget(item);
+        return app ? [app] : [];
+      }));
+    } catch (cause) {
+      setError(errorText(cause));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function save(enabled: boolean, excludedApps: string[]): Promise<void> {
+    if (saving.current) return;
+    saving.current = true;
+    setPending(true);
+    setError(null);
+    try {
+      await command("set_activity_preferences", { enabled, excludedApps });
+      await onSaved();
+    } catch (cause) {
+      setError(errorText(cause));
+    } finally {
+      saving.current = false;
+      setPending(false);
+    }
+  }
+
+  const excluded = preferences.activityExcludedApps ?? [];
+  const unavailable = excluded.filter((id) => !applications.some((app) => app.id === id));
+  return (
+    <section className={figma.section}>
+      <h2 className={figma.sectionTitle}>지금 하는 앱 눈치채기</h2>
+      <div className={figma.group}>
+        <SettingControlRow
+          className={figma.row}
+          title="지금 하는 앱 눈치채기"
+          description={supported
+            ? "앱 이름과 연속 사용 시간만 봐요. 창 제목·내용은 읽지 않아요. (Windows)"
+            : "이 기기에서는 아직 안 돼요. Windows에서 사용할 수 있어요."}
+          control={
+            <Switch
+              aria-label="지금 하는 앱 눈치채기"
+              checked={preferences.activityEnabled}
+              disabled={!supported || !loaded || pending}
+              onChange={(event) => void save(event.target.checked, excluded)}
+            />
+          }
+        />
+        <SettingControlRow
+          className={figma.row}
+          title="제외 앱"
+          description="선택한 앱을 사용 중일 때는 관측하지 않아요."
+          control={
+            <Button
+              variant="ghost"
+              size="small"
+              disabled={!supported || !loaded || pending}
+              onClick={() => {
+                setOpen(!open);
+                if (!open) void refresh();
+              }}
+            >
+              {open ? "닫기" : `앱 고르기 (${excluded.length})`}
+            </Button>
+          }
+        />
+        {open && (
+          <div className={styles.activityChoices}>
+            <div className={styles.toyChoices}>
+              {applications.map((app) => (
+                <ToggleChip
+                  key={app.id}
+                  pressed={excluded.includes(app.id)}
+                  disabled={loading || pending}
+                  onClick={() => void save(preferences.activityEnabled, excluded.includes(app.id)
+                    ? excluded.filter((id) => id !== app.id)
+                    : [...excluded, app.id])}
+                >
+                  {app.name}
+                </ToggleChip>
+              ))}
+              {unavailable.map((id, index) => (
+                <ToggleChip
+                  key={id}
+                  pressed
+                  disabled={loading || pending}
+                  onClick={() => void save(preferences.activityEnabled, excluded.filter((item) => item !== id))}
+                >
+                  실행 중이지 않은 앱 {index + 1} · 제외 해제
+                </ToggleChip>
+              ))}
+            </div>
+            {!loading && applications.length === 0 && <p className={figma.caption}>실행 중인 앱을 찾지 못했어요.</p>}
+            <Button variant="ghost" size="small" disabled={loading || pending} onClick={() => void refresh()}>
+              {loading ? "확인 중…" : "앱 목록 새로고침"}
+            </Button>
+          </div>
+        )}
+      </div>
+      {error && <p role="alert">{error}</p>}
+    </section>
   );
 }

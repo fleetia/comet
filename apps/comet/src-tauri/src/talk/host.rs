@@ -17,6 +17,8 @@ pub(crate) struct PreparedTalk {
     program: Arc<talk::Program>,
     text_values: BTreeMap<String, serde_json::Value>,
     event: Option<widgets::WidgetEvent>,
+    activity_event: Option<String>,
+    activity_id: Option<String>,
     seed: u64,
 }
 
@@ -24,6 +26,47 @@ pub(crate) fn prepare(
     state: &AppState,
     db: &Connection,
     event: Option<&widgets::WidgetEvent>,
+) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
+    prepare_with_activity_event(state, db, event, None)
+}
+
+fn activity_context(
+    state: &AppState,
+    context: &mut talk::EvalContext,
+) -> Result<Option<String>, String> {
+    let life = lock(&state.life)?;
+    let activity = &life.activity;
+    context
+        .values
+        .insert("activity.ready".into(), serde_json::json!(activity.ready()));
+    if !activity.ready() {
+        return Ok(None);
+    }
+    if let Some(current) = &activity.current {
+        context
+            .values
+            .insert("activity.appName".into(), serde_json::json!(current.name));
+        context.values.insert(
+            "activity.category".into(),
+            serde_json::json!(current.category),
+        );
+    }
+    context.values.insert(
+        "activity.minutes".into(),
+        serde_json::json!(activity.minutes()),
+    );
+    context.values.insert(
+        "activity.idleMinutes".into(),
+        serde_json::json!(activity.idle_minutes()),
+    );
+    Ok(activity.current.as_ref().map(|current| current.id.clone()))
+}
+
+fn prepare_with_activity_event(
+    state: &AppState,
+    db: &Connection,
+    event: Option<&widgets::WidgetEvent>,
+    activity_event: Option<&str>,
 ) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
     let (program, generation) = {
         let active = lock(&state.talk)?;
@@ -38,6 +81,13 @@ pub(crate) fn prepare(
         chrono::Utc::now().timestamp_millis(),
         uuid::Uuid::new_v4().as_u128() as u64,
     )?;
+    let activity_id = activity_context(state, &mut context)?;
+    if let Some(kind) = activity_event {
+        context.trigger = kind.into();
+        context
+            .values
+            .insert("event.kind".into(), serde_json::json!(kind));
+    }
     context.visible = presence::present_ids(state, &context.active)?;
     context.values.insert(
         "character.count".into(),
@@ -91,6 +141,8 @@ pub(crate) fn prepare(
         program,
         text_values: context.values,
         event: event.cloned(),
+        activity_event: activity_event.map(str::to_owned),
+        activity_id,
         seed: context.seed,
     });
     Ok(Some(lines))
@@ -131,6 +183,24 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
         return Ok(false);
     }
     let mut context = talk::context::build(db, prepared.event.as_ref(), now, prepared.seed)?;
+    let activity_id = activity_context(state, &mut context)?;
+    if let Some(kind) = &prepared.activity_event {
+        context.trigger = kind.clone();
+        context
+            .values
+            .insert("event.kind".into(), serde_json::json!(kind));
+    }
+    if (prepared.activity_event.is_some()
+        || prepared
+            .selection
+            .references
+            .iter()
+            .any(|name| name.starts_with("activity.")))
+        && (context.values["activity.ready"] != prepared.text_values["activity.ready"]
+            || activity_id != prepared.activity_id)
+    {
+        return Ok(false);
+    }
     context.visible = presence::present_ids(state, &context.active)?;
     context.values.insert(
         "character.count".into(),
@@ -156,6 +226,77 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
                     },
                 )
         }))
+}
+
+pub(crate) fn activity_name_is_private(state: &AppState) -> Result<bool, String> {
+    Ok(lock(&state.talk_playback)?
+        .as_ref()
+        .is_some_and(|prepared| prepared.selection.references.contains("activity.appName")))
+}
+
+pub(crate) fn activity_in_playback(state: &AppState) -> Result<bool, String> {
+    Ok(lock(&state.talk_playback)?
+        .as_ref()
+        .is_some_and(|prepared| {
+            prepared.activity_event.is_some()
+                || prepared
+                    .selection
+                    .references
+                    .iter()
+                    .any(|name| name.starts_with("activity."))
+        }))
+}
+
+pub(crate) fn play_activity_reaction(
+    app: &tauri::AppHandle,
+    state: &Arc<AppState>,
+) -> Result<bool, String> {
+    let pending = {
+        let _action = lock(&state.action)?;
+        let events = {
+            let mut life = lock(&state.life)?;
+            let events = life.activity.take_events();
+            if !life.activity.ready() {
+                return Ok(false);
+            }
+            events
+        };
+        if events.is_empty() {
+            return Ok(false);
+        }
+        let status = lock(&state.runtime)?.clone();
+        let db = lock(&state.db)?;
+        let settings = crate::store::settings(&db)?;
+        if crate::app::unavailable(state)
+            || status.hidden
+            || status.paused
+            || status.phase != "idle"
+            || state.launcher_open.load(Ordering::SeqCst)
+            || !settings.autonomous_enabled
+            || crate::app::quiet_hours::automatic_blocked(state, &settings)?
+            || crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
+            || lock(&state.panel)?.is_some()
+            || lock(&state.pack_stories)?.run.is_some()
+            || crate::behavior::reactions_blocked(state)?
+            || crate::app::now() - state.last_input.load(Ordering::SeqCst) < 3
+        {
+            return Ok(false);
+        }
+        let token = crate::app::interrupt_with_db(state, true, &db)?;
+        let mut selected = None;
+        for kind in events {
+            if let Some(lines) = prepare_with_activity_event(state, &db, None, Some(kind))? {
+                selected = Some((lines, token));
+                break;
+            }
+        }
+        selected
+    };
+    let Some((lines, token)) = pending else {
+        return Ok(false);
+    };
+    crate::app::scene::start_scene(app.clone(), state.clone(), lines, "talk", token, None);
+    Ok(true)
 }
 
 fn log_diagnostics(diagnostics: &[talk::Diagnostic]) {

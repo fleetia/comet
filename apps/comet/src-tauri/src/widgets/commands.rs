@@ -444,7 +444,10 @@ pub(crate) async fn execute_widget(
         if created_id.is_none() {
             return Err(error);
         }
-        crate::report_error!("widget_save_reaction", "위젯 내용 저장 후 반응 갱신 실패: {error}");
+        crate::report_error!(
+            "widget_save_reaction",
+            "위젯 내용 저장 후 반응 갱신 실패: {error}"
+        );
         if let Ok(mut runtime) = lock(&state.runtime) {
             runtime.error = Some("내용은 저장했지만 캐릭터 반응을 갱신하지 못했어요.".into());
         }
@@ -1887,12 +1890,28 @@ fn advance_app_usage(state: &AppState, db: &rusqlite::Connection, at: i64) -> Re
             .map(|timer| timer.id.clone())
             .collect::<Vec<_>>(),
     );
+    let preferences = crate::behavior::preferences(db)?;
+    let instant = std::time::Instant::now();
+    if !preferences.activity_enabled {
+        lock(&state.life)?.activity.clear();
+    }
+    let activity_due = preferences.activity_enabled && lock(&state.life)?.activity.due(instant);
     if timers.is_empty() {
         tracker.clear();
-        return Ok(false);
+        if !activity_due {
+            return Ok(false);
+        }
     }
-    let sample = crate::app_usage::sample();
-    let instant = std::time::Instant::now();
+    let sample = if preferences.activity_enabled {
+        let sample = crate::app_usage::detailed_sample();
+        let focus_sample = sample.sample.clone();
+        lock(&state.life)?
+            .activity
+            .observe(sample, &preferences.activity_excluded_apps, instant);
+        focus_sample
+    } else {
+        crate::app_usage::sample()
+    };
     let mut changed = false;
     for timer in timers {
         if let Some(data) = tracker.observe(&timer.id, &timer.data, &sample, at, instant) {
