@@ -49,6 +49,7 @@ pub const PACKS: &[Pack] = &[
             "widgets/fortune.talk",
             "widgets/guessing.talk",
             "widgets/interaction.talk",
+            "widgets/interaction-milestone.talk",
             "widgets/memo.talk",
             "widgets/music.talk",
             "widgets/paper-plane.talk",

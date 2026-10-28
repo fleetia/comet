@@ -314,13 +314,34 @@ pub(crate) fn direct_common(
         }
         let db = lock(&state.db)?;
         if crate::characters::guests::actor(&state, &db, character_id).is_err()
-            || event.event.kind != "interaction.touch"
+            || !matches!(event.event.kind.as_str(), "interaction.touch" | "interaction.milestone")
             || event.event.payload["owner"].as_str() != Some(character_id)
         {
             return Ok(false);
         }
-        let token = app::interrupt_with_db(&state, false, &db)?;
-        let lines = crate::talk::host::prepare(&state, &db, Some(event))?;
+        let milestone = event.event.kind == "interaction.milestone";
+        if milestone {
+            let settings = crate::store::settings(&db)?;
+            if !settings.autonomous_enabled
+                || lock(&state.runtime)?.paused
+                || app::quiet_hours::automatic_blocked(&state, &settings)?
+                || state.launcher_open.load(Ordering::SeqCst)
+            {
+                return Ok(false);
+            }
+        }
+        let (lines, token) = if milestone {
+            let Some(lines) = crate::talk::host::prepare(&state, &db, Some(event))? else {
+                return Ok(false);
+            };
+            let prepared = lock(&state.talk_playback)?.take();
+            let token = app::interrupt_with_db(&state, true, &db)?;
+            *lock(&state.talk_playback)? = prepared;
+            (Some(lines), token)
+        } else {
+            let token = app::interrupt_with_db(&state, false, &db)?;
+            (crate::talk::host::prepare(&state, &db, Some(event))?, token)
+        };
         if let Some(lines) = lines {
             lock(&state.runtime)?.phase = RuntimePhase::Playing;
             state.last_input.store(app::now(), Ordering::SeqCst);
@@ -339,6 +360,35 @@ pub(crate) fn direct_common(
     scene::start_scene(app.clone(), state.clone(), lines, "talk", token, None);
     app::publish(app, &state);
     Ok(true)
+}
+
+pub(crate) fn direct_milestone(
+    app: &AppHandle,
+    state: Arc<AppState>,
+    character_id: &str,
+    event: &crate::widgets::WidgetEvent,
+    window: usize,
+) -> Result<bool> {
+    if event.event.payload["milestone"].is_null() {
+        return Ok(false);
+    }
+    let mut milestone = event.clone();
+    milestone.event.kind = "interaction.milestone".into();
+    direct_common(app, state, character_id, &milestone, window)
+}
+
+pub(crate) fn direct_motion(
+    app: &AppHandle,
+    state: Arc<AppState>,
+    character_id: &str,
+    gesture: &str,
+    region_id: Option<&str>,
+    window: usize,
+) -> Result<()> {
+    if prepare_direct(&state, character_id, gesture, region_id, window)?.is_some() {
+        app::publish(app, &state);
+    }
+    Ok(())
 }
 
 fn prepare_direct(

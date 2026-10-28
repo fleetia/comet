@@ -1,7 +1,9 @@
-import type { JSX, ReactNode } from "react";
+import { useEffect, useState, type JSX, type ReactNode } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Balloon, Button, CharacterArtwork, SettingsSummary, Switch } from "@comet/ui";
 import { ChatIcon, ChevLeftIcon, Icon, ShareIcon, RemoveIcon, type IconName } from "@comet/icon";
 import type { CharacterDefinition, InstalledCharacter } from "../../types";
+import { command, isDesktop } from "../../hooks/useSnapshot";
 import { FriendArtwork } from "../CharacterManager/FriendsLibrary";
 import * as styles from "./friendDetail.css";
 
@@ -105,6 +107,55 @@ export function FriendOverview({
   presentIds = [],
   onOpenReaction,
 }: Props): JSX.Element {
+  const [touches, setTouches] = useState<{
+    characterId: string;
+    stroke: number;
+    poke: number;
+    snack: number;
+  } | null>(null);
+  const [touchesError, setTouchesError] = useState(false);
+  const characterId = character?.id;
+  useEffect(() => {
+    if (!characterId || !isDesktop()) return;
+    let active = true;
+    let revision = 0;
+    const unlisten: (() => void)[] = [];
+    setTouches(null);
+    setTouchesError(false);
+    const refresh = () => {
+      const current = ++revision;
+      void command<{ stroke: number; poke: number; snack: number }>("get_character_touches", {
+        characterId,
+      })
+        .then((result) => {
+          if (active && current === revision) {
+            setTouches({ characterId, ...result });
+            setTouchesError(false);
+          }
+        })
+        .catch(() => {
+          if (active && current === revision) {
+            setTouches(null);
+            setTouchesError(true);
+          }
+        });
+    };
+    for (const event of ["widgets-state", "app-state"]) {
+      void listen(event, refresh)
+        .then((cleanup) => {
+          if (active) unlisten.push(cleanup);
+          else cleanup();
+        })
+        .catch(() => {
+          if (active) setTouchesError(true);
+        });
+    }
+    refresh();
+    return () => {
+      active = false;
+      unlisten.forEach((cleanup) => cleanup());
+    };
+  }, [characterId]);
   const residents = installed.filter(
     (friend) =>
       friend.id !== character?.id &&
@@ -226,6 +277,16 @@ export function FriendOverview({
         </section>
         <section className={styles.section} aria-label="함께한 기록">
           <h2 className={styles.sectionTitle}>함께한 기록</h2>
+          {touches?.characterId === characterId && (
+            <p className={styles.caption}>
+              쓰다듬기 {touches.stroke} · 찌르기 {touches.poke} · 간식 {touches.snack}
+            </p>
+          )}
+          {touchesError && (
+            <p className={styles.caption} role="alert">
+              교감 횟수를 불러오지 못했어요.
+            </p>
+          )}
           <div className={styles.categoryGrid}>
             <SettingsSummary
               aria-label="기억"

@@ -18,6 +18,16 @@ use tauri_plugin_dialog::DialogExt;
 
 pub(crate) const SPRITE_SCHEME: &str = "sprite";
 
+#[tauri::command]
+pub(crate) fn get_character_touches(
+    state: tauri::State<'_, Arc<AppState>>,
+    character_id: String,
+) -> Result<crate::widgets::storage::CharacterTouches, String> {
+    let db = lock(&state.db)?;
+    characters::get(&db, &character_id)?;
+    crate::widgets::storage::character_touches(&db, &character_id, chrono::Utc::now().timestamp_millis())
+}
+
 pub(crate) fn sprite_response(
     status: u16,
     mime: &str,

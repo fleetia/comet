@@ -730,6 +730,7 @@ pub fn run() {
             characters::commands::clone_character,
             characters::commands::apply_character_roster,
             characters::commands::get_character_packs,
+            characters::commands::get_character_touches,
             characters::commands::apply_character_pack,
             characters::commands::remove_character,
             characters::commands::preview_character_pack,
