@@ -720,7 +720,8 @@ pub fn build(
         }
     }
     let is_body_receipt = if let Some(event) = event.filter(|event| {
-        event.widget_kind == "interaction" && event.event.kind == "interaction.touch"
+        event.widget_kind == "interaction"
+            && matches!(event.event.kind.as_str(), "interaction.touch" | "interaction.milestone")
     }) {
         let receipt: Option<String> = db
             .query_row(
@@ -736,6 +737,7 @@ pub fn build(
     };
     let event = event.filter(|event| {
         !widgets::is_retired(&event.widget_kind)
+            && (event.event.kind != "interaction.milestone" || body_data.is_some())
             && ((event.event.payload["source"] != "body" && !is_body_receipt)
                 || body_data.is_some())
     });
