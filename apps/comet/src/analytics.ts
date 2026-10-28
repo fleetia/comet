@@ -42,6 +42,7 @@ const WIDGET_ACTIONS = [
 ] as const;
 const ERROR_OPERATIONS = [
   "register_user_name",
+  "register_user_profile",
   "set_analytics_consent",
   "save_settings",
   "get_snapshot",
@@ -271,7 +272,7 @@ function commandEvent(name: string, args: Record<string, unknown>): AnalyticsEve
 
 export function trackSuccessfulCommand(name: string, args?: Record<string, unknown>): void {
   try {
-    if (name === "register_user_name") {
+    if (name === "register_user_name" || name === "register_user_profile") {
       consentRevision += 1;
       initialization = undefined;
       void initializeAnalytics();

@@ -128,6 +128,8 @@ pub struct CharacterDefinition {
     )]
     legacy_version: (),
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub birthday: Option<String>,
     pub description: String,
     pub personality: String,
     #[serde(default)]
@@ -160,6 +162,21 @@ pub struct CharacterDefinition {
     #[serde(flatten)]
     pub unknown: serde_json::Map<String, serde_json::Value>,
 }
+pub(crate) fn birthday_parts(value: &str) -> Option<(u32, u32)> {
+    let bytes = value.as_bytes();
+    if bytes.len() != 5
+        || bytes[2] != b'-'
+        || ![bytes[0], bytes[1], bytes[3], bytes[4]]
+            .iter()
+            .all(u8::is_ascii_digit)
+    {
+        return None;
+    }
+    let month = u32::from(bytes[0] - b'0') * 10 + u32::from(bytes[1] - b'0');
+    let day = u32::from(bytes[3] - b'0') * 10 + u32::from(bytes[4] - b'0');
+    ((1..=12).contains(&month) && (1..=31).contains(&day)).then_some((month, day))
+}
+
 fn discard_legacy_version<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> std::result::Result<(), D::Error> {
@@ -549,6 +566,96 @@ fn migrate_factory_dialogue(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn migrate_official_birthdays(conn: &Connection) -> Result<()> {
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY,value TEXT NOT NULL);")
+        .map_err(|error| error.to_string())?;
+    let done: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM kv WHERE key='character:official-birthdays:v1')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if done {
+        return Ok(());
+    }
+    let factories = [byulkkori_pack(), nadir_pack()];
+    for installed in installed_packs(conn)? {
+        let (mut pack, members) = pack_record(conn, &installed.id)?;
+        let Some(factory) = factories.iter().find(|factory| {
+            let mut expected = (**factory).clone();
+            expected.sprites.clear();
+            expected.animation_assets.clear();
+            expected.archive = None;
+            for character in &mut expected.characters {
+                character.birthday = None;
+            }
+            serde_json::to_value(&pack).ok() == serde_json::to_value(&expected).ok()
+                && members.len() == expected.characters.len()
+                && members
+                    .iter()
+                    .zip(&expected.characters)
+                    .all(|(id, definition)| {
+                        let mut local = definition.clone();
+                        for relation in &mut local.relationships {
+                            let Some(index) = expected
+                                .characters
+                                .iter()
+                                .position(|character| character.source_id == relation.target_id)
+                            else {
+                                return false;
+                            };
+                            relation.target_id = members[index].clone();
+                        }
+                        get(conn, id).is_ok_and(|character| character.definition == local)
+                    })
+        }) else {
+            continue;
+        };
+        for ((definition, source), id) in pack
+            .characters
+            .iter_mut()
+            .zip(&factory.characters)
+            .zip(&members)
+        {
+            let Some(birthday) = &source.birthday else {
+                continue;
+            };
+            let mut character = get(conn, id)?;
+            if definition.birthday.is_none()
+                && character.definition.birthday.is_none()
+                && character.definition.source_id == definition.source_id
+            {
+                definition.birthday = Some(birthday.clone());
+                character.definition.birthday = Some(birthday.clone());
+                conn.execute(
+                    "UPDATE characters SET data=?1 WHERE id=?2",
+                    params![
+                        serde_json::to_string(&character.definition)
+                            .map_err(|error| error.to_string())?,
+                        id
+                    ],
+                )
+                .map_err(|error| error.to_string())?;
+            }
+        }
+        conn.execute(
+            "UPDATE character_packs SET data=?1 WHERE id=?2",
+            params![
+                serde_json::to_string(&pack).map_err(|error| error.to_string())?,
+                installed.id
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    conn.execute(
+        "INSERT INTO kv(key,value) VALUES('character:official-birthdays:v1','1')",
+        [],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 pub fn initialize(conn: &Connection) -> Result<()> {
     initialize_with(conn, seed_byulkkori)
 }
@@ -586,6 +693,7 @@ fn initialize_with(
     migrate_factory_expressions(&tx)?;
     bundled_motions::migrate(&tx)?;
     migrate_factory_dialogue(&tx)?;
+    migrate_official_birthdays(&tx)?;
     tx.commit().map_err(|e| e.to_string())
 }
 #[cfg(test)]
