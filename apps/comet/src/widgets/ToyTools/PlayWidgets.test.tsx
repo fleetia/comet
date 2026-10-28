@@ -140,6 +140,7 @@ it("counts every marble but draws at most the twelve jar slots", () => {
 
 it("asks for battery access once before the first refresh", async () => {
   render(<BatteryTool widget={widget("device", { configured: false })} />);
+  vi.mocked(command).mockClear();
   fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
   await waitFor(() =>
     expect(command).toHaveBeenLastCalledWith("refresh_connection_widget", { id: "device" }),
@@ -152,6 +153,7 @@ it("asks for battery access once before the first refresh", async () => {
 
 it("refreshes an already configured battery without configuring it again", async () => {
   render(<BatteryTool widget={widget("device", { configured: true })} />);
+  vi.mocked(command).mockClear();
   fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "새로고침" })).toHaveProperty("disabled", false),
@@ -161,8 +163,8 @@ it("refreshes an already configured battery without configuring it again", async
 
 it("preserves the Linux unsupported error returned by battery refresh", async () => {
   const unsupported = "현재 배터리 정보 조회는 macOS와 Windows를 지원해요.";
-  vi.mocked(command).mockRejectedValueOnce(unsupported);
   render(<BatteryTool widget={widget("device", { configured: true })} />);
+  vi.mocked(command).mockClear().mockRejectedValueOnce(unsupported);
   fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
   await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(unsupported));
   expect(command).toHaveBeenCalledExactlyOnceWith("refresh_connection_widget", { id: "device" });
@@ -171,8 +173,8 @@ it("preserves the Linux unsupported error returned by battery refresh", async ()
 });
 
 it("does not refresh the battery when its initial configuration fails", async () => {
-  vi.mocked(command).mockRejectedValueOnce("기기 정보 조회가 허용되지 않았어요.");
   render(<BatteryTool widget={widget("device", { configured: false })} />);
+  vi.mocked(command).mockClear().mockRejectedValueOnce("기기 정보 조회가 허용되지 않았어요.");
   fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
   await waitFor(() =>
     expect(screen.getByRole("alert").textContent).toBe("기기 정보 조회가 허용되지 않았어요."),
@@ -183,7 +185,7 @@ it("does not refresh the battery when its initial configuration fails", async ()
   });
 });
 
-it("shows the reading of the first battery and the power source", () => {
+it("shows the lowest known battery reading and the power source", () => {
   render(
     <BatteryTool
       widget={widget("device", {
@@ -191,13 +193,21 @@ it("shows the reading of the first battery and the power source", () => {
         observation: {
           hasBattery: true,
           powerSource: "ac",
-          batteries: [{ percent: 64, status: "charging" }],
+          batteries: [{ percent: 80, status: "charged" }, { percent: 64, status: "charging" }],
         },
       })}
     />,
   );
   expect(screen.getByText("64%")).toBeTruthy();
   expect(screen.getByRole("status").textContent).toBe("충전 중 · 전원 연결됨");
+});
+
+it("labels a Windows AC observation without guessing charging state", () => {
+  render(<BatteryTool widget={widget("device", {
+    configured: true,
+    observation: { hasBattery: true, powerSource: "unknown", batteries: [{ percent: 35, status: "ac" }] },
+  })} />);
+  expect(screen.getByRole("status").textContent).toBe("전원 연결됨");
 });
 
 it("shows a device without a battery separately from a zero or unknown reading", () => {

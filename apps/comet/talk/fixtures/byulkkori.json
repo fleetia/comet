@@ -2716,6 +2716,86 @@
       "expectedScene": "device.woke"
     },
     {
+      "id": "device.event-low",
+      "path": "widgets/device.talk",
+      "trigger": "device.low",
+      "available": [
+        "device"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "device.low",
+        "event.widget": "device",
+        "device.ready": true,
+        "device.status": "enabled",
+        "device.hasBattery": true,
+        "device.percent": 18
+      },
+      "expectedScene": "device.event-low"
+    },
+    {
+      "id": "device.event-critical",
+      "path": "widgets/device.talk",
+      "trigger": "device.critical",
+      "available": [
+        "device"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "device.critical",
+        "event.widget": "device",
+        "device.ready": true,
+        "device.status": "enabled",
+        "device.hasBattery": true,
+        "device.percent": 7
+      },
+      "expectedScene": "device.event-critical"
+    },
+    {
+      "id": "device.event-charging-started",
+      "path": "widgets/device.talk",
+      "trigger": "device.charging-started",
+      "available": [
+        "device"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "device.charging-started",
+        "event.widget": "device",
+        "device.ready": true,
+        "device.status": "enabled",
+        "device.hasBattery": true,
+        "device.percent": 35
+      },
+      "expectedScene": "device.event-charging-started"
+    },
+    {
+      "id": "device.event-charged",
+      "path": "widgets/device.talk",
+      "trigger": "device.charged",
+      "available": [
+        "device"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "device.charged",
+        "event.widget": "device",
+        "device.ready": true,
+        "device.status": "enabled",
+        "device.hasBattery": true,
+        "device.percent": 100
+      },
+      "expectedScene": "device.event-charged"
+    },
+    {
       "id": "guessing.idle",
       "path": "widgets/guessing.talk",
       "trigger": "idle",

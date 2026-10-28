@@ -1,4 +1,4 @@
-use super::appearance;
+use super::{appearance, EventDraft};
 use chrono::{Datelike, Duration as ChronoDuration};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -34,6 +34,12 @@ struct State {
     last_success_at: Option<i64>,
     #[serde(default)]
     last_wake_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending_wake_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending_wake_epoch: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending_wake_session: Option<String>,
     error: Option<String>,
     config: Value,
     observation: Option<Value>,
@@ -45,6 +51,20 @@ struct State {
     spicetify_pairing_id: Option<String>,
     #[serde(default)]
     appearance: appearance::Appearance,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    latches: Option<DeviceLatches>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct DeviceLatches {
+    #[serde(default)]
+    low: bool,
+    #[serde(default)]
+    critical: bool,
+    #[serde(default)]
+    charged: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_status: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -95,9 +115,29 @@ fn enabled() -> bool {
     true
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DeviceConfig {}
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DeviceConfig {
+    #[serde(default = "enabled")]
+    allow_talk: bool,
+    #[serde(default = "low_threshold")]
+    low_threshold: u8,
+    #[serde(default)]
+    critical_notification: bool,
+}
+
+fn low_threshold() -> u8 {
+    20
+}
+
+fn device_config(input: &Value) -> Result<DeviceConfig, String> {
+    let config: DeviceConfig =
+        serde_json::from_value(input.clone()).map_err(|_| "기기 조회 설정이 올바르지 않아요.")?;
+    if !(10..=50).contains(&config.low_threshold) {
+        return Err("낮은 배터리 기준은 10~50%로 설정해 주세요.".into());
+    }
+    Ok(config)
+}
 
 pub fn initial(kind: &str) -> Value {
     if !["weather", "music", "device"].contains(&kind) {
@@ -110,10 +150,14 @@ pub fn min_interval(kind: &str) -> i64 {
     match kind {
         "weather" => 30 * 60 * 1000,
         "music" => 15 * 1000,
+        "device" => 5 * 60 * 1000,
         _ => 60 * 1000,
     }
 }
 pub fn refresh_interval(kind: &str, data: &Value) -> i64 {
+    if kind == "device" && data["observation"]["hasBattery"] == false {
+        return 24 * 60 * 60 * 1000;
+    }
     if kind == "weather" {
         return data["config"]["refreshIntervalMinutes"]
             .as_i64()
@@ -182,9 +226,7 @@ pub fn configure(kind: &str, data: &Value, input: &Value) -> Result<Value, Strin
         }
         "music" => serde_json::to_value(music_config(input)?).map_err(|error| error.to_string())?,
         "device" => {
-            serde_json::from_value::<DeviceConfig>(input.clone())
-                .map_err(|_| "기기 조회 설정이 올바르지 않아요.")?;
-            json!({})
+            serde_json::to_value(device_config(input)?).map_err(|error| error.to_string())?
         }
         _ => return Err("지원하지 않는 정보 연결이에요.".into()),
     };
@@ -206,6 +248,7 @@ pub fn configure(kind: &str, data: &Value, input: &Value) -> Result<Value, Strin
         "music" => ["provider", "allowedProviders"]
             .iter()
             .all(|key| state.config[*key] == config[*key]),
+        "device" => state.configured,
         _ => false,
     };
     state.config = config;
@@ -219,6 +262,82 @@ pub fn configure(kind: &str, data: &Value, input: &Value) -> Result<Value, Strin
         state.error = None;
     }
     serde_json::to_value(state).map_err(|error| error.to_string())
+}
+
+pub(crate) fn device_events(previous: &Value, next: &mut Value) -> (Vec<EventDraft>, bool) {
+    fn battery(data: &Value) -> Option<&Value> {
+        data["observation"]["batteries"]
+            .as_array()?
+            .iter()
+            .min_by_key(|item| item["percent"].as_u64().unwrap_or(101))
+    }
+    let Ok(config) = device_config(&next["config"]) else {
+        return (vec![], false);
+    };
+    let mut latches: DeviceLatches =
+        serde_json::from_value(previous["latches"].clone()).unwrap_or_default();
+    let Some(current) = battery(next) else {
+        return (vec![], false);
+    };
+    let status = current["status"].as_str().unwrap_or("unknown");
+    let percent = current["percent"].as_u64();
+    let previous_status = latches.last_status.clone().or_else(|| {
+        battery(previous)
+            .and_then(|item| item["status"].as_str())
+            .filter(|status| matches!(*status, "discharging" | "not-charging" | "partially-charged" | "ac" | "charging" | "charged"))
+            .map(str::to_owned)
+    });
+    let mut events = vec![];
+    let mut critical_transition = false;
+    let mut emit = |kind: &str, text: &str| {
+        if config.allow_talk {
+            events.push(EventDraft {
+                kind: kind.into(),
+                text: text.into(),
+                payload: json!({}),
+            });
+        }
+    };
+    match status {
+        "discharging" | "not-charging" | "partially-charged" | "ac" => {
+            latches.charged = false;
+            if percent.is_some_and(|value| value <= u64::from(config.low_threshold)) && !latches.low
+            {
+                latches.low = true;
+                emit("device.low", "배터리가 얼마 남지 않았어요.");
+            }
+            if percent.is_some_and(|value| value <= 10) && !latches.critical {
+                latches.critical = true;
+                critical_transition = true;
+                emit(
+                    "device.critical",
+                    "배터리가 위험 수준이에요. 충전해 주세요.",
+                );
+            }
+        }
+        "charging" | "charged" => {
+            latches.low = false;
+            latches.critical = false;
+            if status == "charging" && percent.is_some_and(|value| value < 100) {
+                latches.charged = false;
+            }
+            if status == "charging" && matches!(previous_status.as_deref(), Some("discharging" | "not-charging")) {
+                emit("device.charging-started", "배터리 충전을 시작했어요.");
+            }
+            if (status == "charged" || percent == Some(100)) && !latches.charged {
+                latches.charged = true;
+                if previous_status.as_deref() == Some("charging")
+                    && battery(previous).and_then(|item| item["percent"].as_u64()) != Some(100)
+                {
+                    emit("device.charged", "배터리가 다 충전됐어요.");
+                }
+            }
+        }
+        _ => return (vec![], false),
+    }
+    latches.last_status = Some(status.to_owned());
+    next["latches"] = serde_json::to_value(latches).unwrap_or(Value::Null);
+    (events, critical_transition)
 }
 
 fn client() -> Result<reqwest::Client, ConnectionError> {
@@ -971,10 +1090,11 @@ fn parse_windows_battery(output: &str, now: i64) -> Result<Value, ConnectionErro
             return Err(failure("offline", "배터리 잔량이 올바르지 않아요."));
         }
         let status = match row.battery_status {
-            Some(1) => "discharging",
+            Some(1 | 4 | 5) => "discharging",
             Some(3) => "charged",
             Some(6..=9) => "charging",
             Some(2) => "ac",
+            Some(11) => "partially-charged",
             _ => "unknown",
         };
         batteries.push(json!({"percent":row.estimated_charge_remaining,"status":status}));
@@ -1042,9 +1162,8 @@ pub async fn refresh(kind: &str, data: &Value, now: i64) -> Result<Value, Connec
             .await?
         }
         "device" => {
-            serde_json::from_value::<DeviceConfig>(state.config.clone()).map_err(|_| {
-                failure("permission-needed", "기기 조회 설정을 다시 확인해 주세요.")
-            })?;
+            device_config(&state.config)
+                .map_err(|message| failure("permission-needed", &message))?;
             device(now).await?
         }
         _ => return Err(failure("unsupported", "지원하지 않는 정보 연결이에요.")),
@@ -1186,6 +1305,108 @@ mod tests {
             json!({"results":[{"id":1,"name":"Bad","latitude":200,"longitude":0}]})
         )
         .is_err());
+    }
+
+    #[test]
+    fn charged_event_requires_an_observed_charging_transition() {
+        let observation = |status: &str, percent: u32| json!({
+            "config": {}, "observation": {"batteries": [{"status": status, "percent": percent}]}
+        });
+        let mut full = observation("charged", 100);
+        assert!(device_events(&Value::Null, &mut full).0.is_empty());
+        let mut again = observation("charged", 100);
+        assert!(device_events(&full, &mut again).0.is_empty());
+        let mut legacy_full = observation("charged", 100);
+        assert!(device_events(&observation("charging", 100), &mut legacy_full).0.is_empty());
+        let mut completed = observation("charged", 100);
+        let (events, _) = device_events(&observation("charging", 99), &mut completed);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "device.charged");
+    }
+
+    #[test]
+    fn charged_latch_resets_for_a_new_plugged_in_cycle() {
+        let observation = |status: &str, percent: u32| json!({
+            "config": {}, "observation": {"batteries": [{"status": status, "percent": percent}]}
+        });
+        let mut full = observation("charged", 100);
+        assert!(device_events(&Value::Null, &mut full).0.is_empty());
+        let mut charging = observation("charging", 99);
+        assert!(device_events(&full, &mut charging).0.is_empty());
+        let mut completed = observation("charged", 100);
+        let (events, _) = device_events(&charging, &mut completed);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "device.charged");
+        let mut repeated = observation("charged", 100);
+        assert!(device_events(&completed, &mut repeated).0.is_empty());
+    }
+
+    #[test]
+    fn critical_transition_is_available_when_talk_is_disabled() {
+        for allow_talk in [false, true] {
+            let mut next = json!({
+                "config": {"allowTalk": allow_talk, "criticalNotification": true},
+                "observation": {"batteries": [{"status": "discharging", "percent": 10}]}
+            });
+            let (events, critical) = device_events(&Value::Null, &mut next);
+            assert!(critical);
+            assert_eq!(events.iter().any(|event| event.kind == "device.critical"), allow_talk);
+            let mut repeated = next.clone();
+            let (_, critical_again) = device_events(&next, &mut repeated);
+            assert!(!critical_again);
+        }
+    }
+
+    #[test]
+    fn not_charging_reports_low_battery_and_detects_charging_start() {
+        let mut stalled = json!({"config": {"criticalNotification": true},
+            "observation": {"batteries": [{"status": "not-charging", "percent": 9}]}});
+        let (events, critical) = device_events(&Value::Null, &mut stalled);
+        assert!(critical);
+        assert!(events.iter().any(|event| event.kind == "device.low"));
+        assert!(events.iter().any(|event| event.kind == "device.critical"));
+        let mut charging = json!({"config": {},
+            "observation": {"batteries": [{"status": "charging", "percent": 9}]}});
+        let (events, _) = device_events(&stalled, &mut charging);
+        assert!(events.iter().any(|event| event.kind == "device.charging-started"));
+    }
+
+    #[test]
+    fn windows_ac_and_partially_charged_statuses_report_critical_battery() {
+        for (status, expected) in [(2, "ac"), (11, "partially-charged")] {
+            let output = format!(r#"[{{"EstimatedChargeRemaining":9,"BatteryStatus":{status}}}]"#);
+            let observation = parse_windows_battery(&output, 100).unwrap();
+            assert_eq!(observation["batteries"][0]["status"], expected);
+            let mut next = json!({"config": {"criticalNotification": true}, "observation": observation});
+            let (events, critical) = device_events(&Value::Null, &mut next);
+            assert!(critical);
+            assert!(events.iter().any(|event| event.kind == "device.critical"));
+            let mut charging = json!({"config": {},
+                "observation": {"batteries": [{"status": "charging", "percent": 9}]}});
+            let (events, _) = device_events(&next, &mut charging);
+            assert!(!events.iter().any(|event| event.kind == "device.charging-started"));
+        }
+    }
+
+    #[test]
+    fn windows_low_and_critical_statuses_follow_discharge_thresholds() {
+        for (status, percent, expected) in [(4, 19, "device.low"), (5, 9, "device.critical")] {
+            let output = format!(
+                r#"[{{"EstimatedChargeRemaining":{percent},"BatteryStatus":{status}}}]"#
+            );
+            let observation = parse_windows_battery(&output, 100).unwrap();
+            assert_eq!(observation["batteries"][0]["status"], "discharging");
+            let mut next = json!({"config": {}, "observation": observation});
+            let (events, critical) = device_events(&Value::Null, &mut next);
+            assert!(events.iter().any(|event| event.kind == expected));
+            assert_eq!(critical, status == 5);
+            let mut charging = json!({
+                "config": {},
+                "observation": {"batteries": [{"status": "charging", "percent": percent}]}
+            });
+            let (events, _) = device_events(&next, &mut charging);
+            assert!(events.iter().any(|event| event.kind == "device.charging-started"));
+        }
     }
 
     #[test]
