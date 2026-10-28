@@ -26,6 +26,15 @@ CREATE TABLE IF NOT EXISTS desktop_toy_results(id TEXT PRIMARY KEY,widget_id TEX
     .map_err(err)?;
     retire_removed_widgets(db)?;
     let tx = db.unchecked_transaction().map_err(err)?;
+    let package_migration_done = tx
+        .query_row(
+            "SELECT 1 FROM widget_preferences WHERE key='package-init-migration-v1'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()
+        .map_err(err)?
+        .is_some();
     for manifest in super::catalog()? {
         let existing = tx
             .query_row(
@@ -42,7 +51,7 @@ CREATE TABLE IF NOT EXISTS desktop_toy_results(id TEXT PRIMARY KEY,widget_id TEX
             .optional()
             .map_err(err)?;
         if let Some((id, installed, enabled)) = existing {
-            if !installed {
+            if !installed || !package_migration_done {
                 tx.execute(
                     "INSERT OR IGNORE INTO widget_preferences(key,value) VALUES(?1,'1')",
                     [format!("package-init:{id}")],
@@ -99,6 +108,11 @@ CREATE TABLE IF NOT EXISTS desktop_toy_results(id TEXT PRIMARY KEY,widget_id TEX
             .map_err(err)?;
         }
     }
+    tx.execute(
+        "INSERT OR IGNORE INTO widget_preferences(key,value) VALUES('package-init-migration-v1','1')",
+        [],
+    )
+    .map_err(err)?;
     tx.commit().map_err(err)?;
     super::backgrounds::initialize(db)
 }
@@ -312,9 +326,7 @@ pub fn verify_packages(db: &Connection, directory: &Path) -> Result<()> {
         if pending {
             let prepared = (|| -> Result<()> {
                 let path = package_path(directory, &instance.kind)?;
-                if !path.join("manifest.json").try_exists().map_err(err)? {
-                    write_package(&path, &instance.kind)?;
-                }
+                write_package(&path, &instance.kind)?;
                 Ok(())
             })();
             if prepared.is_ok() {

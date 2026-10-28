@@ -9,6 +9,50 @@ fn database() -> Connection {
     db
 }
 
+#[test]
+fn package_migration_repairs_existing_invalid_manifests_without_resetting_data() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
+    let before = instance(&db, "small-match");
+    let path = directory.path().join("widgets/small-match/manifest.json");
+    std::fs::write(&path, "unsupported manifest").unwrap();
+    db.execute("DELETE FROM widget_preferences WHERE key='package-init-migration-v1'", []).unwrap();
+
+    storage::initialize(&db).unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
+    let after = instance(&db, "small-match");
+    assert_eq!(after.id, before.id);
+    assert_eq!(after.data, before.data);
+    assert_eq!(after.revision, before.revision);
+    assert!(after.error.is_none());
+    assert_eq!(std::fs::read(&path).unwrap(), serde_json::to_vec(&super::manifest("small-match").unwrap()).unwrap());
+
+    std::fs::write(&path, "later corruption").unwrap();
+    storage::initialize(&db).unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), b"later corruption");
+    assert!(instance(&db, "small-match").error.is_some());
+}
+
+#[test]
+fn failed_package_migration_is_retried_after_the_obstruction_is_removed() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("widgets/small-match");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "not a directory").unwrap();
+    let id = instance(&db, "small-match").id;
+    storage::verify_packages(&db, directory.path()).unwrap();
+    let pending_key = format!("package-init:{id}");
+    let pending = || db.query_row("SELECT count(*) FROM widget_preferences WHERE key=?1", [&pending_key], |row| row.get::<_, i64>(0)).unwrap();
+    assert_eq!(pending(), 1);
+    std::fs::remove_file(path).unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
+    assert_eq!(pending(), 0);
+    assert!(instance(&db, "small-match").error.is_none());
+}
+
 fn install(db: &Connection, path: &Path, kinds: &[&str]) {
     storage::install(
         db,
