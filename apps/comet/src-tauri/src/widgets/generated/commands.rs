@@ -318,8 +318,12 @@ fn observe_generated_state(
     widget: &generated::GeneratedWidget,
 ) -> Result<()> {
     if !storage::reaction_enabled(db, &widget.id)? {
-        db.execute("DELETE FROM widget_state_pending WHERE widget_id=?1", [&widget.id])
-            .map_err(|error| error.to_string())?;
+        if reactions_blocked(state, db)? {
+            generated::discard_pending(db)?;
+        } else {
+            db.execute("DELETE FROM widget_state_pending WHERE widget_id=?1", [&widget.id])
+                .map_err(|error| error.to_string())?;
+        }
         return Ok(());
     }
     generated::evaluate_rules(
