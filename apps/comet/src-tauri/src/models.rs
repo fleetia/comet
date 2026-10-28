@@ -958,6 +958,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancelling_mid_stream_leaves_only_the_resumable_part_and_never_a_model() {
+        use tokio::net::TcpListener;
+        let directory = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sent, first_chunk) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = vec![0; 4096];
+            let _ = socket.read(&mut request).await.unwrap();
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nabc")
+                .await
+                .unwrap();
+            socket.flush().await.unwrap();
+            let _ = sent.send(());
+            // Hold the rest of the body until the client gives up.
+            let _ = socket.read(&mut request).await;
+        });
+        let cancel = Arc::new(AtomicBool::new(false));
+        let path = model_path(directory.path(), LocalModel::Qwen35_4B).unwrap();
+        let part = path.with_extension("part");
+        let canceller = {
+            let cancel = cancel.clone();
+            let part = part.clone();
+            tokio::spawn(async move {
+                first_chunk.await.unwrap();
+                while tokio::fs::metadata(&part)
+                    .await
+                    .map(|m| m.len())
+                    .unwrap_or(0)
+                    < 3
+                {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                cancel.store(true, Ordering::SeqCst);
+            })
+        };
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            download(
+                directory.path(),
+                LocalModel::Qwen35_4B,
+                &format!("http://{address}"),
+                6,
+                &hex::encode(Sha256::digest(b"abcdef")),
+                cancel,
+                |_| {},
+            ),
+        )
+        .await
+        .unwrap();
+        canceller.await.unwrap();
+        server.abort();
+        assert_eq!(result.unwrap_err(), "취소됨");
+        assert!(!path.exists());
+        assert!(!path.with_extension("verified").exists());
+        assert!(!model_ready(directory.path(), LocalModel::Qwen35_4B));
+        assert_eq!(tokio::fs::read(&part).await.unwrap(), b"abc");
+    }
+
+    #[tokio::test]
     async fn reports_terminal_state_before_any_download_bytes() {
         let directory = tempfile::tempdir().unwrap();
         let events = std::sync::Mutex::new(Vec::new());

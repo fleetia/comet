@@ -1382,6 +1382,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn attachments_on_device_models_are_refused_without_reaching_saved_api_credentials() {
+        let directory = tempfile::tempdir().unwrap();
+        let inference = Inference::new(directory.path().into(), PathBuf::new(), PathBuf::new());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let messages = [ChatMessage {
+            role: "user".into(),
+            content: "예약 확인서".into(),
+        }];
+        for (mode, guidance) in [
+            ("local", "API·ChatGPT 연결"),
+            ("apple", "다른 AI를 직접 선택"),
+        ] {
+            let settings = Settings {
+                mode: mode.into(),
+                base_url: format!("http://{}/v1", listener.local_addr().unwrap()),
+                api_model: "saved-api".into(),
+                ..Settings::default()
+            };
+            let file = Attachment {
+                name: "voucher.pdf".into(),
+                mime: "application/pdf".into(),
+                data: String::new(),
+            };
+            let error = generate_with_attachment(
+                &inference,
+                &settings,
+                &messages,
+                json!({}),
+                128,
+                file,
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await
+            .unwrap_err();
+            assert!(error.contains("PDF·이미지"), "{mode}: {error}");
+            assert!(error.contains(guidance), "{mode}: {error}");
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), listener.accept())
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
     async fn apple_unsupported_capabilities_and_cancelled_requests_do_not_dispatch() {
         let directory = tempfile::tempdir().unwrap();
         let inference = Inference::new(directory.path().into(), PathBuf::new(), PathBuf::new());
