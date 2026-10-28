@@ -10,6 +10,7 @@ export function PlannerTaskActions({
   busy,
   showWrap,
   onFocus,
+  onQueue,
   onRemove,
   onWrap,
 }: {
@@ -19,6 +20,7 @@ export function PlannerTaskActions({
   /** Shows day close here when the diary header does not already offer it. */
   showWrap: boolean;
   onFocus: () => Promise<void>;
+  onQueue: () => Promise<void>;
   onRemove: () => void;
   onWrap: () => void;
 }): ReactElement {
@@ -26,6 +28,9 @@ export function PlannerTaskActions({
     <div className={s.actions}>
       <Button variant="ghost" size="small" disabled={!currentTask || busy} onClick={onFocus}>
         25분 집중
+      </Button>
+      <Button variant="ghost" size="small" disabled={!currentTask || busy} onClick={onQueue}>
+        다음 집중에 추가
       </Button>
       <Button
         variant="ghost"

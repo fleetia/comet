@@ -337,6 +337,18 @@ export function Planner({
       await run(() => command("open_widget", { id: timer.id }));
     }
   }
+  async function queueSelected(): Promise<void> {
+    if (!currentTask) return;
+    if (!timer) {
+      openSettings("focus-timer");
+      return;
+    }
+    if (
+      await act("queue-add", { title: text(currentTask.title), todoId: text(currentTask.id) }, timer)
+    ) {
+      setNotice("다음 집중에 추가했어요.");
+    }
+  }
   function taskActions(selectionOnly = false): ReactElement {
     return (
       <PlannerTaskActions
@@ -345,6 +357,7 @@ export function Planner({
         busy={busy}
         showWrap={!selectionOnly && !headerActionsTarget}
         onFocus={focusSelected}
+        onQueue={queueSelected}
         onRemove={() => void act("plan", { ids: [selectedTask], date: null })}
         onWrap={openWrap}
       />
