@@ -1012,7 +1012,7 @@ fn focus_statistics_survive_restart_and_expired_sessions_are_not_replayed() {
 }
 
 #[test]
-fn invalid_focus_package_disables_and_closes_the_current_statistical_interval() {
+fn invalid_focus_package_preserves_the_running_session_and_its_history() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
     prepare_widgets(&db, directory.path(), &["focus-timer"]);
@@ -1031,19 +1031,15 @@ fn invalid_focus_package_disables_and_closes_the_current_statistical_interval() 
     )
     .unwrap();
     storage::verify_packages(&db, directory.path()).unwrap();
-    let disabled = instance(&db, "focus-timer");
-    assert!(disabled.error.is_some());
-    assert_eq!(disabled.data["status"], "paused");
-    assert!(disabled.data["activeSession"]["runningSince"].is_null());
-    let elapsed = disabled.data["activeSession"]["elapsedMs"]
-        .as_i64()
-        .unwrap();
-    assert!((5 * 60000..6 * 60000).contains(&elapsed));
+    let current = instance(&db, "focus-timer");
+    assert!(current.error.is_some());
+    assert_eq!(current.data["status"], "running");
+    assert_eq!(current.data["activeSession"]["runningSince"], now - 5 * 60000);
     prepare_widgets(&db, directory.path(), &["focus-timer"]);
     act(&db, "focus-timer", "cancel", json!({}), now + 10 * 60000, 2);
     assert_eq!(
         instance(&db, "focus-timer").data["sessions"][0]["elapsedMs"],
-        elapsed
+        15 * 60000
     );
 }
 
@@ -1320,7 +1316,14 @@ fn retired_widgets_keep_saved_data_but_cannot_resume_or_reinstall() {
         db.execute("INSERT INTO widget_journal VALUES(?1)", [event.id])
             .unwrap();
         assert!(storage::commit_data(&db, kind, 7, json!({}), vec![], 1).is_err());
-        assert!(storage::execute(&db, &request(&db, kind, "start", json!({})), 1, 0).is_err());
+        let request = super::WidgetRequest {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            instance_id: (*kind).into(),
+            expected_revision: 7,
+            action: "start".into(),
+            input: json!({}),
+        };
+        assert!(storage::execute(&db, &request, 1, 0).is_err());
     }
     assert!(storage::snapshot(&db).unwrap().widgets.iter().all(|view| !super::is_retired(&view.instance.kind)));
     assert!(!storage::advance(&db, 1).unwrap());
@@ -1328,11 +1331,13 @@ fn retired_widgets_keep_saved_data_but_cannot_resume_or_reinstall() {
     storage::initialize(&db).unwrap();
     storage::verify_packages(&db, directory.path()).unwrap();
     for kind in super::RETIRED_KINDS {
-        let saved = instance(&db, kind);
-        let flags: (bool, bool) = db.query_row("SELECT installed,enabled FROM widget_instances WHERE id=?1", [kind], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
-        assert_eq!(flags, (false, false));
-        assert_eq!(saved.revision, 8);
-        assert_eq!(saved.data, data);
+        let (installed, enabled, revision, saved): (bool, bool, i64, String) = db.query_row(
+            "SELECT installed,enabled,revision,data FROM widget_instances WHERE id=?1", [kind],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).unwrap();
+        assert!(!installed && !enabled);
+        assert_eq!(revision, 8);
+        assert_eq!(serde_json::from_str::<Value>(&saved).unwrap(), data);
     }
     assert_eq!(
         storage::journal(&db, None, i64::MIN, i64::MAX)
@@ -1342,11 +1347,10 @@ fn retired_widgets_keep_saved_data_but_cannot_resume_or_reinstall() {
     );
     assert!(storage::snapshot(&db).unwrap().widgets.iter().all(|view| !super::is_retired(&view.instance.kind)));
     storage::initialize(&db).unwrap();
-    assert!(storage::instances(&db)
-        .unwrap()
-        .iter()
-        .filter(|saved| super::is_retired(&saved.kind))
-        .all(|saved| saved.revision == 8));
+    for kind in super::RETIRED_KINDS {
+        let revision: i64 = db.query_row("SELECT revision FROM widget_instances WHERE kind=?1", [kind], |row| row.get(0)).unwrap();
+        assert_eq!(revision, 8);
+    }
 }
 
 #[test]

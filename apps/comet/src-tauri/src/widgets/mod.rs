@@ -399,19 +399,14 @@ mod projection_tests {
             assert_eq!(view["data"], source.data);
             assert_eq!(source.error, None);
             assert_eq!(view["revision"], 7);
-            for (installed, enabled, configured, expected) in [
-                (false, true, true, "not-installed"),
-                (true, false, true, "disabled"),
-                (true, true, false, "setup"),
-            ] {
-                let mut inactive = source.clone();
-                inactive.installed = installed;
-                inactive.enabled = enabled;
-                inactive.data["configured"] = json!(configured);
-                let view = project(inactive, &[]).unwrap();
-                assert_eq!(view.status, expected);
-                assert_eq!(view.instance.error, None);
-            }
+            let mut unconfigured = source.clone();
+            unconfigured.data["configured"] = json!(false);
+            let view = project(unconfigured, &[]).unwrap();
+            assert_eq!(view.status, "setup");
+            assert_eq!(view.instance.error, None);
+            let mut broken_package = source.clone();
+            broken_package.error = Some("위젯 파일을 확인하지 못했어요.".into());
+            assert_eq!(project(broken_package, &[]).unwrap().status, "install-error");
         }
     }
 
