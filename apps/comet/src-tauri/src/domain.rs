@@ -720,8 +720,13 @@ pub(crate) fn configure_widget_replies(
     schema: &mut Value,
     apple: bool,
 ) -> Result<Vec<String>, String> {
+    let instances = crate::widgets::storage::instances(db)?;
     let mut widgets: Vec<(String, String)> = crate::widgets::catalog()?
         .into_iter()
+        .filter(|widget| instances.iter().any(|instance| {
+            instance.kind == widget.id && instance.installed && instance.enabled
+                && !crate::widgets::is_retired(&instance.kind)
+        }))
         .map(|widget| (widget.id, widget.name))
         .collect();
     widgets.extend(
@@ -731,6 +736,9 @@ pub(crate) fn configure_widget_replies(
             .map(|widget| (widget.id, widget.definition.name)),
     );
     let kinds: Vec<String> = widgets.iter().map(|(id, _)| id.clone()).collect();
+    if kinds.is_empty() {
+        return Ok(kinds);
+    }
     let mut choices: Vec<Value> = kinds.iter().map(|id| json!(id)).collect();
     if !apple {
         choices.push(Value::Null);

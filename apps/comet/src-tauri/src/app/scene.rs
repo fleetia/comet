@@ -97,6 +97,9 @@ fn playback_link(
         })
     });
     let (instance_id, kind, label) = if let Some(instance) = instance {
+        if !instance.installed || !instance.enabled || widgets::is_retired(&instance.kind) {
+            return Ok(None);
+        }
         (
             instance.id.clone(),
             instance.kind.clone(),
@@ -1003,6 +1006,34 @@ pub(crate) fn character_script(db: &Connection, sequence: u64) -> Result<Vec<Sce
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn widget_links_and_model_choices_only_include_available_instances() {
+        let state = super::super::tests::state();
+        let db = lock(&state.db).unwrap();
+        db.execute("DELETE FROM widget_instances WHERE kind='device'", [])
+            .unwrap();
+        db.execute("INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data) VALUES('test-device','device',1,1,1,1,'{}')", []).unwrap();
+        let line = SceneLine {
+            persona: "builtin-a".into(),
+            expression: "평온".into(),
+            text: "배터리".into(),
+            widget: Some("device".into()),
+            motion: Default::default(),
+        };
+        for (installed, enabled, available) in [(1, 1, true), (1, 0, false), (0, 1, false)] {
+            db.execute("UPDATE widget_instances SET installed=?1,enabled=?2 WHERE id='test-device'", rusqlite::params![installed, enabled]).unwrap();
+            let mut prompt = Vec::new();
+            let mut schema = crate::domain::reply_schema_for(&["builtin-a".into()], &["평온"]);
+            let kinds = crate::domain::configure_widget_replies(&db, &mut prompt, &mut schema, false)
+                .unwrap();
+            assert_eq!(kinds.iter().any(|kind| kind == "device"), available);
+            assert_eq!(
+                playback_link(&db, &state, "llm", "message", &line).unwrap().is_some(),
+                available
+            );
+        }
+    }
 
     #[test]
     fn generated_expression_choices_reach_single_expression_character_presentation() {
