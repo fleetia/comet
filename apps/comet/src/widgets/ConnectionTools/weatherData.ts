@@ -7,6 +7,7 @@ export type WeatherConfig = {
   temperatureUnit: "celsius" | "fahrenheit";
   showApparent: boolean;
   showDetails: boolean;
+  showTomorrow: boolean;
   allowTalk: boolean;
   refreshIntervalMinutes: number;
 };
@@ -20,6 +21,7 @@ export function weatherConfig(data: DataRecord): WeatherConfig {
     temperatureUnit: config.temperatureUnit === "fahrenheit" ? "fahrenheit" : "celsius",
     showApparent: config.showApparent !== false,
     showDetails: config.showDetails === true,
+    showTomorrow: config.showTomorrow !== false,
     allowTalk: config.allowTalk !== false,
     refreshIntervalMinutes:
       typeof config.refreshIntervalMinutes === "number" ? config.refreshIntervalMinutes : 30,

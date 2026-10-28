@@ -1290,6 +1290,21 @@ fn begin_information(state: &AppState, id: &str, manual: bool, time: i64) -> Res
     })
 }
 
+fn reserve_weather_archive(
+    state: &AppState,
+    job: &Job,
+    data: &Value,
+    time: i64,
+) -> Result<Option<connections::ArchiveRequest>, String> {
+    let _action = lock(&state.action)?;
+    let db = lock(&state.db)?;
+    let current = storage::get(&db, &job.instance.id)?;
+    if !is_current(state, job, &current)? {
+        return Err("설정이 바뀌어 이전 조회 결과를 적용하지 않았습니다.".into());
+    }
+    connections::reserve_weather_archive(&db, data, time)
+}
+
 async fn refresh_information(
     app: &AppHandle,
     state: &Arc<AppState>,
@@ -1322,6 +1337,35 @@ async fn refresh_information(
         .await
         .as_deref()
         .is_ok_and(|value| matches!(value, "granted" | "system"));
+    let request = match &result {
+        Ok(Ok(data)) if job.instance.kind == "weather" => {
+            match reserve_weather_archive(state, &job, data, timestamp()) {
+                Ok(request) => request,
+                Err(error) => {
+                    abandon(state, &job);
+                    return Err(error);
+                }
+            }
+        }
+        _ => None,
+    };
+    let archive = if let Some(request) = &request {
+        match execute(&job, async {
+            Ok(connections::fetch_weather_archive(request).await)
+        })
+        .await
+        {
+            Ok(result) => Some(result),
+            Err(error) => {
+                let _action = lock(&state.action)?;
+                connections::cancel_weather_archive(&*lock(&state.db)?, request)?;
+                abandon(state, &job);
+                return Err(error);
+            }
+        }
+    } else {
+        None
+    };
     let outcome = match result {
         Ok(result) => finish(state, &job, |db, current| {
             let mut events = vec![];
@@ -1332,6 +1376,13 @@ async fn refresh_information(
                     if current.kind == "device" {
                         (events, critical_transition) =
                             connections::device_events(&current.data, &mut value);
+                    } else if current.kind == "weather" {
+                        connections::save_weather_history(
+                            db,
+                            &mut value,
+                            timestamp(),
+                            archive.as_ref(),
+                        )?;
                     }
                     value["lastAttemptAt"] = json!(time);
                     value["failureCount"] = json!(0);
@@ -1413,6 +1464,12 @@ async fn refresh_information(
             Err(error)
         }
     };
+    if outcome.is_err() && archive.as_ref().is_none_or(|result| result.is_ok()) {
+        if let Some(request) = &request {
+            let _action = lock(&state.action)?;
+            connections::cancel_weather_archive(&*lock(&state.db)?, request)?;
+        }
+    }
     publish_widgets(app, state);
     outcome
 }

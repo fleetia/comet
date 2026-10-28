@@ -431,6 +431,52 @@ fn brief_idle_pause_discards_widget_queue_before_a_scheduler_tick() {
 }
 
 #[test]
+fn weather_day_is_recorded_only_after_current_line_is_displayed() {
+    let state = state();
+    let db = lock(&state.db).unwrap();
+    *lock(&state.widget_playback).unwrap() = Some(widgets::WidgetEvent {
+        id: "weather-event".into(),
+        instance_id: "weather".into(),
+        widget_kind: "weather".into(),
+        revision: 0,
+        created_at: 0,
+        expires_at: i64::MAX,
+        event: widgets::EventDraft {
+            kind: "weather.last-year".into(),
+            text: "작년 날씨".into(),
+            payload: serde_json::json!({"day":"2026-10-28"}),
+        },
+    });
+    let mut line = Playback {
+        id: "scene:weather:0".into(),
+        link: None,
+        persona: "a".into(),
+        expression: "normal".into(),
+        text: "작년 날씨".into(),
+        motion: Default::default(),
+        source: "widget".into(),
+        text_speed: 0,
+        display_started_at: None,
+        ends_at: 0,
+        line_index: 0,
+        line_count: 1,
+    };
+    let count = || db.query_row(
+        "SELECT COUNT(*) FROM widget_preferences WHERE key='weather-talk:weather.last-year'",
+        [], |row| row.get::<_, i64>(0),
+    ).unwrap();
+    super::scene::mark_displayed_weather_reaction(&state, &db, &line).unwrap();
+    assert_eq!(count(), 0);
+    mark_line_displayed(&mut line, 100);
+    state.widget_epoch.store(1, Ordering::SeqCst);
+    super::scene::mark_displayed_weather_reaction(&state, &db, &line).unwrap();
+    assert_eq!(count(), 0);
+    state.epoch.store(1, Ordering::SeqCst);
+    super::scene::mark_displayed_weather_reaction(&state, &db, &line).unwrap();
+    assert_eq!(count(), 1);
+}
+
+#[test]
 fn widget_lines_stop_after_source_change_or_user_cancellation() {
     for cause in ["source-change", "disable", "input", "pause", "auto-off"] {
         let state = state();

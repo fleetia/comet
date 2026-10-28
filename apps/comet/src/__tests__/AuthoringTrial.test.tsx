@@ -315,7 +315,10 @@ it("replays the ordered local speakers with their durations and stops on conditi
   run();
   const preview = within(await screen.findByLabelText("선택한 대사 미리보기"));
   vi.useFakeTimers();
-  fireEvent.click(preview.getByRole("button", { name: "미리보기" }));
+  await act(async () => {
+    fireEvent.click(preview.getByRole("button", { name: "미리보기" }));
+  });
+  expect(preview.getByRole("button", { name: "정지" })).toHaveProperty("disabled", false);
   expect(preview.getByText(actors[0].definition.name)).toBeTruthy();
   await act(async () => {
     vi.advanceTimersByTime(120);

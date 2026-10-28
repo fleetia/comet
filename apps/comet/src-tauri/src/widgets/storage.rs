@@ -21,10 +21,12 @@ CREATE TABLE IF NOT EXISTS widget_events(seq INTEGER PRIMARY KEY AUTOINCREMENT,
 id TEXT UNIQUE NOT NULL,instance_id TEXT NOT NULL,data TEXT NOT NULL,pending INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS widget_journal(event_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS widget_preferences(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS weather_history(day TEXT NOT NULL,lat REAL NOT NULL,lon REAL NOT NULL,code INTEGER NOT NULL,tMax REAL NOT NULL,tMin REAL NOT NULL,tObserved REAL,source TEXT NOT NULL DEFAULT 'live',PRIMARY KEY(day,lat,lon));
 CREATE TABLE IF NOT EXISTS character_touches(character_id TEXT NOT NULL,user_id TEXT NOT NULL,action TEXT NOT NULL,count INTEGER NOT NULL,last_at INTEGER NOT NULL,PRIMARY KEY(character_id,user_id,action));
 CREATE TABLE IF NOT EXISTS character_touch_events(character_id TEXT NOT NULL,user_id TEXT NOT NULL,created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS character_touch_events_lookup ON character_touch_events(character_id,user_id,created_at);
 CREATE INDEX IF NOT EXISTS character_touch_events_expiry ON character_touch_events(created_at);
+
 CREATE TABLE IF NOT EXISTS desktop_toy_results(id TEXT PRIMARY KEY,widget_id TEXT NOT NULL,kind TEXT NOT NULL,created_at INTEGER NOT NULL,data TEXT NOT NULL);",
     )
     .map_err(err)?;
@@ -933,6 +935,95 @@ pub fn commit_data(
     }
     apply_effect(&tx, instance, WidgetEffect { data, events }, now)?;
     tx.commit().map_err(err)
+}
+
+pub(crate) fn record_daily_weather_event(
+    db: &Connection,
+    instance: &WidgetInstance,
+    draft: EventDraft,
+    day: &str,
+    now: i64,
+) -> Result<bool> {
+    let tx = db.unchecked_transaction().map_err(err)?;
+    let key = format!("weather-talk:{}", draft.kind);
+    let previous: Option<String> = tx
+        .query_row(
+            "SELECT value FROM widget_preferences WHERE key=?1",
+            [&key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(err)?;
+    if previous.as_deref() == Some(day) {
+        return Ok(false);
+    }
+    let pending: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM widget_events WHERE pending=1 AND json_extract(data,'$.kind')=?1 AND json_extract(data,'$.payload.day')=?2 AND json_extract(data,'$.expiresAt')>?3)",
+        params![draft.kind, day, now],
+        |row| row.get(0),
+    ).map_err(err)?;
+    if pending {
+        return Ok(false);
+    }
+    let current = get(&tx, &instance.id)?;
+    if super::is_retired(&current.kind)
+        || current.revision != instance.revision
+        || !reaction_enabled(&tx, &current.id)?
+    {
+        return Ok(false);
+    }
+    let event = WidgetEvent {
+        id: uuid::Uuid::new_v4().to_string(),
+        instance_id: instance.id.clone(),
+        widget_kind: instance.kind.clone(),
+        revision: instance.revision,
+        created_at: now,
+        expires_at: now.saturating_add(30_000),
+        event: draft,
+    };
+    tx.execute(
+        "INSERT INTO widget_events(id,instance_id,data,pending) VALUES(?1,?2,?3,1)",
+        params![
+            event.id,
+            event.instance_id,
+            serde_json::to_string(&event).map_err(err)?
+        ],
+    )
+    .map_err(err)?;
+    tx.execute(
+        "INSERT OR IGNORE INTO widget_journal VALUES(?1)",
+        [&event.id],
+    )
+    .map_err(err)?;
+    tx.commit().map_err(err)?;
+    Ok(true)
+}
+
+pub(crate) fn weather_reaction_started(db: &Connection, kind: &str, day: &str) -> Result<bool> {
+    let previous: Option<String> = db.query_row(
+        "SELECT value FROM widget_preferences WHERE key=?1",
+        [format!("weather-talk:{kind}")],
+        |row| row.get(0),
+    ).optional().map_err(err)?;
+    Ok(previous.as_deref() == Some(day))
+}
+
+pub(crate) fn mark_weather_reaction_day(db: &Connection, kind: &str, day: &str) -> Result<()> {
+    db.execute(
+        "INSERT INTO widget_preferences(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        params![format!("weather-talk:{kind}"), day],
+    ).map_err(err)?;
+    Ok(())
+}
+
+pub(crate) fn mark_weather_reaction_started(db: &Connection, event: &WidgetEvent) -> Result<()> {
+    if !matches!(event.event.kind.as_str(), "weather.last-year" | "weather.rain-tomorrow") {
+        return Ok(());
+    }
+    let Some(day) = event.event.payload["day"].as_str() else {
+        return Ok(());
+    };
+    mark_weather_reaction_day(db, &event.event.kind, day)
 }
 
 pub(crate) fn record_desktop_result(
