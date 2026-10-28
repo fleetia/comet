@@ -895,3 +895,39 @@ mod recall_opportunity_tests {
         assert!(!defer_recent_recall(&state, false, 105));
     }
 }
+
+#[cfg(test)]
+mod moment_event_tests {
+    use super::*;
+
+    #[test]
+    fn pending_moment_keeps_its_keepers_and_obeys_widget_and_automatic_gates() {
+        let state = super::super::tests::state();
+        let db = lock(&state.db).unwrap();
+        let at = chrono::Utc::now().timestamp_millis();
+        store::set_user_name(&db, "친구", at).unwrap();
+        let user = store::current_user(&db).unwrap().unwrap();
+        let actors = characters::active_ids(&db).unwrap();
+        let plant = storage::instances(&db).unwrap().into_iter().find(|widget| widget.kind == "plant").unwrap();
+        for actor in &actors {
+            store::insert_moment(&db, actor, &user.id, "bloom", "꽃이 핀 날", at, None, serde_json::json!({}), Some("plant"), Some(&plant.id)).unwrap();
+        }
+        let event = take_moment_reaction(&state, &db, at).unwrap().unwrap();
+        assert_eq!(event.event.kind, "moment.added");
+        assert_eq!(event.event.payload["event"], "bloom");
+        assert_eq!(event.event.payload["summary"], "꽃이 핀 날");
+        assert_eq!(event.event.payload["memoryIds"].as_array().unwrap().len(), actors.len());
+        assert!(take_moment_reaction(&state, &db, at).unwrap().is_none());
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM moment_event_keepers", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+
+        storage::set_reaction(&db, &plant.id, false).unwrap();
+        store::insert_moment(&db, &actors[0], &user.id, "first-catch", "처음 잡은 물고기", at, None, serde_json::json!({}), Some("plant"), Some(&plant.id)).unwrap();
+        assert!(take_moment_reaction(&state, &db, at).unwrap().is_none());
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:first-catch:%'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+
+        store::insert_moment(&db, &actors[0], &user.id, "focus-day", "집중한 날", at, None, serde_json::json!({}), None, None).unwrap();
+        lock(&state.runtime).unwrap().hidden = true;
+        assert!(take_moment_reaction(&state, &db, at).unwrap().is_none());
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM moment_events", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+    }
+}

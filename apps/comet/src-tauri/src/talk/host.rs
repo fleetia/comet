@@ -994,6 +994,41 @@ mod tests {
     const FIRST_PACK: &str =
         "format: 1\nscene: first\non: idle\n---\nA: 첫 대사\nB: 다음 대사\n===\n";
 
+    #[test]
+    fn moment_event_selects_only_its_current_visible_keeper_and_rechecks_widget_and_memory() {
+        let state = crate::app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        crate::store::set_user_name(&db, "친구", now).unwrap();
+        let user = crate::store::current_user(&db).unwrap().unwrap();
+        let characters = crate::characters::active_ids(&db).unwrap();
+        assert!(crate::store::insert_moment(&db, &characters[0], &user.id, "bloom", "꽃이 핀 날", now, None, json!({}), None, None).unwrap());
+        let (memory_id, source): (String, String) = db.query_row("SELECT id,source FROM memories WHERE source LIKE 'moment:bloom:%'", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+        let plant = widgets::storage::instances(&db).unwrap().into_iter().find(|widget| widget.kind == "plant").unwrap();
+        let event = widgets::WidgetEvent {
+            id: "event".into(), instance_id: plant.id.clone(), widget_kind: "moment".into(), revision: 0,
+            created_at: now, expires_at: now + 60_000,
+            event: widgets::EventDraft { kind: "moment.added".into(), text: String::new(),
+                payload: json!({"userId":user.id,"momentSource":source,"event":"bloom","summary":"꽃이 핀 날","memoryIds":[memory_id],"widgetKind":"plant"}) },
+        };
+        let program = talk::validate_source(Path::new("moment.talk"),
+            "format: 1\nscene: other\non: moment.added\n---\nB: 내 추억이야.\n===\nscene: owner\non: moment.added\nwhen: event.event == \"bloom\"\n---\nA: ${event.summary}\n===\n",
+            &talk::context::registry()).unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        widgets::storage::set_reaction(&db, &plant.id, false).unwrap();
+        assert!(prepare(&state, &db, Some(&event)).unwrap().is_none());
+        widgets::storage::set_reaction(&db, &plant.id, true).unwrap();
+        let lines = prepare(&state, &db, Some(&event)).unwrap().unwrap();
+        assert_eq!(lines[0].persona, "a");
+        assert_eq!(lines[0].text, "꽃이 핀 날");
+        assert!(current(&state, &db).unwrap());
+        db.execute("UPDATE memories SET content='수정됨' WHERE id=?1", [&memory_id]).unwrap();
+        assert!(!current(&state, &db).unwrap());
+        db.execute("UPDATE memories SET content='꽃이 핀 날' WHERE id=?1", [&memory_id]).unwrap();
+        lock(&state.presence).unwrap().leave_for_tests(&characters[0]);
+        assert!(!current(&state, &db).unwrap());
+    }
+
     fn state_with_packs() -> (tempfile::TempDir, AppState) {
         let directory = tempfile::tempdir().unwrap();
         let mut state = crate::app::tests::state();
