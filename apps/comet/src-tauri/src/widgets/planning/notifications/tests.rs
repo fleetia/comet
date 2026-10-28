@@ -37,6 +37,25 @@ fn silent_finish(state: &crate::AppState) -> WidgetEvent {
 }
 
 #[test]
+fn automatic_os_delivery_validates_revision_even_when_reactions_are_off() {
+    let state = crate::app::tests::state();
+    let db = crate::lock(&state.db).unwrap();
+    let device = storage::instances(&db).unwrap().into_iter()
+        .find(|instance| instance.kind == "device").unwrap();
+    storage::set_reaction(&db, &device.id, false).unwrap();
+    let now = chrono::Utc::now().timestamp_millis();
+    let mut event = WidgetEvent {
+        id: "critical".into(), instance_id: device.id.clone(), widget_kind: device.kind,
+        revision: device.revision, created_at: now, expires_at: now + 30_000,
+        event: EventDraft { kind: "device.critical".into(), text: "배터리가 위험 수준이에요.".into(), payload: json!({}) },
+    };
+    assert!(delivery_event_current(&db, &event).unwrap());
+    assert!(!crate::widgets::commands::event_current(&db, &event).unwrap());
+    event.revision += 1;
+    assert!(!delivery_event_current(&db, &event).unwrap());
+}
+
+#[test]
 fn denied_permission_restores_the_same_event_once_without_changing_widget_revision() {
     let state = crate::app::tests::state();
     let event = silent_finish(&state);

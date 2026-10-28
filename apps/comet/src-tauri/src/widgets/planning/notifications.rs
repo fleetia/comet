@@ -96,7 +96,7 @@ pub(crate) fn deliver_automatic_widget(
 ) -> Result<(), String> {
     if state.epoch.load(Ordering::SeqCst) != epoch
         || !crate::widgets::connection_host::wake_event_allowed(state, db)?
-        || !crate::widgets::commands::event_current(db, &bubble_fallback(event))?
+        || !delivery_event_current(db, event)?
     {
         return Ok(());
     }
@@ -140,6 +140,7 @@ fn delivery_event_current(
 ) -> Result<bool, String> {
     let current = crate::widgets::storage::get(db, &event.instance_id)?;
     Ok(event.expires_at > chrono::Utc::now().timestamp_millis()
+        && !crate::widgets::is_retired(&current.kind)
         && current.revision == event.revision
         && crate::widgets::reminders::event_current(db, &bubble_fallback(event))?)
 }

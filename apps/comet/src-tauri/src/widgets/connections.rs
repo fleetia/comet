@@ -298,6 +298,9 @@ pub(crate) fn device_events(previous: &Value, next: &mut Value) -> (Vec<EventDra
         "charging" | "charged" => {
             latches.low = false;
             latches.critical = false;
+            if status == "charging" && percent.is_some_and(|value| value < 100) {
+                latches.charged = false;
+            }
             if status == "charging" && previous_status.as_deref() == Some("discharging") {
                 emit("device.charging-started", "배터리 충전을 시작했어요.");
             }
@@ -972,6 +975,23 @@ mod tests {
         let (events, _) = device_events(&observation("charging", 99), &mut completed);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].kind, "device.charged");
+    }
+
+    #[test]
+    fn charged_latch_resets_for_a_new_plugged_in_cycle() {
+        let observation = |status: &str, percent: u32| json!({
+            "config": {}, "observation": {"batteries": [{"status": status, "percent": percent}]}
+        });
+        let mut full = observation("charged", 100);
+        assert!(device_events(&Value::Null, &mut full).0.is_empty());
+        let mut charging = observation("charging", 99);
+        assert!(device_events(&full, &mut charging).0.is_empty());
+        let mut completed = observation("charged", 100);
+        let (events, _) = device_events(&charging, &mut completed);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "device.charged");
+        let mut repeated = observation("charged", 100);
+        assert!(device_events(&completed, &mut repeated).0.is_empty());
     }
 
     #[test]
