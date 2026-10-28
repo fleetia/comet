@@ -1,8 +1,9 @@
-import { useId, useLayoutEffect, useState, type CSSProperties, type JSX } from "react";
+import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type JSX } from "react";
 import { Balloon, ConstellationChoices, WaitingDots } from "@comet/ui";
 import type { Snapshot } from "../../types";
 import { command } from "../../hooks/useSnapshot";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
+import { errorText } from "../../hooks/useSnapshot";
 import { skinStyle, useImageSlice } from "../../hooks/useImageSlice";
 import { useTypewriter } from "../../hooks/useTypewriter";
 import { activeCharacter, BALLOON_SPRITE, characterName, spriteUrl } from "../characterIdentity";
@@ -11,6 +12,7 @@ import { responseOrigin } from "./conversationStatus";
 import { useFollowUpChoice } from "./useFollowUpChoice";
 import * as companion from "../companion.css";
 import * as styles from "./conversationSurface.css";
+import { requestPlaybackLink } from "./playbackLinkNavigation";
 
 type Props = { snapshot: Snapshot; preview?: boolean };
 
@@ -41,6 +43,25 @@ export function ConversationResponse({ snapshot, preview = false }: Props): JSX.
   const { slice, ready: imageReady } = useImageSlice(skin);
   const skinned = skin && slice ? skinStyle(skin, slice) : undefined;
   const [error, setError] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<{ playbackId: string; message: string } | null>(null);
+  const linkPending = useRef(false);
+  const playbackId = useRef(snapshot.playback?.id);
+  playbackId.current = snapshot.playback?.id;
+  async function openPlaybackLink(id: string): Promise<void> {
+    if (linkPending.current) return;
+    linkPending.current = true;
+    setLinkError(null);
+    try {
+      const sessionId = snapshot.conversation?.session.id;
+      const userId = snapshot.user?.id;
+      if (!sessionId || !userId) throw new Error("대화 입력창을 확인하지 못했어요. 다시 눌러 주세요.");
+      await requestPlaybackLink(snapshot.panel?.mode === "history-input" ? "conversation-history" : "conversation-input", id, sessionId, userId);
+    } catch (cause) {
+      if (playbackId.current === id) setLinkError({ playbackId: id, message: errorText(cause) });
+    } finally {
+      linkPending.current = false;
+    }
+  }
   const mode = snapshot.panel?.mode;
   const active = mode === "input" || mode === "history-input";
   const followUps = snapshot.followUps;
@@ -80,6 +101,17 @@ export function ConversationResponse({ snapshot, preview = false }: Props): JSX.
   const source =
     snapshot.playback?.source ??
     (latestReply ? conversation?.messageSources?.[latestReply.id] : undefined);
+  const playback = snapshot.playback;
+  const speech = (
+    <span className={companion.speechText}>
+      <span style={{ visibility: revealing ? "hidden" : undefined }}>{fullText}</span>
+      {revealing && (
+        <span className={companion.speechReveal} aria-hidden="true">
+          {revealedText}
+        </span>
+      )}
+    </span>
+  );
   useLayoutEffect(() => {
     if (preview) return;
     document.documentElement.classList.add(companion.transparentDocument);
@@ -113,19 +145,20 @@ export function ConversationResponse({ snapshot, preview = false }: Props): JSX.
         <div
           className={styles.responseText}
           style={textStyle}
-          aria-label={waiting ? undefined : fullText}
+          aria-label={waiting || playback?.link ? undefined : fullText}
         >
           {waiting ? (
             <WaitingDots label="답변 준비 중" />
+          ) : playback?.link ? (
+            <button
+              className={styles.responseLink}
+              aria-label={`${playback.link.label} 열기: ${fullText}`}
+              onClick={() => void openPlaybackLink(playback.id)}
+            >
+              {speech}
+            </button>
           ) : (
-            <span className={companion.speechText}>
-              <span style={{ visibility: revealing ? "hidden" : undefined }}>{fullText}</span>
-              {revealing && (
-                <span className={companion.speechReveal} aria-hidden="true">
-                  {revealedText}
-                </span>
-              )}
-            </span>
+            speech
           )}
         </div>
         {!waiting && fullText && (
@@ -154,6 +187,11 @@ export function ConversationResponse({ snapshot, preview = false }: Props): JSX.
           </>
         )}
       {error && <p role="alert">{error}</p>}
+      {linkError && linkError.playbackId === snapshot.playback?.id && (
+        <p className={companion.error} role="alert">
+          {linkError.message}
+        </p>
+      )}
     </section>
   );
 }

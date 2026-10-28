@@ -106,6 +106,7 @@ fn strict_lines<'de, D: serde::Deserializer<'de>>(
             persona: line.persona,
             expression: line.expression,
             text: line.text,
+            widget: None,
             motion: line.motion,
         })
         .collect())
@@ -626,6 +627,7 @@ fn defer_lines(definition: &ScenarioDefinition) -> Vec<SceneLine> {
         persona: definition.center_id.clone(),
         expression: crate::characters::DEFAULT_EXPRESSION.into(),
         text: "그 얘기는… 조금 더 친해지면 들려줄게요.".into(),
+        widget: None,
         motion: Default::default(),
     }]
 }
@@ -709,6 +711,7 @@ fn make_plan(
                     persona: id.clone(),
                     expression: line.expression.clone(),
                     text: line.text.clone(),
+                    widget: None,
                     motion: line.motion.clone(),
                 })
                 .collect(),
@@ -732,6 +735,7 @@ fn make_plan(
                     persona: id.clone(),
                     expression: line.expression.clone(),
                     text: line.text.clone(),
+                    widget: None,
                     motion: line.motion.clone(),
                 }));
             }

@@ -63,6 +63,7 @@ pub(crate) struct AppState {
     pub(crate) gate: tokio::sync::Mutex<()>,
     pub(crate) epoch: AtomicU64,
     pub(crate) widget_epoch: AtomicU64,
+    pub(crate) playback_link_gate: tokio::sync::Mutex<()>,
     pub(crate) widget_playback: Mutex<Option<widgets::WidgetEvent>>,
     pub(crate) talk: Mutex<talk::runtime::ActiveProgram>,
     pub(crate) talk_playback: Mutex<Option<talk::host::PreparedTalk>>,

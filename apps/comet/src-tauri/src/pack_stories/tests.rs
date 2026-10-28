@@ -14,6 +14,7 @@ fn fixture() -> (Connection, String, String, String) {
         persona: persona.into(),
         expression: "평온".into(),
         text: text.into(),
+        widget: None,
         motion: Default::default(),
     };
     pack.world_rules = "  세계 규칙\n원문 그대로  ".into();

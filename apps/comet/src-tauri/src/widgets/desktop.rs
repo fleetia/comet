@@ -439,6 +439,18 @@ fn stack_width(width: &Width) -> f64 {
     f64::from(width.0) + 40.0
 }
 
+pub(crate) fn playback_window_label(db: &Connection, id: &str) -> Result<Option<String>, String> {
+    let layout = read(db)?.layout;
+    if !layout.order.iter().any(|value| value == id) {
+        return Ok(None);
+    }
+    Ok(match layout.mode {
+        Mode::Freeform => Some(format!("{DISPLAY}{id}")),
+        Mode::Stack if !layout.stack_hidden => Some(STACK.into()),
+        _ => None,
+    })
+}
+
 fn read(db: &Connection) -> Result<Stored, String> {
     let value: Option<String> = db
         .query_row(
