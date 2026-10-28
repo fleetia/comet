@@ -141,11 +141,11 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
             ".talk revived widget dialogue: {error}"
         );
     }
-    if let Err(error) = add_battery_dialogue(&root) {
-        crate::report_error!("talk_migration_battery", ".talk battery dialogue: {error}");
-    }
     if let Err(error) = add_touch_milestone_dialogue(&root) {
         crate::report_error!("talk_migration_touch_milestone", ".talk touch milestone dialogue: {error}");
+    }
+    if let Err(error) = add_battery_dialogue(&root) {
+        crate::report_error!("talk_migration_battery", ".talk battery dialogue: {error}");
     }
     migrate_encryption(&root);
     Ok(root)
@@ -1434,6 +1434,28 @@ mod byulkkori_replacement_tests {
 
     fn source(path: &Path) -> String {
         super::super::encryption::decode(&fs::read(path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn old_factory_index_receives_milestones_before_battery_reactions() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = initialize_files(directory.path()).unwrap();
+        let pack = root.join("packs/byulkkori");
+        let entry = pack.join("index.talk");
+        let device = pack.join("widgets/device.talk");
+        let old_device = source(&device).split("\nscene: ")
+            .filter(|part| !part.starts_with("device.event-"))
+            .collect::<Vec<_>>().join("\nscene: ");
+        fs::write(&device, old_device).unwrap();
+        fs::write(&entry, include_str!("../../content/previous-byulkkori-index-v5.talk")).unwrap();
+        fs::remove_file(pack.join("widgets/interaction-milestone.talk")).unwrap();
+        fs::remove_file(directory.path().join(".talk-byulkkori-touch-milestone-v1")).unwrap();
+        fs::remove_file(directory.path().join(".talk-byulkkori-battery-v1")).unwrap();
+        initialize_files(directory.path()).unwrap();
+        let program = super::super::load_pack(&entry, &super::super::context::registry(), "byulkkori").unwrap();
+        for id in ["interaction.milestone-1", "device.event-low", "device.event-critical", "device.event-charging-started", "device.event-charged"] {
+            assert!(program.scenes.iter().any(|scene| scene.id == id), "missing {id}");
+        }
     }
 
     #[test]
