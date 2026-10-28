@@ -144,6 +144,9 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
     if let Err(error) = add_battery_dialogue(&root) {
         crate::report_error!("talk_migration_battery", ".talk battery dialogue: {error}");
     }
+    if let Err(error) = add_touch_milestone_dialogue(&root) {
+        crate::report_error!("talk_migration_touch_milestone", ".talk touch milestone dialogue: {error}");
+    }
     migrate_encryption(&root);
     Ok(root)
 }
@@ -190,7 +193,63 @@ fn add_revived_widget_dialogue(root: &Path) -> Result<(), String> {
             }
         }
         // The entry goes last: until it imports them, the added files stay inert.
-        super::files::atomic_write(&entry, bundled("index.talk")?.as_bytes())?;
+        super::files::atomic_write(
+            &entry,
+            include_str!("../../content/previous-byulkkori-index-v5.talk").as_bytes(),
+        )?;
+    }
+    super::files::atomic_write(&marker, b"1\n")
+}
+
+fn add_touch_milestone_dialogue(root: &Path) -> Result<(), String> {
+    let marker = app_data_of(root)?.join(".talk-byulkkori-touch-milestone-v1");
+    if marker.try_exists().map_err(|error| error.to_string())? || !root.exists() {
+        return Ok(());
+    }
+    let pack = defaults::pack(defaults::BYULKKORI).ok_or("기본 대본을 찾지 못했어요.")?;
+    let target = root.join(PACKS_DIRECTORY).join(pack.id);
+    let entry = target.join("index.talk");
+    let previous = super::encryption::decode(
+        include_str!("../../content/previous-byulkkori-index-v5.talk").as_bytes(),
+    )?;
+    let current = match fs::read(&entry) {
+        Ok(bytes) => Some(super::encryption::decode(&bytes)?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.to_string()),
+    };
+    let scene = target.join("widgets/interaction-milestone.talk");
+    if current.as_deref() == Some(previous.as_str()) {
+        let program = super::load_pack(&entry, &super::context::registry(), pack.id)
+            .map_err(|errors| serde_json::to_string(&errors).unwrap_or_default())?;
+        if program.scenes.iter().any(|scene| {
+            [1, 10, 100, 500, 1000]
+                .iter()
+                .any(|count| scene.id == format!("interaction.milestone-{count}"))
+        }) {
+            return super::files::atomic_write(&marker, b"1\n");
+        }
+        let bundled = |name: &str| {
+            pack.files
+                .iter()
+                .find(|(path, _)| *path == name)
+                .map(|(_, source)| *source)
+                .ok_or("기본 대본을 찾지 못했어요.")
+        };
+        let source = bundled("widgets/interaction-milestone.talk")?;
+        let ready = match fs::read(&scene) {
+            Ok(bytes) => {
+                super::encryption::decode(&bytes)?
+                    == super::encryption::decode(source.as_bytes())?
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                super::files::atomic_write(&scene, source.as_bytes())?;
+                true
+            }
+            Err(error) => return Err(error.to_string()),
+        };
+        if ready {
+            super::files::atomic_write(&entry, bundled("index.talk")?.as_bytes())?;
+        }
     }
     super::files::atomic_write(&marker, b"1\n")
 }
@@ -1424,6 +1483,7 @@ mod byulkkori_replacement_tests {
                 let _ = fs::remove_file(pack.join(name));
             }
             fs::remove_file(directory.path().join(".talk-byulkkori-revived-widgets-v1")).unwrap();
+            fs::remove_file(directory.path().join(".talk-byulkkori-touch-milestone-v1")).unwrap();
             initialize_files(directory.path()).unwrap();
         };
 
