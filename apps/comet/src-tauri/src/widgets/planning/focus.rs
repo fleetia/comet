@@ -39,6 +39,23 @@ struct Timer {
     completed_focus_pending: bool,
     #[serde(default)]
     app_usage_target: Option<crate::widgets::AppUsageTarget>,
+    #[serde(default)]
+    queue: Vec<QueueItem>,
+    #[serde(default)]
+    cycle: u64,
+    #[serde(default)]
+    rest_kind: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QueueItem {
+    id: String,
+    todo_id: Option<String>,
+    title: String,
+    focus_duration_ms: i64,
+    event_ref: Option<EventReference>,
+    note_ref: Option<NoteReference>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -75,6 +92,12 @@ struct Settings {
     linked_event_lead_minutes: Option<i64>,
     #[serde(default = "enabled")]
     record_timeline: bool,
+    #[serde(default)]
+    continuous: bool,
+    #[serde(default = "long_rest_every")]
+    long_rest_every: u8,
+    #[serde(default = "long_rest_duration")]
+    long_rest_duration_ms: i64,
 }
 
 impl Default for Settings {
@@ -86,6 +109,9 @@ impl Default for Settings {
             finish_sound_enabled: false,
             linked_event_lead_minutes: None,
             record_timeline: true,
+            continuous: false,
+            long_rest_every: long_rest_every(),
+            long_rest_duration_ms: long_rest_duration(),
         }
     }
 }
@@ -158,6 +184,14 @@ fn rest_duration() -> i64 {
     300000
 }
 
+fn long_rest_every() -> u8 {
+    4
+}
+
+fn long_rest_duration() -> i64 {
+    900000
+}
+
 fn presentation() -> String {
     "dial".into()
 }
@@ -170,9 +204,11 @@ pub(super) fn initial() -> Value {
         "noteRef":null, "memo":"", "settings":{
             "restDurationMs":rest_duration(), "autoStartRest":true,
             "finishNotification":"both", "finishSoundEnabled":true,
-            "linkedEventLeadMinutes":5, "recordTimeline":true
+            "linkedEventLeadMinutes":5, "recordTimeline":true,
+            "continuous":false, "longRestEvery":long_rest_every(),
+            "longRestDurationMs":long_rest_duration()
         }, "completedFocusPending":false,
-        "sessions":[], "activeSession":null
+        "sessions":[], "activeSession":null, "queue":[], "cycle":0, "restKind":null
     })
 }
 
@@ -431,34 +467,101 @@ fn save_session(state: &mut Timer, now: i64, outcome: &str) {
     });
 }
 
-fn finish(mut state: Timer, now: i64, allow_auto_rest: bool) -> Result<WidgetEffect, String> {
+fn start_queued(
+    state: &mut Timer,
+    related: &BTreeMap<String, Value>,
+    now: i64,
+) -> Result<(), String> {
+    let item = state.queue.remove(0);
+    let todo_exists = item.todo_id.as_ref().is_some_and(|id| {
+        related
+            .get("todo")
+            .and_then(|data| data["items"].as_array())
+            .is_some_and(|items| items.iter().any(|todo| todo["id"] == *id))
+    });
+    state.todo_id = if todo_exists { item.todo_id } else { None };
+    state.title = item.title;
+    state.event_ref = item.event_ref;
+    state.note_ref = item.note_ref;
+    state.memo.clear();
+    state.app_usage_target = None;
+    state.focus_duration_ms = Some(item.focus_duration_ms);
+    state.duration_ms = item.focus_duration_ms;
+    state.remaining_ms = item.focus_duration_ms;
+    state.deadline = Some(
+        now.checked_add(item.focus_duration_ms)
+            .ok_or("시각 범위를 벗어났습니다.")?,
+    );
+    state.status = "running".into();
+    state.mode = "focus".into();
+    state.rest_kind = None;
+    state.completed_focus_pending = false;
+    state.active_session = Some(new_session(state, now, true));
+    Ok(())
+}
+
+fn finish(
+    mut state: Timer,
+    now: i64,
+    allow_auto_rest: bool,
+    related: &BTreeMap<String, Value>,
+) -> Result<WidgetEffect, String> {
     let finished_at = state.deadline.unwrap_or(now);
+    let finished_mode = state.mode.clone();
+    let finished_todo = state.todo_id.clone();
+    let finished_rest_kind = state.rest_kind.clone();
     save_session(&mut state, now, "completed");
     state.status = "finished".into();
     state.deadline = None;
     state.remaining_ms = 0;
+    if finished_mode == "focus" {
+        state.cycle = state.cycle.saturating_add(1);
+    }
+    let completed_cycle = state.cycle;
+    let start_rest = finished_mode == "focus" && state.settings.auto_start_rest && allow_auto_rest;
+    let is_long =
+        start_rest && state.cycle % u64::from(state.settings.long_rest_every.clamp(2, 8)) == 0;
+    let start_next = finished_mode == "rest"
+        && state.settings.continuous
+        && allow_auto_rest
+        && !state.queue.is_empty();
+    let next_title = start_next.then(|| state.queue[0].title.clone());
+    let text = if let Some(title) = &next_title {
+        format!("쉬는 시간 끝! 이제 '{}' 집중할게요.", title)
+    } else if finished_mode == "rest" {
+        "쉬는 시간이 끝났어요.".into()
+    } else if is_long {
+        format!("{}번 집중했어요. 길게 쉬어요.", completed_cycle)
+    } else if start_rest {
+        "집중 시간이 끝났어요. 쉬는 시간을 시작했어요.".into()
+    } else {
+        "집중 시간이 끝났어요. 계속할지 쉴지 골라 주세요.".into()
+    };
     let event = EventDraft {
         kind: "timer-finished".into(),
-        text: if state.mode == "rest" {
-            "쉬는 시간이 끝났어요."
-        } else if state.settings.auto_start_rest && allow_auto_rest {
-            "집중 시간이 끝났어요. 쉬는 시간을 시작했어요."
-        } else {
-            "집중 시간이 끝났어요. 계속할지 쉴지 골라 주세요."
-        }
-        .into(),
-        payload: json!({"todoId":state.todo_id,"mode":state.mode, "bubbleEnabled":state.settings.finish_notification != "os", "finishedAt":finished_at}),
+        text,
+        payload: json!({"todoId":finished_todo,"mode":finished_mode, "bubbleEnabled":state.settings.finish_notification != "os", "finishedAt":finished_at, "cycle":completed_cycle, "restKind":if start_rest { Some(if is_long { "long" } else { "short" }) } else { finished_rest_kind.as_deref() }, "nextTitle":next_title}),
     };
-    if state.mode == "focus" && state.settings.auto_start_rest && allow_auto_rest {
+    if start_rest {
         state.mode = "rest".into();
         state.status = "running".into();
-        state.duration_ms = state.settings.rest_duration_ms;
-        state.remaining_ms = state.settings.rest_duration_ms;
+        state.rest_kind = Some(if is_long { "long" } else { "short" }.into());
+        if is_long {
+            state.cycle = 0;
+        }
+        state.duration_ms = if is_long {
+            state.settings.long_rest_duration_ms
+        } else {
+            state.settings.rest_duration_ms
+        };
+        state.remaining_ms = state.duration_ms;
         state.deadline = Some(
             now.checked_add(state.duration_ms)
                 .ok_or("시각 범위를 벗어났습니다.")?,
         );
         state.completed_focus_pending = true;
+    } else if start_next {
+        start_queued(&mut state, related, now)?;
     } else {
         state.completed_focus_pending = false;
     }
@@ -531,6 +634,13 @@ pub(super) fn act(
                 &json!({"durationMs":settings.rest_duration_ms}),
                 rest_duration(),
             )?;
+            duration(
+                &json!({"durationMs":settings.long_rest_duration_ms}),
+                long_rest_duration(),
+            )?;
+            if !(2..=8).contains(&settings.long_rest_every) {
+                return Err("긴 휴식 주기는 2회부터 8회까지 설정할 수 있습니다.".into());
+            }
             if !matches!(
                 settings.finish_notification.as_str(),
                 "bubble" | "os" | "both"
@@ -542,6 +652,83 @@ pub(super) fn act(
             }
             state.settings = settings;
         }
+        "queue-add" => {
+            if state.queue.len() >= 8 {
+                return Err("다음 집중은 8개까지 추가할 수 있습니다.".into());
+            }
+            let title = text(input, "title", 500)?;
+            let focus_duration_ms = duration(
+                &json!({"durationMs": input.get("focusDurationMs").cloned().unwrap_or(json!(state.focus_duration_ms.unwrap_or(state.duration_ms)))}),
+                1500000,
+            )?;
+            let todo_id = match input.get("todoId") {
+                None | Some(Value::Null) => None,
+                Some(_) => {
+                    let id = text(input, "todoId", 200)?;
+                    let todo: TodoState =
+                        decode(related.get("todo").ok_or("할 일 위젯을 켜 주세요.")?)?;
+                    if !todo
+                        .items
+                        .iter()
+                        .any(|item| item.id == id && item.completed_at.is_none())
+                    {
+                        return Err("항목을 찾을 수 없습니다.".into());
+                    }
+                    Some(id)
+                }
+            };
+            let event_ref = match input.get("eventRef") {
+                None | Some(Value::Null) => None,
+                Some(value) => Some(event_reference(value, related)?),
+            };
+            let note_ref = match input.get("noteRef") {
+                None | Some(Value::Null) => None,
+                Some(value) => Some(note_reference(value, related)?),
+            };
+            state.queue.push(QueueItem {
+                id: uuid::Uuid::new_v4().to_string(),
+                todo_id,
+                title,
+                focus_duration_ms,
+                event_ref,
+                note_ref,
+            });
+        }
+        "queue-remove" => {
+            let id = text(input, "id", 200)?;
+            let index = state
+                .queue
+                .iter()
+                .position(|item| item.id == id)
+                .ok_or("항목을 찾을 수 없습니다.")?;
+            state.queue.remove(index);
+        }
+        "queue-move" => {
+            let id = text(input, "id", 200)?;
+            let from = state
+                .queue
+                .iter()
+                .position(|item| item.id == id)
+                .ok_or("항목을 찾을 수 없습니다.")?;
+            let to = if input.get("targetId").is_some() {
+                let target = text(input, "targetId", 200)?;
+                state
+                    .queue
+                    .iter()
+                    .position(|item| item.id == target)
+                    .ok_or("항목을 찾을 수 없습니다.")?
+            } else {
+                match input["direction"].as_str() {
+                    Some("up") => from.saturating_sub(1),
+                    Some("down") => (from + 1).min(state.queue.len() - 1),
+                    _ => return Err("이동할 방향을 선택해 주세요.".into()),
+                }
+            };
+            let item = state.queue.remove(from);
+            state.queue.insert(to, item);
+        }
+        "queue-clear" => state.queue.clear(),
+        "reset-cycle" => state.cycle = 0,
         "update-memo" => update_memo(&mut state, input)?,
         "update-session-memo" => {
             let id = text(input, "id", 200)?;
@@ -582,7 +769,22 @@ pub(super) fn act(
             if action != "start" && input.get("memo").is_some() {
                 update_memo(&mut state, input)?;
             }
-            let fallback = if action == "rest" {
+            if action == "continue" && !state.queue.is_empty() {
+                start_queued(&mut state, related, now)?;
+                return encode(state, vec![]);
+            }
+            let rest_kind = if action == "rest" {
+                match input.get("kind").and_then(Value::as_str).unwrap_or("short") {
+                    "short" => "short",
+                    "long" => "long",
+                    _ => return Err("휴식 종류가 올바르지 않습니다.".into()),
+                }
+            } else {
+                "short"
+            };
+            let fallback = if action == "rest" && rest_kind == "long" {
+                state.settings.long_rest_duration_ms
+            } else if action == "rest" {
                 state.settings.rest_duration_ms
             } else {
                 state.focus_duration_ms.unwrap_or(state.duration_ms)
@@ -608,6 +810,21 @@ pub(super) fn act(
             state.deadline = Some(now.checked_add(value).ok_or("시각 범위를 벗어났습니다.")?);
             state.status = "running".into();
             state.mode = if action == "rest" { "rest" } else { "focus" }.into();
+            state.rest_kind = (action == "rest").then(|| rest_kind.into());
+            if action == "rest" && rest_kind == "long" {
+                let cycle = state.cycle;
+                state.cycle = 0;
+                state.active_session = None;
+                let bubble_enabled = state.settings.finish_notification != "os";
+                return encode(
+                    state,
+                    vec![EventDraft {
+                        kind: "focus-long-rest-started".into(),
+                        text: format!("{}번 집중했어요. 길게 쉬어요.", cycle),
+                        payload: json!({"cycle":cycle, "bubbleEnabled":bubble_enabled}),
+                    }],
+                );
+            }
             state.active_session = if action == "rest" {
                 None
             } else {
@@ -625,7 +842,7 @@ pub(super) fn act(
                 .max(0)
                 .min(state.remaining_ms);
             if remaining == 0 {
-                return finish(state, now, true);
+                return finish(state, now, true, related);
             }
             close_segment(&mut state, now);
             state.remaining_ms = remaining;
@@ -670,6 +887,7 @@ pub(super) fn act(
                 state.duration_ms
             });
             state.mode = "focus".into();
+            state.rest_kind = None;
             state.remaining_ms = state.duration_ms;
         }
         _ => return Err("지원하지 않는 타이머 동작입니다.".into()),
@@ -678,10 +896,18 @@ pub(super) fn act(
 }
 
 pub(super) fn tick(data: &Value, now: i64) -> Result<Option<WidgetEffect>, String> {
+    tick_with_related(data, now, &BTreeMap::new())
+}
+
+pub(super) fn tick_with_related(
+    data: &Value,
+    now: i64,
+    related: &BTreeMap<String, Value>,
+) -> Result<Option<WidgetEffect>, String> {
     let mut state: Timer = decode(data)?;
     let migrated = migrate_active(&mut state, now);
     if state.status == "running" && state.deadline.is_some_and(|deadline| deadline <= now) {
-        return finish(state, now, true).map(Some);
+        return finish(state, now, true, related).map(Some);
     }
     if migrated {
         return encode(state, vec![]).map(Some);
@@ -702,7 +928,7 @@ pub(super) fn suspend(data: &Value, now: i64, restarting: bool) -> Result<Value,
         .max(0)
         .min(state.remaining_ms);
     if remaining == 0 {
-        return finish(state, now, false).map(|effect| effect.data);
+        return finish(state, now, false, &BTreeMap::new()).map(|effect| effect.data);
     }
     state.remaining_ms = remaining;
     if !restarting {

@@ -1337,6 +1337,14 @@ pub fn tick(kind: &str, data: &Value, now: i64) -> Result<Option<WidgetEffect>, 
     focus::tick(data, now)
 }
 
+pub(super) fn tick_timer(
+    data: &Value,
+    now: i64,
+    related: &BTreeMap<String, Value>,
+) -> Result<Option<WidgetEffect>, String> {
+    focus::tick_with_related(data, now, related)
+}
+
 pub(super) fn suspend_timer(data: &Value, now: i64, restarting: bool) -> Result<Value, String> {
     focus::suspend(data, now, restarting)
 }

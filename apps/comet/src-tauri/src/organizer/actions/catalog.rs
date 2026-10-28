@@ -78,10 +78,12 @@ pub(super) const DEFINITIONS: &[Definition] = &[
     definition!("anniversary_add","clock","add","anniversaries","write",false,true,false,"title,date,countMode,repeat,celebrate","title,date","기념일 등록. countMode remaining/elapsed/anniversary, repeat none/yearly."),
     definition!("anniversary_update","clock","update","anniversaries","write",false,true,true,"title,date,countMode,repeat,celebrate","","기존 기념일 수정."),
     definition!("focus_query","focus-timer","","","read",false,false,false,"","","집중 타이머의 현재 상태와 최근 세션 조회."),
+    definition!("focus_queue_list","focus-timer","","queue","read",false,false,false,"","","다음 집중 대기 목록을 순서대로 조회."),
+    definition!("focus_queue_add","focus-timer","queue-add","queue","write",false,false,false,"title,todoId,minutes","title","다음 집중 대기 목록에 항목을 추가. 명시적으로 부탁한 경우만 실행하며 minutes를 생략하면 현재 집중 길이 사용."),
     definition!("focus_start","focus-timer","start","","control",false,false,false,"durationMs,title,todoId","","집중 타이머 시작. durationMs는 밀리초. todoId를 지정하면 해당 할 일로 새 맥락을 시작하며 이전 메모·일정·노트 연결을 비운다. title을 생략하면 할 일 제목을 쓴다."),
     definition!("focus_pause","focus-timer","pause","","control",false,false,false,"","","실행 중인 집중 타이머 일시정지."),
     definition!("focus_resume","focus-timer","resume","","control",false,false,false,"","","일시정지한 집중 타이머 재개."),
-    definition!("focus_cancel","focus-timer","cancel","","control",false,false,false,"","","집중 타이머 종료. 진행 시간은 기존 규칙으로 기록."),
+    definition!("focus_cancel","focus-timer","cancel","","control",false,false,false,"","","집중 타이머 취소. 진행 중인 집중은 기록하지 않고 대기 목록과 회차는 유지."),
     definition!("focus_rest","focus-timer","rest","","control",false,false,false,"durationMs","","완료한 집중 타이머에서 휴식 시작."),
     definition!("weather_query","weather","","","read",false,false,false,"","","설정한 지역의 마지막 날씨 관측 조회. observedAt과 오류를 확인하고 현재 날씨로 단정하지 않는다."),
     definition!("music_query","music","","","read",false,false,false,"","","현재 연결에서 마지막으로 관측한 음악 정보 조회. 재생 제어·연결 설정은 제공하지 않음."),
@@ -181,6 +183,9 @@ fn property(kind: &str, field: &str) -> Value {
             json!({"type":"integer","minimum":0,"maximum":1440,"multipleOf":10})
         }
         "durationMs" => json!({"type":"integer","minimum":1000,"maximum":86_400_000}),
+        "minutes" if kind == "focus_queue_add" => {
+            json!({"type":"integer","minimum":1,"maximum":1440})
+        }
         "dueAt" | "startAt" | "endAt" => json!({"type":["integer","null"]}),
         "allDay" | "archived" | "celebrate" => json!({"type":"boolean"}),
         "weekdays" => {

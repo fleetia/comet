@@ -145,6 +145,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
     toggleTask,
     undoCompletion,
     focusTask,
+    queueTask,
     focusEnvelope,
   } = useDiaryTasks({
     actions,
@@ -415,6 +416,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
     onToggleTask: (item) => void toggleTask(item),
     onEditTask: setEditing,
     onFocusTask: (item) => void focusTask(item),
+    onQueueTask: (item) => void queueTask(item),
     onMoveTask: planTask,
     onOpenEnvelope: openEnvelope,
     onCreatePage: createPage,
