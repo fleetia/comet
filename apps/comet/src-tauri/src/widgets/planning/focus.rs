@@ -477,7 +477,9 @@ fn start_queued(
         related
             .get("todo")
             .and_then(|data| data["items"].as_array())
-            .is_some_and(|items| items.iter().any(|todo| todo["id"] == *id))
+            .is_some_and(|items| {
+                items.iter().any(|todo| todo["id"] == *id && todo["completedAt"].is_null())
+            })
     });
     state.todo_id = if todo_exists { item.todo_id } else { None };
     state.title = item.title;

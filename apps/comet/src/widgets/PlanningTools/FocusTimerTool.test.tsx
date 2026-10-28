@@ -667,3 +667,29 @@ it("submits the completion memo and transition atomically while retaining reject
   await click("오늘은 여기까지");
   expect(action).toHaveBeenLastCalledWith("cancel", { memo: "다음 단계", expectedMemo: "" });
 });
+
+it("starts a queued focus with an empty memo after saving the completed session", async () => {
+  const timer = widget("focus-timer", {
+    status: "finished", mode: "focus", durationMs: 1500000, remainingMs: 0,
+    memo: "", queue: [{ id: "next", title: "다음 집중", focusDurationMs: 1500000 }],
+    sessions: [{ id: "previous", title: "이전 집중", startedAt: Date.now() - 1500000,
+      endedAt: Date.now(), elapsedMs: 1500000, memo: "", segments: [] }],
+  });
+  const view = render(<TimerTool widget={timer} widgets={[]} act={action} />);
+  fireEvent.change(screen.getByLabelText("완료한 집중 메모"), { target: { value: "마친 메모" } });
+  await click("계속 집중");
+  expect(action).toHaveBeenCalledWith("continue", { memo: "마친 메모", expectedMemo: "" });
+  view.rerender(<TimerTool widget={{ ...timer, revision: 2, data: {
+    ...(timer.data as DataRecord), status: "running", memo: "", queue: [],
+    title: "다음 집중", deadline: Date.now() + 1500000, remainingMs: 1500000,
+    activeSession: { id: "next-session" },
+    sessions: [{ id: "previous", title: "이전 집중", startedAt: Date.now() - 1500000,
+      endedAt: Date.now(), elapsedMs: 1500000, memo: "마친 메모", segments: [] }],
+  } }} widgets={[]} act={action} />);
+  await click("노트", "radio");
+  const memo = screen.getByLabelText("이번 집중 메모");
+  expect(memo).toHaveProperty("value", "");
+  fireEvent.change(memo, { target: { value: "새 집중 메모" } });
+  await reactAct(async () => fireEvent.blur(memo));
+  expect(action).toHaveBeenLastCalledWith("update-memo", { memo: "새 집중 메모", expectedMemo: "" });
+});

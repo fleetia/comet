@@ -16,6 +16,38 @@ fn reject(data: &Value, action: &str, input: Value, now: i64) {
 }
 
 #[test]
+fn queued_focus_links_only_todos_that_are_still_incomplete() {
+    for completed_at in [Value::Null, json!(1500), json!("missing")] {
+        for automatic in [false, true] {
+            let mut data = initial();
+            data["queue"] = json!([{
+                "id":"queued", "todoId":"todo-1", "title":"계속할 일",
+                "focusDurationMs":1000, "eventRef":null, "noteRef":null
+            }]);
+            let mut related = BTreeMap::new();
+            if completed_at != "missing" {
+                related.insert("todo".into(), json!({"items":[{"id":"todo-1","completedAt":completed_at}]}));
+            }
+            let started = if automatic {
+                data["status"] = json!("running");
+                data["mode"] = json!("rest");
+                data["deadline"] = json!(2000);
+                data["settings"]["continuous"] = json!(true);
+                tick_with_related(&data, 2000, &related).unwrap().unwrap()
+            } else {
+                data["status"] = json!("finished");
+                act(&data, "continue", &json!({}), &related, 2000).unwrap()
+            };
+            let expected = if completed_at.is_null() { json!("todo-1") } else { Value::Null };
+            assert_eq!(started.data["todoId"], expected, "automatic={automatic}");
+            assert_eq!(started.data["activeSession"]["todoId"], expected, "automatic={automatic}");
+            assert_eq!(started.data["activeSession"]["title"], "계속할 일");
+            assert!(started.data["queue"].as_array().unwrap().is_empty());
+        }
+    }
+}
+
+#[test]
 fn session_memo_conflicts_preserve_the_latest_saved_value() {
     let started = run(&manual_timer(), "start", json!({"durationMs":1000}), 1000);
     let edited = run(

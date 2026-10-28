@@ -497,9 +497,14 @@ export function TimerTool({
       if (previousMemoPending) {
         await act(action, input);
       } else if (draft.memo !== memoBase) {
-        if (await act(action, { ...input, memo: draft.memo, expectedMemo: memoBase }))
-          setMemoBase(draft.memo);
-        else setError("메모와 타이머 변경을 저장하지 못했어요. 입력한 초안은 남아 있어요.");
+        if (await act(action, { ...input, memo: draft.memo, expectedMemo: memoBase })) {
+          if (action === "continue" && rows(data.queue).length > 0 && latestDraft.current.memo === draft.memo) {
+            setDraft((current) => ({ ...current, memo: "" }));
+            setMemoBase("");
+          } else {
+            setMemoBase(draft.memo);
+          }
+        } else setError("메모와 타이머 변경을 저장하지 못했어요. 입력한 초안은 남아 있어요.");
       } else {
         await act(action, input);
       }
