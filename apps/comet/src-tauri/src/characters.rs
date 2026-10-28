@@ -1404,6 +1404,7 @@ pub fn resolve_lines(conn: &Connection, lines: &[SceneLine]) -> Result<Vec<Scene
                 persona: owner.id,
                 expression: line.expression.clone(),
                 text: line.text.clone(),
+                widget: line.widget.clone(),
                 motion: line.motion.clone(),
             })
         })

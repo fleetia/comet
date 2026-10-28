@@ -23,6 +23,7 @@ fn fixture(npc: bool) -> (AppState, Vec<String>) {
             persona: center.clone(),
             expression: "평온".into(),
             text: text.into(),
+            widget: None,
             motion: Default::default(),
         };
         pack.story_flags = vec![pack_stories::StoryFlag {
@@ -219,6 +220,7 @@ fn automatic_pause_cancels_previous_run_but_new_manual_story_can_finish() {
                     persona: "a".into(),
                     expression: "평온".into(),
                     text: "수동 등록 응답이야.".into(),
+                    widget: None,
                     motion: Default::default(),
                 }],
                 enabled: true,
@@ -373,6 +375,7 @@ fn registered_inputs_count_three_turns_without_consuming_branch_or_reselecting_r
                 persona: "a".into(),
                 expression: "평온".into(),
                 text: "  등록 응답\n그대로  ".into(),
+                widget: None,
                 motion: Default::default(),
             }],
             enabled: true,
@@ -804,6 +807,7 @@ fn new_inputs_freeze_one_bundle_for_one_to_eight_and_stage_all_raw_lines_atomica
                 persona: id.clone(),
                 expression: "평온".into(),
                 text: format!("  대사 {index}\n원문 그대로  "),
+                widget: None,
                 motion: Default::default(),
             })
             .collect::<Vec<_>>();
@@ -928,6 +932,7 @@ fn staged_guest_bundle_links_to_resident_session_and_prompt_contains_only_heard_
             persona: id.clone(),
             expression: "평온".into(),
             text: "UNSHOWN-BUNDLE-LINE".into(),
+            widget: None,
             motion: Default::default(),
         })
         .collect::<Vec<_>>();
@@ -990,6 +995,7 @@ fn npc_registered_keyword_selection_preserves_absent_speaker_error_and_deleted_o
             persona: "b".into(),
             expression: "평온".into(),
             text: "  NPC 원문\n그대로  ".into(),
+            widget: None,
             motion: Default::default(),
         }],
         enabled: true,
@@ -1093,6 +1099,7 @@ fn registered_pack_keyword_ties_keep_first_pack_registration_even_when_speaker_i
                     "second-present"
                 }
                 .into(),
+                widget: None,
                 motion: Default::default(),
             }],
             enabled: true,
@@ -1132,12 +1139,14 @@ fn registered_pair_scene_requires_explicit_named_allowed_actors_and_preserves_or
             persona: "b".into(),
             expression: "평온".into(),
             text: "  먼저 말하는 손님  ".into(),
+            widget: None,
             motion: Default::default(),
         },
         SceneLine {
             persona: "a".into(),
             expression: "평온".into(),
             text: "  뒤에 답하는 중심\n원문  ".into(),
+            widget: None,
             motion: Default::default(),
         },
     ];
@@ -1220,6 +1229,7 @@ fn registered_resident_line_keeps_valid_waiting_npc_as_listener_without_changing
                 persona: "a".into(),
                 expression: "평온".into(),
                 text: "나만 말하는 등록 원문".into(),
+                widget: None,
                 motion: Default::default(),
             }],
             enabled: true,
@@ -1344,6 +1354,7 @@ fn standalone_entry_exact_cancellation_leaves_guest_quietly_after_registered_pri
                         persona: "a".into(),
                         expression: "평온".into(),
                         text: "등록 원문이 우선이야.".into(),
+                        widget: None,
                         motion: Default::default(),
                     }],
                     enabled: true,

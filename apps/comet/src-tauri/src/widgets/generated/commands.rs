@@ -427,7 +427,7 @@ pub(crate) async fn generate_widget(
             app::phase(&worker_app, &owner, epoch, RuntimePhase::Idle, None, None);
             if let Ok(widget) = &result {
                 publish(&worker_app);
-                let _ = open_generated_at(&worker_app, &owner, &widget.id, Some(epoch));
+                let _ = open_generated_at(&worker_app, &owner, &widget.id, Some(epoch), None);
             }
             if let Ok(db) = lock(&owner.db) {
                 let _ = clear_binding(&db, epoch);
@@ -518,7 +518,10 @@ async fn generate_definition(
                 )
                 .is_err()
                 {
-                    crate::report_error!("widget_context_record", "Widget context recording deferred");
+                    crate::report_error!(
+                        "widget_context_record",
+                        "Widget context recording deferred"
+                    );
                 }
                 return Ok(widget);
             }
@@ -762,7 +765,10 @@ fn finish_registered_action(
         let receipt = generated::actions::commit(db, request, before, output.state, output.view)?;
         if let Ok(current) = generated::get(db, &request.widget_id) {
             if observe_generated_state(state, db, &current).is_err() {
-                crate::report_error!("widget_reaction_refresh", "Saved generated widget action; reaction refresh deferred");
+                crate::report_error!(
+                    "widget_reaction_refresh",
+                    "Saved generated widget action; reaction refresh deferred"
+                );
             }
         }
         Ok(receipt)
@@ -939,7 +945,16 @@ pub(crate) async fn open_generated_widget(
 }
 
 fn open_generated_inner(app: &tauri::AppHandle, state: &AppState, id: &str) -> Result<()> {
-    open_generated_at(app, state, id, None)
+    open_generated_at(app, state, id, None, None)
+}
+
+pub(crate) fn open_generated_for_playback(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    id: &str,
+    playback: &str,
+) -> Result<()> {
+    open_generated_at(app, state, id, None, Some(playback))
 }
 
 fn open_generated_at(
@@ -947,12 +962,16 @@ fn open_generated_at(
     state: &AppState,
     id: &str,
     epoch: Option<u64>,
+    playback: Option<&str>,
 ) -> Result<()> {
-    let widget =
-        crate::widgets::commands::change(state, |db| validate_open(state, db, id, None, epoch))?;
+    let widget = crate::widgets::commands::change(state, |db| {
+        crate::widgets::commands::validate_playback_open(state, playback)?;
+        validate_open(state, db, id, None, epoch)
+    })?;
     let label = format!("generated-widget-{id}");
     if let Some(window) = app.get_webview_window(&label) {
         return crate::widgets::commands::change(state, |db| {
+            crate::widgets::commands::validate_playback_open(state, playback)?;
             validate_open(state, db, id, Some(widget.revision), epoch)?;
             window.show().map_err(|e| e.to_string())?;
             window.set_focus().map_err(|e| e.to_string())
@@ -974,6 +993,7 @@ fn open_generated_at(
     .map_err(|e| e.to_string())?;
     generated::execution::bind_ui_window(&window);
     let result = crate::widgets::commands::change(state, |db| {
+        crate::widgets::commands::validate_playback_open(state, playback)?;
         validate_open(state, db, id, Some(widget.revision), epoch)?;
         window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())
@@ -1397,6 +1417,7 @@ fn reaction_line(
         persona: character.id.clone(),
         expression,
         text: pending.text.clone(),
+        widget: None,
         motion,
     })
 }
@@ -1584,7 +1605,7 @@ pub(crate) async fn maybe_create(
     let widget =
         generate_definition(state, settings, request, None, None, epoch, cancel, true).await?;
     publish(app);
-    open_generated_at(app, state, &widget.id, Some(epoch))?;
+    open_generated_at(app, state, &widget.id, Some(epoch), None)?;
     Ok(true)
     }.await;
     {
