@@ -301,7 +301,11 @@ pub(crate) fn device_events(previous: &Value, next: &mut Value) -> Vec<EventDraf
             }
             if (status == "charged" || percent == Some(100)) && !latches.charged {
                 latches.charged = true;
-                emit("device.charged", "배터리가 다 충전됐어요.");
+                if previous_status.as_deref() == Some("charging")
+                    && battery(previous).and_then(|item| item["percent"].as_u64()) != Some(100)
+                {
+                    emit("device.charged", "배터리가 다 충전됐어요.");
+                }
             }
         }
         _ => return vec![],
@@ -949,6 +953,23 @@ mod tests {
             json!({"results":[{"id":1,"name":"Bad","latitude":200,"longitude":0}]})
         )
         .is_err());
+    }
+
+    #[test]
+    fn charged_event_requires_an_observed_charging_transition() {
+        let observation = |status: &str, percent: u32| json!({
+            "config": {}, "observation": {"batteries": [{"status": status, "percent": percent}]}
+        });
+        let mut full = observation("charged", 100);
+        assert!(device_events(&Value::Null, &mut full).is_empty());
+        let mut again = observation("charged", 100);
+        assert!(device_events(&full, &mut again).is_empty());
+        let mut legacy_full = observation("charged", 100);
+        assert!(device_events(&observation("charging", 100), &mut legacy_full).is_empty());
+        let mut completed = observation("charged", 100);
+        let events = device_events(&observation("charging", 99), &mut completed);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "device.charged");
     }
 
     #[test]
