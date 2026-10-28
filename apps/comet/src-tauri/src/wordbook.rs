@@ -165,6 +165,7 @@ mod tests {
             title: "예시".into(),
             keywords: vec![keyword.into()],
             lines: vec![SceneLine {
+                widget: None,
                 motion: Default::default(),
                 persona: "a".into(),
                 expression: "평온".into(),
@@ -385,6 +386,7 @@ mod tests {
             persona: "a".into(),
             expression: "기쁨".into(),
             text: "\n  두 번째도 같은 화자  \n".into(),
+            widget: None,
             motion: Default::default(),
         });
         let mut disabled = entry("hello world");

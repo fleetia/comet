@@ -31,6 +31,7 @@ import {
 import { aiAvailability, responseOrigin } from "./conversationStatus";
 import { draftPreview } from "./ConversationHistory";
 import { useHistoryScroll, type HistoryReadingPosition } from "./useHistoryScroll";
+import { usePlaybackLinkRequests } from "./playbackLinkNavigation";
 import { useFollowUpChoice } from "./useFollowUpChoice";
 import * as s from "./conversationHistoryWindow.css";
 
@@ -309,6 +310,25 @@ export function ConversationHistoryWindow({
     clearTimeout(saveTimer.current);
     await persistDraft();
   }
+  usePlaybackLinkRequests(!preview, async (request) => {
+    const matches = (): boolean => current.current.panel?.mode === "history-input" &&
+      current.current.user?.id === request.userId &&
+      current.current.conversation?.session.id === request.sessionId &&
+      current.current.playback?.id === request.playbackId && owner.current === request.sessionId;
+    if (operation.current || composing.current || !matches()) throw new Error("대화 입력 위치가 바뀌었어요. 다시 눌러 주세요.");
+    operation.current = true;
+    closing.current = true;
+    setPending(true);
+    try {
+      await flushDraft();
+      if (!matches() || Date.now() >= request.expiresAt) throw new Error("대화 입력 위치가 바뀌었어요. 다시 눌러 주세요.");
+      await command("open_playback_link", { playbackId: request.playbackId });
+    } finally {
+      closing.current = false;
+      operation.current = false;
+      if (alive.current) setPending(false);
+    }
+  });
   function showSelection(session: ConversationSession | null): void {
     if (selectedRef.current?.id !== session?.id) {
       const previousId = selectedRef.current?.id;
@@ -1512,7 +1532,7 @@ export function ConversationHistoryWindow({
                   value={input}
                   inputRef={textarea}
                   sending={sending}
-                  disabled={!editable}
+                  disabled={!editable || closing.current}
                   sendDisabled={busy || pending}
                   disableInputWhileSending={false}
                   onValueChange={(value) => {
