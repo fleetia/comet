@@ -1621,7 +1621,7 @@ mod tests {
             begin_information(&state, &id, false, 100_000)
                 .err()
                 .unwrap(),
-            "정보 연결 위젯이 아닙니다."
+            "조회할 정보 연결을 먼저 설정해 주세요."
         );
     }
 
@@ -1702,7 +1702,7 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error.status, "permission-needed");
-        assert_eq!(error.message, "기기 조회 설정을 다시 확인해 주세요.");
+        assert_eq!(error.message, "기기 조회 설정이 올바르지 않아요.");
     }
 
     #[cfg(target_os = "linux")]
