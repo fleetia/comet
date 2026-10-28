@@ -66,7 +66,10 @@ fn install_macos_menu(app: &tauri::AppHandle) -> Result<(), String> {
                 .find(|window| window.is_focused().unwrap_or(false))
             {
                 if let Err(error) = window.close() {
-                    crate::report_error!("menu_window_close", "App menu window close failed: {error}");
+                    crate::report_error!(
+                        "menu_window_close",
+                        "App menu window close failed: {error}"
+                    );
                 }
             }
             return;
@@ -112,7 +115,11 @@ fn menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
         let item = MenuItem::with_id(
             app,
             format!("widget:{}", instance.id),
-            manifest.name,
+            if instance.kind == "image" {
+                "이미지 띄우기".into()
+            } else {
+                manifest.name
+            },
             true,
             None::<&str>,
         )

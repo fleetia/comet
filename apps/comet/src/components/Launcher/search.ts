@@ -14,6 +14,7 @@ export type LauncherState = {
 export type LauncherAction =
   | { type: "settings"; section: SettingsSection | null; widgetKind?: string }
   | { type: "widget"; id: string; expectedRevision: number }
+  | { type: "image"; expectedRevision: number | null }
   | { type: "chat"; content: string; target: string; clientMessageId: string }
   | { type: "addTodo"; id: string; expectedRevision: number; title: string; requestId: string }
   | { type: "travel"; id: string };
@@ -122,6 +123,7 @@ const WIDGET_ALIASES: Record<string, string[]> = {
   "focus-timer": ["타이머", "집중"],
   "small-match": ["주사위", "가위바위보", "동전"],
   music: ["음악"],
+  image: ["이미지 띄우기", "사진", "사진 띄우기"],
 };
 const SECTION_ALIASES: Partial<Record<SettingsSection, string[]>> = {
   model: ["모델", "API", "AI", "인공지능"],
@@ -150,12 +152,16 @@ function widgetResult(
   const toy = isDesktopToy(entry.id);
   return {
     id: `widget:${entry.id}`,
-    title: available
+    title: available && entry.id === "image"
+      ? "이미지 띄우기"
+      : available
       ? entry.id === "memo"
         ? "새 메모 꺼내기"
         : `${entry.name} ${toy ? "꺼내기" : "열기"}`
       : `${entry.name} 설정 열기`,
-    detail: available
+    detail: available && entry.id === "image"
+      ? "바탕화면 이미지"
+      : available
       ? entry.id === "memo"
         ? "바탕화면 낱장 메모"
         : toy
@@ -170,7 +176,9 @@ function widgetResult(
           : entry.description
       : `${entry.name} 사용 준비가 필요해요. 위젯 설정에서 연결과 설정을 확인해요.`,
     kind: "widget",
-    action: available && instance
+    action: available && instance && entry.id === "image"
+      ? { type: "image", expectedRevision: instance.revision }
+      : available && instance
       ? { type: "widget", id: instance.id, expectedRevision: instance.revision }
       : { type: "settings", section: "widgets", widgetKind: entry.id },
   };

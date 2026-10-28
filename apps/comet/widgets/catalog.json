@@ -7,6 +7,7 @@
   {"id":"travel","name":"여행","description":"가장 가까운 여행을 한 줄로 보여 주고 누르면 여행 창을 열어요","category":"daily","version":1,"required":[],"connection":null},
   {"id":"clock","name":"시계·기념일","description":"현재 시각과 등록한 기념일의 디데이","category":"information","version":1,"required":[],"connection":null},
   {"id":"memo","name":"메모","description":"꺼내 쓰고 다시 접어 두는 작은 메모","category":"daily","version":1,"required":[],"connection":null},
+  {"id":"image","name":"이미지","description":"고른 이미지를 바탕화면에 그대로 띄워요","category":"daily","version":1,"required":[],"connection":null},
   {"id":"weather","name":"날씨","description":"선택한 지역의 날씨와 마지막 갱신 시각","category":"information","version":1,"required":[],"connection":"weather"},
   {"id":"music","name":"음악 정보","description":"허용한 연결의 현재 재생 곡 정보","category":"information","version":1,"required":[],"connection":"music"},
   {"id":"device","name":"배터리","description":"허용하면 배터리 잔량과 전원 상태를 보여 줘요","category":"information","version":1,"required":[],"connection":"device"},

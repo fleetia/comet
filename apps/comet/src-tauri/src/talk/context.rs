@@ -1530,9 +1530,16 @@ mod tests {
             widgets::catalog()
                 .unwrap()
                 .iter()
-                .filter(|item| item.id != "external-notice")
+                .filter(|item| !["external-notice", "image"].contains(&item.id.as_str()))
                 .count()
         );
+        let (image_values, available) = project(
+            &snapshot("image", json!({"images":[{"id":"private-image-id","path":"private-image-path"}]})),
+            0,
+        );
+        assert!(!available.contains("image"));
+        assert!(!image_values.keys().any(|key| key.starts_with("image.")));
+        assert!(!serde_json::to_string(&image_values).unwrap().contains("private-image"));
     }
 
     #[test]

@@ -864,14 +864,17 @@ mod pipeline_tests {
             .iter()
             .map(|manifest| manifest.id.as_str())
             .filter(|kind| {
-                *kind != "external-notice" && !REVIVED.iter().any(|(revived, _)| revived == kind)
+                !["external-notice", "image"].contains(kind)
+                    && !REVIVED.iter().any(|(revived, _)| revived == kind)
             })
             .collect::<Vec<_>>();
         assert_eq!(INITIAL_STATES.len(), kinds.len());
         let (db, _directory) = nadir_database(&kinds);
         let program = program(NADIR_AND_STAR_TAIL);
         let context = context::build(&db, None, 1_000, 0).unwrap();
-        assert_eq!(context.available.len() + 1, catalog.len());
+        assert_eq!(context.available.len() + 2, catalog.len());
+        assert!(!context.available.contains("image"));
+        assert!(!context.available.contains("external-notice"));
         for scene in INITIAL_STATES {
             idle_scene(&db, &program, scene, 1_000);
         }
@@ -888,8 +891,8 @@ mod pipeline_tests {
         let db = crate::store::open(Path::new(":memory:")).unwrap();
         storage::verify_packages(&db, directory.path()).unwrap();
         let program = program(BYULKKORI);
-        // External notices are event-driven and have no idle initial-state scene.
-        assert_eq!(INITIAL_STATES.len() + REVIVED.len() + 1, catalog.len());
+        // External notices are event-driven; images never enter dialogue context.
+        assert_eq!(INITIAL_STATES.len() + REVIVED.len() + 2, catalog.len());
         for scene in INITIAL_STATES
             .into_iter()
             .chain(REVIVED.map(|(_, scene)| scene))

@@ -232,7 +232,7 @@ pub fn get(db: &Connection, id: &str) -> Result<WidgetInstance> {
         .ok_or_else(|| "위젯을 찾지 못했어요.".into())
 }
 
-fn put(db: &Connection, instance: &WidgetInstance) -> Result<()> {
+pub(super) fn put(db: &Connection, instance: &WidgetInstance) -> Result<()> {
     db.execute(
         "INSERT INTO widget_instances VALUES(?1,?2,?3,1,1,?4,?5,?6)
 ON CONFLICT(id) DO UPDATE SET version=excluded.version,installed=excluded.installed,
