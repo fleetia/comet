@@ -257,7 +257,7 @@ mod tests {
             page_id
         );
         db.execute(
-            "INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data) VALUES('calendar','calendar',1,1,1,1,?1)",
+            "UPDATE widget_instances SET data=?1 WHERE kind='calendar'",
             [json!({"connections":[],"events":[{"id":"event","connectionId":"local"},{"id":"cancelled","connectionId":"local","cancelled":true},{"id":"removed-source","connectionId":"missing"}]}).to_string()],
         ).unwrap();
         assert_eq!(
@@ -268,7 +268,7 @@ mod tests {
             "event"
         );
         db.execute(
-            "INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data) VALUES('preparation','preparation',1,1,1,1,?1)",
+            "UPDATE widget_instances SET data=?1 WHERE kind='preparation'",
             [json!({"envelopes":[{"id":"trip-bag"}]}).to_string()],
         ).unwrap();
         assert!(
@@ -290,7 +290,7 @@ mod tests {
             assert!(validate_view_target(&db, tab, entity, id).is_err());
         }
         db.execute(
-            "UPDATE widget_instances SET enabled=0 WHERE id='calendar'",
+            "UPDATE widget_instances SET data=json_set(data,'$.events',json('[]')) WHERE kind='calendar'",
             [],
         )
         .unwrap();
