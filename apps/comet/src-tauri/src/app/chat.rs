@@ -511,8 +511,6 @@ fn music_discussion_draft(
 ) -> Result<String, String> {
     let observation = &instance.data["observation"];
     if instance.kind != "music"
-        || !instance.installed
-        || !instance.enabled
         || instance.revision != revision
         || instance.data["configured"] != true
         || !matches!(instance.data["status"].as_str(), Some("ready" | "syncing"))
@@ -1258,9 +1256,13 @@ mod tests {
             .unwrap();
             store::save_conversation_draft(&db, &session.id, "다음 질문 초안").unwrap();
             store::pause_conversations(&db).unwrap();
-            crate::widgets::storage::install(&db, directory.path(), &["focus-timer".into()])
+            crate::widgets::storage::verify_packages(&db, directory.path())
                 .unwrap();
-            let timer = crate::widgets::storage::instances(&db).unwrap().remove(0);
+            let timer = crate::widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|instance| instance.kind == "focus-timer")
+                .unwrap();
             crate::widgets::storage::execute(
                 &db,
                 &crate::widgets::WidgetRequest {

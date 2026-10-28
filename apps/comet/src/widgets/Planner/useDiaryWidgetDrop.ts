@@ -65,7 +65,7 @@ export function useDiaryWidgetDrop({
       const fresh = await command<WidgetSnapshot>("get_widgets");
       latestWidgets.current = fresh.widgets;
       const widget = fresh.widgets.find(
-        (value) => value.id === payload.widgetId && value.installed,
+        (value) => value.id === payload.widgetId,
       );
       if (!widget) throw new Error("원본 위젯을 찾을 수 없어요.");
       const date = targetDate ?? (pageId ? null : day);
@@ -83,7 +83,6 @@ export function useDiaryWidgetDrop({
         throw new Error("연결할 원본 항목을 찾을 수 없어요.");
       }
       if (payload.kind === "todo" && source && date) {
-        if (!widget.enabled) throw new Error("할 일 위젯을 먼저 켜 주세요.");
         if (!(await planTask(source, date))) return;
       } else {
         let target =

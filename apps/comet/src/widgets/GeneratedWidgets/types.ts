@@ -20,7 +20,7 @@ export type GeneratedWidget = {
   state: WidgetValue;
   revision: number;
   installed: boolean;
-  enabled: boolean;
+  reaction: boolean;
   status: "draft" | "ready" | "error";
   error: string | null;
   installation: {

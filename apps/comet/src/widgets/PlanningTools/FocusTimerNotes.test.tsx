@@ -65,8 +65,7 @@ it("keeps memo body text out of a note reference even when used as a visible tit
   const memo: WidgetView = {
     id: "memo-widget",
     kind: "memo",
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 1,
     version: 1,
     data: { notes: [{ id: "sheet", title: "", body: "복제하면 안 되는 본문\n둘째 줄" }] },
@@ -205,8 +204,7 @@ it("autosaves a linked desktop original in its owning widget without copying its
   const memo: WidgetView = {
     id: "memo-widget",
     kind: "memo",
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 1,
     version: 1,
     data: { notes: [{ id: "sheet", title: "", body: "원래 낱장", isOpen: true }] },
@@ -250,14 +248,13 @@ it.each([false, true])(
     const memo: WidgetView = {
       id: "memo-widget",
       kind: "memo",
-      installed: true,
-      enabled: false,
+      reaction: false,
       revision: 1,
       version: 1,
       data: { notes: missing ? [] : [{ id: "sheet", title: "낱장", body: "원문" }] },
       error: null,
       missing: [],
-      status: "disabled",
+      status: "enabled",
       packageBytes: 1,
     };
     const onConnect = vi.fn<(ref: DataRecord | null) => Promise<boolean>>().mockResolvedValue(true);

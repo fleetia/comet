@@ -800,7 +800,7 @@ fn capability<'a>(catalog: &'a [Value], id: &str) -> Result<&'a Value, String> {
     catalog
         .iter()
         .find(|entry| entry["id"] == id)
-        .ok_or_else(|| "현재 사용할 수 없는 기능이에요. 설치·사용 상태를 확인해 주세요.".into())
+        .ok_or_else(|| "현재 사용할 수 없는 기능이에요. 위젯 상태를 확인해 주세요.".into())
 }
 
 fn select(selection: &Selection, catalog: &[Value]) -> Result<(), String> {

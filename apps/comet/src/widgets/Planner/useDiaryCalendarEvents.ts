@@ -85,7 +85,7 @@ export function useDiaryCalendarEvents({
       await run(async () => {
         const fresh = await command<WidgetSnapshot>("get_widgets");
         latestWidgets.current = fresh.widgets;
-        const widget = fresh.widgets.find((value) => value.kind === "calendar" && value.installed);
+        const widget = fresh.widgets.find((value) => value.kind === "calendar");
         const event = rows(record(widget?.data).events).find(
           (value) => value.id === draft.event?.id,
         );

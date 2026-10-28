@@ -152,7 +152,7 @@ pub(crate) fn collect_comet(db: &Connection, user: &str) -> Result<(), String> {
         }
         for widget in crate::widgets::storage::instances(db)?
             .into_iter()
-            .filter(|w| w.installed && matches!(w.kind.as_str(), "todo" | "calendar" | "memo"))
+            .filter(|w| matches!(w.kind.as_str(), "todo" | "calendar" | "memo"))
         {
             let collection = match widget.kind.as_str() {
                 "todo" => "items",

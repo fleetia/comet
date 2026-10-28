@@ -1,15 +1,10 @@
 use super::*;
 
-fn setup(kinds: &[&str]) -> Connection {
+fn setup(_kinds: &[&str]) -> Connection {
     let db = Connection::open_in_memory().unwrap();
     storage::initialize(&db).unwrap();
     let directory = tempfile::tempdir().unwrap();
-    storage::install(
-        &db,
-        directory.path(),
-        &kinds.iter().map(|kind| (*kind).into()).collect::<Vec<_>>(),
-    )
-    .unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
     db
 }
 

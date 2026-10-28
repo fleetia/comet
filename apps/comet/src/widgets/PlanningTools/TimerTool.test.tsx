@@ -8,8 +8,7 @@ function widget(kind: string, data: WidgetValue, revision = 8): WidgetView {
   return {
     id: `${kind}-instance-uuid`,
     kind,
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision,
     version: 1,
     data,

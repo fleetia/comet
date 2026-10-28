@@ -108,10 +108,8 @@ export function WidgetTool({
   const entry = snapshot?.catalog.find((entry) => entry.id === widget?.kind);
   const name = entry?.name ?? "위젯";
   let status: string | undefined;
-  if (widget?.installed) {
-    if (!widget.enabled) {
-      status = "꺼짐";
-    } else if (widget.status === "setup") {
+  if (widget) {
+    if (widget.status === "setup") {
       status = "연결·설정 필요";
     } else if (widget.status === "error") {
       status = "확인 필요";
@@ -130,10 +128,8 @@ export function WidgetTool({
     ) : (
       <p role="status">도구를 불러오고 있어요.</p>
     );
-  } else if (!widget?.installed || !entry) {
-    content = <p>설치되지 않았거나 제거한 도구입니다. 본체 메뉴의 위젯 관리에서 설치해 주세요.</p>;
-  } else if (!widget.enabled) {
-    content = <p>꺼진 도구입니다. 본체 메뉴의 위젯 관리에서 켜 주세요.</p>;
+  } else if (!widget || !entry) {
+    content = <p>도구를 찾을 수 없어요.</p>;
   } else {
     const props = { widget, widgets: snapshot.widgets, act };
     switch (widget.kind) {
@@ -141,7 +137,7 @@ export function WidgetTool({
         content = <TodoTool {...props} />;
         footer = (
           <p className={s.previewNote}>
-            이 창을 닫아도 작성한 할 일과 위젯 사용 상태는 유지됩니다.
+            이 창을 닫아도 작성한 할 일은 유지됩니다.
           </p>
         );
         break;
@@ -154,7 +150,7 @@ export function WidgetTool({
             companionRows={(now) =>
               ["clock", "weather", "music", "preparation"].flatMap((kind) =>
                 snapshot.widgets
-                  .filter((item) => item.kind === kind && item.installed && item.enabled)
+                  .filter((item) => item.kind === kind)
                   .map((item) => (
                     <CollapsedDesktopWidget
                       key={item.id}
@@ -252,8 +248,7 @@ export function WidgetTool({
     }
   }
   const frameless = Boolean(
-    widget?.installed &&
-    widget.enabled &&
+    widget &&
     ["music", "focus-timer", ...COMPANION_KINDS, ...DESKTOP_TOYS].includes(widget.kind),
   );
   return (
