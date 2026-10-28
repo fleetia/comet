@@ -21,6 +21,7 @@ const BATTERY_STATUS: Record<string, string> = {
   charged: "충전 완료",
   "not-charging": "충전 안 함",
   "partially-charged": "일부 충전됨",
+  ac: "전원 연결됨",
 };
 
 function BatteryLevel({ percent, charging }: { percent: number; charging: boolean }): ReactElement {

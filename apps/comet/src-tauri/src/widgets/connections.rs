@@ -321,7 +321,7 @@ pub(crate) fn device_events(previous: &Value, next: &mut Value) -> (Vec<EventDra
             if status == "charging" && percent.is_some_and(|value| value < 100) {
                 latches.charged = false;
             }
-            if status == "charging" && matches!(previous_status.as_deref(), Some("discharging" | "not-charging" | "ac")) {
+            if status == "charging" && matches!(previous_status.as_deref(), Some("discharging" | "not-charging")) {
                 emit("device.charging-started", "배터리 충전을 시작했어요.");
             }
             if (status == "charged" || percent == Some(100)) && !latches.charged {
@@ -1381,6 +1381,10 @@ mod tests {
             let (events, critical) = device_events(&Value::Null, &mut next);
             assert!(critical);
             assert!(events.iter().any(|event| event.kind == "device.critical"));
+            let mut charging = json!({"config": {},
+                "observation": {"batteries": [{"status": "charging", "percent": 9}]}});
+            let (events, _) = device_events(&next, &mut charging);
+            assert!(!events.iter().any(|event| event.kind == "device.charging-started"));
         }
     }
 

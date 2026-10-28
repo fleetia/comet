@@ -202,6 +202,15 @@ it("shows the lowest known battery reading and the power source", () => {
   expect(screen.getByRole("status").textContent).toBe("충전 중 · 전원 연결됨");
 });
 
+it("labels a Windows AC observation without guessing charging state", () => {
+  render(<BatteryTool widget={widget("device", {
+    configured: true,
+    observation: { hasBattery: true, powerSource: "unknown", batteries: [{ percent: 35, status: "ac" }] },
+  })} />);
+  expect(screen.getByText("35%")).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toBe("전원 연결됨");
+});
+
 it("shows a device without a battery separately from a zero or unknown reading", () => {
   render(
     <BatteryTool
