@@ -275,3 +275,33 @@ fn sustained_bindings_validate_clip_references_and_intervals() {
     });
     assert!(validation::validate_definition(&definition).is_err());
 }
+
+#[test]
+fn mood_bindings_require_v13_and_roundtrip() {
+    for is_high in [true, false] {
+        let conn = database();
+        let (mut definition, asset) = animated();
+        let animation = definition.animation.as_mut().unwrap();
+        if is_high {
+            animation.bindings.mood_high = animation.bindings.idle.clone();
+        } else {
+            animation.bindings.mood_low = animation.bindings.idle.clone();
+        }
+        let created = create_with_assets(&conn, &definition, &[asset]).unwrap();
+        let pack = export_pack(&conn, std::slice::from_ref(&created.id), &[]).unwrap();
+        assert_eq!(pack.format_version, 13);
+        let parsed = parse_pack(&pack_json(&pack).unwrap()).unwrap();
+        assert_eq!(parsed.characters[0].animation, created.definition.animation);
+        for version in [6, 7, 8] {
+            let mut old = pack.clone();
+            old.format_version = version;
+            assert!(validation::validate_pack(&old).is_err());
+        }
+        let options = ExportOptions {
+            include_sprites: false,
+            ..Default::default()
+        };
+        let no_images = export_pack_with_options(&conn, &[created.id], &[], &options).unwrap();
+        assert_eq!(no_images.format_version, 2);
+    }
+}

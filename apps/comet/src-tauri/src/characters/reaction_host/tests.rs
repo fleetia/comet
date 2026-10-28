@@ -183,6 +183,9 @@ fn milestone_interrupts_automatic_talk_only_when_allowed_and_matched() {
         event.event.kind = "interaction.milestone".into();
         (lines, event, store::revision(&db).unwrap())
     };
+    let now = chrono::Utc::now().timestamp_millis();
+    let character = event.event.payload["owner"].as_str().unwrap();
+    lock(&state.life).unwrap().apply_interaction(character, "stroke", true, &event.id, now, old_epoch);
     assert!(scene::present_line(
         &state, &old_lines[0], "talk", "old-first", 0, 2, revision, old_epoch, &old_cancel, false,
     ).unwrap());
@@ -213,6 +216,8 @@ fn milestone_interrupts_automatic_talk_only_when_allowed_and_matched() {
         assert_eq!(count, 1);
         (lines, epoch, cancel)
     };
+    let mood = characters::life::pop_mood_change(&state).unwrap().unwrap();
+    assert_eq!(mood.epoch, new_epoch);
     assert!(old_cancel.load(Ordering::SeqCst));
     assert!(!scene::present_line(
         &state, &old_lines[1], "talk", "old-next", 1, 2, revision, old_epoch, &old_cancel, false,
@@ -762,6 +767,29 @@ fn widget_reactions_obey_owner_epoch_revision_expiry_and_same_cooldown_policy() 
     assert!(widget_character(&lock(&state.db).unwrap(), &event)
         .unwrap()
         .is_none());
+}
+
+#[test]
+fn reaction_carries_only_its_own_current_interaction_mood() {
+    for is_stale in [false, true] {
+        let (state, id) = configured();
+        let now = chrono::Utc::now().timestamp_millis();
+        lock(&state.life).unwrap().apply_interaction(&id, "stroke", true, "accepted", now, 0);
+        lock(&state.life).unwrap().apply_interaction(&id, "snack", true, "other", now, 0);
+        if is_stale {
+            app::interrupt(&state, false).unwrap();
+        }
+        let before = state.epoch.load(Ordering::SeqCst);
+        let result = prepare_reaction_inner(&state, &id, "click", 7, None, None, Some("accepted"))
+            .unwrap().unwrap();
+        assert!(result.speech.is_some());
+        let after = state.epoch.load(Ordering::SeqCst);
+        assert_eq!(after, before + 1);
+        let first = characters::life::pop_mood_change(&state).unwrap().unwrap();
+        let second = characters::life::pop_mood_change(&state).unwrap().unwrap();
+        assert_eq!(first.epoch, if is_stale { 0 } else { after });
+        assert_eq!(second.epoch, 0);
+    }
 }
 
 #[test]
