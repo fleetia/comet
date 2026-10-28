@@ -2407,6 +2407,7 @@ it.each([
     await screen.findByText(`${target.session.id} 원문 9`);
     geometry.resizeViewport(400);
     rerender(<ConversationHistoryWindow snapshot={{ ...snapshot }} />);
+    await screen.findByText(`${target.session.id} 원문 9`);
     const log = screen.getByRole("log");
     expect(log.scrollTop).toBe(0);
     expect(screen.getByText(`${target.session.id} 원문 9`)).toBeTruthy();
