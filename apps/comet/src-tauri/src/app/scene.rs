@@ -17,6 +17,22 @@ fn playback_link(
     id: &str,
     line: &SceneLine,
 ) -> Result<Option<PlaybackLink>, String> {
+    if source == "talk" {
+        if let Some(date) = lock(&state.talk_playback)?
+            .as_ref()
+            .and_then(|talk| talk.recall_date.as_ref())
+        {
+            return Ok(Some(PlaybackLink {
+                instance_id: "diary".into(),
+                kind: "diary".into(),
+                label: "그날".into(),
+                item: Some(PlaybackLinkItem {
+                    entity: "page".into(),
+                    id: date.clone(),
+                }),
+            }));
+        }
+    }
     if source == "diary" {
         let mut statement = db
             .prepare("SELECT key FROM diary_deliveries WHERE message_id=?1")

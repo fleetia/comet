@@ -36,6 +36,8 @@ impl Navigation {
 pub(crate) struct PlannerViewTarget {
     entity: String,
     target_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fallback_to_today: Option<bool>,
 }
 
 #[tauri::command]
@@ -143,9 +145,19 @@ fn validate_view_target(
             }),
         ("page", "today") => {
             let diary = serde_json::to_value(crate::diary::read(db)?).map_err(|e| e.to_string())?;
-            diary["pages"]
-                .as_array()
-                .is_some_and(|pages| pages.iter().any(|page| page["id"] == id))
+            let page = diary["pages"].as_array().and_then(|pages| {
+                pages
+                    .iter()
+                    .find(|page| page["id"] == id || page["date"] == id)
+            });
+            if let Some(page_id) = page.and_then(|page| page["id"].as_str()) {
+                return Ok(Some(PlannerViewTarget {
+                    entity: entity.into(),
+                    target_id: page_id.into(),
+                    fallback_to_today: None,
+                }));
+            }
+            false
         }
         ("envelope", "envelopes") => crate::widgets::storage::instances(db)?
             .iter()
@@ -185,6 +197,7 @@ fn validate_view_target(
     Ok(Some(PlannerViewTarget {
         entity: entity.into(),
         target_id: id.into(),
+        fallback_to_today: None,
     }))
 }
 
@@ -195,7 +208,17 @@ pub(crate) fn open_playback_target(
     entity: Option<&str>,
     id: Option<&str>,
 ) -> Result<(), String> {
-    let target = validate_view_target(db, tab, entity, id).ok().flatten();
+    let mut target = validate_view_target(db, tab, entity, id).ok().flatten();
+    if entity == Some("page")
+        && id.is_some_and(|value| {
+            chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+                .is_ok_and(|date| date.format("%Y-%m-%d").to_string() == value)
+        })
+    {
+        if let Some(target) = target.as_mut() {
+            target.fallback_to_today = Some(true);
+        }
+    }
     open_view(app, tab, target.as_ref())
 }
 
@@ -248,6 +271,7 @@ mod tests {
         *navigation.view_target.lock().unwrap() = Some(super::PlannerViewTarget {
             entity: "page".into(),
             target_id: "latest-page".into(),
+            fallback_to_today: None,
         });
         for _ in 0..2 {
             assert_eq!(
