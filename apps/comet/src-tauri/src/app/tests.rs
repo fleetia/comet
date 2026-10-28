@@ -3765,3 +3765,23 @@ mod retry_display_tests {
         }
     }
 }
+
+#[test]
+fn disabling_recall_invalidates_an_ordinary_talk_scene_using_its_snapshot() {
+    let state = state();
+    let program = talk::validate_source(
+        std::path::Path::new("recall-idle.talk"),
+        "format: 1\nscene: recall-idle\non: idle\nwhen: recall.ready\n---\nA: ${recall.snippet}\n===\n",
+        &talk::context::registry(),
+    ).unwrap();
+    lock(&state.talk).unwrap().apply(Ok(program));
+    let db = lock(&state.db).unwrap();
+    let date = (chrono::Local::now().date_naive() - chrono::Days::new(7)).to_string();
+    let diary = serde_json::json!({"revision":1,"pages":[{"id":"page","title":"","date":date,"entries":[{"id":"note","kind":"note","text":"private diary"}]}],"notes":[],"moves":[]});
+    db.execute("UPDATE diary_state SET data=?1 WHERE id=1", [diary.to_string()]).unwrap();
+    assert!(talk::host::prepare(&state, &db, None).unwrap().is_some());
+    let mut settings = store::settings(&db).unwrap();
+    settings.diary_recall_enabled = false;
+    store::save_settings(&db, &settings).unwrap();
+    assert!(!talk::host::current(&state, &db).unwrap());
+}

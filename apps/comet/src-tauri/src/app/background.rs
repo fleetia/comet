@@ -31,6 +31,7 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         if state.update_installing.load(Ordering::SeqCst) {
             continue;
         }
+        let _ = skip_blocked_recall_opportunity(&state);
         if super::windows::expire_pause(&state, chrono::Utc::now().timestamp_millis())
             .unwrap_or(false)
         {
@@ -142,6 +143,56 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
     }
 }
 
+fn claim_recall_opportunity(db: &Connection) -> Result<bool, String> {
+    let today = chrono::Local::now().date_naive().to_string();
+    let previous: Option<String> = db
+        .query_row(
+            "SELECT value FROM widget_preferences WHERE key='recall:opportunity'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    if previous.as_deref() == Some(today.as_str()) {
+        return Ok(false);
+    }
+    db.execute(
+        "INSERT INTO widget_preferences(key,value) VALUES('recall:opportunity',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        [&today],
+    ).map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+fn skip_blocked_recall_opportunity(state: &AppState) -> Result<(), String> {
+    if now() < state.next_idle.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    let _action = lock(&state.action)?;
+    let status = lock(&state.runtime)?.clone();
+    let db = lock(&state.db)?;
+    let settings = store::settings(&db)?;
+    if settings.autonomous_enabled
+        && settings.diary_recall_enabled
+        && (status.hidden
+            || status.paused
+            || super::quiet_hours::automatic_blocked(state, &settings)?
+            || storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
+            || behavior::reactions_blocked(state)?)
+    {
+        claim_recall_opportunity(&db)?;
+    }
+    Ok(())
+}
+
+fn defer_recent_recall(state: &AppState, enabled: bool, at: i64) -> bool {
+    let ready_at = state.last_input.load(Ordering::SeqCst).saturating_add(15);
+    if !enabled || at >= ready_at {
+        return false;
+    }
+    state.next_idle.store(ready_at, Ordering::SeqCst);
+    true
+}
+
 pub(crate) fn expire_idle_recall(state: &AppState, at: i64) -> Result<bool, String> {
     let _action = lock(&state.action)?;
     if unavailable(state) || !["idle", "error"].contains(&lock(&state.runtime)?.phase.as_str()) {
@@ -236,9 +287,24 @@ pub(crate) async fn run_background(
             if !is_current(state, epoch, &cancel) {
                 return Ok(());
             }
+            if defer_recent_recall(state, settings.diary_recall_enabled, now()) {
+                return Ok(());
+            }
             schedule_idle(state, settings.idle_minutes);
             state.last_scene.store(now(), Ordering::SeqCst);
-            next_scene(state)?
+            let recall = {
+                let db = lock(&state.db)?;
+                if settings.diary_recall_enabled && claim_recall_opportunity(&db)? {
+                    crate::talk::host::prepare_recall(state, &db)?
+                } else {
+                    None
+                }
+            };
+            if let Some(lines) = recall {
+                (lines, "talk")
+            } else {
+                next_scene(state)?
+            }
         };
         return run_scene(
             app,
@@ -561,4 +627,24 @@ pub(crate) fn reserve_api_idle(db: &Connection, at: i64) -> Result<bool, String>
     tx.execute("INSERT INTO kv(key,value) VALUES('api_idle_times',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[serde_json::to_string(&times).map_err(|e|e.to_string())?]).map_err(|e|e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(true)
+}
+
+#[cfg(test)]
+mod recall_opportunity_tests {
+    use super::*;
+
+    #[test]
+    fn recent_input_defers_recall_without_claiming_the_daily_opportunity() {
+        let state = super::super::tests::state();
+        state.last_input.store(100, Ordering::SeqCst);
+        state.next_idle.store(105, Ordering::SeqCst);
+        assert!(defer_recent_recall(&state, true, 105));
+        assert_eq!(state.next_idle.load(Ordering::SeqCst), 115);
+        let db = lock(&state.db).unwrap();
+        assert!(claim_recall_opportunity(&db).unwrap());
+        assert!(!claim_recall_opportunity(&db).unwrap());
+        drop(db);
+        assert!(!defer_recent_recall(&state, true, 115));
+        assert!(!defer_recent_recall(&state, false, 105));
+    }
 }
