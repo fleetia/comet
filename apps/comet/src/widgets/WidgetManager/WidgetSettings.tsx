@@ -5,6 +5,7 @@ import { ConnectionTool } from "../ConnectionTools/ConnectionTools";
 import { FocusWidgetSettings } from "../PlanningTools/FocusWidgetSettings";
 import { PreparationSettings } from "../PreparationTool/PreparationSettings";
 import { ClockSettings, ClockTool } from "../PlanningTools/PlanningTools";
+import { ExternalNoticeSettings } from "./ExternalNoticeSettings";
 import type { ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import * as styles from "./widgetSettings.css";
@@ -16,6 +17,7 @@ export const CONFIGURABLE_WIDGETS = [
   "clock",
   "focus-timer",
   "preparation",
+  "external-notice",
 ];
 const SETTINGS_LABELS: Record<string, string> = {
   calendar: "캘린더 연결과 알림",
@@ -24,6 +26,7 @@ const SETTINGS_LABELS: Record<string, string> = {
   clock: "시계와 기념일",
   "focus-timer": "집중 타이머 설정",
   preparation: "준비 봉투 설정",
+  "external-notice": "바깥 알림 설정",
 };
 
 export function WidgetSettings({
@@ -109,6 +112,14 @@ export function WidgetSettings({
               />
             )}
             {widget.kind === "clock" && <ClockSettings widget={widget} act={configure} />}
+            {widget.kind === "external-notice" && (
+              <ExternalNoticeSettings
+                widget={widget}
+                act={configure}
+                onDirtyChange={setConnectionDirty}
+                onBusyChange={setConnectionBusy}
+              />
+            )}
             {widget.kind === "clock" && (
               <ClockTool
                 widget={widget}

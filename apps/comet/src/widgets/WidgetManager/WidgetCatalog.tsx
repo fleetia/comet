@@ -26,6 +26,7 @@ export const WIDGET_ICONS: Record<string, IconName> = {
   weather: "cloud",
   music: "music",
   device: "battery",
+  "external-notice": "balloon",
   interaction: "poke",
   "small-match": "dice",
   guessing: "cupdown",
@@ -160,12 +161,14 @@ export function WidgetCatalog({
                 </span>
                 <ChevIcon size={14} />
               </button>
-              <Switch
-                aria-label={`${item.name} 사용`}
-                checked={item.installed && (item.enabled ?? item.status === "enabled")}
-                disabled={disabled || !onToggle}
-                onChange={(event) => onToggle?.(item.id, event.target.checked)}
-              />
+              {item.id !== "external-notice" && (
+                <Switch
+                  aria-label={`${item.name} 사용`}
+                  checked={item.installed && (item.enabled ?? item.status === "enabled")}
+                  disabled={disabled || !onToggle}
+                  onChange={(event) => onToggle?.(item.id, event.target.checked)}
+                />
+              )}
             </div>
           ))}
         </div>

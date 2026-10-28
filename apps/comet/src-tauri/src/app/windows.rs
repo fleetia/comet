@@ -544,12 +544,15 @@ fn pause_locked(
         runtime.paused_until = until.filter(|_| paused);
     }
     widgets::storage::discard_pending_during_quiet(&*lock(&state.db)?)?;
+    if paused {
+        widgets::storage::discard_pending_external_notice(&*lock(&state.db)?)?;
+    }
     if !paused {
         schedule_idle(state, store::settings(&*lock(&state.db)?)?.idle_minutes);
     }
     let cancel = lock(&state.widget_playback)?.as_ref().map_or_else(
         || should_cancel_for_pause(paused, state.automatic.load(Ordering::SeqCst)),
-        |event| paused && !super::quiet_hours::event_allowed(&event.event),
+        |event| paused && !super::quiet_hours::event_allowed_when_paused(&event.event),
     );
     if cancel || (paused && lock(&state.pack_stories)?.run.is_some()) {
         let db = lock(&state.db)?;

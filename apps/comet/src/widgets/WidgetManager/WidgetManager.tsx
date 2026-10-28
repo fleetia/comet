@@ -338,7 +338,7 @@ export function WidgetManager({
     const actions: ContextMenuAction[] = [];
     if (CONFIGURABLE_WIDGETS.includes(target.kind))
       actions.push({ id: "settings", label: "설정…", icon: "edit", disabled: !canAct });
-    if (!["clock", "weather"].includes(target.kind))
+    if (!["clock", "weather", "external-notice"].includes(target.kind))
       actions.push({
         id: "open",
         label:
@@ -390,25 +390,27 @@ export function WidgetManager({
         label: `먼저 설치·켜기: ${target.missing.map(nameOf).join(", ")}`,
         disabled: true,
       });
-    actions.push({
-      id: "toggle",
-      label: target.enabled ? "사용 끄기" : "사용 켜기",
-      disabled: !canAct || (!target.enabled && target.missing.length > 0),
-      separatorBefore: true,
-    });
+    if (target.kind !== "external-notice")
+      actions.push({
+        id: "toggle",
+        label: target.enabled ? "사용 끄기" : "사용 켜기",
+        disabled: !canAct || (!target.enabled && target.missing.length > 0),
+        separatorBefore: true,
+      });
     actions.push({
       id: "state-rules",
       label: "상태별 캐릭터 대사 편집",
       icon: "balloon",
       disabled: !canAct,
     });
-    actions.push({
-      id: "remove",
-      label: "위젯 제거…",
-      icon: "remove",
-      destructive: true,
-      disabled: !canAct,
-    });
+    if (target.kind !== "external-notice")
+      actions.push({
+        id: "remove",
+        label: "위젯 제거…",
+        icon: "remove",
+        destructive: true,
+        disabled: !canAct,
+      });
     return actions;
   }
   function contextAction(kind: string, action: string): void {
@@ -683,21 +685,25 @@ export function WidgetManager({
                             <Icon name="balloon" size={13} />
                             상태별 대사
                           </Button>
-                          <Button
-                            variant="danger"
-                            size="small"
-                            disabled={!canAct}
-                            onClick={() => {
-                              setDeleteData(false);
-                              setFailure(null);
-                              setConfirmation(widget);
-                            }}
-                          >
-                            <Icon name="remove" size={13} />
-                            위젯 제거…
-                          </Button>
+                          {widget.kind !== "external-notice" && (
+                            <Button
+                              variant="danger"
+                              size="small"
+                              disabled={!canAct}
+                              onClick={() => {
+                                setDeleteData(false);
+                                setFailure(null);
+                                setConfirmation(widget);
+                              }}
+                            >
+                              <Icon name="remove" size={13} />
+                              위젯 제거…
+                            </Button>
+                          )}
                         </div>
-                        <p className={details.hint}>제거해도 쓴 내용은 기본으로 남겨 둬요.</p>
+                        {widget.kind !== "external-notice" && (
+                          <p className={details.hint}>제거해도 쓴 내용은 기본으로 남겨 둬요.</p>
+                        )}
                       </>
                     )}
                   </aside>

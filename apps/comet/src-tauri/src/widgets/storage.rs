@@ -25,6 +25,24 @@ CREATE TABLE IF NOT EXISTS desktop_toy_results(id TEXT PRIMARY KEY,widget_id TEX
     )
     .map_err(err)?;
     retire_removed_widgets(db)?;
+    if !instances(db)?
+        .iter()
+        .any(|instance| instance.kind == "external-notice")
+    {
+        put(
+            db,
+            &WidgetInstance {
+                id: uuid::Uuid::new_v4().to_string(),
+                kind: "external-notice".into(),
+                version: 1,
+                installed: true,
+                enabled: true,
+                revision: 0,
+                data: super::initial("external-notice")?,
+                error: None,
+            },
+        )?;
+    }
     super::backgrounds::initialize(db)
 }
 
@@ -317,6 +335,9 @@ pub fn set_enabled(db: &Connection, id: &str, enabled: bool) -> Result<()> {
     let tx = db.unchecked_transaction().map_err(err)?;
     let mut instance = get(&tx, id)?;
     super::manifest(&instance.kind)?;
+    if instance.kind == "external-notice" {
+        return Err("바깥 알림은 설정에서 받기 허용을 바꿔 주세요.".into());
+    }
     if !instance.installed {
         return Err("위젯을 먼저 설치해 주세요.".into());
     }
@@ -335,6 +356,9 @@ pub fn set_enabled(db: &Connection, id: &str, enabled: bool) -> Result<()> {
 
 pub fn remove(db: &Connection, directory: &Path, id: &str, delete_data: bool) -> Result<()> {
     let mut instance = get(db, id)?;
+    if instance.kind == "external-notice" {
+        return Err("바깥 알림은 제거할 수 없어요.".into());
+    }
     let path = package_path(directory, &instance.kind)?;
     // Move to a non-executable staging name so a DB failure can restore the package.
     let staged = path.with_extension(format!("removed-{}", uuid::Uuid::new_v4()));
@@ -384,6 +408,9 @@ pub fn remove(db: &Connection, directory: &Path, id: &str, delete_data: bool) ->
 pub fn verify_packages(db: &Connection, directory: &Path) -> Result<()> {
     retire_removed_widgets(db)?;
     for mut instance in instances(db)?.into_iter().filter(|entry| entry.installed) {
+        if instance.kind == "external-notice" {
+            continue;
+        }
         let valid = (|| -> Result<bool> {
             let path = package_path(directory, &instance.kind)?;
             let mut definition = super::manifest(&instance.kind)?;
@@ -1090,7 +1117,13 @@ pub(crate) fn discard_pending_during_focus(db: &Connection) -> Result<()> {
 
 /// Silence preserves important reminders and an explicitly requested greeting preview.
 pub(crate) fn discard_pending_during_quiet(db: &Connection) -> Result<()> {
-    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.kind') NOT IN ('timer-finished','calendar-reminder','planner-reminder') AND NOT (json_extract(data,'$.kind')='planner-mood' AND COALESCE(json_extract(data,'$.payload.preview'),0)=1)", [])
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.kind') NOT IN ('timer-finished','calendar-reminder','planner-reminder') AND NOT (json_extract(data,'$.kind')='planner-mood' AND COALESCE(json_extract(data,'$.payload.preview'),0)=1) AND NOT (json_extract(data,'$.kind')='external-notice' AND COALESCE(json_extract(data,'$.payload.urgent'),0)=1)", [])
+        .map_err(err)?;
+    Ok(())
+}
+
+pub(crate) fn discard_pending_external_notice(db: &Connection) -> Result<()> {
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.kind')='external-notice'", [])
         .map_err(err)?;
     Ok(())
 }

@@ -1018,6 +1018,7 @@ pub(crate) fn apply_editing(state: &AppState, editing: bool) -> Result<bool, Str
 
 fn discard_automatic(db: &Connection) -> Result<(), String> {
     storage::discard_pending_during_quiet(db)?;
+    storage::discard_pending_external_notice(db)?;
     crate::widgets::generated::discard_pending(db)?;
     crate::widgets::generated::commands::skip_automatic_message(db)
 }

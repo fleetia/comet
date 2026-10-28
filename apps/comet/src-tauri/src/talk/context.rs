@@ -120,6 +120,7 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         ("bubbles", "count") => "현재 화면에 남은 비눗방울 수",
         (_, "streak") => "호환용 이전 비눗방울 연속 통계. 현재는 항상 null",
         (_, "game") => "최근 작은 승부 종류: 빈 문자열, dice, coin, rps",
+        ("event", "result") => "바깥 알림의 결과: ok, failed, canceled 또는 null",
         (_, "result") => "최근 작은 승부의 기존 한국어 결과 문자열. 사건 판정은 event.outcome 사용",
         (_, "rounds") => "작은 승부 누적 판 수",
         ("guessing", "playing") => "맞히기 놀이가 아직 진행 중인지 여부. 정답은 제공하지 않음",
@@ -146,6 +147,8 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         ("event", "outcome") => "작은 승부 또는 맞히기 결과의 기계 식별자. 공개된 결과만 제공",
         ("event", "mode") => "사건의 timer 모드, 승부 종류 또는 맞히기 종류",
         ("event", "itemName") => "실제 item-acquired 사건에서 획득한 물건 이름",
+        ("event", "text") => "바깥 알림의 본문",
+        ("event", "title") => "바깥 알림의 제목",
         _ => "읽기 전용 위젯 관측값",
     };
     if prefix == "environment" && field == "hour" {
@@ -197,6 +200,9 @@ pub fn registry() -> Registry {
         "outcome",
         "mode",
         "itemName",
+        "text",
+        "title",
+        "result",
     ] {
         add("event", name, ValueType::String, true, None);
     }
@@ -254,6 +260,7 @@ pub fn registry() -> Registry {
             "timer-finished",
             "calendar-reminder",
             "planner-reminder",
+            "external-notice",
             "planner-mood",
             "device-woke",
             "interaction.touch",
@@ -709,6 +716,11 @@ pub fn build(
         }
         if body_data.is_some() && event.event.payload["action"] == "cheek-grab" {
             values.insert("event.action".into(), json!("stroke"));
+        }
+        if event.event.kind == "external-notice" && event.widget_kind == "external-notice" {
+            for field in ["text", "title", "result"] {
+                values.insert(format!("event.{field}"), event.event.payload[field].clone());
+            }
         }
     }
     let relationships = crate::store::relationships(db)?;
