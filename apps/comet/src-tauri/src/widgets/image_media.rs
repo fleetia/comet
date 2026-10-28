@@ -25,25 +25,67 @@ impl Media {
 }
 
 fn gif_repeat(path: &Path) -> Result<Option<image::codecs::gif::Repeat>> {
-    let mut file = std::fs::File::open(path).map_err(err)?;
-    let mut pending = Vec::new();
-    let mut buf = [0u8; 65536];
-    loop {
-        let n = file.read(&mut buf).map_err(err)?;
-        if n == 0 { return Ok(None); }
-        pending.extend_from_slice(&buf[..n]);
-        if let Some(count) = pending.windows(18).find_map(|chunk| {
-            if (&chunk[..14] == b"\x21\xff\x0bNETSCAPE2.0"
-                || &chunk[..14] == b"\x21\xff\x0bANIMEXTS1.0")
-                && chunk[14] == 3 && chunk[15] == 1 {
-                Some(u16::from_le_bytes([chunk[16], chunk[17]]))
-            } else { None }
-        }) {
-            return Ok(Some(if count == 0 { image::codecs::gif::Repeat::Infinite }
-                else { image::codecs::gif::Repeat::Finite(count) }));
+    fn byte(input: &mut impl Read) -> Result<u8> {
+        let mut value = [0u8; 1];
+        input.read_exact(&mut value).map_err(err)?;
+        Ok(value[0])
+    }
+    fn discard(input: &mut impl Read, count: usize) -> Result<()> {
+        let mut buffer = [0u8; 255];
+        input.read_exact(&mut buffer[..count]).map_err(err)
+    }
+    fn skip_blocks(input: &mut impl Read) -> Result<()> {
+        loop {
+            let count = byte(input)? as usize;
+            if count == 0 { return Ok(()); }
+            discard(input, count)?;
         }
-        let keep = pending.len().min(17);
-        pending.drain(..pending.len() - keep);
+    }
+    let mut input = BufReader::new(std::fs::File::open(path).map_err(err)?);
+    let mut header = [0u8; 13];
+    input.read_exact(&mut header).map_err(err)?;
+    if &header[..6] != b"GIF87a" && &header[..6] != b"GIF89a" {
+        return Err("GIF를 읽을 수 없어요.".into());
+    }
+    if header[10] & 0x80 != 0 {
+        let size = 3 * (1usize << ((header[10] & 7) + 1));
+        let mut table = vec![0u8; size];
+        input.read_exact(&mut table).map_err(err)?;
+    }
+    loop {
+        match byte(&mut input)? {
+            0x3b => return Ok(None),
+            0x21 => {
+                let extension = byte(&mut input)?;
+                if extension != 0xff { skip_blocks(&mut input)?; continue; }
+                let count = byte(&mut input)? as usize;
+                let mut application = [0u8; 255];
+                input.read_exact(&mut application[..count]).map_err(err)?;
+                let loop_extension = count == 11 && (&application[..count] == b"NETSCAPE2.0" || &application[..count] == b"ANIMEXTS1.0");
+                loop {
+                    let count = byte(&mut input)? as usize;
+                    if count == 0 { break; }
+                    let mut data = [0u8; 255];
+                    input.read_exact(&mut data[..count]).map_err(err)?;
+                    if loop_extension && count == 3 && data[0] == 1 {
+                        let repeat = u16::from_le_bytes([data[1], data[2]]);
+                        return Ok(Some(if repeat == 0 { image::codecs::gif::Repeat::Infinite } else { image::codecs::gif::Repeat::Finite(repeat) }));
+                    }
+                }
+            }
+            0x2c => {
+                let mut descriptor = [0u8; 9];
+                input.read_exact(&mut descriptor).map_err(err)?;
+                if descriptor[8] & 0x80 != 0 {
+                    let size = 3 * (1usize << ((descriptor[8] & 7) + 1));
+                    let mut table = vec![0u8; size];
+                    input.read_exact(&mut table).map_err(err)?;
+                }
+                byte(&mut input)?;
+                skip_blocks(&mut input)?;
+            }
+            _ => return Err("GIF 블록을 읽을 수 없어요.".into()),
+        }
     }
 }
 
@@ -368,6 +410,17 @@ mod tests {
             let decoded = image::open(&output).unwrap();
             assert_eq!((decoded.width(), decoded.height()), (2, 4));
         }
+    }
+
+    #[test]
+    fn gif_loop_parser_ignores_matching_bytes_in_comments() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("animation.gif");
+        let mut bytes = b"GIF89a\x01\0\x01\0\0\0\0".to_vec();
+        bytes.extend_from_slice(b"\x21\xfe\x12\x21\xff\x0bNETSCAPE2.0\x03\x01\x09\0\0");
+        bytes.extend_from_slice(b"\x21\xff\x0bNETSCAPE2.0\x03\x01\x02\0\0\x3b");
+        std::fs::write(&path, bytes).unwrap();
+        assert!(matches!(gif_repeat(&path).unwrap(), Some(image::codecs::gif::Repeat::Finite(2))));
     }
 
     #[test]
