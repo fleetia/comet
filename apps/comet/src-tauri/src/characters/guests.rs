@@ -882,6 +882,7 @@ mod tests {
             persona: id.clone(),
             text: "  그대로\n남겨요.  ".into(),
             expression: "평온".into(),
+            widget: None,
             motion: Default::default(),
         };
         assert_eq!(
@@ -897,6 +898,7 @@ mod tests {
                 persona: id.clone(),
                 text: " ".into(),
                 expression: "평온".into(),
+                widget: None,
                 motion: Default::default()
             }]
         )
@@ -1228,6 +1230,7 @@ mod tests {
             text: "반가워".into(),
             motion: Default::default(),
             source: "scenario".into(),
+            link: None,
             text_speed: 1,
             display_started_at: Some(now + 1000),
             ends_at: now + 2000,

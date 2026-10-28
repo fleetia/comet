@@ -81,6 +81,7 @@ it.each([
   ["scenario", "등록 대사 · 이야기"],
   ["npc", "등록 대사 · 방문"],
   ["widget", "위젯 대사"],
+  ["balloon-link-hint", "위젯 안내"],
   ["llm", "AI 생성"],
   ["question", "AI 생성 · 질문"],
   ["unknown", "출처 미확인"],

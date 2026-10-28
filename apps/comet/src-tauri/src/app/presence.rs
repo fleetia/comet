@@ -287,6 +287,7 @@ async fn run(
         SceneLine {
             persona: transition.id.clone(),
             expression: selected.expression.clone(),
+            widget: None,
             motion: selected.motion.clone(),
             text: selected.text.clone(),
         }
@@ -450,6 +451,7 @@ mod tests {
         let line = SceneLine {
             persona: id.clone(),
             expression: characters::DEFAULT_EXPRESSION.into(),
+            widget: None,
             motion: Default::default(),
             text: "기존 대사".into(),
         };
@@ -507,6 +509,7 @@ mod tests {
                     lines: vec![SceneLine {
                         persona: id.clone(),
                         expression: characters::DEFAULT_EXPRESSION.into(),
+                        widget: None,
                         motion: Default::default(),
                         text: "돌아온 뒤에 할 이야기".into(),
                     }],

@@ -129,6 +129,18 @@ fn validate_view_target(
         _ => return Err("열 기록의 종류와 ID를 함께 지정해 주세요.".into()),
     };
     let exists = match (entity, tab) {
+        ("habit", "habits") => serde_json::to_value(crate::diary::read(db)?)
+            .map_err(|error| error.to_string())?["habits"]
+            .as_array()
+            .is_some_and(|habits| habits.iter().any(|habit| habit["id"] == id)),
+        ("todo", "todos") => crate::widgets::storage::instances(db)?
+            .iter()
+            .any(|widget| {
+                widget.kind == "todo"
+                    && widget.data["items"]
+                        .as_array()
+                        .is_some_and(|items| items.iter().any(|item| item["id"] == id))
+            }),
         ("page", "today") => {
             let diary = serde_json::to_value(crate::diary::read(db)?).map_err(|e| e.to_string())?;
             diary["pages"]
@@ -176,6 +188,17 @@ fn validate_view_target(
     }))
 }
 
+pub(crate) fn open_playback_target(
+    app: &tauri::AppHandle,
+    db: &rusqlite::Connection,
+    tab: &str,
+    entity: Option<&str>,
+    id: Option<&str>,
+) -> Result<(), String> {
+    let target = validate_view_target(db, tab, entity, id).ok().flatten();
+    open_view(app, tab, target.as_ref())
+}
+
 pub(crate) fn calendar_selected(app: &tauri::AppHandle) -> Result<bool, String> {
     let navigation = app.state::<Navigation>();
     let selected = crate::lock(&navigation.tab)?.as_str() == "calendar";
@@ -190,6 +213,13 @@ pub(crate) async fn open_travel(app: tauri::AppHandle, id: Option<String>) -> Re
             && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
     });
     schedule_open(&app, OpenRequest::Travel { id })
+}
+
+pub(crate) fn open_playback_travel(
+    app: &tauri::AppHandle,
+    id: Option<String>,
+) -> Result<(), String> {
+    schedule_open(app, OpenRequest::Travel { id })
 }
 
 #[tauri::command]
@@ -383,6 +413,14 @@ pub(crate) fn open_widget_settings(app: tauri::AppHandle, kind: &str) -> Result<
     validate_widget_settings_kind(kind)?;
     *crate::lock(&app.state::<Navigation>().settings_target)? = Some(kind.into());
     open_settings_section(app.clone(), SettingsSection::Widgets)?;
+    app.emit_to("settings", "planner-settings-target", kind)
+        .map_err(|e| e.to_string())
+}
+
+pub(crate) fn show_widget_settings(app: tauri::AppHandle, kind: &str) -> Result<(), String> {
+    validate_widget_settings_kind(kind)?;
+    *crate::lock(&app.state::<Navigation>().settings_target)? = Some(kind.into());
+    crate::app::windows::show_settings_section(app.clone(), SettingsSection::Widgets)?;
     app.emit_to("settings", "planner-settings-target", kind)
         .map_err(|e| e.to_string())
 }

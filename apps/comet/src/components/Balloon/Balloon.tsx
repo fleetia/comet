@@ -38,6 +38,7 @@ import {
   type ConversationDraft,
 } from "./useConversationDraft";
 import { ConversationSave, type ConversationSaveRequest } from "./ConversationSave";
+import { usePlaybackLinkRequests } from "./playbackLinkNavigation";
 import { useFollowUpChoice } from "./useFollowUpChoice";
 
 type Props = {
@@ -122,20 +123,47 @@ export function Balloon({
     saved: conversation?.session.draft ?? "",
   });
   const [input, setInput] = useState(draft.current.value);
+  const linkNavigating = useRef(false);
+  const [linkNavigationPending, setLinkNavigationPending] = useState(false);
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
   const { saveTimer, persistDraft, flushDraft } = useDraftPersistence({
     draft,
     currentView,
     dispatch,
   });
+  usePlaybackLinkRequests(surface === "input", async (request) => {
+    const current = snapshotRef.current;
+    if (
+      linkNavigating.current || navigatingRef.current || composing.current ||
+      current.panel?.mode !== "input" || current.user?.id !== request.userId ||
+      current.conversation?.session.id !== request.sessionId || current.playback?.id !== request.playbackId
+    ) throw new Error("대화 입력 위치가 바뀌었어요. 다시 눌러 주세요.");
+    linkNavigating.current = true;
+    navigatingRef.current = true;
+    setLinkNavigationPending(true);
+    try {
+      await flushDraft();
+      const latest = snapshotRef.current;
+      if (
+        latest.panel?.mode !== "input" || latest.user?.id !== request.userId ||
+        latest.conversation?.session.id !== request.sessionId || latest.playback?.id !== request.playbackId ||
+        Date.now() >= request.expiresAt
+      ) throw new Error("대화 입력 위치가 바뀌었어요. 다시 눌러 주세요.");
+      await dispatch("open_playback_link", { playbackId: request.playbackId });
+    } finally {
+      linkNavigating.current = false;
+      navigatingRef.current = false;
+      setLinkNavigationPending(false);
+    }
+  });
   const [target, setTarget] = useState<Persona | "all">(persona);
   const [orbitCloseRequest, setOrbitCloseRequest] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const { navigating, navigatingRef, leave, openModelSettings } = useBalloonNavigation({
-    currentView,
-    flushDraft,
-    dispatch,
-    setError,
-  });
+  const [linkError, setLinkError] = useState<{ playbackId: string; message: string } | null>(null);
+  const { navigating: normalNavigating, navigatingRef, leave, openModelSettings } =
+    useBalloonNavigation({ currentView, flushDraft, dispatch, setError });
+  const navigating = normalNavigating || linkNavigationPending;
   useEffect(() => {
     if (updateNotice) setError(null);
   }, [updateNotice, snapshot.playback?.id]);
@@ -196,6 +224,17 @@ export function Balloon({
     latestUser,
   });
   const visibleError = error || (mode === "input" || !mode ? snapshot.runtime.error : null);
+  async function openPlaybackLink(playbackId: string): Promise<void> {
+    const identity = currentView.current.identity;
+    setLinkError(null);
+    try {
+      await dispatch("open_playback_link", { playbackId });
+    } catch (cause) {
+      if (currentView.current.identity === identity) {
+        setLinkError({ playbackId, message: errorText(cause) });
+      }
+    }
+  }
   const availability = aiAvailability(snapshot);
   const latestInputContent =
     latestUser && lastSubmission.current?.id === latestUser.id
@@ -410,6 +449,7 @@ export function Balloon({
   };
   const inputLabel = target === "all" ? "모두에게 할 말" : `${recipientName}에게 할 말`;
   function changeInput(value: string): void {
+    if (linkNavigating.current) return;
     if (value !== draft.current.value && sessionId && (snapshot.activeRequest || followUps)) {
       void dispatch("dismiss_follow_ups", {
         sessionId,
@@ -704,7 +744,7 @@ export function Balloon({
                   value={input}
                   label={inputLabel}
                   placeholder="하고 싶은 이야기를 적어 줘."
-                  disabled={!snapshot.user || navigating}
+                  disabled={!snapshot.user || navigating || linkNavigationPending}
                   sending={pending}
                   disableInputWhileSending={false}
                   sendDisabled={responding || playing}
@@ -753,15 +793,23 @@ export function Balloon({
         />
       )}
       {!mode && !snapshot.story && (
-        <IdleSpeech
-          name={name}
-          textStyle={textStyle}
-          fullText={fullText}
-          playback={snapshot.playback}
-          responding={responding}
-          speech={speech}
-          onReply={(playbackId) => void perform("open_reply", { playbackId })}
-        />
+        <>
+          <IdleSpeech
+            name={name}
+            textStyle={textStyle}
+            fullText={fullText}
+            playback={snapshot.playback}
+            responding={responding}
+            speech={speech}
+            onReply={(playbackId) => void perform("open_reply", { playbackId })}
+            onOpenLink={(playbackId) => void openPlaybackLink(playbackId)}
+          />
+          {linkError && linkError.playbackId === snapshot.playback?.id && (
+            <p className={s.error} role="alert">
+              {linkError.message}
+            </p>
+          )}
+        </>
       )}
       {mode !== "input" && mode !== "focus" && notice}
       <DraftReplacementDialog

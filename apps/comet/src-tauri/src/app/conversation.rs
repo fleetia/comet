@@ -1657,7 +1657,7 @@ async fn generate_turn_with_follow_ups(
     cancel: Arc<AtomicBool>,
     memories: &[store::MemorySearchHit],
 ) -> Result<(Vec<SceneLine>, i64, Vec<String>), String> {
-    let (settings, prompt, revision, bundle, ticket, expressions, names, earlier, allow_follow_ups) = {
+    let (settings, mut prompt, revision, bundle, ticket, expressions, names, earlier, allow_follow_ups) = {
         let _action = lock(&state.action)?;
         if cancel.load(Ordering::SeqCst) {
             return Err("이전 생성 요청은 취소됐어요.".into());
@@ -1686,6 +1686,7 @@ async fn generate_turn_with_follow_ups(
                     persona: target.clone(),
                     expression: expression.into(),
                     text,
+                    widget: None,
                     motion: Default::default(),
                 };
                 return Ok((vec![line], store::revision(&db)?, Vec::new()));
@@ -1817,6 +1818,12 @@ async fn generate_turn_with_follow_ups(
     } else if !allow_follow_ups {
         domain::remove_follow_ups_from_schema(&mut schema);
     }
+    let widget_kinds = domain::configure_widget_replies(
+        &*lock(&state.db)?,
+        &mut prompt,
+        &mut schema,
+        settings.mode == "apple",
+    )?;
     let mut value = inference::generate(
         &state.inference,
         &settings,
@@ -1889,6 +1896,7 @@ async fn generate_turn_with_follow_ups(
         }
     }
     domain::validate_generated_expressions(&lines, &expressions)?;
+    domain::validate_generated_widgets(&mut lines, &widget_kinds);
     if bundle {
         let _action = lock(&state.action)?;
         if !is_current(state, ticket.epoch, &cancel) {
@@ -2337,6 +2345,7 @@ mod retry_display_tests {
                 persona: ids[0].clone(),
                 expression: "평온".into(),
                 text: "  저장한 답변\n그대로  ".into(),
+                widget: None,
                 motion: Default::default(),
             };
             let reply = Message {
@@ -2415,6 +2424,7 @@ mod unified_send_tests {
                 persona: "a".into(),
                 text: text.into(),
                 expression: "평온".into(),
+                widget: None,
                 motion: Default::default(),
             }],
             enabled: true,

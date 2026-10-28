@@ -326,6 +326,7 @@ fn entry_lines(actor: &AuthoringActor) -> Vec<SceneLine> {
             persona: actor.id.clone(),
             expression: line.expression.clone(),
             text: line.text.clone(),
+            widget: None,
             motion: line.motion.clone(),
         })
         .collect()
@@ -774,13 +775,12 @@ pub(crate) fn authoring_trial(request: AuthoringTrialRequest) -> Result<Authorin
                                 }
                                 if stage == Stage::Intro {
                                     if let Some(npc) = &actor.definition.npc {
-                                        entries.extend(npc.entry_lines.iter().map(|line| {
-                                            SceneLine {
-                                                persona: actor.id.clone(),
-                                                expression: line.expression.clone(),
-                                                text: line.text.clone(),
-                                                motion: line.motion.clone(),
-                                            }
+                                        entries.extend(npc.entry_lines.iter().map(|line| SceneLine {
+                                            persona: actor.id.clone(),
+                                            expression: line.expression.clone(),
+                                            text: line.text.clone(),
+                                            widget: None,
+                                            motion: line.motion.clone(),
                                         }));
                                     }
                                 }
