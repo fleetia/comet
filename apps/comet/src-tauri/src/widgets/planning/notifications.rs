@@ -89,15 +89,10 @@ pub(crate) fn deliver(
 
 pub(crate) fn deliver_automatic_widget(
     app: &tauri::AppHandle,
-    state: &crate::AppState,
     db: &rusqlite::Connection,
     event: &crate::widgets::WidgetEvent,
-    epoch: u64,
 ) -> Result<(), String> {
-    if state.epoch.load(Ordering::SeqCst) != epoch
-        || !crate::widgets::connection_host::wake_event_allowed(state, db)?
-        || !delivery_event_current(db, event)?
-    {
+    if !automatic_delivery_current(db, event)? {
         return Ok(());
     }
     native::show(
@@ -109,6 +104,16 @@ pub(crate) fn deliver_automatic_widget(
         true,
         &event.id,
     )
+}
+
+fn automatic_delivery_current(
+    db: &rusqlite::Connection,
+    event: &crate::widgets::WidgetEvent,
+) -> Result<bool, String> {
+    let current = crate::widgets::storage::get(db, &event.instance_id)?;
+    Ok(current.kind == "device"
+        && current.data["config"]["criticalNotification"] == true
+        && delivery_event_current(db, event)?)
 }
 
 fn show_delivery(

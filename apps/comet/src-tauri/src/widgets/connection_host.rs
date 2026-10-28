@@ -1310,7 +1310,6 @@ async fn refresh_information(
     })
     .await;
     let needs_notification = job.instance.kind == "device"
-        && reaction_allowed
         && job.instance.data["config"]["criticalNotification"] == true
         && matches!(&result, Ok(Ok(value)) if {
             let mut next = value.clone();
@@ -1369,7 +1368,6 @@ async fn refresh_information(
                     || !wake_event_allowed(state, db)?
                 {
                     events.clear();
-                    critical_transition = false;
                 }
             }
             let notify = critical_transition && current.data["config"]["criticalNotification"] == true;
@@ -1397,10 +1395,8 @@ async fn refresh_information(
             if let Some(event) = os_event.filter(|_| notification_allowed) {
                 if crate::widgets::planning::notifications::deliver_automatic_widget(
                     app,
-                    state,
                     db,
                     &event,
-                    reaction_epoch,
                 )
                 .is_err()
                 {
