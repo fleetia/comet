@@ -950,6 +950,9 @@ fn record_widget_moments_since(
     previous: Option<i64>,
 ) -> Result<bool> {
     use chrono::TimeZone;
+    if present.is_empty() {
+        return Ok(false);
+    }
     let Some(user) = crate::store::current_user(db)? else {
         return Ok(false);
     };
@@ -1030,11 +1033,13 @@ pub(crate) fn commit_data_with_presence(
     if super::is_retired(&instance.kind) || instance.revision != expected_revision {
         return Err("이미 변경되거나 중지된 위젯의 결과는 적용하지 않았어요.".into());
     }
-    if let Some(user) = crate::store::current_user(&tx)? {
-        for event in events.iter().filter(|event| event.kind == "planner-anniversary") {
-            if let (Some(id), Some(title)) = (event.payload["anniversaryId"].as_str(), event.payload["title"].as_str()) {
-                for character_id in present {
-                    crate::store::insert_moment(&tx, character_id, &user.id, "anniversary", &format!("‘{title}’ 기념일을 함께"), now, Some(id), json!({"anniversaryId":id}))?;
+    if !present.is_empty() {
+        if let Some(user) = crate::store::current_user(&tx)? {
+            for event in events.iter().filter(|event| event.kind == "planner-anniversary") {
+                if let (Some(id), Some(title)) = (event.payload["anniversaryId"].as_str(), event.payload["title"].as_str()) {
+                    for character_id in present {
+                        crate::store::insert_moment(&tx, character_id, &user.id, "anniversary", &format!("‘{title}’ 기념일을 함께"), now, Some(id), json!({"anniversaryId":id}))?;
+                    }
                 }
             }
         }
