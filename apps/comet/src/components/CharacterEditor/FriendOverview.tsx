@@ -344,7 +344,7 @@ export function FriendOverview({
         </section>
         <section className={styles.section} aria-label="함께한 기록">
           <h2 className={styles.sectionTitle}>함께한 기록</h2>
-          {touches?.characterId === characterId && (
+          {touches && touches.characterId === characterId && (
             <p className={styles.caption}>
               쓰다듬기 {touches.stroke} · 찌르기 {touches.poke} · 간식 {touches.snack}
             </p>
