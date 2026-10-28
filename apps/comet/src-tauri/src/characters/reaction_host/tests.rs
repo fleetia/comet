@@ -115,6 +115,47 @@ fn common_body_talk_uses_the_existing_pack_without_installing_the_interaction_wi
 }
 
 #[test]
+fn touching_one_character_expires_old_events_for_all_owners() {
+    let state = crate::app::tests::state();
+    let db = lock(&state.db).unwrap();
+    let id = characters::active_character(&db, "a").unwrap().id;
+    let user = store::active_user_id(&db).unwrap();
+    let now = 1_000_000_000_i64;
+    let cutoff = now - 172_800_000;
+    for (character, owner, at) in [
+        (id.as_str(), user.as_str(), cutoff - 1),
+        (id.as_str(), "other-user", cutoff - 1),
+        ("other-character", user.as_str(), cutoff - 1),
+        ("other-character", "other-user", cutoff - 1),
+        ("other-character", "other-user", cutoff),
+        ("other-character", "other-user", cutoff + 1),
+    ] {
+        db.execute(
+            "INSERT INTO character_touch_events(character_id,user_id,created_at) VALUES(?1,?2,?3)",
+            rusqlite::params![character, owner, at],
+        )
+        .unwrap();
+    }
+    db.execute(
+        "INSERT INTO character_touches(character_id,user_id,action,count,last_at) VALUES('other-character','other-user','stroke',7,?1)",
+        [cutoff - 1],
+    )
+    .unwrap();
+    widgets::storage::body_interaction(&db, &id, "stroke", &uuid::Uuid::new_v4().to_string(), now)
+        .unwrap();
+    let expired: i64 = db
+        .query_row("SELECT COUNT(*) FROM character_touch_events WHERE created_at<?1", [cutoff], |row| row.get(0))
+        .unwrap();
+    let retained: i64 = db
+        .query_row("SELECT COUNT(*) FROM character_touch_events WHERE character_id='other-character' AND user_id='other-user'", [], |row| row.get(0))
+        .unwrap();
+    let total: i64 = db
+        .query_row("SELECT count FROM character_touches WHERE character_id='other-character' AND user_id='other-user'", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!((expired, retained, total), (0, 2, 7));
+}
+
+#[test]
 fn milestone_interrupts_automatic_talk_only_when_allowed_and_matched() {
     let state = crate::app::tests::state();
     let program = crate::talk::validate_source(
