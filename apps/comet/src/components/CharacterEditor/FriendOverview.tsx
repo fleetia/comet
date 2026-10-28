@@ -206,7 +206,7 @@ export function FriendOverview({
       friend.definition.presenceRole !== "npc" &&
       presentIds.includes(friend.id),
   );
-  const currentMood = mood?.characterId === characterId ? mood.value : undefined;
+  const currentMood = mood && mood.characterId === characterId ? mood.value : undefined;
   const moodFace =
     currentMood === undefined
       ? undefined
