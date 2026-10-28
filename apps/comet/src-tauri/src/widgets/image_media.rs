@@ -124,7 +124,8 @@ fn compress(source: &Path, output: &Path, mime: &str, width: u32, height: u32) -
             }
         }
         "image/png" => {
-            let decoder = image::codecs::png::PngDecoder::with_limits(open()?, image::Limits::default()).map_err(err)?;
+            let mut decoder = image::codecs::png::PngDecoder::with_limits(open()?, image::Limits::default()).map_err(err)?;
+            let orientation = decoder.orientation().map_err(err)?;
             if decoder.is_apng().map_err(err)? {
                 let reader = png::Decoder::new(open()?).read_info().map_err(err)?;
                 let animation = reader.info().animation_control.ok_or("APNG 애니메이션 정보가 없어요.")?;
@@ -141,12 +142,15 @@ fn compress(source: &Path, output: &Path, mime: &str, width: u32, height: u32) -
                     let denom = denom.checked_mul(1000).ok_or("프레임 지연이 너무 커요.")?;
                     let gcd = gcd(numer, denom);
                     writer.set_frame_delay(u16::try_from(numer / gcd).map_err(err)?, u16::try_from(denom / gcd).map_err(err)?).map_err(err)?;
-                    let pixels = image::imageops::resize(&frame.into_buffer(), w, h, image::imageops::FilterType::Lanczos3);
+                    let mut pixels = image::DynamicImage::ImageRgba8(frame.into_buffer());
+                    pixels.apply_orientation(orientation);
+                    let pixels = image::imageops::resize(&pixels.into_rgba8(), w, h, image::imageops::FilterType::Lanczos3);
                     writer.write_image_data(&pixels).map_err(err)?;
                 }
                 writer.finish().map_err(err)?;
             } else {
-                let image = image::DynamicImage::from_decoder(decoder).map_err(err)?;
+                let mut image = image::DynamicImage::from_decoder(decoder).map_err(err)?;
+                image.apply_orientation(orientation);
                 image.resize_exact(w, h, image::imageops::FilterType::Lanczos3)
                     .write_to(&mut limited_output(output, limit)?, ImageFormat::Png).map_err(err)?;
             }
@@ -164,7 +168,9 @@ fn compress(source: &Path, output: &Path, mime: &str, width: u32, height: u32) -
             let mut decoder = image::codecs::webp::WebPDecoder::new(open()?).map_err(err)?;
             decoder.set_limits(image::Limits::default()).map_err(err)?;
             if decoder.has_animation() { return Err("움직이는 WebP 원본을 사용해요.".into()); }
-            let image = image::DynamicImage::from_decoder(decoder).map_err(err)?;
+            let orientation = decoder.orientation().map_err(err)?;
+            let mut image = image::DynamicImage::from_decoder(decoder).map_err(err)?;
+            image.apply_orientation(orientation);
             image.resize_exact(w, h, image::imageops::FilterType::Lanczos3)
                 .write_to(&mut limited_output(output, limit)?, ImageFormat::WebP).map_err(err)?;
         }
@@ -283,17 +289,15 @@ pub(crate) fn read(path: &Path) -> Result<Media> {
         super::image_video::dimensions(&source)?
     } else if mime == "image/svg+xml" {
         svg_dimensions_from_file(&source)?
-    } else if mime == "image/jpeg" {
-        let mut decoder = image::codecs::jpeg::JpegDecoder::new(BufReader::new(std::fs::File::open(&source).map_err(err)?)).map_err(err)?;
+    } else {
+        let mut decoder = image::ImageReader::new(BufReader::new(std::fs::File::open(&source).map_err(err)?))
+            .with_guessed_format().map_err(err)?.into_decoder().map_err(err)?;
         let (width, height) = decoder.dimensions();
         let orientation = decoder.orientation().map_err(err)?;
         use image::metadata::Orientation;
         if matches!(orientation, Orientation::Rotate90 | Orientation::Rotate270 | Orientation::Rotate90FlipH | Orientation::Rotate270FlipH) {
             (height, width)
         } else { (width, height) }
-    } else {
-        image::ImageReader::new(BufReader::new(std::fs::File::open(&source).map_err(err)?))
-            .with_guessed_format().map_err(err)?.into_dimensions().map_err(err)?
     };
     if width == 0 || height == 0 { return Err("이미지 크기가 올바르지 않아요.".into()); }
     let output = temporary.output();
@@ -337,6 +341,33 @@ mod tests {
         malformed.extend(vec![b'x'; MAX_SVG_TAG_BYTES + 1]);
         std::fs::write(&source, malformed).unwrap();
         assert!(svg_dimensions_from_file(&source).is_err());
+    }
+
+    #[test]
+    fn png_and_webp_orientation_survives_compression() {
+        use image::ImageEncoder;
+        let directory = tempfile::tempdir().unwrap();
+        let exif = b"II\x2a\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0\x06\0\0\0\0\0\0\0";
+        for (extension, mime) in [("png", "image/png"), ("webp", "image/webp")] {
+            let source = directory.path().join(format!("source.{extension}"));
+            let output = directory.path().join(format!("compressed.{extension}"));
+            let file = std::fs::File::create(&source).unwrap();
+            if extension == "png" {
+                let mut encoder = image::codecs::png::PngEncoder::new(file);
+                encoder.set_exif_metadata(exif.to_vec()).unwrap();
+                encoder.write_image(&[0; 24], 4, 2, image::ExtendedColorType::Rgb8).unwrap();
+            } else {
+                let mut encoder = image::codecs::webp::WebPEncoder::new_lossless(file);
+                encoder.set_exif_metadata(exif.to_vec()).unwrap();
+                encoder.write_image(&[0; 24], 4, 2, image::ExtendedColorType::Rgb8).unwrap();
+            }
+            std::fs::OpenOptions::new().append(true).open(&source).unwrap().write_all(&[0; 4096]).unwrap();
+            let media = read(&source).unwrap();
+            assert_eq!((media.width, media.height), (2, 4));
+            compress(&source, &output, mime, 2, 4).unwrap();
+            let decoded = image::open(&output).unwrap();
+            assert_eq!((decoded.width(), decoded.height()), (2, 4));
+        }
     }
 
     #[test]
