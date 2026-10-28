@@ -136,6 +136,13 @@ pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
         return Err("지원하지 않는 팩 버전 또는 잘못된 팩 구성입니다.".into());
     }
     crate::pack_stories::validate_pack(&pack.characters, &pack.story_definition())?;
+    if pack.format_version < 12
+        && pack.scenarios.iter().any(|scenario| {
+            scenario.reveal_affinity.is_some() || !scenario.defer.is_empty()
+        })
+    {
+        return Err("이야기 노출·유보 정보는 캐릭터팩 버전 12 이상이 필요해요.".into());
+    }
     if pack.format_version < 8
         && (!pack.story_definition().is_empty()
             || pack.characters.iter().any(|definition| {

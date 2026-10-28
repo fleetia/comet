@@ -64,6 +64,27 @@ fn fixture() -> (Connection, String, String, String) {
         installed[1].id.clone(),
     )
 }
+#[test]
+fn new_story_fields_require_pack_format_12() {
+    let (db, _, center, guest) = fixture();
+    let original = characters::export_pack(&db, &[center, guest], &[]).unwrap();
+    for use_defer in [false, true] {
+        let mut pack = original.clone();
+        let scenario = &mut pack.scenarios[0];
+        scenario.min_affinity = 10;
+        if use_defer {
+            scenario.defer = scenario.intro.clone();
+        } else {
+            scenario.reveal_affinity = Some(0);
+        }
+        let target = store::open(Path::new(":memory:")).unwrap();
+        pack.format_version = 8;
+        assert!(characters::import_pack(&target, &pack).is_err());
+        pack.format_version = 12;
+        assert!(characters::import_pack(&target, &pack).is_ok());
+    }
+}
+
 fn input(db: &Connection, center: &str, content: &str, epoch: u64) -> InputContext {
     let id = uuid::Uuid::new_v4().to_string();
     store::insert_user_input(
