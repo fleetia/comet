@@ -18,6 +18,7 @@ fn receive_wake(app: &tauri::AppHandle) {
             let _action = lock(&state.action)?;
             lock(&state.widget_clocks)?.clear();
             lock(&state.app_usage_tracker)?.clear();
+            lock(&state.life)?.activity.clear();
             app.state::<crate::desktop::toys::Runtime>()
                 .discard_pending_outcomes();
             if crate::unavailable(&state) {

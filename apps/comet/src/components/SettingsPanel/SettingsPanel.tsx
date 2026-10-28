@@ -312,7 +312,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
           className={styles.settingsPage}
         >
           {visited.has("desktop") && (
-            <DesktopPreferences hidden={snapshot.runtime.hidden} onDirtyChange={setGeneralDirty} />
+            <DesktopPreferences hidden={snapshot.runtime.hidden} platform={snapshot.device.platform} onDirtyChange={setGeneralDirty} />
           )}
         </section>
         <section
