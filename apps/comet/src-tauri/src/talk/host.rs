@@ -19,6 +19,8 @@ pub(crate) struct PreparedTalk {
     pub(crate) event: Option<widgets::WidgetEvent>,
     seed: u64,
     birthday: Option<BirthdayTrigger>,
+    pub(crate) recall_date: Option<String>,
+    recall_day: Option<chrono::NaiveDate>,
 }
 
 #[derive(Clone)]
@@ -35,7 +37,7 @@ pub(crate) fn prepare(
     db: &Connection,
     event: Option<&widgets::WidgetEvent>,
 ) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
-    prepare_with_birthday(state, db, event, None)
+    prepare_with_trigger(state, db, event, None, false)
 }
 
 pub(crate) fn prepare_birthday(
@@ -43,25 +45,28 @@ pub(crate) fn prepare_birthday(
     db: &Connection,
     birthday: BirthdayTrigger,
 ) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
-    prepare_with_birthday(state, db, None, Some(birthday))
+    prepare_with_trigger(state, db, None, Some(birthday), false)
+}
+
+pub(crate) fn prepare_recall(
+    state: &AppState,
+    db: &Connection,
+) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
+    prepare_with_trigger(state, db, None, None, true)
 }
 
 fn apply_birthday(context: &mut talk::EvalContext, birthday: &BirthdayTrigger) {
     context.trigger = birthday.kind.into();
-    context
-        .values
-        .insert("event.kind".into(), serde_json::json!(birthday.kind));
-    context.values.insert(
-        "event.character".into(),
-        serde_json::json!(birthday.character),
-    );
+    context.values.insert("event.kind".into(), serde_json::json!(birthday.kind));
+    context.values.insert("event.character".into(), serde_json::json!(birthday.character));
 }
 
-fn prepare_with_birthday(
+fn prepare_with_trigger(
     state: &AppState,
     db: &Connection,
     event: Option<&widgets::WidgetEvent>,
     birthday: Option<BirthdayTrigger>,
+    recall: bool,
 ) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
     let (program, generation) = {
         let active = lock(&state.talk)?;
@@ -79,6 +84,19 @@ fn prepare_with_birthday(
     if let Some(birthday) = &birthday {
         apply_birthday(&mut context, birthday);
     }
+    let recall_date = if recall {
+        if context.values.get("recall.ready") != Some(&serde_json::json!(true)) {
+            return Ok(None);
+        }
+        context.trigger = "diary.recall".into();
+        context
+            .values
+            .get("recall.date")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned)
+    } else {
+        None
+    };
     context.visible = presence::present_ids(state, &context.active)?;
     context.values.insert(
         "character.count".into(),
@@ -150,8 +168,27 @@ fn prepare_with_birthday(
         event: event.cloned(),
         seed: context.seed,
         birthday,
+        recall_day: recall_date
+            .as_ref()
+            .map(|_| chrono::Local::now().date_naive()),
+        recall_date,
     });
     Ok(Some(lines))
+}
+
+pub(crate) fn record_recall_displayed(
+    state: &AppState,
+    db: &Connection,
+    at: i64,
+) -> Result<(), String> {
+    let prepared = lock(&state.talk_playback)?;
+    if let Some(date) = prepared
+        .as_ref()
+        .and_then(|talk| talk.recall_date.as_deref())
+    {
+        talk::context::record_recall(db, date, at)?;
+    }
+    Ok(())
 }
 
 fn muted_reactions(
@@ -219,6 +256,25 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
         return Ok(false);
     }
     let mut context = talk::context::build(db, prepared.event.as_ref(), now, prepared.seed)?;
+    if prepared.text_values.get("recall.ready") == Some(&serde_json::json!(true))
+        && prepared.selection.references.iter().any(|name| name.starts_with("recall."))
+        && !crate::store::settings(db)?.diary_recall_enabled
+    {
+        return Ok(false);
+    }
+    if let Some(day) = prepared.recall_day {
+        if chrono::Local::now().date_naive() != day
+            || !crate::store::settings(db)?.diary_recall_enabled
+        {
+            return Ok(false);
+        }
+        context.trigger = "diary.recall".into();
+        for (name, value) in &prepared.text_values {
+            if name.starts_with("recall.") {
+                context.values.insert(name.clone(), value.clone());
+            }
+        }
+    }
     context.visible = presence::present_ids(state, &context.active)?;
     if let Some(birthday) = &prepared.birthday {
         if chrono::Local::now().date_naive() != birthday.date {

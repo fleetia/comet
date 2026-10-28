@@ -194,6 +194,8 @@ pub struct Settings {
     #[serde(default = "default_autonomous_enabled")]
     pub autonomous_enabled: bool,
     #[serde(default = "default_autonomous_enabled")]
+    pub diary_recall_enabled: bool,
+    #[serde(default = "default_autonomous_enabled")]
     pub show_follow_ups: bool,
     #[serde(default)]
     pub random_presence_enabled: bool,
@@ -225,6 +227,7 @@ impl Default for Settings {
             chatgpt_idle_enabled: false,
             apple_idle_enabled: false,
             autonomous_enabled: true,
+            diary_recall_enabled: true,
             show_follow_ups: true,
             random_presence_enabled: false,
             local_idle_enabled: false,
