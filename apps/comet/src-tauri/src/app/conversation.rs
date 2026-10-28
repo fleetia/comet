@@ -1718,7 +1718,6 @@ async fn generate_turn_with_follow_ups(
             let actor = characters::guests::actor(state, &db, target)?;
             Ok((target.clone(), characters::life::mood(state, &actor.id)?))
         }).collect::<Result<std::collections::BTreeMap<_, _>, String>>()?;
-        domain::with_moods(&mut prompt, &moods, !small);
         #[cfg(debug_assertions)]
         if !context.selected_knowledge_ids.is_empty() {
             eprintln!(
@@ -1765,6 +1764,8 @@ async fn generate_turn_with_follow_ups(
                 system.content.push_str(domain::FOLLOW_UP_PROMPT);
             }
         }
+        let mood_budget = if bundle || targets.len() > 1 { 7200 } else { 4800 };
+        domain::with_moods(&mut prompt, &moods, !small, mood_budget);
         let input: String = db
             .query_row(
                 "SELECT json_extract(data, '$.content') FROM messages WHERE id=?1 AND role='user'",

@@ -119,15 +119,16 @@ mod tests {
     fn interaction_target_is_recorded_once_and_rejected_actions_do_not_commit() {
         let db = crate::store::open(std::path::Path::new(":memory:")).unwrap();
         let actor = characters::active_character(&db, "a").unwrap();
-        let id = uuid::Uuid::new_v4().to_string();
-        db.execute(
-            "INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data,error) VALUES(?1,'interaction',1,1,1,0,?2,NULL)",
-            rusqlite::params![id, super::super::toys::initial("interaction").to_string()],
-        ).unwrap();
+        let interaction = storage::instances(&db)
+            .unwrap()
+            .into_iter()
+            .find(|widget| widget.kind == "interaction")
+            .unwrap();
+        let id = interaction.id;
         let request = WidgetRequest {
             request_id: uuid::Uuid::new_v4().to_string(),
             instance_id: id.clone(),
-            expected_revision: 0,
+            expected_revision: interaction.revision,
             action: "stroke".into(),
             input: json!({"character":"A","owner":actor.id.clone()}),
         };
@@ -136,7 +137,7 @@ mod tests {
         assert!(pending_interaction_target(&db, &request).unwrap().is_none());
         let bad = WidgetRequest {
             request_id: uuid::Uuid::new_v4().to_string(),
-            expected_revision: 1,
+            expected_revision: interaction.revision + 1,
             action: "snack".into(),
             ..request
         };

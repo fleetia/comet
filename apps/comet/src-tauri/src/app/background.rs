@@ -511,7 +511,7 @@ pub(crate) async fn run_background(
             Ok((character.id.clone(), crate::characters::life::mood(state, &character.id)?))
         }).collect::<Result<std::collections::BTreeMap<_, _>, String>>()?;
         let small = settings.mode == "apple" || (settings.mode == "local" && models::selected_small(&settings));
-        domain::with_moods(&mut prompt, &moods, !small);
+        domain::with_moods(&mut prompt, &moods, !small, 7200);
         prompt
     };
     let expressions =
