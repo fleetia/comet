@@ -395,6 +395,7 @@ it("configures weather only from an explicit selected search result", async () =
         temperatureUnit: "celsius",
         showApparent: true,
         showDetails: false,
+        showTomorrow: true,
         allowTalk: true,
         refreshIntervalMinutes: 30,
       },

@@ -5,7 +5,12 @@ const meta = {
   title: "UI/widgets/WeatherWidget",
   component: WeatherWidget,
   tags: ["autodocs"],
-  args: { temperature: "23°", condition: "구름 조금", location: "서울" },
+  args: {
+    temperature: "23°",
+    condition: "구름 조금",
+    location: "서울",
+    tomorrow: "내일 비 · 16°C / 22°C",
+  },
   argTypes: {
     temperature: {
       control: "text",
@@ -16,6 +21,7 @@ const meta = {
     location: {
       control: "text",
     },
+    tomorrow: { control: "text" },
     shape: { control: "object" },
     backgroundImage: { control: "text" },
     backgroundColor: { control: "color" },

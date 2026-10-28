@@ -1654,6 +1654,10 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
             first_display =
                 crate::app::scene::mark_line_displayed(line, chrono::Utc::now().timestamp_millis());
             if first_display && line.source != "update" {
+                crate::talk::host::mark_displayed_rain_idle(&state, &db, line)?;
+                if crate::widgets::commands::widget_event_current(&state, &db)? {
+                    crate::app::scene::mark_displayed_weather_reaction(&state, &db, line)?;
+                }
                 crate::app::scene::record_link_hint_displayed(&db, line)?;
                 displayed_message = line
                     .display_started_at
