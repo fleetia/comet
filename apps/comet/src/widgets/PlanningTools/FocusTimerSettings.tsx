@@ -17,6 +17,9 @@ import * as s from "./FocusTimer.css";
 type SettingsDraft = {
   rest: string;
   autoStartRest: boolean;
+  continuous: boolean;
+  longRestEvery: string;
+  longRest: string;
   finishNotification: string;
   finishSoundEnabled: boolean;
   lead: string;
@@ -27,6 +30,9 @@ function readSettings(widget: WidgetView): SettingsDraft {
   return {
     rest: String((number(settings.restDurationMs) || 300000) / 60000),
     autoStartRest: settings.autoStartRest === true,
+    continuous: settings.continuous === true,
+    longRestEvery: String(number(settings.longRestEvery) || 4),
+    longRest: String((number(settings.longRestDurationMs) || 900000) / 60000),
     finishNotification: text(settings.finishNotification) || "bubble",
     finishSoundEnabled: settings.finishSoundEnabled === true,
     lead:
@@ -40,6 +46,9 @@ function payload(draft: SettingsDraft): DataRecord {
   return {
     restDurationMs: Math.round(Number(draft.rest) * 60000),
     autoStartRest: draft.autoStartRest,
+    continuous: draft.continuous,
+    longRestEvery: Number(draft.longRestEvery),
+    longRestDurationMs: Math.round(Number(draft.longRest) * 60000),
     finishNotification: draft.finishNotification,
     finishSoundEnabled: draft.finishSoundEnabled,
     linkedEventLeadMinutes: draft.lead === "off" ? null : Number(draft.lead),
@@ -50,10 +59,21 @@ function payload(draft: SettingsDraft): DataRecord {
 const AUTOSAVE_DELAY = 500;
 const validationMessages = [
   "휴식 시간은 1~180분으로 입력해 주세요.",
+  "긴 휴식은 1~180분, 회차는 2~8회로 입력해 주세요.",
   "연결한 일정 알림은 시작 시각부터 120분 전까지 설정할 수 있어요.",
 ];
 
 function validationError(draft: SettingsDraft): string {
+  if (
+    !draft.longRest.trim() ||
+    !Number.isFinite(Number(draft.longRest)) ||
+    Number(draft.longRest) < 1 ||
+    Number(draft.longRest) > 180 ||
+    !Number.isInteger(Number(draft.longRestEvery)) ||
+    Number(draft.longRestEvery) < 2 ||
+    Number(draft.longRestEvery) > 8
+  )
+    return "긴 휴식은 1~180분, 회차는 2~8회로 입력해 주세요.";
   if (
     !draft.rest.trim() ||
     !Number.isFinite(Number(draft.rest)) ||
@@ -392,6 +412,53 @@ export function FocusTimerSettings({
                   checked={draft.autoStartRest}
                   disabled={busy}
                   onChange={(event) => setDraft({ ...draft, autoStartRest: event.target.checked })}
+                />
+              }
+            />
+            <SettingControlRow
+              className={s.settingRow}
+              title="연속 모드"
+              description="휴식이 끝나면 다음 집중을 시작해요"
+              control={
+                <Switch
+                  aria-label="연속 모드"
+                  checked={draft.continuous}
+                  disabled={busy}
+                  onChange={(event) => setDraft({ ...draft, continuous: event.target.checked })}
+                />
+              }
+            />
+            <SettingControlRow
+              className={s.settingRow}
+              title="긴 휴식 주기"
+              control={
+                <Stepper
+                  size="compact"
+                  aria-label="긴 휴식 주기 (회)"
+                  disabled={busy}
+                  min={2}
+                  max={8}
+                  unit="회"
+                  value={draft.longRestEvery}
+                  onChange={(event) => setDraft({ ...draft, longRestEvery: event.target.value })}
+                  onValueChange={(value) => setDraft({ ...draft, longRestEvery: String(value) })}
+                />
+              }
+            />
+            <SettingControlRow
+              className={s.settingRow}
+              title="긴 휴식 시간"
+              control={
+                <Stepper
+                  size="compact"
+                  aria-label="긴 휴식 시간 (분)"
+                  disabled={busy}
+                  min={1}
+                  max={180}
+                  unit="분"
+                  value={draft.longRest}
+                  onChange={(event) => setDraft({ ...draft, longRest: event.target.value })}
+                  onValueChange={(value) => setDraft({ ...draft, longRest: String(value) })}
                 />
               }
             />
