@@ -454,11 +454,11 @@ fn read(db: &Connection) -> Result<Stored, String> {
         .map(Option::unwrap_or_default)
 }
 
-/// Installed, enabled widgets that can sit on the desktop, by id.
+/// Widgets that can sit on the desktop, by id.
 fn placeable(db: &Connection) -> Result<HashMap<String, String>, String> {
     Ok(storage::instances(db)?
         .into_iter()
-        .filter(|widget| widget.installed && widget.enabled && supports(&widget.kind))
+        .filter(|widget| supports(&widget.kind))
         .map(|widget| (widget.id, widget.kind))
         .collect())
 }
@@ -532,7 +532,7 @@ fn commit(db: &Connection, previous: &Stored, layout: Layout) -> Result<Stored, 
     validate(&layout)?;
     let placeable = placeable(db)?;
     if layout.order.iter().any(|id| !placeable.contains_key(id)) {
-        return Err("설치하고 켠 바탕화면 위젯만 배치할 수 있어요.".into());
+        return Err("바탕화면에 놓을 수 있는 위젯만 배치할 수 있어요.".into());
     }
     let next = Stored {
         revision: previous
@@ -1257,7 +1257,7 @@ pub(crate) async fn add_widget_desktop_item(
     widget_id(&id)?;
     let (stored, _) = widgets::commands::change(&state, |db| {
         if !placeable(db)?.contains_key(&id) {
-            return Err("설치하고 켠 바탕화면 위젯만 놓을 수 있어요.".into());
+            return Err("바탕화면에 놓을 수 있는 위젯만 놓을 수 있어요.".into());
         }
         update(db, |layout| {
             if !layout.order.contains(&id) {
@@ -1502,17 +1502,7 @@ mod tests {
         storage::initialize(&db).unwrap();
         db
     }
-    fn install(db: &Connection, kinds: &[&str]) -> Vec<String> {
-        let directory = tempfile::tempdir().unwrap();
-        storage::install(
-            db,
-            directory.path(),
-            &kinds
-                .iter()
-                .map(|kind| kind.to_string())
-                .collect::<Vec<_>>(),
-        )
-        .unwrap();
+    fn widget_ids(db: &Connection, kinds: &[&str]) -> Vec<String> {
         kinds
             .iter()
             .map(|kind| {
@@ -1587,7 +1577,7 @@ mod tests {
             };
             assert!(configure(&db, 0, settings(&input)).is_err());
         }
-        let id = install(&db, &["clock"]).remove(0);
+        let id = widget_ids(&db, &["clock"]).remove(0);
         let duplicate = Layout {
             order: vec![id.clone(), id],
             ..Layout::default()
@@ -1657,7 +1647,7 @@ mod tests {
         value.background_color = "red".into();
         assert!(!value.valid());
         let db = database();
-        let ids = install(&db, &["clock"]);
+        let ids = widget_ids(&db, &["clock"]);
         db.execute(
             "INSERT INTO widget_preferences(key,value) VALUES(?1,?2)",
             params![
@@ -1693,7 +1683,7 @@ mod tests {
     #[test]
     fn stored_retired_preset_23_is_read_as_the_rounded_square() {
         let db = database();
-        let ids = install(&db, &["clock"]);
+        let ids = widget_ids(&db, &["clock"]);
         let mut legacy = shape(184.0, 184.0, 0.0);
         legacy.preset = "23".into();
         let stored = Stored {
@@ -1716,9 +1706,9 @@ mod tests {
     }
 
     #[test]
-    fn stored_retired_disabled_and_removed_ids_are_pruned_with_their_geometry() {
+    fn stored_retired_and_missing_ids_are_pruned_with_their_geometry() {
         let db = database();
-        let ids = install(&db, &["clock", "weather", "memo"]);
+        let ids = widget_ids(&db, &["clock", "weather", "memo"]);
         let layout = Layout {
             mode: Mode::Freeform,
             order: ids.clone(),
@@ -1732,9 +1722,9 @@ mod tests {
         };
         let saved = configure(&db, 0, settings(&layout)).unwrap();
         restore(&db, saved.revision, layout).unwrap();
-        storage::set_enabled(&db, &ids[1], false).unwrap();
+        db.execute("DELETE FROM widget_instances WHERE id=?1", [&ids[1]]).unwrap();
         db.execute(
-            "UPDATE widget_instances SET kind='fishing' WHERE id=?1",
+            "UPDATE widget_instances SET kind='collection' WHERE id=?1",
             [&ids[2]],
         )
         .unwrap();
@@ -1754,7 +1744,7 @@ mod tests {
     #[test]
     fn configure_preserves_positions_shapes_and_clears_the_stack_spot_on_anchor_change() {
         let db = database();
-        let ids = install(&db, &["clock", "weather"]);
+        let ids = widget_ids(&db, &["clock", "weather"]);
         let layout = Layout {
             mode: Mode::Freeform,
             order: ids.clone(),
@@ -1794,7 +1784,7 @@ mod tests {
     #[test]
     fn restore_replaces_geometry_and_skips_widgets_that_can_no_longer_be_placed() {
         let db = database();
-        let ids = install(&db, &["clock", "music"]);
+        let ids = widget_ids(&db, &["clock", "music"]);
         let snapshot = Layout {
             mode: Mode::Freeform,
             order: ids.clone(),
@@ -1813,7 +1803,7 @@ mod tests {
         assert!(changed);
         assert_eq!(moved.revision, saved.revision + 1);
         assert_eq!(update(&db, |_| Ok(())).unwrap(), (moved.clone(), false));
-        storage::set_enabled(&db, &ids[1], false).unwrap();
+        db.execute("DELETE FROM widget_instances WHERE id=?1", [&ids[1]]).unwrap();
         let restored = restore(&db, load(&db).unwrap().revision, snapshot).unwrap();
         assert_eq!(restored.layout.order, vec![ids[0].clone()]);
         assert!(restored.layout.positions.is_empty());
@@ -1823,7 +1813,7 @@ mod tests {
     #[test]
     fn removing_an_item_clears_its_geometry_without_touching_widget_data() {
         let db = database();
-        let ids = install(&db, &["clock"]);
+        let ids = widget_ids(&db, &["clock"]);
         let widget = storage::get(&db, &ids[0]).unwrap();
         update(&db, |layout| {
             layout.order.push(ids[0].clone());
@@ -1850,20 +1840,18 @@ mod tests {
     }
 
     #[test]
-    fn display_windows_open_only_for_placed_enabled_widgets_in_freeform() {
+    fn display_windows_follow_placement_independently_of_reaction_preference() {
         for mutation in [
             "none",
             "stack",
             "unplaced",
-            "disable",
-            "remove",
-            "reinstall",
+            "reaction-off",
         ] {
             let directory = tempfile::tempdir().unwrap();
             let mut state = crate::app::tests::state();
             state.app_data = directory.path().into();
             let db = lock(&state.db).unwrap();
-            let id = install(&db, &["clock"]).remove(0);
+            let id = widget_ids(&db, &["clock"]).remove(0);
             update(&db, |layout| {
                 layout.mode = Mode::Freeform;
                 layout.order.push(id.clone());
@@ -1885,19 +1873,15 @@ mod tests {
                     })
                     .unwrap();
                 }
-                "disable" => storage::set_enabled(&db, &id, false).unwrap(),
-                "remove" => storage::remove(&db, &state.app_data, &id, false).unwrap(),
-                "reinstall" => {
-                    storage::remove(&db, &state.app_data, &id, false).unwrap();
-                    load(&db).unwrap();
-                    storage::install(&db, &state.app_data, &["clock".into()]).unwrap();
+                "reaction-off" => {
+                    db.execute("INSERT INTO widget_preferences(key,value) VALUES(?1,'0')", [format!("reaction:{id}")]).unwrap();
                 }
                 _ => {}
             }
             drop(db);
             assert_eq!(
                 displayable(&state, &id).is_ok(),
-                mutation == "none",
+                matches!(mutation, "none" | "reaction-off"),
                 "{mutation}"
             );
         }

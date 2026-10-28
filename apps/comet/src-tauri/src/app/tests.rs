@@ -57,6 +57,8 @@ pub(crate) fn state() -> AppState {
         talk_playback: Mutex::new(None),
         talk_turn: AtomicBool::new(true),
         story: Mutex::new(None),
+        follow_ups: Mutex::new(None),
+        follow_up_dismissed_epoch: AtomicU64::new(u64::MAX),
         pack_stories: Mutex::new(crate::pack_stories::Runtime::default()),
         story_clock: Mutex::new(story::Clock::default()),
         story_catalog: Mutex::new(story::catalog().unwrap()),
@@ -220,7 +222,6 @@ fn talk_remaining_lines_stop_after_each_dependency_and_host_invalidation() {
     for cause in [
         "todo",
         "memo",
-        "disable",
         "input",
         "pause",
         "manual-pause",
@@ -237,7 +238,7 @@ fn talk_remaining_lines_stop_after_each_dependency_and_host_invalidation() {
         let (token, lines, revision) = {
             let _action = lock(&state.action).unwrap();
             let db = lock(&state.db).unwrap();
-            widgets::storage::install(&db, directory.path(), &["todo".into(), "memo".into()])
+            widgets::storage::verify_packages(&db, directory.path())
                 .unwrap();
             let token = interrupt(&state, cause != "manual-pause").unwrap();
             let lines = talk::host::prepare(&state, &db, None).unwrap().unwrap();
@@ -249,18 +250,16 @@ fn talk_remaining_lines_stop_after_each_dependency_and_host_invalidation() {
         )
         .unwrap());
         match cause {
-            "todo" | "memo" | "disable" => {
+            "todo" | "memo" => {
                 let db = lock(&state.db).unwrap();
                 let instance = widgets::storage::instances(&db)
                     .unwrap()
                     .into_iter()
                     .find(|instance| {
-                        instance.kind == if cause == "disable" { "memo" } else { cause }
+                        instance.kind == cause
                     })
                     .unwrap();
-                if cause == "disable" {
-                    widgets::storage::set_enabled(&db, &instance.id, false).unwrap();
-                } else {
+                {
                     let mut changed = instance.data;
                     changed["items"] = serde_json::json!([{"id":"added","title":"추가","text":"메모","completedAt":null}]);
                     widgets::storage::commit_data(
@@ -372,8 +371,12 @@ fn brief_idle_pause_discards_widget_queue_before_a_scheduler_tick() {
     let directory = tempfile::tempdir().unwrap();
     {
         let db = lock(&state.db).unwrap();
-        widgets::storage::install(&db, directory.path(), &["small-match".into()]).unwrap();
-        let instance = widgets::storage::instances(&db).unwrap().remove(0);
+        widgets::storage::verify_packages(&db, directory.path()).unwrap();
+        let instance = widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|instance| instance.kind == "small-match")
+                .unwrap();
         widgets::storage::commit_data(
             &db,
             &instance.id,
@@ -397,7 +400,11 @@ fn brief_idle_pause_discards_widget_queue_before_a_scheduler_tick() {
                 .unwrap()
                 .is_none()
         );
-        let instance = widgets::storage::instances(&db).unwrap().remove(0);
+        let instance = widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|instance| instance.kind == "small-match")
+                .unwrap();
         widgets::storage::commit_data(
             &db,
             &instance.id,
@@ -428,8 +435,12 @@ fn widget_lines_stop_after_source_change_or_user_cancellation() {
         let directory = tempfile::tempdir().unwrap();
         let (instance, revision, event) = {
             let db = lock(&state.db).unwrap();
-            widgets::storage::install(&db, directory.path(), &["small-match".into()]).unwrap();
-            let instance = widgets::storage::instances(&db).unwrap().remove(0);
+            widgets::storage::verify_packages(&db, directory.path()).unwrap();
+            let instance = widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|instance| instance.kind == "small-match")
+                .unwrap();
             widgets::storage::commit_data(
                 &db,
                 &instance.id,
@@ -493,7 +504,7 @@ fn widget_lines_stop_after_source_change_or_user_cancellation() {
                 .unwrap();
             }
             "disable" => {
-                widgets::storage::set_enabled(&lock(&state.db).unwrap(), &instance.id, false)
+                widgets::storage::set_reaction(&lock(&state.db).unwrap(), &instance.id, false)
                     .unwrap()
             }
             "pause" => {
@@ -1711,7 +1722,7 @@ fn set_focus_timer(
         .iter()
         .any(|instance| instance.kind == "focus-timer")
     {
-        widgets::storage::install(db, directory, &["focus-timer".into()]).unwrap();
+        widgets::storage::verify_packages(db, directory).unwrap();
     }
     let instance = widgets::storage::instances(db)
         .unwrap()
@@ -1761,7 +1772,7 @@ fn starting_and_resuming_focus_cancel_existing_speech_without_erasing_the_conver
     let directory = tempfile::tempdir().unwrap();
     let (persona, session_id) = {
         let db = lock(&state.db).unwrap();
-        widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+        widgets::storage::verify_packages(&db, directory.path()).unwrap();
         store::set_user_name(&db, "집중 검사", chrono::Utc::now().timestamp_millis()).unwrap();
         let persona = characters::active_ids(&db).unwrap()[0].clone();
         let session = store::create_conversation(
@@ -1999,8 +2010,8 @@ fn focus_activity_requires_enabled_running_focus_with_future_deadline() {
         .into_iter()
         .find(|instance| instance.kind == "focus-timer")
         .unwrap();
-    widgets::storage::set_enabled(&db, &timer.id, false).unwrap();
-    assert!(!widgets::storage::focus_active(&db, at).unwrap());
+    widgets::storage::set_reaction(&db, &timer.id, false).unwrap();
+    assert!(widgets::storage::focus_active(&db, at).unwrap());
 }
 
 #[test]
@@ -2010,7 +2021,7 @@ fn focus_hold_drops_all_balloon_reactions_without_a_catch_up() {
     let db = lock(&state.db).unwrap();
     let at = chrono::Utc::now().timestamp_millis();
     // Installing discards pending events, so both widgets exist before the events.
-    widgets::storage::install(&db, directory.path(), &["small-match".into()]).unwrap();
+    widgets::storage::verify_packages(&db, directory.path()).unwrap();
     set_focus_timer(&db, directory.path(), "idle", "focus", None);
     let instance = widgets::storage::instances(&db)
         .unwrap()
@@ -2946,10 +2957,9 @@ async fn shutdown_and_update_save_note_drafts_before_becoming_unavailable() {
         let directory = tempfile::tempdir().unwrap();
         let id = {
             let db = lock(&state.db).unwrap();
-            crate::widgets::storage::install(&db, directory.path(), &["memo".into()]).unwrap();
-            crate::widgets::storage::instances(&db).unwrap()[0]
-                .id
-                .clone()
+            crate::widgets::storage::verify_packages(&db, directory.path()).unwrap();
+            crate::widgets::storage::instances(&db).unwrap().into_iter()
+                .find(|widget| widget.kind == "memo").unwrap().id
         };
         let (send, receive) = tokio::sync::oneshot::channel();
         let preparation = super::lifecycle::prepare_after_notes(

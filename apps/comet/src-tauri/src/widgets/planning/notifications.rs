@@ -128,8 +128,6 @@ fn delivery_event_current(
 ) -> Result<bool, String> {
     let current = crate::widgets::storage::get(db, &event.instance_id)?;
     Ok(event.expires_at > chrono::Utc::now().timestamp_millis()
-        && current.installed
-        && current.enabled
         && current.revision == event.revision
         && crate::widgets::reminders::event_current(db, &bubble_fallback(event))?)
 }

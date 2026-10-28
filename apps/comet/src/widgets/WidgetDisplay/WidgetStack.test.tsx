@@ -24,12 +24,11 @@ vi.mock("@tauri-apps/api/window", () => ({
   }),
 }));
 
-function widget(id: string, kind: string, enabled = true): WidgetView {
+function widget(id: string, kind: string, reaction = true): WidgetView {
   return {
     id,
     kind,
-    enabled,
-    installed: true,
+    reaction,
     revision: 3,
     version: 1,
     missing: [],
@@ -303,7 +302,7 @@ it("opens a folded widget as a bubble beside the capsule bar and closes it from 
   ]);
   render(<WidgetStack />);
   const capsule = within(await screen.findByRole("group", { name: "접어 둔 위젯" }));
-  expect(capsule.getAllByRole("button")).toHaveLength(2);
+  expect(capsule.getAllByRole("button")).toHaveLength(3);
   fireEvent.click(capsule.getByRole("button", { name: /집중/ }));
   // The capsule bar stays; only the chosen widget opens below it.
   expect(screen.getByRole("group", { name: "접어 둔 위젯" })).toBeTruthy();

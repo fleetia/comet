@@ -12,7 +12,7 @@ fn external_notifications_do_not_route_to_planner_actions() {
 fn silent_finish(state: &crate::AppState) -> WidgetEvent {
     let db = crate::lock(&state.db).unwrap();
     let directory = tempfile::tempdir().unwrap();
-    storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
     let timer = storage::instances(&db)
         .unwrap()
         .into_iter()

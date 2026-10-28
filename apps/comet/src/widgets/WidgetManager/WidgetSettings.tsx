@@ -96,7 +96,7 @@ export function WidgetSettings({
             {widget.kind === "focus-timer" && (
               <FocusWidgetSettings
                 widget={widget}
-                calendar={widgets.find((item) => item.kind === "calendar" && item.installed)}
+                calendar={widgets.find((item) => item.kind === "calendar")}
                 act={configure}
                 onDirtyChange={setConnectionDirty}
                 onBusyChange={setConnectionBusy}

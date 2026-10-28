@@ -34,7 +34,7 @@ function trips(state: TripState): TripData[] {
  * while a travel widget exists, and the line refreshes each minute for countdowns.
  */
 export function useTravelWidgets(widgets: WidgetView[]): WidgetView[] {
-  const present = widgets.some((widget) => widget.kind === "travel" && widget.installed && widget.enabled);
+  const present = widgets.some((widget) => widget.kind === "travel");
   const [state, setState] = useState<TripState | null>(null);
   const [minute, setMinute] = useState(() => Math.floor(Date.now() / 60_000));
   useEffect(() => {
@@ -60,8 +60,8 @@ export function useTravelWidgets(widgets: WidgetView[]): WidgetView[] {
     if (!present) return widgets;
     const now = new Date(minute * 60_000);
     const trip = state ? widgetTrip(trips(state), now) : undefined;
-    const preparation = widgets.find((widget) => widget.kind === "preparation" && widget.installed);
-    const todo = widgets.find((widget) => widget.kind === "todo" && widget.installed);
+    const preparation = widgets.find((widget) => widget.kind === "preparation");
+    const todo = widgets.find((widget) => widget.kind === "todo");
     const envelope = trip?.travel.envelopeId
       ? rows(record(preparation?.data).envelopes).find((value) => value.id === trip.travel.envelopeId)
       : undefined;

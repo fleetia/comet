@@ -20,8 +20,7 @@ vi.mock("@tauri-apps/api/window", () => ({
 const widget: WidgetView = {
   id: "memo",
   kind: "memo",
-  installed: true,
-  enabled: true,
+  reaction: true,
   revision: 2,
   version: 1,
   status: "enabled",

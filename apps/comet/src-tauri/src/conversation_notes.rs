@@ -47,7 +47,7 @@ pub(crate) fn read_note(db: &Connection, reference: &NoteReference) -> Result<No
                 .as_deref()
                 .ok_or("메모 도구를 찾을 수 없어요.")?;
             let widget = crate::widgets::storage::get(db, id)?;
-            if !widget.installed || widget.kind != "memo" {
+            if widget.kind != "memo" {
                 return Err("연결한 메모 도구를 찾을 수 없어요.".into());
             }
             widget.data["notes"]
@@ -182,7 +182,7 @@ fn list_notes(db: &Connection) -> Result<Vec<NoteOption>> {
     }
     for widget in crate::widgets::storage::instances(db)?
         .into_iter()
-        .filter(|widget| widget.installed && widget.kind == "memo")
+        .filter(|widget| widget.kind == "memo")
     {
         for note in widget.data["notes"].as_array().into_iter().flatten() {
             let Some(id) = note["id"].as_str() else {

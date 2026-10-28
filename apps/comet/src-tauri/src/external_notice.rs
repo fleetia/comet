@@ -227,7 +227,7 @@ fn receive(
     let (os, text) = widgets::commands::change(state, |db| {
         let instance = widgets::storage::instances(db)?
             .into_iter()
-            .find(|item| item.kind == "external-notice" && item.installed && item.enabled)
+            .find(|item| item.kind == "external-notice")
             .ok_or("바깥 알림을 사용할 수 없어요.")?;
         if instance.data["enabled"] == false {
             return Err("바깥 알림 받기가 꺼져 있어요.".into());

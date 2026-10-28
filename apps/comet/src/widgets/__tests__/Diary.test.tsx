@@ -34,8 +34,7 @@ function widget(kind: string, data: DataRecord): WidgetView {
   return {
     id: kind,
     kind,
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 7,
     version: 1,
     data,
@@ -461,19 +460,10 @@ it("keeps failed quick input for retry and synchronously blocks duplicate submis
   expect(actions("execute_widget")).toHaveLength(2);
 });
 
-it("uses no planned date in the collection and enables Todo before creating its quick task", async () => {
-  widgets.widgets = [{ ...widget("todo", { items: [] }), enabled: false }];
-  const original = vi.mocked(command).getMockImplementation()!;
-  vi.mocked(command).mockImplementation(async (name, args) => {
-    if (name === "set_widget_enabled") {
-      widgets.widgets[0].enabled = true;
-      widgets.widgets[0].revision = 9;
-      return;
-    }
-    return original(name, args);
-  });
+it("creates an undated quick task even when character reactions are off", async () => {
+  widgets.widgets = [{ ...widget("todo", { items: [] }), reaction: false }];
   execute = (request) => {
-    expect(request.expectedRevision).toBe(9);
+    expect(request.expectedRevision).toBe(7);
     expect(request.input).toEqual({ title: "날짜 없는 할 일", plannedDate: null });
     return "collection-task";
   };
@@ -485,7 +475,7 @@ it("uses no planned date in the collection and enables Todo before creating its 
   });
   fireEvent.click(screen.getByRole("button", { name: "할 일 저장" }));
   await waitFor(() => expect(actions("execute_widget")).toHaveLength(1));
-  expect(command).toHaveBeenCalledWith("set_widget_enabled", { id: "todo", enabled: true });
+  expect(command).not.toHaveBeenCalledWith("set_widget_enabled", expect.anything());
   expect(actions("update_diary")).toEqual([]);
 });
 

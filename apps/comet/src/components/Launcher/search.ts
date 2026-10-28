@@ -145,8 +145,8 @@ function widgetResult(
       action: { type: "settings", section: "widgets", widgetKind: entry.id },
     };
   }
-  const needsSetup = instance?.installed && instance.enabled && instance.status === "setup";
-  const available = instance?.installed && instance.enabled && !needsSetup;
+  const needsSetup = instance?.status === "setup";
+  const available = Boolean(instance) && !needsSetup;
   const toy = isDesktopToy(entry.id);
   return {
     id: `widget:${entry.id}`,
@@ -154,9 +154,7 @@ function widgetResult(
       ? entry.id === "memo"
         ? "새 메모 꺼내기"
         : `${entry.name} ${toy ? "꺼내기" : "열기"}`
-      : needsSetup
-        ? `${entry.name} 설정 열기`
-        : `${entry.name} ${instance?.installed ? "켜기" : "설치"} 설정 열기`,
+      : `${entry.name} 설정 열기`,
     detail: available
       ? entry.id === "memo"
         ? "바탕화면 낱장 메모"
@@ -170,11 +168,9 @@ function widgetResult(
         : toy
           ? `${entry.name}을 바탕화면에 꺼내요. 우클릭으로 정리할 수 있어요.`
           : entry.description
-      : needsSetup
-        ? `${entry.name} 사용 준비가 필요해요. 위젯 설정에서 연결과 설정을 확인해요.`
-        : `${entry.name}을 사용할 수 있도록 위젯 설정으로 이동해요. 자동으로 설치하거나 켜지 않아요.`,
+      : `${entry.name} 사용 준비가 필요해요. 위젯 설정에서 연결과 설정을 확인해요.`,
     kind: "widget",
-    action: available
+    action: available && instance
       ? { type: "widget", id: instance.id, expectedRevision: instance.revision }
       : { type: "settings", section: "widgets", widgetKind: entry.id },
   };
@@ -187,7 +183,7 @@ function todoResult(
 ): LauncherResult | null {
   if (!widgets) return null;
   const instance = widgets.widgets.find((candidate) => candidate.kind === "todo");
-  if (!instance?.installed || !instance.enabled) {
+  if (!instance) {
     const entry = widgets.catalog.find((candidate) => candidate.id === "todo");
     return entry && !shown.some((result) => result.id === "widget:todo")
       ? widgetResult(entry, instance)

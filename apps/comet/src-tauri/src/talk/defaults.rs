@@ -684,19 +684,14 @@ mod pipeline_tests {
     use serde_json::{json, Value};
     use std::path::Path;
 
-    fn nadir_database(kinds: &[&str]) -> (Connection, tempfile::TempDir) {
+    fn nadir_database(_kinds: &[&str]) -> (Connection, tempfile::TempDir) {
         let directory = tempfile::tempdir().unwrap();
         let db = crate::store::open(Path::new(":memory:")).unwrap();
         let imported =
             crate::characters::import_pack(&db, &crate::characters::nadir_pack()).unwrap();
         crate::characters::apply_pair(&db, [imported[0].id.clone(), imported[1].id.clone()])
             .unwrap();
-        storage::install(
-            &db,
-            directory.path(),
-            &kinds.iter().map(|kind| (*kind).into()).collect::<Vec<_>>(),
-        )
-        .unwrap();
+        storage::verify_packages(&db, directory.path()).unwrap();
         (db, directory)
     }
 
@@ -854,7 +849,7 @@ mod pipeline_tests {
         let (db, _directory) = nadir_database(&kinds);
         let program = program(NADIR_AND_STAR_TAIL);
         let context = context::build(&db, None, 1_000, 0).unwrap();
-        assert_eq!(context.available.len(), 15);
+        assert_eq!(context.available.len(), INITIAL_STATES.len() + REVIVED.len());
         for scene in INITIAL_STATES {
             idle_scene(&db, &program, scene, 1_000);
         }
@@ -869,12 +864,7 @@ mod pipeline_tests {
             .collect::<Vec<_>>();
         let directory = tempfile::tempdir().unwrap();
         let db = crate::store::open(Path::new(":memory:")).unwrap();
-        storage::install(
-            &db,
-            directory.path(),
-            &kinds.iter().map(|kind| (*kind).into()).collect::<Vec<_>>(),
-        )
-        .unwrap();
+        storage::verify_packages(&db, directory.path()).unwrap();
         let program = program(BYULKKORI);
         // External notices are event-driven and have no idle initial-state scene.
         assert_eq!(INITIAL_STATES.len() + REVIVED.len() + 1, catalog.len());
@@ -956,7 +946,7 @@ mod pipeline_tests {
     fn default_pack_match_results_branch_on_the_actual_outcome() {
         let directory = tempfile::tempdir().unwrap();
         let db = crate::store::open(Path::new(":memory:")).unwrap();
-        storage::install(&db, directory.path(), &["small-match".into()]).unwrap();
+        storage::verify_packages(&db, directory.path()).unwrap();
         let program = program(BYULKKORI);
         let mut texts = std::collections::BTreeSet::new();
         for (index, (action, input, entropy, scene)) in [
@@ -1004,7 +994,7 @@ mod pipeline_tests {
     fn default_pack_touch_reactions_follow_the_touched_slot() {
         let directory = tempfile::tempdir().unwrap();
         let db = crate::store::open(Path::new(":memory:")).unwrap();
-        storage::install(&db, directory.path(), &["interaction".into()]).unwrap();
+        storage::verify_packages(&db, directory.path()).unwrap();
         let program = program(BYULKKORI);
         let mut now = 1_000;
         for character in ["A", "B"] {

@@ -65,11 +65,11 @@ export function PreparationTool({
     if (selectedId) setSelected(selectedId);
   }, [selectedId]);
   const calendar = widgets.find(
-    (value) => value.kind === "calendar" && value.installed && value.enabled,
+    (value) => value.kind === "calendar",
   );
-  const todo = widgets.find((value) => value.kind === "todo" && value.installed && value.enabled);
+  const todo = widgets.find((value) => value.kind === "todo");
   const timer = widgets.find(
-    (value) => value.kind === "focus-timer" && value.installed && value.enabled,
+    (value) => value.kind === "focus-timer",
   );
   const connections = rows(record(calendar?.data).connections);
   const allEvents = rows(record(calendar?.data).events);
@@ -91,7 +91,7 @@ export function PreparationTool({
   const connectionMessage = !text(envelope?.eventId)
     ? ""
     : !calendar
-      ? "연결 끊김 · 캘린더가 꺼져 있거나 제거되었습니다. 준비 내용은 계속 편집할 수 있어요."
+      ? "연결 끊김 · 캘린더를 찾을 수 없어요. 준비 내용은 계속 편집할 수 있어요."
       : !event || event.cancelled === true || (!source && event.connectionId !== "local")
         ? "연결 끊김 · 원본 일정을 현재 찾을 수 없거나 취소되었습니다. 준비 내용은 보존됩니다."
         : event.connectionId === "local"

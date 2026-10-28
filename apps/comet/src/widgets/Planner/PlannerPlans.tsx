@@ -24,7 +24,6 @@ export function PlannerPlans({
   visibleList,
   showCompleted,
   hasTodo,
-  todoInstalled,
   headerActions,
   busy,
   act,
@@ -36,7 +35,6 @@ export function PlannerPlans({
   onShowCompletedChange,
   onManageLists,
   onEdit,
-  onEnableTodo,
 }: {
   period: string;
   planDay: string;
@@ -48,7 +46,6 @@ export function PlannerPlans({
   visibleList: string;
   showCompleted: boolean;
   hasTodo: boolean;
-  todoInstalled: boolean;
   /** The diary header already offers list management. */
   headerActions: boolean;
   busy: boolean;
@@ -61,7 +58,6 @@ export function PlannerPlans({
   onShowCompletedChange: (show: boolean) => void;
   onManageLists: () => void;
   onEdit: (item: DataRecord) => void;
-  onEnableTodo: () => Promise<void>;
 }): ReactElement {
   const carryover = periodCarryover(items, period, planDay);
   return (
@@ -227,7 +223,7 @@ export function PlannerPlans({
           </div>
         </>
       ) : (
-        <PlannerTodoEmpty installed={todoInstalled} busy={busy} onEnable={onEnableTodo} />
+        <PlannerTodoEmpty />
       )}
     </>
   );

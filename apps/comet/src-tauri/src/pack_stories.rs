@@ -126,6 +126,14 @@ pub struct ScenarioDefinition {
     pub required_flags: Vec<String>,
     #[serde(default)]
     pub min_affinity: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reveal_affinity: Option<i32>,
+    #[serde(
+        default,
+        deserialize_with = "strict_lines",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub defer: Vec<SceneLine>,
     #[serde(deserialize_with = "strict_lines")]
     pub intro: Vec<SceneLine>,
     #[serde(deserialize_with = "strict_lines")]
@@ -184,6 +192,7 @@ pub struct Scope {
 #[serde(rename_all = "camelCase")]
 pub enum Stage {
     Intro,
+    Defer,
     Accept,
     Decline,
     Ending,
@@ -382,6 +391,9 @@ pub fn validate_pack(
                 .iter()
                 .any(|source| !sources.contains_key(source.as_str()))
             || !(0..=100).contains(&scene.min_affinity)
+            || scene
+                .reveal_affinity
+                .is_some_and(|value| !(0..=scene.min_affinity).contains(&value))
         {
             return Err("이야기 ID·중심 인물·참가자를 확인해 주세요.".into());
         }
@@ -396,9 +408,15 @@ pub fn validate_pack(
                 return Err("이야기 입력 표현을 확인해 주세요.".into());
             }
         }
-        for lines in [&scene.intro, &scene.accept, &scene.decline, &scene.ending] {
-            if !(1..=32).contains(&lines.len()) {
-                return Err("이야기 단계는 1~32줄로 작성해 주세요.".into());
+        for (lines, min, max) in [
+            (&scene.intro, 1, 32),
+            (&scene.accept, 1, 32),
+            (&scene.decline, 1, 32),
+            (&scene.ending, 1, 32),
+            (&scene.defer, 0, 8),
+        ] {
+            if !(min..=max).contains(&lines.len()) {
+                return Err("이야기 단계는 1~32줄, 유보 대사는 8줄까지 작성해 주세요.".into());
             }
             for line in lines {
                 let actor = sources
@@ -438,11 +456,15 @@ pub fn validate_pack(
                     .count()
                     > 500
             })
-            || [&scene.intro, &scene.accept, &scene.decline, &scene.ending]
-                .into_iter()
-                .any(|lines| {
-                    serde_json::to_vec(lines).map_or(true, |bytes| bytes.len() > 128 * 1024)
-                })
+            || [
+                &scene.intro,
+                &scene.accept,
+                &scene.decline,
+                &scene.ending,
+                &scene.defer,
+            ]
+            .into_iter()
+            .any(|lines| serde_json::to_vec(lines).map_or(true, |bytes| bytes.len() > 128 * 1024))
         {
             return Err("기억 문구는 펼친 뒤 500자, 단계 근거는 128 KiB 이하여야 해요.".into());
         }
@@ -590,10 +612,22 @@ pub fn current(db: &Connection, run: &RunTicket) -> Result<bool> {
 fn lines_for(stage: Stage, definition: &ScenarioDefinition) -> &[SceneLine] {
     match stage {
         Stage::Intro => &definition.intro,
+        Stage::Defer => &definition.defer,
         Stage::Accept => &definition.accept,
         Stage::Decline => &definition.decline,
         _ => &definition.ending,
     }
+}
+fn defer_lines(definition: &ScenarioDefinition) -> Vec<SceneLine> {
+    if !definition.defer.is_empty() {
+        return definition.defer.clone();
+    }
+    vec![SceneLine {
+        persona: definition.center_id.clone(),
+        expression: crate::characters::DEFAULT_EXPRESSION.into(),
+        text: "그 얘기는… 조금 더 친해지면 들려줄게요.".into(),
+        motion: Default::default(),
+    }]
 }
 fn exact(values: &[String], input: &str) -> bool {
     values
@@ -638,7 +672,12 @@ fn make_plan(
                     .ok_or("이야기 참가자가 설치되어 있지 않아요.".to_string())
             })
             .collect::<Result<Vec<_>>>()?;
-        let lines = lines_for(stage, definition)
+        let source_lines = if stage == Stage::Defer {
+            defer_lines(definition)
+        } else {
+            lines_for(stage, definition).to_vec()
+        };
+        let lines = source_lines
             .iter()
             .map(|line| {
                 Ok(SceneLine {
@@ -857,24 +896,36 @@ pub fn select(
             {
                 continue;
             }
-            let score = crate::store::relationships(db)?
-                .into_iter()
-                .find(|relation| relation.persona == *center)
-                .map_or(20, |relation| relation.score);
-            if score < definition.min_affinity {
-                continue;
-            }
             let completed:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM pack_story_outcomes WHERE scope=?1 AND scenario_id=?2 AND kind='completed')",params![scope_key(&scope)?,definition.id],|r|r.get(0)).map_err(|e|e.to_string())?;
             let incomplete:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM pack_story_outcomes o WHERE scope=?1 AND scenario_id=?2 AND kind IN ('accepted','cancelled') AND NOT EXISTS(SELECT 1 FROM pack_story_outcomes terminal WHERE terminal.run_id=o.run_id AND terminal.kind IN ('completed','declined')))",params![scope_key(&scope)?,definition.id],|r|r.get(0)).map_err(|e|e.to_string())?;
             if !repeat_allowed(definition, completed, incomplete) {
                 continue;
             }
+            let score = crate::store::relationships(db)?
+                .into_iter()
+                .find(|relation| relation.persona == *center)
+                .map_or(20, |relation| relation.score);
+            let stage = if score >= definition.min_affinity {
+                Stage::Intro
+            } else if definition
+                .reveal_affinity
+                .is_some_and(|reveal| score >= reveal)
+            {
+                let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+                let already_deferred: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pack_story_outcomes WHERE scope=?1 AND scenario_id=?2 AND kind='deferred' AND evidence=?3)", params![scope_key(&scope)?, definition.id, today], |row| row.get(0)).map_err(|e| e.to_string())?;
+                if already_deferred {
+                    continue;
+                }
+                Stage::Defer
+            } else {
+                continue;
+            };
             let mut plan = make_plan(
                 db,
                 context,
                 scope.clone(),
                 Some(definition.clone()),
-                (Stage::Intro, 1),
+                (stage, 1),
                 uuid::Uuid::new_v4().to_string(),
                 None,
             )?;
@@ -951,7 +1002,7 @@ pub fn bind_plan(runtime: &mut Runtime, plan: &Plan, new_epoch: u64) -> Result<R
             "취소되거나 지나간 이야기 실행이에요. 새 입력으로 다시 이야기해 주세요.".into(),
         );
     }
-    if !plan.retry && matches!(plan.run.stage, Stage::Intro | Stage::Entry) {
+    if !plan.retry && matches!(plan.run.stage, Stage::Intro | Stage::Defer | Stage::Entry) {
         runtime.pending_next = None;
     }
     let ready = plan.retry && runtime.run.as_ref().is_some_and(|run| run.ready);
@@ -1085,6 +1136,28 @@ pub fn display_finished(
                 ],
             )
             .map_err(|e| e.to_string())?;
+        } else if ticket.stage == Stage::Defer {
+            let date = chrono::DateTime::from_timestamp_millis(proof.now)
+                .ok_or("이야기 표시 시각을 확인해 주세요.")?
+                .with_timezone(&chrono::Local)
+                .format("%Y-%m-%d")
+                .to_string();
+            let inserted = tx
+                .execute(
+                    "INSERT OR IGNORE INTO pack_story_outcomes VALUES(?1,'deferred',?2,?3,?4,?5)",
+                    params![
+                        ticket.run_id,
+                        scope_key(&ticket.scope)?,
+                        ticket.scenario_id,
+                        ticket.input_id,
+                        date
+                    ],
+                )
+                .map_err(|e| e.to_string())?;
+            if inserted > 0 {
+                let (_, flags) = progress(tx, &ticket.scope)?;
+                tx.execute("INSERT INTO pack_story_progress VALUES(?1,?2,?3) ON CONFLICT(scope) DO UPDATE SET wait_turn=excluded.wait_turn",params![scope_key(&ticket.scope)?,current_turn(tx,&ticket.scope.user_id)?+3,serde_json::to_string(&flags).map_err(|e|e.to_string())?]).map_err(|e|e.to_string())?;
+            }
         } else if ticket.stage == Stage::Decline {
             let (_, flags) = progress(tx, &ticket.scope)?;
             tx.execute("INSERT INTO pack_story_progress VALUES(?1,?2,?3) ON CONFLICT(scope) DO UPDATE SET wait_turn=excluded.wait_turn",params![scope_key(&ticket.scope)?,current_turn(tx,&ticket.scope.user_id)?+3,serde_json::to_string(&flags).map_err(|e|e.to_string())?]).map_err(|e|e.to_string())?;
@@ -1099,14 +1172,16 @@ pub fn display_finished(
             guest_ids: ticket.participants.clone(),
         });
     }
-    if matches!(ticket.stage, Stage::Ending | Stage::Decline) {
-        if let Some(definition) = &ticket.definition {
-            runtime.pending_next = if ticket.stage == Stage::Ending {
-                definition.accept_next_id.clone()
-            } else {
-                definition.decline_next_id.clone()
+    if matches!(ticket.stage, Stage::Ending | Stage::Decline | Stage::Defer) {
+        if ticket.stage != Stage::Defer {
+            if let Some(definition) = &ticket.definition {
+                runtime.pending_next = if ticket.stage == Stage::Ending {
+                    definition.accept_next_id.clone()
+                } else {
+                    definition.decline_next_id.clone()
+                }
+                .map(|next| (ticket.scope.clone(), next));
             }
-            .map(|next| (ticket.scope.clone(), next));
         }
         runtime.run = None;
         Ok(Finish {
@@ -1164,9 +1239,24 @@ pub fn trial(
         .required_flags
         .iter()
         .any(|flag| !flags.contains(flag))
-        || affinity < definition.min_affinity
     {
         return Ok(TrialTrace { steps: vec![] });
+    }
+    if affinity < definition.min_affinity {
+        return Ok(TrialTrace {
+            steps: if definition
+                .reveal_affinity
+                .is_some_and(|reveal| affinity >= reveal)
+            {
+                vec![TrialStep {
+                    stage: Stage::Defer,
+                    lines: defer_lines(definition),
+                    planned_effects: CompletionEffects::default(),
+                }]
+            } else {
+                vec![]
+            },
+        });
     }
     let mut run = RunTicket {
         run_id: "trial".into(),
@@ -1218,6 +1308,9 @@ pub fn trial(
 }
 
 fn record_cancelled(db: &Connection, run: &RunTicket) -> Result<()> {
+    if run.stage == Stage::Defer {
+        return Ok(());
+    }
     transaction(db, |tx| {
         let inserted = tx
             .execute(
@@ -1288,7 +1381,7 @@ pub fn recover_interrupted(db: &Connection) -> Result<()> {
         if !seen.insert(plan.run_id.clone()) {
             continue;
         }
-        let terminal:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM pack_story_outcomes WHERE run_id=?1 AND kind IN ('completed','declined','cancelled','entry-finished'))",[&plan.run_id],|row|row.get(0)).map_err(|e|e.to_string())?;
+        let terminal:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM pack_story_outcomes WHERE run_id=?1 AND kind IN ('completed','declined','cancelled','entry-finished','deferred'))",[&plan.run_id],|row|row.get(0)).map_err(|e|e.to_string())?;
         if !terminal {
             record_cancelled(db, &plan.run)?;
         }

@@ -43,7 +43,7 @@ function MotionTool({ widget, act, widgets = [widget] }: Props): ReactElement {
         <span className={toy.ballLabel}>공 · 튀기며 굴러가요</span>
         {(["paper-plane", "ball", "bubbles"] as const).map((kind) => {
           const target = widgets.find(
-            (item) => item.kind === kind && item.installed && item.enabled,
+            (item) => item.kind === kind,
           );
           const name = kind === "paper-plane" ? "종이비행기" : kind === "ball" ? "공" : "비눗방울";
           return (
@@ -52,7 +52,7 @@ function MotionTool({ widget, act, widgets = [widget] }: Props): ReactElement {
               type="button"
               className={toy.launchToy}
               aria-label={kind === widget.kind ? "바탕화면에 꺼내기" : `${name} 바탕화면에 꺼내기`}
-              title={target ? `${name} 꺼내기` : `${name} 위젯을 설치하고 켜 주세요`}
+              title={target ? `${name} 꺼내기` : `${name} 위젯을 찾을 수 없어요`}
               disabled={!target}
               style={{
                 left: kind === "paper-plane" ? 214 : kind === "ball" ? 92 : 196,

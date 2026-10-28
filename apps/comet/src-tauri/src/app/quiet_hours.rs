@@ -314,8 +314,12 @@ mod tests {
         state.widget_epoch.store(epoch, Ordering::SeqCst);
         {
             let db = lock(&state.db).unwrap();
-            widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
-            let timer = widgets::storage::instances(&db).unwrap().remove(0);
+            widgets::storage::verify_packages(&db, directory.path()).unwrap();
+            let timer = widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|instance| instance.kind == "focus-timer")
+                .unwrap();
             widgets::storage::commit_data(
                 &db,
                 &timer.id,
@@ -531,8 +535,12 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         {
             let db = lock(&state.db).unwrap();
-            widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
-            let timer = widgets::storage::instances(&db).unwrap().remove(0);
+            widgets::storage::verify_packages(&db, directory.path()).unwrap();
+            let timer = widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|instance| instance.kind == "focus-timer")
+                .unwrap();
             widgets::storage::commit_data(
                 &db,
                 &timer.id,
@@ -575,8 +583,12 @@ mod tests {
             state.widget_epoch.store(epoch, Ordering::SeqCst);
             {
                 let db = lock(&state.db).unwrap();
-                widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
-                let timer = widgets::storage::instances(&db).unwrap().remove(0);
+                widgets::storage::verify_packages(&db, directory.path()).unwrap();
+                let timer = widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|instance| instance.kind == "focus-timer")
+                .unwrap();
                 widgets::storage::commit_data(
                     &db,
                     &timer.id,
@@ -622,8 +634,12 @@ mod tests {
                 },
             )
             .unwrap();
-            widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
-            let timer = widgets::storage::instances(&db).unwrap().remove(0);
+            widgets::storage::verify_packages(&db, directory.path()).unwrap();
+            let timer = widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|instance| instance.kind == "focus-timer")
+                .unwrap();
             widgets::storage::commit_data(
                 &db,
                 &timer.id,

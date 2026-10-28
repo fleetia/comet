@@ -31,8 +31,8 @@ fn owner(db: &Connection, definition: &Definition) -> Result<(String, i64, Value
     }
     let widget = storage::instances(db)?
         .into_iter()
-        .find(|widget| widget.kind == definition.owner && widget.installed && widget.enabled)
-        .ok_or("사용할 위젯을 설치하고 켜 주세요.")?;
+        .find(|widget| widget.kind == definition.owner)
+        .ok_or("사용할 위젯을 찾을 수 없습니다.")?;
     Ok((widget.id, widget.revision, widget.data))
 }
 
