@@ -3038,6 +3038,54 @@
         "pet.status": "enabled"
       },
       "expectedScene": "pet.arrived"
+    },
+    {
+      "id": "birthday.user",
+      "path": "situations/birthday.talk",
+      "trigger": "user.birthday",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {},
+      "expectedScene": "birthday.user"
+    },
+    {
+      "id": "birthday.character",
+      "path": "situations/birthday.talk",
+      "trigger": "character.birthday",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {},
+      "expectedScene": "birthday.character"
+    },
+    {
+      "id": "birthday.week",
+      "path": "situations/birthday.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "user.daysUntilBirthday": 7
+      },
+      "expectedScene": "birthday.week"
+    },
+    {
+      "id": "birthday.tomorrow",
+      "path": "situations/birthday.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "user.daysUntilBirthday": 1
+      },
+      "expectedScene": "birthday.tomorrow"
     }
   ]
 }

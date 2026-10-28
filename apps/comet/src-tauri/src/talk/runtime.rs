@@ -1410,6 +1410,13 @@ mod byulkkori_replacement_tests {
         };
 
         reset(previous.as_bytes());
+        assert_eq!(
+            source(&entry),
+            shipped.replace("import \"./situations/birthday.talk\"\n", "")
+        );
+        // The birthday upgrade has its own marker and must run independently.
+        fs::remove_file(directory.path().join(".talk-byulkkori-birthday-v1")).unwrap();
+        initialize_files(directory.path()).unwrap();
         assert_eq!(source(&entry), shipped);
         assert!(REVIVED_WIDGET_FILES
             .iter()
