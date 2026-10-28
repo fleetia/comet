@@ -385,6 +385,7 @@ fn save_answer(
                 persona: request.persona.clone(),
                 expression: "평온".into(),
                 text: choice.response.clone(),
+                widget: None,
                 motion: Default::default(),
             }],
             "story",

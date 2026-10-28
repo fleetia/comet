@@ -1438,6 +1438,7 @@ mod tests {
             persona: "builtin-a".into(),
             text: reply.content.clone(),
             expression: reply.expression.clone().unwrap(),
+            widget: None,
             motion: Default::default(),
         };
         store::insert_message_with_playback(&db, &reply, "llm", None, true, Some(&line)).unwrap();
@@ -1908,6 +1909,7 @@ mod tests {
                 persona: "builtin-a".into(),
                 text: text.into(),
                 expression: "평온".into(),
+                widget: None,
                 motion: Default::default(),
             })
             .collect();

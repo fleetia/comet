@@ -463,6 +463,7 @@ mod tests {
                 expression: "평온".into(),
                 text: "재생중".into(),
                 source: "widget".into(),
+                link: None,
                 text_speed: 0,
                 display_started_at: None,
                 ends_at: 30000,
@@ -590,6 +591,7 @@ mod tests {
                 (event, token, store::revision(&db).unwrap())
             };
             let line = crate::types::SceneLine {
+                widget: None,
                 motion: Default::default(),
                 persona: "a".into(),
                 expression: "평온".into(),
