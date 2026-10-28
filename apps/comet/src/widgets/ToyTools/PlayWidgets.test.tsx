@@ -141,6 +141,7 @@ it("counts every marble but draws at most the twelve jar slots", () => {
 
 it("asks for battery access once before the first refresh", async () => {
   render(<BatteryTool widget={widget("device", { configured: false })} />);
+  vi.mocked(command).mockClear();
   fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
   await waitFor(() =>
     expect(command).toHaveBeenLastCalledWith("refresh_connection_widget", { id: "device" }),
@@ -153,6 +154,7 @@ it("asks for battery access once before the first refresh", async () => {
 
 it("refreshes an already configured battery without configuring it again", async () => {
   render(<BatteryTool widget={widget("device", { configured: true })} />);
+  vi.mocked(command).mockClear();
   fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "새로고침" })).toHaveProperty("disabled", false),
@@ -162,8 +164,8 @@ it("refreshes an already configured battery without configuring it again", async
 
 it("preserves the Linux unsupported error returned by battery refresh", async () => {
   const unsupported = "현재 배터리 정보 조회는 macOS와 Windows를 지원해요.";
-  vi.mocked(command).mockRejectedValueOnce(unsupported);
   render(<BatteryTool widget={widget("device", { configured: true })} />);
+  vi.mocked(command).mockClear().mockRejectedValueOnce(unsupported);
   fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
   await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(unsupported));
   expect(command).toHaveBeenCalledExactlyOnceWith("refresh_connection_widget", { id: "device" });
@@ -172,8 +174,8 @@ it("preserves the Linux unsupported error returned by battery refresh", async ()
 });
 
 it("does not refresh the battery when its initial configuration fails", async () => {
-  vi.mocked(command).mockRejectedValueOnce("기기 정보 조회가 허용되지 않았어요.");
   render(<BatteryTool widget={widget("device", { configured: false })} />);
+  vi.mocked(command).mockClear().mockRejectedValueOnce("기기 정보 조회가 허용되지 않았어요.");
   fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
   await waitFor(() =>
     expect(screen.getByRole("alert").textContent).toBe("기기 정보 조회가 허용되지 않았어요."),
