@@ -385,7 +385,7 @@ function ActivityPreferences({ preferences, loaded, supported, onSaved }: {
             <Switch
               aria-label="지금 하는 앱 눈치채기"
               checked={preferences.activityEnabled}
-              disabled={!supported || !loaded || pending}
+              disabled={(!supported && !preferences.activityEnabled) || !loaded || pending}
               onChange={(event) => void save(event.target.checked, excluded)}
             />
           }

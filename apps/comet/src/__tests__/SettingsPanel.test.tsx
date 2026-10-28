@@ -140,6 +140,36 @@ it("opens the six Figma destinations with keyboard navigation and associated pan
   expect(screen.getByRole("tabpanel", { name: "친구들" })).toBeTruthy();
 });
 
+it("lets an unsupported device disable transferred activity awareness but not enable it", async () => {
+  vi.mocked(isDesktop).mockReturnValue(true);
+  let enabled = true;
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_desktop_preferences") return {
+      charactersVisible: true,
+      pranksEnabled: false,
+      allowedToys: ["ball"],
+      activityEnabled: enabled,
+      activityExcludedApps: ["private-app"],
+    };
+    if (name === "set_activity_preferences") enabled = false;
+    return undefined;
+  });
+  render(<SettingsPanel snapshot={{
+    ...PREVIEW_SNAPSHOT,
+    device: { ...PREVIEW_SNAPSHOT.device, platform: "macos" },
+  }} initialSection="desktop" />);
+  const toggle = await screen.findByRole("switch", { name: "지금 하는 앱 눈치채기" });
+  await waitFor(() => expect(toggle).toHaveProperty("checked", true));
+  expect(toggle).toHaveProperty("disabled", false);
+  fireEvent.click(toggle);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("set_activity_preferences", {
+    enabled: false,
+    excludedApps: ["private-app"],
+  }));
+  await waitFor(() => expect(toggle).toHaveProperty("checked", false));
+  expect(toggle).toHaveProperty("disabled", true);
+});
+
 it("keeps user and desktop drafts independent across the Figma destinations", async () => {
   render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="user" />);
   fireEvent.change(screen.getByLabelText("부를 이름"), { target: { value: "  새 이름  " } });
