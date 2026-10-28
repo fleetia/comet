@@ -1,10 +1,9 @@
 use image::{AnimationDecoder, ImageDecoder, ImageFormat};
 use std::{
-    io::{Cursor, Read, Write},
+    io::{Cursor, Write},
     path::Path,
 };
 
-const MAX_BYTES: u64 = 200 * 1024 * 1024;
 
 type Result<T> = std::result::Result<T, String>;
 fn err(error: impl std::fmt::Display) -> String {
@@ -268,17 +267,9 @@ fn svg_dimensions(bytes: &[u8]) -> Result<(u32, u32)> {
 }
 
 pub(crate) fn read(path: &Path) -> Result<Media> {
-    if std::fs::metadata(path).map_err(err)?.len() > MAX_BYTES {
-        return Err("파일은 200 MiB 이하여야 해요.".into());
-    }
-    let mut bytes = Vec::new();
-    std::fs::File::open(path)
-        .map_err(err)?
-        .take(MAX_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(err)?;
-    if bytes.len() as u64 > MAX_BYTES || bytes.is_empty() {
-        return Err("파일 크기가 올바르지 않아요.".into());
+    let bytes = std::fs::read(path).map_err(err)?;
+    if bytes.is_empty() {
+        return Err("파일이 비어 있어요.".into());
     }
     let mp4 = bytes.len() >= 12 && &bytes[4..8] == b"ftyp";
     let mime = if mp4 {
