@@ -25,11 +25,25 @@ pub(crate) struct Runtime {
     last_idle_return: Option<Instant>,
     ready: bool,
     events: Vec<&'static str>,
+    private_history: BTreeMap<String, i64>,
 }
 
 impl Runtime {
     pub(crate) fn clear(&mut self) {
         *self = Self::default();
+    }
+
+    pub(crate) fn private_history(&self) -> &BTreeMap<String, i64> {
+        &self.private_history
+    }
+
+    pub(crate) fn record_private_scene(&mut self, key: String, at: i64) {
+        if self.private_history.len() >= 1024 && !self.private_history.contains_key(&key) {
+            if let Some(oldest) = self.private_history.iter().min_by_key(|(_, at)| **at).map(|(key, _)| key.clone()) {
+                self.private_history.remove(&oldest);
+            }
+        }
+        self.private_history.insert(key, at);
     }
 
     pub(crate) fn due(&self, now: Instant) -> bool {

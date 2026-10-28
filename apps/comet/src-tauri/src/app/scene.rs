@@ -128,7 +128,11 @@ pub(crate) fn present_line(
         status: "complete".into(),
     };
     let private_activity = source == "talk" && talk::host::activity_name_is_private(state)?;
-    if !private_activity {
+    if private_activity {
+        if let Some(key) = scene_key.as_deref() {
+            lock(&state.life)?.activity.record_private_scene(key.to_owned(), message.created_at);
+        }
+    } else {
         if ticket.is_some() {
             store::insert_message_with_actor(&db, &message, source, direct_reply, line, &actor)?;
         } else {

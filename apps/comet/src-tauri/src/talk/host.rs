@@ -94,10 +94,14 @@ fn prepare_with_activity_event(
         serde_json::json!(context.visible.len()),
     );
     let (muted, event_muted) = muted_reactions(db, event, &context)?;
+    let mut history = talk::runtime::history(db)?;
+    for (key, at) in lock(&state.life)?.activity.private_history() {
+        history.entry(key.clone()).and_modify(|value| *value = (*value).max(*at)).or_insert(*at);
+    }
     let simulation = talk::simulate_with_policy(
         &program,
         &context,
-        &talk::runtime::history(db)?,
+        &history,
         |selection| {
             if event_muted || muted_selection(selection, &muted) {
                 return Err("reaction_disabled".into());
@@ -502,6 +506,40 @@ mod tests {
             .unwrap()
             .apply(talk::load_bundle(&root, &talk::context::registry()));
         (directory, state)
+    }
+
+    #[test]
+    fn private_activity_scene_keeps_cooldown_without_storing_the_application_name() {
+        let state = crate::app::tests::state();
+        lock(&state.life).unwrap().activity.observe(
+            crate::app_usage::DetailedSample {
+                sample: crate::app_usage::Sample { app_id: Some("private-app".into()), eligible: true, status: "active".into() },
+                application: Some(crate::app_usage::Application { id: "private-app".into(), name: "비밀 작업 앱".into() }),
+                idle_seconds: Some(0.0),
+            }, &[], Instant::now(),
+        );
+        let program = talk::validate_source(
+            Path::new("private.talk"),
+            "format: 1\nscene: private\non: idle\ncooldown: 1h\nwhen: activity.appName != null\n---\nA: ${activity.appName} 사용 중이구나.\n===\n",
+            &talk::context::registry(),
+        ).unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        let token = interrupt(&state, true).unwrap();
+        let (lines, revision) = {
+            let db = lock(&state.db).unwrap();
+            (prepare(&state, &db, None).unwrap().unwrap(), crate::store::revision(&db).unwrap())
+        };
+        assert!(crate::app::scene::present_line(
+            &state, &lines[0], "talk", "private-line", 0, 1, revision, token.0, &token.1, false,
+        ).unwrap());
+        let db = lock(&state.db).unwrap();
+        assert!(crate::store::messages(&db, 10).unwrap().is_empty());
+        assert!(talk::runtime::history(&db).unwrap().is_empty());
+        assert_eq!(lock(&state.life).unwrap().activity.private_history().len(), 1);
+        assert!(prepare(&state, &db, None).unwrap().is_none());
+        drop(db);
+        lock(&state.life).unwrap().activity.clear();
+        assert!(lock(&state.life).unwrap().activity.private_history().is_empty());
     }
 
     #[test]
