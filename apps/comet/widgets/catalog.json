@@ -11,6 +11,7 @@
   {"id":"weather","name":"날씨","description":"선택한 지역의 날씨와 마지막 갱신 시각","category":"information","version":1,"required":[],"connection":"weather"},
   {"id":"music","name":"음악 정보","description":"허용한 연결의 현재 재생 곡 정보","category":"information","version":1,"required":[],"connection":"music"},
   {"id":"device","name":"배터리","description":"허용하면 배터리 잔량과 전원 상태를 보여 줘요","category":"information","version":1,"required":[],"connection":"device"},
+  {"id":"external-notice","name":"바깥 알림","description":"외부 작업의 소식을 캐릭터가 전해요","category":"information","version":1,"required":[],"connection":null},
   {"id":"interaction","name":"캐릭터 교감","description":"쓰다듬고 콕 찌르고 간식을 나눠요","category":"play","version":1,"required":[],"connection":null},
   {"id":"ball","name":"공","description":"던지고 튀기는 작은 공","category":"play","version":1,"required":[],"connection":null},
   {"id":"paper-plane","name":"종이비행기","description":"드래그로 날리고 착지하는 종이비행기","category":"play","version":1,"required":[],"connection":null},

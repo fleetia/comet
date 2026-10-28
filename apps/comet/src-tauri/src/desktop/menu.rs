@@ -110,7 +110,7 @@ fn menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
         menu.append(&item).map_err(|error| error.to_string())?;
     }
     let submenu = Submenu::new(app, "위젯 바로 열기", true).map_err(|error| error.to_string())?;
-    for instance in instances.iter().filter(|instance| !widgets::is_retired(&instance.kind)) {
+    for instance in instances.iter().filter(|instance| !widgets::is_retired(&instance.kind) && instance.kind != "external-notice") {
         let manifest = widgets::manifest(&instance.kind)?;
         let item = MenuItem::with_id(
             app,

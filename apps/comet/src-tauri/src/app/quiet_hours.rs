@@ -87,6 +87,11 @@ pub(crate) fn automatic_blocked(state: &AppState, settings: &Settings) -> Result
 }
 
 pub(crate) fn event_allowed(event: &widgets::EventDraft) -> bool {
+    event_allowed_when_paused(event)
+        || (event.kind == "external-notice" && event.payload["urgent"] == true)
+}
+
+pub(crate) fn event_allowed_when_paused(event: &widgets::EventDraft) -> bool {
     matches!(
         event.kind.as_str(),
         "timer-finished" | "focus-long-rest-started" | "calendar-reminder" | "planner-reminder"
@@ -104,6 +109,12 @@ pub(crate) fn playback_blocked(
         return Ok(false);
     }
     if let Some(event) = lock(&state.widget_playback)?.as_ref() {
+        if state.widget_editing.load(Ordering::SeqCst) && event.event.kind == "external-notice" {
+            return Ok(true);
+        }
+        if paused {
+            return Ok(!event_allowed_when_paused(&event.event));
+        }
         return Ok(!event_allowed(&event.event));
     }
     Ok(state.automatic.load(Ordering::SeqCst))

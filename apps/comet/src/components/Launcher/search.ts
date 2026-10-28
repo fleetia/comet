@@ -137,6 +137,16 @@ function widgetResult(
   entry: { id: string; name: string; description: string },
   instance: WidgetView | undefined,
 ): LauncherResult {
+  if (entry.id === "external-notice") {
+    return {
+      id: `widget:${entry.id}`,
+      title: `${entry.name} 설정 열기`,
+      detail: "설정 › 위젯",
+      preview: entry.description,
+      kind: "widget",
+      action: { type: "settings", section: "widgets", widgetKind: entry.id },
+    };
+  }
   const needsSetup = instance?.status === "setup";
   const available = Boolean(instance) && !needsSetup;
   const toy = isDesktopToy(entry.id);

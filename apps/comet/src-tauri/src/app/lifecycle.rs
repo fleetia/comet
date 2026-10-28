@@ -169,21 +169,31 @@ pub(crate) fn migrate_app_data(app_data: &Path) -> io::Result<()> {
 
 pub fn run() {
     tauri::Builder::default()
-        .manage(crate::analytics::Runtime::default())
-        .manage(crate::characters::collision_host::Runtime::default())
-        .manage(crate::widgets::planning::windows::Navigation::default())
-        .manage(crate::diary::travel_files::Access::default())
-        .plugin(launcher::plugin())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .register_uri_scheme_protocol(SPRITE_SCHEME, serve_sprite)
-        .register_uri_scheme_protocol(WIDGET_BACKGROUND_SCHEME, widgets::backgrounds::serve)
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+            if let Some(url) = args.iter().skip(1).find_map(|arg| {
+                tauri::Url::parse(arg)
+                    .ok()
+                    .filter(|url| url.scheme() == "comet")
+            }) {
+                crate::external_notice::receive_url(app, &url);
+                return;
+            }
             if let Some(state) = app.try_state::<Arc<AppState>>() {
                 show_boxes(app, &state);
             }
         }))
+        .manage(crate::analytics::Runtime::default())
+        .manage(crate::characters::collision_host::Runtime::default())
+        .manage(crate::widgets::planning::windows::Navigation::default())
+        .manage(crate::diary::travel_files::Access::default())
+        .manage(crate::external_notice::Runtime::default())
+        .plugin(launcher::plugin())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_deep_link::init())
+        .register_uri_scheme_protocol(SPRITE_SCHEME, serve_sprite)
+        .register_uri_scheme_protocol(WIDGET_BACKGROUND_SCHEME, widgets::backgrounds::serve)
         .setup(|app| {
             let app_data = app.path().app_data_dir()?;
             migrate_app_data(&app_data)?;
@@ -293,6 +303,15 @@ pub fn run() {
             desktop::menu::create(app.handle()).map_err(std::io::Error::other)?;
             crate::widgets::desktop::restore_on_start(app.handle(), state.clone());
             crate::widgets::planning::notifications::install(app.handle())?;
+            crate::external_notice::finish_startup(app.handle(), &state).map_err(std::io::Error::other)?;
+            #[cfg(not(target_os = "macos"))]
+            for url in std::env::args()
+                .skip(1)
+                .filter_map(|arg| tauri::Url::parse(&arg).ok())
+                .filter(|url| url.scheme() == "comet")
+            {
+                crate::external_notice::receive_url(app.handle(), &url);
+            }
             if let Err(error) = device::wake::install(app.handle()) {
                 crate::report_error!(
                     "device_resume_notification",
@@ -828,6 +847,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to build comet")
         .run(|app, event| match event {
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Opened { urls } => {
+                for url in urls {
+                    crate::external_notice::receive_url(app, &url);
+                }
+            }
             tauri::RunEvent::Ready => {
                 let auth_state = app.state::<Arc<AppState>>().inner().clone();
                 let auth_app = app.clone();

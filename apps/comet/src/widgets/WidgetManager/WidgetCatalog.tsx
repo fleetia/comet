@@ -26,6 +26,7 @@ export const WIDGET_ICONS: Record<string, IconName> = {
   weather: "cloud",
   music: "music",
   device: "battery",
+  "external-notice": "balloon",
   interaction: "poke",
   "small-match": "dice",
   guessing: "cupdown",

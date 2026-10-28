@@ -11,6 +11,7 @@ mod device;
 mod diary;
 mod domain;
 mod exbrain;
+mod external_notice;
 mod inference;
 mod legacy_names;
 mod memory_commands;
@@ -32,6 +33,10 @@ mod widgets;
 mod wordbook;
 
 pub use app::lifecycle::run;
+
+pub fn external_notice_cli(args: &[String]) -> Option<i32> {
+    external_notice::cli(args)
+}
 
 pub(crate) use app::lifecycle::{prepare_update_install, restore_update_install};
 #[cfg(test)]

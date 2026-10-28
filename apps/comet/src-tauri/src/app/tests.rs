@@ -2250,6 +2250,43 @@ fn timed_pause_expires_once_and_never_overrides_a_newer_pause() {
 }
 
 #[test]
+fn external_notice_is_seeded_once_when_session_opens() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("session.sqlite");
+    let db = open_session(&path).unwrap();
+    let first = widgets::storage::instances(&db).unwrap();
+    let first = first.iter().find(|item| item.kind == "external-notice").unwrap();
+    let id = first.id.clone();
+    drop(db);
+    let reopened = open_session(&path).unwrap();
+    let notices: Vec<_> = widgets::storage::instances(&reopened).unwrap()
+        .into_iter().filter(|item| item.kind == "external-notice").collect();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].id, id);
+}
+
+#[test]
+fn restart_discards_external_notice_reactions_but_keeps_the_journal() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("session.sqlite");
+    let db = open_session(&path).unwrap();
+    let instance = widgets::storage::instances(&db).unwrap().into_iter()
+        .find(|item| item.kind == "external-notice").unwrap();
+    widgets::storage::record_external_notice(&db, &instance, widgets::EventDraft {
+        kind: "external-notice".into(), text: "이전 알림".into(),
+        payload: serde_json::json!({"bubbleEnabled":true}),
+    }, chrono::Utc::now().timestamp_millis()).unwrap();
+    let pending: i64 = db.query_row("SELECT COUNT(*) FROM widget_events WHERE pending=1", [], |row| row.get(0)).unwrap();
+    assert_eq!(pending, 1);
+    drop(db);
+    let reopened = open_session(&path).unwrap();
+    let pending: i64 = reopened.query_row("SELECT COUNT(*) FROM widget_events WHERE pending=1", [], |row| row.get(0)).unwrap();
+    let journal: i64 = reopened.query_row("SELECT COUNT(*) FROM widget_journal", [], |row| row.get(0)).unwrap();
+    assert_eq!(pending, 0);
+    assert_eq!(journal, 1);
+}
+
+#[test]
 fn restart_discards_prepared_scenes_but_keeps_saved_conversations_and_wordbook() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("session.sqlite");

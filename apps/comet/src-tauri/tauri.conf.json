@@ -53,6 +53,11 @@
     "createUpdaterArtifacts": false
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["comet"]
+      }
+    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJCNDhDMUU5RTgyNkQ5OUMKUldTYzJTYm82Y0ZJS3hETkwwcE9EQ1Zzay9KeEFXdkdjbWdqMDZMTDdkaVl1bzBoOEtNdHE4VjUK",
       "endpoints": [

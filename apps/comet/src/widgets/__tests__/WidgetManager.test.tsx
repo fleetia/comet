@@ -265,6 +265,7 @@ it("shows official widgets and their independent reaction switches", async () =>
   });
   render(<WidgetManager embedded />);
   const catalog = within(screen.getByRole("region", { name: "위젯 목록" }));
+  expect(catalog.getByText(new RegExp(`모두 ${PREVIEW_WIDGETS.catalog.length}개`))).toBeTruthy();
   const reaction = catalog.getByRole("switch", { name: "할 일 캐릭터 반응" });
   expect(reaction).toHaveProperty("checked", true);
   fireEvent.click(reaction);
@@ -741,8 +742,9 @@ it("omits retired collection and journal even when legacy records are present", 
   render(<WidgetManager embedded />);
   expect(screen.queryByRole("button", { name: /^수집함·소품/ })).toBeNull();
   expect(screen.queryByRole("button", { name: /^함께한 사건 일지/ })).toBeNull();
-  expect(PREVIEW_WIDGETS.catalog).toHaveLength(22);
+  expect(PREVIEW_WIDGETS.catalog).toHaveLength(23);
   expect(PREVIEW_WIDGETS.catalog.some((entry) => entry.id === "image")).toBe(true);
+  expect(PREVIEW_WIDGETS.catalog.some((entry) => entry.id === "external-notice")).toBe(true);
 });
 
 it("exposes AI creation and automatic creation in the Figma experiment rows", async () => {

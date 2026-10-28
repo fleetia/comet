@@ -727,7 +727,7 @@ fn reconcile_state(state: &AppState, stale_windows: &[String]) -> Result<Vec<Str
             blocked
                 || !present.contains(id)
                 || run.widget.as_ref().is_some_and(|event| {
-                    (status.paused && !app::quiet_hours::event_allowed(&event.event))
+                    (status.paused && !app::quiet_hours::event_allowed_when_paused(&event.event))
                         || !crate::widgets::commands::event_current(&db, event).unwrap_or(false)
                 })
                 || stale_windows.contains(&run.id)
@@ -1071,7 +1071,8 @@ fn prepare_reaction_inner(
             }
             if let Some((widget, epoch)) = widget {
                 if state.epoch.load(Ordering::SeqCst) != epoch
-                    || (status.paused && !app::quiet_hours::event_allowed(&widget.event))
+                    || (status.paused
+                        && !app::quiet_hours::event_allowed_when_paused(&widget.event))
                     || !crate::widgets::commands::event_current(&db, widget)?
                     || !crate::store::settings(&db)?.autonomous_enabled
                 {

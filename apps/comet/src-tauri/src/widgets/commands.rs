@@ -361,7 +361,9 @@ pub(crate) fn widget_event_current(
     let Some(event) = lock(&state.widget_playback)?.clone() else {
         return Ok(false);
     };
-    if lock(&state.runtime)?.paused && !crate::app::quiet_hours::event_allowed(&event.event) {
+    if lock(&state.runtime)?.paused
+        && !crate::app::quiet_hours::event_allowed_when_paused(&event.event)
+    {
         return Ok(false);
     }
     event_current(db, &event)
@@ -1692,14 +1694,28 @@ fn fallback_reaction(
             .iter()
             .any(|member| member.definition.source_id == source)
     };
-    if has("nadir") && has("star-tail") && !event.event.kind.starts_with("planner-") {
+    if has("nadir")
+        && has("star-tail")
+        && !event.event.kind.starts_with("planner-")
+        && event.event.kind != "external-notice"
+    {
         return Ok(None);
     }
+    let expression = if event.event.kind == "external-notice"
+        && event.event.payload["result"] == "failed"
+        && members
+            .iter()
+            .all(|member| member.definition.expressions.contains_key("걱정"))
+    {
+        "걱정"
+    } else {
+        "평온"
+    };
     Ok(Some(vec![SceneLine {
         widget: None,
         motion: Default::default(),
         persona: "a".into(),
-        expression: "평온".into(),
+        expression: expression.into(),
         text: event.event.text.clone(),
     }]))
 }

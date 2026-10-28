@@ -278,7 +278,7 @@ export function WidgetManager({
     const actions: ContextMenuAction[] = [];
     if (CONFIGURABLE_WIDGETS.includes(target.kind))
       actions.push({ id: "settings", label: "설정…", icon: "edit", disabled: !canAct });
-    if (!["clock", "weather"].includes(target.kind))
+    if (!["clock", "weather", "external-notice"].includes(target.kind))
       actions.push({
         id: "open",
         label:

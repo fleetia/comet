@@ -11,6 +11,135 @@ fn database() -> Connection {
 }
 
 #[test]
+fn quiet_preserves_urgent_notice_and_focus_break_but_discards_ordinary_notice() {
+    let db = database();
+    for (id, kind, urgent) in [
+        ("urgent", "external-notice", true),
+        ("ordinary", "external-notice", false),
+        ("long-rest", "focus-long-rest-started", false),
+    ] {
+        let event = super::WidgetEvent {
+            id: id.into(), instance_id: id.into(), widget_kind: id.into(), revision: 1,
+            created_at: 1, expires_at: 1000,
+            event: super::EventDraft { kind: kind.into(), text: id.into(), payload: json!({"urgent":urgent}) },
+        };
+        db.execute("INSERT INTO widget_events(id,instance_id,data,pending) VALUES(?1,?1,?2,1)",
+            rusqlite::params![id, serde_json::to_string(&event).unwrap()]).unwrap();
+        db.execute("INSERT INTO widget_journal VALUES(?1)", [id]).unwrap();
+    }
+    storage::discard_pending_during_quiet(&db).unwrap();
+    for (id, pending) in [("urgent", true), ("ordinary", false), ("long-rest", true)] {
+        let actual: bool = db.query_row("SELECT pending FROM widget_events WHERE id=?1", [id], |row| row.get(0)).unwrap();
+        assert_eq!(actual, pending, "{id}");
+    }
+    storage::discard_pending_external_notice(&db).unwrap();
+    let pending: bool = db.query_row("SELECT pending FROM widget_events WHERE id='urgent'", [], |row| row.get(0)).unwrap();
+    assert!(!pending);
+    let retained: i64 = db.query_row("SELECT COUNT(*) FROM widget_journal", [], |row| row.get(0)).unwrap();
+    assert_eq!(retained, 3);
+}
+
+#[test]
+fn weather_daily_dedup_preserves_external_notice_queue_and_history() {
+    let db = database();
+    let weather = instance(&db, "weather");
+    let external = instance(&db, "external-notice");
+    let notice = || super::EventDraft {
+        kind: "external-notice".into(), text: "알림".into(), payload: json!({}),
+    };
+    let forecast = || super::EventDraft {
+        kind: "weather.rain-tomorrow".into(), text: "비".into(), payload: json!({"day":"2026-10-29"}),
+    };
+    storage::record_external_notice(&db, &external, notice(), 100).unwrap();
+    assert!(storage::record_daily_weather_event(&db, &weather, forecast(), "2026-10-29", 101).unwrap());
+    assert!(!storage::record_daily_weather_event(&db, &weather, forecast(), "2026-10-29", 102).unwrap());
+    storage::record_external_notice(&db, &external, notice(), 103).unwrap();
+    let queued: i64 = db.query_row("SELECT COUNT(*) FROM widget_events WHERE pending=1 AND json_extract(data,'$.kind')='external-notice'", [], |row| row.get(0)).unwrap();
+    let history: i64 = db.query_row("SELECT COUNT(*) FROM widget_journal", [], |row| row.get(0)).unwrap();
+    assert_eq!(queued, 2);
+    assert_eq!(history, 3);
+    assert_eq!(storage::get(&db, &external.id).unwrap().revision, external.revision);
+    assert_eq!(storage::get(&db, &weather.id).unwrap().revision, weather.revision);
+}
+
+#[test]
+fn external_notice_burst_keeps_each_pending_event_without_changing_revision() {
+    let db = database();
+    let instance = instance(&db, "external-notice");
+    for n in 0..6 {
+        storage::record_external_notice(&db, &instance, super::EventDraft {
+            kind: "external-notice".into(), text: n.to_string(), payload: json!({}),
+        }, n).unwrap();
+    }
+    assert_eq!(storage::get(&db, &instance.id).unwrap().revision, instance.revision);
+    for n in 0..6 {
+        assert_eq!(storage::take_reaction(&db, 10).unwrap().unwrap().event.text, n.to_string());
+    }
+    assert!(storage::take_reaction(&db, 10).unwrap().is_none());
+    let count: i64 = db.query_row("SELECT count(*) FROM widget_journal", [], |row| row.get(0)).unwrap();
+    assert_eq!(count, 6);
+}
+
+#[test]
+fn disabling_external_notice_reactions_discards_queued_speech() {
+    let db = database();
+    let instance = instance(&db, "external-notice");
+    storage::record_external_notice(&db, &instance, super::EventDraft {
+        kind: "external-notice".into(), text: "notice".into(), payload: json!({}),
+    }, 0).unwrap();
+    storage::set_reaction(&db, &instance.id, false).unwrap();
+    assert!(storage::take_reaction(&db, 1).unwrap().is_none());
+    let count: i64 = db.query_row("SELECT count(*) FROM widget_journal", [], |row| row.get(0)).unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn queued_external_notices_are_discarded_on_cancellation() {
+    let db = database();
+    let instance = instance(&db, "external-notice");
+    storage::record_external_notice(&db, &instance, super::EventDraft {
+        kind: "external-notice".into(), text: "notice".into(), payload: json!({}),
+    }, 0).unwrap();
+    storage::discard_pending(&db).unwrap();
+    assert!(storage::take_reaction(&db, 1).unwrap().is_none());
+}
+
+#[test]
+fn changing_external_notice_settings_invalidates_queued_notices() {
+    let db = database();
+    let instance = instance(&db, "external-notice");
+    storage::record_external_notice(&db, &instance, super::EventDraft {
+        kind: "external-notice".into(), text: "notice".into(), payload: json!({}),
+    }, 0).unwrap();
+    let mut data = instance.data.clone();
+    data["enabled"] = json!(false);
+    storage::commit_data(&db, &instance.id, instance.revision, data, vec![], 1).unwrap();
+    assert!(storage::take_reaction(&db, 2).unwrap().is_none());
+}
+
+#[test]
+fn external_notice_does_not_create_shared_moments_or_consume_the_notice() {
+    let db = crate::store::open(Path::new(":memory:")).unwrap();
+    crate::store::set_user_name(&db, "친구", 1).unwrap();
+    let character = crate::characters::active_ids(&db).unwrap().remove(0);
+    let notice = instance(&db, "external-notice");
+    let count_moments = || db.query_row(
+        "SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:%'", [], |row| row.get::<_, i64>(0),
+    ).unwrap();
+    let before = count_moments();
+    storage::record_external_notice(&db, &notice, super::EventDraft {
+        kind: "external-notice".into(), text: "private external message".into(), payload: json!({}),
+    }, 1).unwrap();
+    assert!(!storage::record_widget_moments(&db, &notice, &notice, &[character], 1).unwrap());
+    assert_eq!(count_moments(), before);
+    let pending: i64 = db.query_row(
+        "SELECT COUNT(*) FROM widget_events WHERE pending=1 AND json_extract(data,'$.kind')='external-notice'",
+        [], |row| row.get(0),
+    ).unwrap();
+    assert_eq!(pending, 1);
+}
+
+#[test]
 fn focus_moment_waits_for_a_present_character_without_consuming_the_daily_marker() {
     use chrono::{Local, TimeZone};
 
@@ -423,8 +552,9 @@ fn widget_onboarding_is_read_compatible_and_installation_never_writes_it() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
     let before = storage::snapshot(&db).unwrap();
-    assert_eq!(before.catalog.len(), 22);
+    assert_eq!(before.catalog.len(), 23);
     assert!(before.catalog.iter().any(|item| item.id == "image"));
+    assert!(before.catalog.iter().any(|item| item.id == "external-notice"));
     assert_eq!(before.widgets.len(), before.catalog.len());
     assert!(!before.onboarding_done);
     prepare_widgets(&db, directory.path(), &["memo"]);

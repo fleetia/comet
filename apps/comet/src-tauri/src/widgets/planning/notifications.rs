@@ -43,6 +43,18 @@ pub(crate) fn show_plain(app: &tauri::AppHandle, text: &str) -> Result<(), Strin
     native::show(app, &id, 0, text, true, false, "travel")
 }
 
+pub(crate) fn show_external(app: &tauri::AppHandle, text: &str) {
+    let id = format!("external-{}", uuid::Uuid::new_v4());
+    if let Err(error) = native::show(app, &id, 0, text, true, false, "external") {
+        let _ = app.emit("planner-notification-error", error);
+    }
+}
+
+#[cfg(any(test, target_os = "macos"))]
+fn is_external_notification(identifier: &str) -> bool {
+    identifier.starts_with("planner:external-")
+}
+
 pub(crate) fn install(app: &tauri::AppHandle) -> Result<(), String> {
     native::install(app)
 }
@@ -299,6 +311,9 @@ mod native {
     }
 
     fn handle_response(app: &tauri::AppHandle, action: &str, identifier: &str) {
+        if super::is_external_notification(identifier) {
+            return;
+        }
         if identifier.starts_with("widget:") {
             if action != "widget-open"
                 && action != "com.apple.UNNotificationDefaultActionIdentifier"
