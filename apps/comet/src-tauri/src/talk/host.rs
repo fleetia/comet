@@ -16,7 +16,7 @@ pub(crate) struct PreparedTalk {
     revisions: BTreeMap<String, i64>,
     program: Arc<talk::Program>,
     text_values: BTreeMap<String, serde_json::Value>,
-    event: Option<widgets::WidgetEvent>,
+    pub(crate) event: Option<widgets::WidgetEvent>,
     seed: u64,
     pub(crate) recall_date: Option<String>,
     recall_day: Option<chrono::NaiveDate>,
