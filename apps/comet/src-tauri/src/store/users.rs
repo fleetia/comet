@@ -167,8 +167,17 @@ pub fn set_user_birthday(conn: &Connection, birthday: Option<&UserBirthday>) -> 
     }
     let tx = conn.unchecked_transaction().map_err(err)?;
     let user = current_user(&tx)?.ok_or_else(|| "먼저 이름을 등록해 주세요.".to_string())?;
-    if current_user_birthday(&tx)?.as_ref() == birthday {
+    let previous = current_user_birthday(&tx)?;
+    if previous.as_ref() == birthday {
         return Ok(false);
+    }
+    let previous_date = previous.as_ref().map(|value| (value.month, value.day));
+    let next_date = birthday.map(|value| (value.month, value.day));
+    if previous_date != next_date {
+        tx.execute(
+            "DELETE FROM kv WHERE key=?1",
+            [format!("birthday:celebrated:{}", chrono::Local::now().year())],
+        ).map_err(err)?;
     }
     tx.execute(
         "UPDATE user_identities SET birthday_month=?2,birthday_day=?3,birthday_year=?4 WHERE id=?1",
