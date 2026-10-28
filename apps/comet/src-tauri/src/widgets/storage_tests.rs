@@ -40,6 +40,29 @@ fn quiet_preserves_urgent_notice_and_focus_break_but_discards_ordinary_notice() 
 }
 
 #[test]
+fn weather_daily_dedup_preserves_external_notice_queue_and_history() {
+    let db = database();
+    let weather = instance(&db, "weather");
+    let external = instance(&db, "external-notice");
+    let notice = || super::EventDraft {
+        kind: "external-notice".into(), text: "알림".into(), payload: json!({}),
+    };
+    let forecast = || super::EventDraft {
+        kind: "weather.rain-tomorrow".into(), text: "비".into(), payload: json!({"day":"2026-10-29"}),
+    };
+    storage::record_external_notice(&db, &external, notice(), 100).unwrap();
+    assert!(storage::record_daily_weather_event(&db, &weather, forecast(), "2026-10-29", 101).unwrap());
+    assert!(!storage::record_daily_weather_event(&db, &weather, forecast(), "2026-10-29", 102).unwrap());
+    storage::record_external_notice(&db, &external, notice(), 103).unwrap();
+    let queued: i64 = db.query_row("SELECT COUNT(*) FROM widget_events WHERE pending=1 AND json_extract(data,'$.kind')='external-notice'", [], |row| row.get(0)).unwrap();
+    let history: i64 = db.query_row("SELECT COUNT(*) FROM widget_journal", [], |row| row.get(0)).unwrap();
+    assert_eq!(queued, 2);
+    assert_eq!(history, 3);
+    assert_eq!(storage::get(&db, &external.id).unwrap().revision, external.revision);
+    assert_eq!(storage::get(&db, &weather.id).unwrap().revision, weather.revision);
+}
+
+#[test]
 fn external_notice_burst_keeps_each_pending_event_without_changing_revision() {
     let db = database();
     let instance = instance(&db, "external-notice");
