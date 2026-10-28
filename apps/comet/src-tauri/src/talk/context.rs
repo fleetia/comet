@@ -347,6 +347,10 @@ pub fn registry() -> Registry {
             "planner-reminder",
             "planner-mood",
             "device-woke",
+            "device.low",
+            "device.critical",
+            "device.charging-started",
+            "device.charged",
             "weather.rain-tomorrow",
             "weather.last-year",
             "interaction.touch",
@@ -557,6 +561,11 @@ pub(crate) fn project(
             continue;
         }
         let d = &widget.instance.data;
+        if kind == "device" && d["config"]["allowTalk"] == false {
+            set("status", json!("disabled"));
+            available.remove(kind);
+            continue;
+        }
         let external = matches!(kind, "weather" | "music" | "device");
         let mut ready = widget.status == "enabled";
         if external {
