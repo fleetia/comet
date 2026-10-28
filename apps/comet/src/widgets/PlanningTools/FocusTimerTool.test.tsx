@@ -586,7 +586,7 @@ it("shows automatic rest behind the focus completion card and keeps todo complet
   );
   expect(screen.getByText("잠깐 쉬어 가요")).toBeTruthy();
   await click("휴식 건너뛰기");
-  expect(action).toHaveBeenLastCalledWith("continue");
+  expect(action).toHaveBeenLastCalledWith("continue", {});
 });
 
 it("submits todo completion once while saving and retries only after a failed attempt", async () => {
