@@ -1656,7 +1656,7 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
     }
     drop((playback, story));
     if let Some((id, at, _)) = displayed_message.filter(|(_, _, source)| {
-        source != "talk" || !crate::talk::host::activity_name_is_private(&state).unwrap_or(true)
+        source != "talk" || !crate::talk::host::activity_in_playback(&state).unwrap_or(true)
     }) {
         store::mark_message_displayed_with_provenance(
             &db,

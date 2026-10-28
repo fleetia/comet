@@ -281,7 +281,7 @@ pub(crate) fn present_line(
         created_at: chrono::Utc::now().timestamp_millis(),
         status: "complete".into(),
     };
-    let private_activity = source == "talk" && talk::host::activity_name_is_private(state)?;
+    let private_activity = source == "talk" && talk::host::activity_in_playback(state)?;
     if private_activity {
         if let Some(key) = scene_key.as_deref() {
             lock(&state.life)?.activity.record_private_scene(key.to_owned(), message.created_at);
