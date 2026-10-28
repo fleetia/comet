@@ -134,7 +134,7 @@ fn parse_models(body: Value) -> std::result::Result<Vec<Model>, Failure> {
     }
     Ok(models)
 }
-fn payload(model: &str, messages: &[ChatMessage], schema: Value) -> Result<Value> {
+fn payload(model: &str, messages: &[ChatMessage], mut schema: Value) -> Result<Value> {
     if model.trim().is_empty() || model.len() > 200 {
         return Err("ChatGPT 모델을 선택해 주세요.".into());
     }
@@ -150,6 +150,18 @@ fn payload(model: &str, messages: &[ChatMessage], schema: Value) -> Result<Value
     }
     let mut input = Value::Array(input);
     crate::inference::attach_to_last_user(&mut input, "responses");
+    // Strict structured output requires every property in `required`; the parser still accepts
+    // responses without this optional field from other providers.
+    if schema.pointer("/properties/followUps").is_some() {
+        if let Some(required) = schema.get_mut("required").and_then(Value::as_array_mut) {
+            if !required
+                .iter()
+                .any(|field| field.as_str() == Some("followUps"))
+            {
+                required.push(json!("followUps"));
+            }
+        }
+    }
     // SIWC HTTP explicitly rejects max_output_tokens and temperature.
     Ok(
         json!({"model":model,"input":input,"store":false,"stream":true,"text":{"format":{"type":"json_schema","name":"response","strict":true,"schema":schema}}}),

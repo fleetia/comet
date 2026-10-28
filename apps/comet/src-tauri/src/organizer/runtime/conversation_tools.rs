@@ -771,7 +771,7 @@ fn previous_turn(db: &Connection, user: &str, input: &str) -> Result<Option<Turn
     };
     let owned: bool = db
         .query_row(
-            "SELECT source='user' AND forgotten=0 FROM message_context WHERE message_id=?1",
+            "SELECT source IN ('user','follow-up') AND forgotten=0 FROM message_context WHERE message_id=?1",
             [&previous],
             |row| row.get(0),
         )
@@ -1163,7 +1163,7 @@ async fn plan(
             })
             .map_err(|e| e.to_string())?;
         let message: Message = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-        let owned: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM message_context WHERE message_id=?1 AND source='user' AND forgotten=0)", [input], |row| row.get(0)).map_err(|e| e.to_string())?;
+        let owned: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM message_context WHERE message_id=?1 AND source IN ('user','follow-up') AND forgotten=0)", [input], |row| row.get(0)).map_err(|e| e.to_string())?;
         if message.role != "user" || !owned {
             return Ok(Planned::Done(true));
         }

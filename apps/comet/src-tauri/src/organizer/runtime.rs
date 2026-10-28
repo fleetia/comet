@@ -92,7 +92,7 @@ pub(crate) fn collect_comet(db: &Connection, user: &str) -> Result<(), String> {
     let settings = records::get_settings(db, user)?;
     let mut live = Vec::new();
     if settings.comet_enabled {
-        let mut statement = db.prepare("SELECT m.data FROM messages m JOIN message_users u ON u.message_id=m.id JOIN message_context c ON c.message_id=m.id WHERE u.user_id=?1 AND m.role='user' AND c.forgotten=0 AND c.source='user' ORDER BY m.seq").map_err(|e|e.to_string())?;
+        let mut statement = db.prepare("SELECT m.data FROM messages m JOIN message_users u ON u.message_id=m.id JOIN message_context c ON c.message_id=m.id WHERE u.user_id=?1 AND m.role='user' AND c.forgotten=0 AND c.source IN ('user','follow-up') ORDER BY m.seq").map_err(|e|e.to_string())?;
         let messages = statement
             .query_map([user], |row| row.get::<_, String>(0))
             .map_err(|e| e.to_string())?;
