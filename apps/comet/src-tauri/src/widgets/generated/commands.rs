@@ -317,6 +317,11 @@ fn observe_generated_state(
     db: &rusqlite::Connection,
     widget: &generated::GeneratedWidget,
 ) -> Result<()> {
+    if !storage::reaction_enabled(db, &widget.id)? {
+        db.execute("DELETE FROM widget_state_pending WHERE widget_id=?1", [&widget.id])
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
     generated::evaluate_rules(
         db,
         &widget.id,
@@ -326,9 +331,6 @@ fn observe_generated_state(
     )?;
     if reactions_blocked(state, db)? {
         generated::discard_pending(db)?;
-    } else if !storage::reaction_enabled(db, &widget.id)? {
-        db.execute("DELETE FROM widget_state_pending WHERE widget_id=?1", [&widget.id])
-            .map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -1332,8 +1334,9 @@ fn observe_official_rules(db: &rusqlite::Connection, timestamp: i64) -> Result<(
         }
         match source_state(db, &id) {
             Ok((data, revision)) => {
-                let _ = generated::evaluate_rules(db, &id, &data, revision, timestamp);
-                if !storage::reaction_enabled(db, &id)? {
+                if storage::reaction_enabled(db, &id)? {
+                    let _ = generated::evaluate_rules(db, &id, &data, revision, timestamp);
+                } else {
                     db.execute("DELETE FROM widget_state_pending WHERE widget_id=?1", [&id])
                         .map_err(|error| error.to_string())?;
                 }
@@ -2306,7 +2309,9 @@ mod tests {
             [&id],
         )
         .unwrap();
-        generated::save_rules(&db, &id, vec![rule(&id)], &json!({"count":0})).unwrap();
+        let mut condition = rule(&id);
+        condition.cooldown_ms = 10_000;
+        generated::save_rules(&db, &id, vec![condition], &json!({"count":0})).unwrap();
         storage::set_reaction(&db, &id, false).unwrap();
         db.execute(
             "UPDATE widget_instances SET data='{\"count\":1}',revision=2 WHERE id=?1",
