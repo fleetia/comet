@@ -36,7 +36,7 @@ function sourceItems(widget: WidgetView): { payload: WidgetDragPayload; title: s
 }
 
 export function DiaryWidgetShelf({ snapshot, busy, onOpenWidget, onAdd }: Props): ReactElement {
-  const widgets = snapshot.widgets.filter((widget) => widget.installed && widget.enabled);
+  const widgets = snapshot.widgets;
   return (
     <details className={s.shelf}>
       <summary className={s.heading}>위젯</summary>

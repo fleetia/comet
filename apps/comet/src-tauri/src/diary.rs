@@ -488,9 +488,6 @@ pub(crate) fn update_in_transaction(
     if action == "entry-add" && input["kind"] == "widget" {
         let id = string(input, "refId", 1000, true)?;
         let widget = crate::widgets::storage::get(tx, &id)?;
-        if !widget.installed {
-            return Err("설치된 위젯만 연결할 수 있습니다.".into());
-        }
         if let Some(item_id) = optional_string(input, "itemId", 1000)? {
             let exists = widget.kind == "memo"
                 && widget.data["notes"].as_array().is_some_and(|notes| {

@@ -23,7 +23,6 @@ it("constrains the whole list filter while preserving its label and controlled s
     visibleList: "packing",
     showCompleted: false,
     hasTodo: true,
-    todoInstalled: true,
     headerActions: true,
     busy: false,
     act: vi.fn().mockResolvedValue(true),
@@ -35,7 +34,6 @@ it("constrains the whole list filter while preserving its label and controlled s
     onShowCompletedChange: vi.fn(),
     onManageLists: vi.fn(),
     onEdit: vi.fn(),
-    onEnableTodo: vi.fn().mockResolvedValue(undefined),
   };
   const { rerender } = render(<PlannerPlans {...props} />);
   const select = screen.getByRole("combobox", { name: "조회할 목록" }) as HTMLSelectElement;

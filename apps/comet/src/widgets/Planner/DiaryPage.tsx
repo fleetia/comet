@@ -503,7 +503,7 @@ export function DiaryPage({
 
   function renderEntry(entry: DiaryEntry): ReactElement {
     if (entry.kind === "widget") {
-      const widget = widgets.find((value) => value.id === entry.refId && value.installed);
+      const widget = widgets.find((value) => value.id === entry.refId);
       const note = entry.itemId
         ? rows(record(widget?.data).notes).find((value) => value.id === entry.itemId)
         : null;
@@ -519,7 +519,7 @@ export function DiaryPage({
               <Button
                 variant="ghost"
                 size="small"
-                disabled={!available || !widget?.enabled || disabled}
+                disabled={!available || disabled}
                 onClick={() => onOpenWidgetEntry?.(entry)}
               >
                 {title} 열기 ↗
@@ -540,9 +540,6 @@ export function DiaryPage({
               </p>
             )}
             {!available && <p className={s.meta}>{entry.text} · 원본을 찾을 수 없어요.</p>}
-            {available && !widget?.enabled && (
-              <p className={s.meta}>위젯 설정에서 이 도구를 켜 주세요.</p>
-            )}
             {errors[entry.id] && (
               <p role="alert" className={s.error}>
                 {errors[entry.id]}

@@ -395,7 +395,7 @@ fn storage_request_replay_and_revision_checks_keep_session_appends_atomic_and_on
     let db = rusqlite::Connection::open_in_memory().unwrap();
     storage::initialize(&db).unwrap();
     let directory = tempfile::tempdir().unwrap();
-    storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
     let instance = storage::instances(&db)
         .unwrap()
         .into_iter()
@@ -541,7 +541,7 @@ fn usage_observations_preserve_command_revisions_and_reject_stale_writes() {
     let db = rusqlite::Connection::open_in_memory().unwrap();
     storage::initialize(&db).unwrap();
     let directory = tempfile::tempdir().unwrap();
-    storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
     let timer = storage::instances(&db)
         .unwrap()
         .into_iter()
@@ -651,7 +651,7 @@ fn non_continuous_storage_advance_saves_expired_focus_without_a_break_or_late_no
             let db = rusqlite::Connection::open_in_memory().unwrap();
             storage::initialize(&db).unwrap();
             let directory = tempfile::tempdir().unwrap();
-            storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+            storage::verify_packages(&db, directory.path()).unwrap();
             let instance = storage::instances(&db)
                 .unwrap()
                 .into_iter()

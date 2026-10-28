@@ -32,6 +32,7 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
     apiProvider: "custom",
     apiProfiles: {},
     autonomousEnabled: true,
+    showFollowUps: true,
     randomPresenceEnabled: false,
     localModel: "qwen3.5-4b",
     localModelPath: "",

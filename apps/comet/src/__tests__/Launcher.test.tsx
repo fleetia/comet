@@ -202,9 +202,9 @@ describe("local command and conversation routing", () => {
     expect(
       results("공던지기", {
         ...widgets,
-        widgets: widgets.widgets.map((entry) => ({ ...entry, enabled: false })),
+        widgets: widgets.widgets.map((entry) => ({ ...entry, reaction: false })),
       })[0].title,
-    ).toContain("켜기 설정");
+    ).toContain("꺼내기");
   });
   it("opens trips by name or destination and keeps conversation as the last choice", () => {
     const travels = [
@@ -348,7 +348,7 @@ it("previews only chat rows and uses arrows and Enter for the selected row", asy
     },
   });
 });
-it.each(["missing", "disabled", "setup"] as const)(
+it.each(["missing", "setup"] as const)(
   "carries the selected %s widget settings target through the current launcher session",
   async (status) => {
     widgetState = {
@@ -360,9 +360,7 @@ it.each(["missing", "disabled", "setup"] as const)(
               item.kind === "focus-timer"
                 ? {
                     ...item,
-                    installed: true,
-                    enabled: status !== "disabled",
-                    status: status === "setup" ? "setup" : "disabled",
+                    status: "setup",
                   }
                 : item,
             ),
@@ -396,8 +394,6 @@ it("preserves the instance id and revision when launching an available widget", 
             ...item,
             id: "focus-instance",
             revision: 27,
-            installed: true,
-            enabled: true,
             status: "enabled",
           }
         : item,

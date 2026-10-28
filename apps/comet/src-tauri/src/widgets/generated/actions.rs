@@ -281,8 +281,8 @@ pub fn definition<'a>(
     widget: &'a GeneratedWidget,
     action_id: &str,
 ) -> Result<&'a ActionDefinition> {
-    if !widget.installed || !widget.enabled || widget.status != "ready" {
-        return Err("실행 준비가 끝나고 켜진 위젯만 사용할 수 있어요.".into());
+    if !widget.installed || widget.status != "ready" {
+        return Err("실행 준비가 끝난 위젯만 사용할 수 있어요.".into());
     }
     widget
         .definition
@@ -302,7 +302,7 @@ pub fn validate_input(action: &ActionDefinition, input: &Value) -> Result<()> {
 }
 
 pub fn catalog(db: &Connection) -> Result<Vec<Value>> {
-    Ok(list(db)?.into_iter().filter(|w| w.installed && w.enabled && w.status == "ready")
+    Ok(list(db)?.into_iter().filter(|w| w.installed && w.status == "ready")
         .flat_map(|w| w.definition.actions.iter().map(|a| json!({
             "id":format!("generated:{}:{}",w.id,a.id),"title":w.definition.name,
             "description":a.description,"inputSchema":a.input_schema,
@@ -314,8 +314,8 @@ pub fn catalog(db: &Connection) -> Result<Vec<Value>> {
 
 pub fn context(db: &Connection, id: &str) -> Result<Value> {
     let widget = get(db, id)?;
-    if !widget.installed || !widget.enabled || widget.status != "ready" {
-        return Err("위젯을 먼저 켜 주세요.".into());
+    if !widget.installed || widget.status != "ready" {
+        return Err("위젯의 실행 준비를 먼저 확인해 주세요.".into());
     }
     Ok(
         json!({"id":widget.id,"name":widget.definition.name,"revision":widget.revision,"state":widget.state}),
@@ -366,7 +366,6 @@ pub fn visible_result(db: &Connection, user: &str, id: &str) -> Result<Option<Va
         return Ok(None);
     };
     if !current.installed
-        || !current.enabled
         || current.status != "ready"
         || current.revision != receipt.revision
     {
@@ -525,7 +524,6 @@ pub fn undo(db: &Connection, user: &str, id: &str) -> Result<GeneratedReceipt> {
     let current = get(&tx, &receipt.widget_id)?;
     let (definition,before,after):(String,String,String)=tx.query_row("SELECT definition,before_state,after_state FROM generated_action_receipts WHERE id=?1 AND user_id=?2",params![id,user],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(err)?;
     if !current.installed
-        || !current.enabled
         || current.status != "ready"
         || current.revision != receipt.revision
         || current.definition != serde_json::from_str::<Definition>(&definition).map_err(err)?

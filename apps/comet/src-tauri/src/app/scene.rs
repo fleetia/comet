@@ -242,7 +242,7 @@ pub(crate) fn line_completion_locked(
     }))
 }
 
-async fn wait_for_completed_line(
+pub(crate) async fn wait_for_completed_line(
     state: &AppState,
     epoch: u64,
     cancel: Arc<AtomicBool>,

@@ -293,9 +293,9 @@ export function TimerTool({
   const idle = status === "idle";
   const completionPending = data.completedFocusPending === true;
   const rest = data.mode === "rest";
-  const todo = widgets.find((item) => item.kind === "todo" && item.installed && item.enabled);
+  const todo = widgets.find((item) => item.kind === "todo");
   const calendar = widgets.find(
-    (item) => item.kind === "calendar" && item.installed && item.enabled,
+    (item) => item.kind === "calendar",
   );
   const allTasks = rows(record(todo?.data).items);
   const tasks = allTasks.filter((item) => item.completedAt === null);

@@ -40,8 +40,7 @@ function widget(kind: string, data: DataRecord): WidgetView {
   return {
     id: `${kind}-id`,
     kind,
-    installed: true,
-    enabled: true,
+    reaction: true,
     revision: 7,
     version: 1,
     data,
@@ -173,42 +172,16 @@ it.each([
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
-it.each([
-  {
-    installed: false,
-    label: "할 일 설치",
-    message: "할 일을 설치하면 계정 없이 수집함을 사용할 수 있어요.",
-    commandName: "install_widgets",
-    args: { kinds: ["todo"] },
-  },
-  {
-    installed: true,
-    label: "할 일 켜기",
-    message: "할 일 사용이 꺼져 있어요. 켜면 저장한 항목을 다시 볼 수 있어요.",
-    commandName: "set_widget_enabled",
-    args: { id: "todo-id", enabled: true },
-  },
-])(
-  "offers $label for an unavailable inbox without discarding saved tasks",
-  async ({ installed, label, message, commandName, args }) => {
-    const saved = item("kept", "남겨둔 할 일", { plannedDate: null });
-    const value = snapshot([saved]);
-    value.widgets = value.widgets.map((entry) => ({ ...entry, installed, enabled: false }));
-    const view = await renderPlanner(value);
-    fireEvent.click(screen.getByRole("button", { name: /^수집함 / }));
-    expect(
-      within(screen.getByRole("tabpanel", { name: "기간 계획" })).getByText(message),
-    ).toBeTruthy();
-    expect(screen.queryByRole("textbox", { name: "새 할 일" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: label }));
-    await waitFor(() => expect(command).toHaveBeenCalledWith(commandName, args));
-    expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
-    expect(value.widgets[0].data).toEqual({ lists: LISTS, items: [saved] });
-    useSnapshot(snapshot([saved]));
-    view.rerender(<Planner />);
-    expect(screen.getByRole("checkbox", { name: "남겨둔 할 일" })).toBeTruthy();
-  },
-);
+it("keeps inbox tasks available when character reactions are off", async () => {
+  const saved = item("kept", "남겨둔 할 일", { plannedDate: null });
+  const value = snapshot([saved]);
+  value.widgets = value.widgets.map((entry) => ({ ...entry, reaction: false }));
+  await renderPlanner(value);
+  fireEvent.click(screen.getByRole("button", { name: /^수집함 / }));
+  expect(screen.getByRole("checkbox", { name: "남겨둔 할 일" })).toBeTruthy();
+  expect(value.widgets[0].data).toEqual({ lists: LISTS, items: [saved] });
+  expect(command).not.toHaveBeenCalledWith("set_widget_enabled", expect.anything());
+});
 
 it("reloads an inbox read failure while retaining the last loaded tasks and new input", async () => {
   const value = snapshot([item("kept", "이미 저장한 일", { plannedDate: null })]);

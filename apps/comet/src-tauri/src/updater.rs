@@ -599,12 +599,7 @@ mod tests {
                 "focus" => {
                     let directory = tempfile::tempdir().unwrap();
                     let db = lock(&state.db).unwrap();
-                    crate::widgets::storage::install(
-                        &db,
-                        directory.path(),
-                        &["focus-timer".into()],
-                    )
-                    .unwrap();
+                    crate::widgets::storage::verify_packages(&db, directory.path()).unwrap();
                     let timer = crate::widgets::storage::instances(&db)
                         .unwrap()
                         .into_iter()

@@ -352,7 +352,7 @@ fn configure(
             None
         } else {
             let key = text(input, "todoId", 200)?;
-            let todo: TodoState = decode(related.get("todo").ok_or("할 일 위젯을 켜 주세요.")?)?;
+            let todo: TodoState = decode(related.get("todo").ok_or("할 일 위젯을 찾을 수 없습니다.")?)?;
             if !todo
                 .items
                 .iter()
