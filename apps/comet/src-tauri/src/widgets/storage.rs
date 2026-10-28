@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS widget_preferences(key TEXT PRIMARY KEY,value TEXT NO
 CREATE TABLE IF NOT EXISTS character_touches(character_id TEXT NOT NULL,user_id TEXT NOT NULL,action TEXT NOT NULL,count INTEGER NOT NULL,last_at INTEGER NOT NULL,PRIMARY KEY(character_id,user_id,action));
 CREATE TABLE IF NOT EXISTS character_touch_events(character_id TEXT NOT NULL,user_id TEXT NOT NULL,created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS character_touch_events_lookup ON character_touch_events(character_id,user_id,created_at);
+CREATE INDEX IF NOT EXISTS character_touch_events_expiry ON character_touch_events(created_at);
 CREATE TABLE IF NOT EXISTS desktop_toy_results(id TEXT PRIMARY KEY,widget_id TEXT NOT NULL,kind TEXT NOT NULL,created_at INTEGER NOT NULL,data TEXT NOT NULL);",
     )
     .map_err(err)?;
@@ -582,7 +583,7 @@ fn body_interaction_at(
         let user_id = crate::store::active_user_id(&tx)?;
         tx.execute("INSERT INTO character_touches(character_id,user_id,action,count,last_at) VALUES(?1,?2,?3,1,?4) ON CONFLICT(character_id,user_id,action) DO UPDATE SET count=count+1,last_at=excluded.last_at", params![character_id, user_id, action, now]).map_err(err)?;
         tx.execute("INSERT INTO character_touch_events(character_id,user_id,created_at) VALUES(?1,?2,?3)", params![character_id, user_id, now]).map_err(err)?;
-        tx.execute("DELETE FROM character_touch_events WHERE character_id=?1 AND user_id=?2 AND created_at<?3", params![character_id, user_id, now.saturating_sub(172_800_000)]).map_err(err)?;
+        tx.execute("DELETE FROM character_touch_events WHERE created_at<?1", [now.saturating_sub(172_800_000)]).map_err(err)?;
         let (total, action_count): (i64, i64) = tx.query_row(
             "SELECT SUM(count),SUM(CASE WHEN action=?3 THEN count ELSE 0 END) FROM character_touches WHERE character_id=?1 AND user_id=?2",
             params![character_id, user_id, action],

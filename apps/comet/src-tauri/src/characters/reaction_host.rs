@@ -320,23 +320,10 @@ pub(crate) fn direct_common(
             return Ok(false);
         }
         let milestone = event.event.kind == "interaction.milestone";
-        if milestone {
-            let settings = crate::store::settings(&db)?;
-            if !settings.autonomous_enabled
-                || lock(&state.runtime)?.paused
-                || app::quiet_hours::automatic_blocked(&state, &settings)?
-                || state.launcher_open.load(Ordering::SeqCst)
-            {
-                return Ok(false);
-            }
-        }
         let (lines, token) = if milestone {
-            let Some(lines) = crate::talk::host::prepare(&state, &db, Some(event))? else {
+            let Some((lines, token)) = prepare_milestone(&state, &db, event)? else {
                 return Ok(false);
             };
-            let prepared = lock(&state.talk_playback)?.take();
-            let token = app::interrupt_with_db(&state, true, &db)?;
-            *lock(&state.talk_playback)? = prepared;
             (Some(lines), token)
         } else {
             let token = app::interrupt_with_db(&state, false, &db)?;
@@ -360,6 +347,28 @@ pub(crate) fn direct_common(
     scene::start_scene(app.clone(), state.clone(), lines, "talk", token, None);
     app::publish(app, &state);
     Ok(true)
+}
+
+fn prepare_milestone(
+    state: &AppState,
+    db: &rusqlite::Connection,
+    event: &crate::widgets::WidgetEvent,
+) -> Result<Option<(Vec<SceneLine>, (u64, Arc<std::sync::atomic::AtomicBool>))>> {
+    let settings = crate::store::settings(db)?;
+    if !settings.autonomous_enabled
+        || lock(&state.runtime)?.paused
+        || app::quiet_hours::automatic_blocked(state, &settings)?
+        || state.launcher_open.load(Ordering::SeqCst)
+    {
+        return Ok(None);
+    }
+    let Some(lines) = crate::talk::host::prepare(state, db, Some(event))? else {
+        return Ok(None);
+    };
+    let prepared = lock(&state.talk_playback)?.take();
+    let token = app::interrupt_with_db(state, true, db)?;
+    *lock(&state.talk_playback)? = prepared;
+    Ok(Some((lines, token)))
 }
 
 pub(crate) fn direct_milestone(
@@ -755,9 +764,10 @@ fn speech_reason(state: &AppState) -> Result<Option<&'static str>> {
         return Ok(Some("위젯 알림을 읽고 있어요."));
     }
     let ambient = state.automatic.load(Ordering::SeqCst)
-        && lock(&state.playback)?.as_ref().is_some_and(|line| {
-            matches!(line.source.as_str(), "script" | "wordbook" | "llm" | "talk")
-        });
+        && lock(&state.playback)?.as_ref().map_or(
+            phase == RuntimePhase::Playing,
+            |line| matches!(line.source.as_str(), "script" | "wordbook" | "llm" | "talk"),
+        );
     Ok((!ambient).then_some("진행 중인 대화를 읽고 있어요."))
 }
 

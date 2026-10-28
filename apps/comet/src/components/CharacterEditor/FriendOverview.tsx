@@ -301,7 +301,7 @@ export function FriendOverview({
         </section>
         <section className={styles.section} aria-label="함께한 기록">
           <h2 className={styles.sectionTitle}>함께한 기록</h2>
-          {moments?.characterId === characterId && moments.daysTogether !== null && (
+          {moments && moments.characterId === characterId && moments.daysTogether !== null && (
             <p className={styles.caption}>
               함께한 지 {moments.daysTogether}일 · 추억 {moments.momentCount}개
             </p>
@@ -311,7 +311,7 @@ export function FriendOverview({
               함께한 추억을 불러오지 못했어요.
             </p>
           )}
-          {touches?.characterId === characterId && (
+          {touches && touches.characterId === characterId && (
             <p className={styles.caption}>
               쓰다듬기 {touches.stroke} · 찌르기 {touches.poke} · 간식 {touches.snack}
             </p>
