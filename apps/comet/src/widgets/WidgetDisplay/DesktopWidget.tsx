@@ -173,7 +173,7 @@ export function desktopSummary(
         value: countdown(
           draft ? Math.round(Number(draft.minutes) * 60000) || 0 : focusRemaining(widget, now),
         ),
-        meta: "",
+        meta: rows(data.queue).length ? `다음 ${rows(data.queue).length}개` : "",
       };
     }
     case "music":
@@ -332,7 +332,7 @@ export function FreeformWidget({
       return (
         <FocusTimerFreeform
           {...look}
-          label={summary.title}
+          label={[summary.title, summary.meta].filter(Boolean).join(" · ")}
           task={summary.description}
           time={summary.value}
         />

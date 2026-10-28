@@ -21,7 +21,13 @@ const FIELDS: &[(&str, &str, &str, &str, &str)] = &[
         "nextTitle",
         "nextAllDay",
     ),
-    ("timer", "focus-timer", "remainingMs", "state mode", ""),
+    (
+        "timer",
+        "focus-timer",
+        "remainingMs cycle queueCount",
+        "state mode",
+        "continuous",
+    ),
     (
         "preparation",
         "preparation",
@@ -104,6 +110,9 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         (_, "remainingMs") => "타이머 남은 시간(밀리초). 실행 중에는 deadline에서 현재 시각을 뺀 값",
         ("timer", "state") => "타이머 상태: idle, running, paused, finished",
         ("timer", "mode") => "타이머 모드: focus 또는 rest",
+        ("timer", "cycle") => "긴 휴식 이후 완료한 집중 횟수",
+        ("timer", "queueCount") => "대기 중인 다음 집중 수",
+        ("timer", "continuous") => "휴식 후 다음 집중 자동 시작 여부",
         ("preparation", "count") => "저장된 준비 봉투 수",
         (_, "checkCount") => "모든 준비 봉투에 등록된 체크 항목 수",
         (_, "uncheckedCount") => "모든 준비 봉투에서 아직 체크하지 않은 항목 수",
@@ -491,6 +500,12 @@ pub(crate) fn project(
             }
             "focus-timer" => {
                 set("state", d["status"].clone());
+                set("cycle", json!(d["cycle"].as_u64().unwrap_or(0)));
+                set("queueCount", json!(rows(&d["queue"]).len()));
+                set(
+                    "continuous",
+                    json!(d["settings"]["continuous"].as_bool().unwrap_or(false)),
+                );
                 if d["status"] == "running" {
                     set(
                         "remainingMs",

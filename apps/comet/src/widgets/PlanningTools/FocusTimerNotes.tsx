@@ -81,8 +81,10 @@ export function FocusTimerNotes({
   onRecords,
   act,
   sessionTitle,
+  sessionLabel = "지금 집중",
   sessionTime,
   onClose,
+  hideTabs = false,
   active = true,
 }: {
   widgets: WidgetView[];
@@ -101,8 +103,10 @@ export function FocusTimerNotes({
   onRecords?: () => void;
   act?: ToolAction;
   sessionTitle?: string;
+  sessionLabel?: string;
   sessionTime?: string;
   onClose?: () => void;
+  hideTabs?: boolean;
   active?: boolean;
 }): ReactElement {
   const diary = useDiary();
@@ -269,6 +273,7 @@ export function FocusTimerNotes({
   }
   return (
     <FocusPanel
+      hideTabs={hideTabs}
       label="집중 노트"
       tab="notes"
       onClose={onClose}
@@ -280,7 +285,7 @@ export function FocusTimerNotes({
         <div className={s.currentFocus}>
           <span className={s.currentFocusDot} />
           <span className={s.grow}>
-            지금 집중 · <strong>{sessionTitle || "나만의 집중 시간"}</strong>
+            {sessionLabel} · <strong>{sessionTitle || "나만의 집중 시간"}</strong>
           </span>
           {sessionTime && <span className={s.currentFocusTime}>{sessionTime}</span>}
         </div>

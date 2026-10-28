@@ -27,7 +27,11 @@ pub(crate) fn present_line(
     let db = lock(&state.db)?;
     if !is_current(state, epoch, cancel)
         || (source == "diary" && !crate::diary::runtime::playback_current(state, &db, id)?)
-        || crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
+        || (crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
+            && !(source == "widget"
+                && lock(&state.widget_playback)?
+                    .as_ref()
+                    .is_some_and(widgets::commands::focus_transition)))
         || super::quiet_hours::playback_blocked(
             state,
             &store::settings(&db)?,

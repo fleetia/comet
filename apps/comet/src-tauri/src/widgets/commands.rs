@@ -62,6 +62,14 @@ pub(crate) fn change<T>(
     state: &AppState,
     action: impl FnOnce(&rusqlite::Connection) -> Result<T, String>,
 ) -> Result<T, String> {
+    change_with_epoch(state, action, |result, _| Ok(result))
+}
+
+fn change_with_epoch<T, U>(
+    state: &AppState,
+    action: impl FnOnce(&rusqlite::Connection) -> Result<T, String>,
+    after: impl FnOnce(T, u64) -> Result<U, String>,
+) -> Result<U, String> {
     let _guard = lock(&state.action)?;
     if crate::unavailable(state) {
         return Err("앱을 종료하고 있어요.".into());
@@ -85,7 +93,7 @@ pub(crate) fn change<T>(
         runtime.error = None;
         state.nlp.pause_indexing(false);
     }
-    Ok(result)
+    after(result, state.epoch.load(Ordering::SeqCst))
 }
 
 fn active_appearance_target(
@@ -343,7 +351,8 @@ pub(crate) fn event_current(
     db: &rusqlite::Connection,
     event: &WidgetEvent,
 ) -> Result<bool, String> {
-    if storage::focus_active(db, chrono::Utc::now().timestamp_millis())? {
+    if storage::focus_active(db, chrono::Utc::now().timestamp_millis())? && !focus_transition(event)
+    {
         return Ok(false);
     }
     if crate::app::quiet_hours::active(&store::settings(db)?)
@@ -363,6 +372,13 @@ pub(crate) fn event_current(
         && weather_event_current(db, event)?
         && !widgets::is_retired(&instance.kind)
         && instance.revision == event.revision)
+}
+
+pub(crate) fn focus_transition(event: &WidgetEvent) -> bool {
+    event.widget_kind == "focus-timer"
+        && event.event.kind == "timer-finished"
+        && event.event.payload["mode"] == "rest"
+        && event.event.payload["nextTitle"].is_string()
 }
 
 #[tauri::command]
@@ -1107,62 +1123,67 @@ pub(crate) async fn close_widget(
 }
 
 pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
-    let (changed, usage_changed) = change(state, |db| {
-        let timestamp = chrono::Utc::now().timestamp_millis();
-        let usage_changed = advance_app_usage(state, db, timestamp)?;
-        let continuous = lock(&state.widget_clocks)?
-            .get("focus-completions")
-            .is_some_and(|previous| timestamp >= *previous && timestamp - *previous <= 120_000);
-        let changed = storage::advance_with_continuity(db, timestamp, continuous)?;
-        let quiet = lock(&state.runtime)?.paused
-            || crate::app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?;
-        let alerted =
-            widgets::reminders::advance(db, &mut *lock(&state.widget_clocks)?, timestamp, quiet)?;
-        let runtime = lock(&state.runtime)?.clone();
-        let suspended = state.launcher_open.load(Ordering::SeqCst)
-            || runtime.hidden
-            || !store::settings(db)?.autonomous_enabled;
-        if suspended {
-            storage::discard_pending(db)?;
-        }
-        let blocked = hold_for_focus(state, db)?;
-        if !suspended
-            && !quiet
-            && !blocked
-            && runtime.phase == "idle"
-            && lock(&state.panel)?.is_none()
-            && lock(&state.pack_stories)?.run.is_none()
-            && now() - state.last_input.load(Ordering::SeqCst) >= 3
-            && !crate::behavior::reactions_blocked(state)?
-        {
-            let due = {
-                let mut clocks = lock(&state.widget_clocks)?;
-                let previous = clocks.get("weather-talk").copied();
-                if previous.is_none_or(|at| timestamp < at || timestamp - at >= 60_000) {
-                    clocks.insert("weather-talk".into(), timestamp);
-                    true
-                } else {
-                    false
-                }
-            };
-            if due {
-                advance_weather_talk(db, timestamp)?;
-            }
-        }
-        if changed || alerted.changed {
-            cancel_stale_widget_scene(state, db)?;
-        }
-        for delivery in alerted.os {
-            // OS delivery has its own opt-in and survives a hidden character balloon.
-            crate::widgets::planning::notifications::deliver(
-                app,
-                delivery,
+    let (changed, usage_changed) = change_with_epoch(
+        state,
+        |db| {
+            let timestamp = chrono::Utc::now().timestamp_millis();
+            let usage_changed = advance_app_usage(state, db, timestamp)?;
+            let continuous = lock(&state.widget_clocks)?
+                .get("focus-completions")
+                .is_some_and(|previous| timestamp >= *previous && timestamp - *previous <= 120_000);
+            let changed = storage::advance_with_continuity(db, timestamp, continuous)?;
+            let quiet = lock(&state.runtime)?.paused
+                || crate::app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?;
+            let alerted = widgets::reminders::advance(
+                db,
+                &mut *lock(&state.widget_clocks)?,
                 timestamp,
-                state.epoch.load(Ordering::SeqCst),
-            );
-        }
-        Ok((changed || alerted.changed, usage_changed))
-    })?;
+                quiet,
+            )?;
+            let runtime = lock(&state.runtime)?.clone();
+            let suspended = state.launcher_open.load(Ordering::SeqCst)
+                || runtime.hidden
+                || !store::settings(db)?.autonomous_enabled;
+            if suspended {
+                storage::discard_pending(db)?;
+            }
+            let blocked = hold_for_focus(state, db)?;
+            if !suspended
+                && !quiet
+                && !blocked
+                && runtime.phase == "idle"
+                && lock(&state.panel)?.is_none()
+                && lock(&state.pack_stories)?.run.is_none()
+                && now() - state.last_input.load(Ordering::SeqCst) >= 3
+                && !crate::behavior::reactions_blocked(state)?
+            {
+                let due = {
+                    let mut clocks = lock(&state.widget_clocks)?;
+                    let previous = clocks.get("weather-talk").copied();
+                    if previous.is_none_or(|at| timestamp < at || timestamp - at >= 60_000) {
+                        clocks.insert("weather-talk".into(), timestamp);
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if due {
+                    advance_weather_talk(db, timestamp)?;
+                }
+            }
+            if changed || alerted.changed {
+                cancel_stale_widget_scene(state, db)?;
+            }
+            Ok((changed || alerted.changed, usage_changed, alerted.os, timestamp))
+        },
+        |(changed, usage_changed, deliveries, timestamp), epoch| {
+            for delivery in deliveries {
+                // OS delivery has its own opt-in and survives a hidden character balloon.
+                crate::widgets::planning::notifications::deliver(app, delivery, timestamp, epoch);
+            }
+            Ok((changed, usage_changed))
+        },
+    )?;
     if changed {
         publish(app, state);
         publish_widgets(app, state);
@@ -1317,8 +1338,16 @@ pub(crate) fn play_widget_reaction(
         let _action = lock(&state.action)?;
         let db = lock(&state.db)?;
         if let Some(event) = take_pending_reaction(state, &db)? {
+            let special_completion = focus_transition(&event)
+                || (event.widget_kind == "focus-timer"
+                    && event.event.kind == "focus-long-rest-started")
+                || (event.widget_kind == "focus-timer"
+                    && event.event.kind == "timer-finished"
+                    && event.event.payload["mode"] == "focus"
+                    && event.event.payload["restKind"] == "long");
             if let Some(character_id) =
                 crate::characters::reaction_host::widget_character(&db, &event)?
+                    .filter(|_| !special_completion)
             {
                 let epoch = state.epoch.load(Ordering::SeqCst);
                 drop(db);
@@ -1336,15 +1365,27 @@ pub(crate) fn play_widget_reaction(
             state.widget_epoch.store(token.0, Ordering::SeqCst);
             *lock(&state.widget_playback)? = Some(event.clone());
             state.last_input.store(now(), Ordering::SeqCst);
-            let (lines, source) = match crate::talk::host::prepare(state, &db, Some(&event))? {
-                Some(lines) => (lines, "talk"),
-                None => match fallback_reaction(&db, &event)? {
-                    Some(lines) => (lines, "widget"),
-                    None => {
-                        *lock(&state.widget_playback)? = None;
-                        return Ok(false);
-                    }
-                },
+            let (lines, source) = if special_completion {
+                (
+                    vec![SceneLine {
+                        motion: Default::default(),
+                        persona: "a".into(),
+                        expression: "평온".into(),
+                        text: event.event.text.clone(),
+                    }],
+                    "widget",
+                )
+            } else {
+                match crate::talk::host::prepare(state, &db, Some(&event))? {
+                    Some(lines) => (lines, "talk"),
+                    None => match fallback_reaction(&db, &event)? {
+                        Some(lines) => (lines, "widget"),
+                        None => {
+                            *lock(&state.widget_playback)? = None;
+                            return Ok(false);
+                        }
+                    },
+                }
             };
             Some((event.id, token, lines, source))
         } else {

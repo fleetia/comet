@@ -176,6 +176,9 @@ fn context(definition: &Definition, id: &str, revision: i64, data: &Value, query
             if let Some(rows) = data["sessions"].as_array() {
                 value["sessions"] = json!(visible_rows(rows, query, 10));
             }
+            value["queue"] = data["queue"]
+                .as_array()
+                .map_or_else(|| json!([]), |rows| json!(rows));
         }
         "weather" | "music" => {
             // Connection configuration may contain credentials and is never model context.
@@ -660,6 +663,15 @@ fn payload(
     query: &str,
 ) -> Result<Value> {
     let mut payload = action.input.clone();
+    if definition.id == "focus_queue_add" {
+        if let Some(minutes) = payload
+            .as_object_mut()
+            .and_then(|fields| fields.remove("minutes"))
+        {
+            payload["focusDurationMs"] =
+                json!(minutes.as_i64().ok_or("집중 시간을 확인해 주세요.")? * 60_000);
+        }
+    }
     if definition.target != !action.target_id.is_empty()
         || action.target_id.len() > 200
         || action.target_id.chars().any(char::is_control)
