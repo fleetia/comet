@@ -168,7 +168,16 @@ export type AnimationClip = { id: string; name: string; fps: number; frames: Ani
 export type AnimationBinding = { clipId: string; repeat: boolean; intervalMs: number };
 export type AnimationBindings = Partial<
   Record<
-    "idle" | "speaking" | "click" | "musicPlaying" | "calendarOpen" | "sleep" | "focus" | "rest",
+    | "idle"
+    | "speaking"
+    | "click"
+    | "musicPlaying"
+    | "calendarOpen"
+    | "sleep"
+    | "focus"
+    | "rest"
+    | "moodHigh"
+    | "moodLow",
     AnimationBinding | null
   >
 >;
@@ -567,6 +576,8 @@ export type Snapshot = {
     focus?: boolean;
     rest?: boolean;
     sleepingCharacterIds?: string[];
+    moodHighCharacterIds?: string[];
+    moodLowCharacterIds?: string[];
   };
   reactions?: Record<string, CharacterReactionRun>;
   user: UserIdentity | null;

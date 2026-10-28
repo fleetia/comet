@@ -491,7 +491,10 @@ pub(super) fn validate_attribution(author: &str, source_url: &str) -> Result<()>
 pub(super) fn has_state_bindings(pack: &CharacterPack) -> bool {
     pack.characters.iter().any(|definition| {
         definition.animation.as_ref().is_some_and(|animation| {
-            animation.bindings.music_playing.is_some() || animation.bindings.calendar_open.is_some()
+            animation.bindings.music_playing.is_some()
+                || animation.bindings.calendar_open.is_some()
+                || animation.bindings.mood_high.is_some()
+                || animation.bindings.mood_low.is_some()
         })
     })
 }

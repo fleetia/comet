@@ -423,19 +423,52 @@ pub(crate) async fn execute_widget(
             } else {
                 crate::desktop::toys::remove_widget(&app, &instance.id);
             }
+            crate::characters::life::note_mood_input(&state)?;
             Ok(None)
         });
     }
     let created_id = change(&state, |db| {
+        let timestamp = chrono::Utc::now().timestamp_millis();
+        let focus_before = if request.action == "cancel"
+            && lock(&state.widget_clocks)?
+                .get("focus-completions")
+                .is_some_and(|previous| timestamp >= *previous && timestamp - *previous <= 120_000)
+        {
+            storage::get(db, &request.instance_id)
+                .ok()
+                .filter(|instance| instance.kind == "focus-timer")
+        } else {
+            None
+        };
         let created_id = execute_with_created_id(
             db,
             &request,
-            chrono::Utc::now().timestamp_millis(),
+            timestamp,
             uuid::Uuid::new_v4().as_u128() as u64,
         )?;
+        if let Some(before) = focus_before {
+            let after = storage::get(db, &request.instance_id)?;
+            let previous_sessions = before.data["sessions"].as_array();
+            let new_completed = after.data["sessions"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|session| {
+                    session["outcome"] == "completed"
+                        && previous_sessions.is_none_or(|previous| {
+                            !previous.iter().any(|old| old["id"] == session["id"])
+                        })
+                });
+            if before.data["mode"] == "focus" && new_completed {
+                for member in crate::characters::active_members(db)? {
+                    crate::characters::life::change_mood(&app, &state, &member.id, "focus", 1)?;
+                }
+            }
+        }
         if request.action == "configure-alerts" {
             lock(&state.widget_clocks)?.remove(&request.instance_id);
         }
+        crate::characters::life::note_mood_input(&state)?;
         Ok(created_id)
     })?;
     crate::widgets::memo_notes::schedule_sync(&app);

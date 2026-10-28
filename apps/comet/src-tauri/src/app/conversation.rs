@@ -684,6 +684,14 @@ pub(crate) async fn send_message(
             &client_message_id,
             false,
         );
+        let recorded = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM messages WHERE id=?1)",
+            [&client_message_id],
+            |row| row.get::<_, bool>(0),
+        ).map_err(|error| error.to_string())?;
+        if recorded {
+            crate::characters::life::note_mood_input(&state)?;
+        }
         let waiting = waiting_story(&state, &db, &routing_targets)?;
         let waiting_pack = waiting_pack_run(&state, &db, &routing_targets)?;
         let mut plan = pack_stories::load_plan(&db, &client_message_id)?;
@@ -702,6 +710,11 @@ pub(crate) async fn send_message(
         }
         let token =
             super::tasks::reserve_conversation(&state, Some(&session.id), &client_message_id)?;
+        if recorded && store::direct_affinity(content).is_some_and(|(_, delta)| delta < 0) {
+            for id in store::message_targets(&db, &client_message_id)? {
+                crate::characters::life::change_mood(&app, &state, &id, "insult", -1)?;
+            }
+        }
         retain_waiting_story(&state, waiting, token.0)?;
         if plan.is_none() {
             retain_pack_run(&state, &db, waiting_pack, token.0)?;
@@ -1622,6 +1635,11 @@ pub(crate) async fn generate_turn_with_memories(
             prompt_with_history(&db, targets, message_id, &recalled)?
         };
         let small = use_small_model_prompt(state, &db, targets, bundle, &mut prompt)?;
+        let moods = targets.iter().map(|target| {
+            let actor = characters::guests::actor(state, &db, target)?;
+            Ok((target.clone(), characters::life::mood(state, &actor.id)?))
+        }).collect::<Result<std::collections::BTreeMap<_, _>, String>>()?;
+        domain::with_moods(&mut prompt, &moods, !small);
         #[cfg(debug_assertions)]
         if !context.selected_knowledge_ids.is_empty() {
             eprintln!(

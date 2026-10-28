@@ -202,11 +202,11 @@ pub fn run() {
             let story_catalog = story::load(&app_data)
                 .or_else(|_| story::catalog())
                 .map_err(std::io::Error::other)?;
+            let db = open_session(&app_data.join(DATABASE_FILE)).map_err(std::io::Error::other)?;
+            let mood_event_cursor = widgets::mood::latest_event(&db).map_err(std::io::Error::other)?;
             let state = Arc::new(AppState {
                 organizer: crate::organizer::runtime::Runtime::default(),
-                db: Mutex::new(
-                    open_session(&app_data.join(DATABASE_FILE)).map_err(std::io::Error::other)?,
-                ),
+                db: Mutex::new(db),
                 inference: inference::Inference::new(app_data.clone(), sidecar, runtime),
                 nlp: crate::memory_commands::new_nlp(app.handle(), &app_data)
                     .map_err(std::io::Error::other)?,
@@ -298,7 +298,7 @@ pub fn run() {
                 handle.clone(),
                 state.clone(),
             ));
-            tauri::async_runtime::spawn(background_loop(handle, state));
+            tauri::async_runtime::spawn(background_loop(handle, state, mood_event_cursor));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -731,6 +731,7 @@ pub fn run() {
             characters::commands::apply_character_roster,
             characters::commands::get_character_packs,
             characters::commands::get_character_touches,
+            characters::life::get_character_mood,
             characters::commands::apply_character_pack,
             characters::commands::remove_character,
             characters::commands::preview_character_pack,

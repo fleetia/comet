@@ -5,6 +5,7 @@ import { ChatIcon, ChevLeftIcon, Icon, ShareIcon, RemoveIcon, type IconName } fr
 import type { CharacterDefinition, InstalledCharacter } from "../../types";
 import { command, isDesktop } from "../../hooks/useSnapshot";
 import { FriendArtwork } from "../CharacterManager/FriendsLibrary";
+import { moodExpression } from "../characterIdentity";
 import * as styles from "./friendDetail.css";
 
 type Props = {
@@ -114,7 +115,50 @@ export function FriendOverview({
     snack: number;
   } | null>(null);
   const [touchesError, setTouchesError] = useState(false);
+  const [mood, setMood] = useState<{ characterId: string; value: number } | null>(null);
+  const [moodError, setMoodError] = useState(false);
   const characterId = character?.id;
+  useEffect(() => {
+    if (!characterId || !isDesktop()) return;
+    let active = true;
+    let revision = 0;
+    let unlisten: (() => void) | undefined;
+    setMood(null);
+    setMoodError(false);
+    const refresh = (): void => {
+      const current = ++revision;
+      void command<number>("get_character_mood", { characterId })
+        .then((value) => {
+          if (active && current === revision) {
+            setMood({ characterId, value });
+            setMoodError(false);
+          }
+        })
+        .catch(() => {
+          if (active && current === revision) {
+            setMood(null);
+            setMoodError(true);
+          }
+        });
+    };
+    void listen<{ character: string }>("character-mood-changed", (event) => {
+      if (event.payload.character === characterId) refresh();
+    })
+      .then((cleanup) => {
+        if (active) {
+          unlisten = cleanup;
+          refresh();
+        } else cleanup();
+      })
+      .catch(() => {
+        if (active) setMoodError(true);
+      });
+    refresh();
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [characterId]);
   useEffect(() => {
     if (!characterId || !isDesktop()) return;
     let active = true;
@@ -162,6 +206,11 @@ export function FriendOverview({
       friend.definition.presenceRole !== "npc" &&
       presentIds.includes(friend.id),
   );
+  const currentMood = mood?.characterId === characterId ? mood.value : undefined;
+  const moodFace =
+    currentMood === undefined
+      ? undefined
+      : moodExpression(character && { ...character, definition }, currentMood);
   const categories: { page: string; title: string; description: string; icon: IconName }[] = [
     { page: "profile", title: "프로필", description: "이름, 소개, 성격과 말투", icon: "sparkle" },
     {
@@ -223,6 +272,24 @@ export function FriendOverview({
         </span>
         <h1 className={styles.heroTitle}>{definition.name}</h1>
         <p className={styles.description}>{statusDescription}</p>
+        {character && currentMood !== undefined && (
+          <p className={styles.mood}>
+            <span>지금 기분</span>
+            {moodFace && (
+              <span className={styles.moodArtwork} aria-hidden="true">
+                <FriendArtwork
+                  character={{ ...character, definition }}
+                  compact
+                  expression={moodFace}
+                />
+              </span>
+            )}
+            <strong>{currentMood > 0 ? "좋음" : currentMood < 0 ? "가라앉음" : "보통"}</strong>
+          </p>
+        )}
+        {character && moodError && (
+          <p className={styles.caption} role="alert">기분을 불러오지 못했어요.</p>
+        )}
         <Button
           leadingIcon={<ChatIcon size={15} />}
           className={styles.talk}

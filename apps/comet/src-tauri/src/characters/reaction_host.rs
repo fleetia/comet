@@ -1213,6 +1213,22 @@ pub(crate) fn trigger_widget(
         Some((event, epoch)),
         None,
     )? {
+        {
+            let _action = lock(&state.action)?;
+            let db = lock(&state.db)?;
+            let current = lock(&state.reactions)?
+                .runs
+                .get(character_id)
+                .and_then(|run| run.widget.as_ref())
+                .is_some_and(|current| current.id == event.id);
+            if current {
+                if let Some((id, action)) = crate::widgets::mood::interaction_target(&db, event)?
+                    .filter(|(id, _)| id == character_id)
+                {
+                    crate::characters::life::change_mood(app, &state, &id, &action, 1)?;
+                }
+            }
+        }
         finish_reaction(app, state, prepared);
     }
     Ok(())

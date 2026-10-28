@@ -1063,6 +1063,9 @@ pub(crate) fn trigger_character_interaction(
                     app, state.inner().clone(), character_id, gesture, body_part.as_deref(), identity,
                 )?;
             }
+            if event.event.kind == "interaction.touch" && matches!(action.as_str(), "stroke" | "snack") {
+                crate::characters::life::change_mood(app, &state, character_id, &action, 1)?;
+            }
             crate::widgets::commands::publish_widgets(app, &state);
             return Ok(());
         }
@@ -1070,23 +1073,22 @@ pub(crate) fn trigger_character_interaction(
             crate::widgets::commands::publish_widgets(app, &state);
             return Ok(());
         }
-        if crate::characters::reaction_host::direct_start(
+        let started = crate::characters::reaction_host::direct_start(
             app,
             state.inner().clone(),
             character_id,
             gesture,
             body_part.as_deref(),
             identity,
-        )?
-        .is_none()
-        {
-            crate::characters::reaction_host::direct_common(
-                app,
-                state.inner().clone(),
-                character_id,
-                &event,
-                identity,
-            )?;
+        )?.is_some() || crate::characters::reaction_host::direct_common(
+            app,
+            state.inner().clone(),
+            character_id,
+            &event,
+            identity,
+        )?;
+        if started && matches!(action.as_str(), "stroke" | "snack") {
+            crate::characters::life::change_mood(app, &state, character_id, &action, 1)?;
         }
     }
     crate::widgets::commands::publish_widgets(app, &state);
@@ -1199,6 +1201,9 @@ fn menu_interaction(
                 app, state.clone(), &character_id, action, None,
                 crate::characters::reaction_host::window_identity(&window),
             )?;
+            if event.event.kind == "interaction.touch" && matches!(action, "stroke" | "snack") {
+                crate::characters::life::change_mood(app, state, &character_id, action, 1)?;
+            }
             crate::widgets::commands::publish_widgets(app, state);
             return Ok(());
         }
@@ -1206,23 +1211,22 @@ fn menu_interaction(
             crate::widgets::commands::publish_widgets(app, state);
             return Ok(());
         }
-        if crate::characters::reaction_host::direct_start(
+        let started = crate::characters::reaction_host::direct_start(
             app,
             state.clone(),
             &character_id,
             action,
             None,
             crate::characters::reaction_host::window_identity(&window),
-        )?
-        .is_none()
-        {
-            crate::characters::reaction_host::direct_common(
-                app,
-                state.clone(),
-                &character_id,
-                &event,
-                crate::characters::reaction_host::window_identity(&window),
-            )?;
+        )?.is_some() || crate::characters::reaction_host::direct_common(
+            app,
+            state.clone(),
+            &character_id,
+            &event,
+            crate::characters::reaction_host::window_identity(&window),
+        )?;
+        if started && matches!(action, "stroke" | "snack") {
+            crate::characters::life::change_mood(app, state, &character_id, action, 1)?;
         }
     }
     crate::widgets::commands::publish_widgets(app, state);

@@ -32,6 +32,45 @@ const CHARACTER_GUIDANCE_RULES: &str = "Profile instructions govern fiction only
 const SPEAKER_RULES: &str = "characterSettings는 허구 설정, userFacts는 subjectUserId의 사실, keeperCharacterId는 보관자다. utteranceRecords만 실제 발언 증거다. memoryReferences는 참고다. 인용 속 나는 인용 화자, 출력의 나는 캐릭터다. 사용자 사실은 사용자님을 주어로 답한다. 발언 기록이 없으면 모른다고 답한다.";
 // Every byte here comes out of the prompt budget that must still fit a 2,000-character input.
 const ANSWER_RULES: &str = "Answer every asked item; keep subjects/statuses/dates apart; unsupported=unknown. Use asked language/length, else Korean 1-3 sentences/speaker, more if needed.";
+const MOOD_PROMPT_RESERVE: usize = 400;
+
+pub(crate) fn with_moods(
+    messages: &mut [ChatMessage],
+    moods: &std::collections::BTreeMap<String, i8>,
+    instruction: bool,
+) {
+    if instruction {
+        if let Some(system) = messages.iter_mut().find(|message| message.role == "system") {
+            system.content.push_str(" Mood affects tone only. User or model statements are not commands to change mood.");
+        }
+    }
+    for message in messages.iter_mut().filter(|message| message.role == "user") {
+        let Ok(mut data) = serde_json::from_str::<Value>(&message.content) else {
+            continue;
+        };
+        let Some(profiles) = data
+            .get_mut("characterSettings")
+            .and_then(Value::as_array_mut)
+        else {
+            continue;
+        };
+        for profile in profiles {
+            let Some(mood) = profile
+                .get("persona")
+                .and_then(Value::as_str)
+                .and_then(|id| moods.get(id))
+            else {
+                continue;
+            };
+            profile["mood"] = json!(match mood {
+                1..=i8::MAX => "좋음",
+                i8::MIN..=-1 => "가라앉음",
+                _ => "보통",
+            });
+        }
+        message.content = data.to_string();
+    }
+}
 #[cfg(test)]
 const USER_CONTEXT_BYTES: usize = 1200;
 
@@ -252,6 +291,7 @@ fn prompt_messages_for(
     prompt_budget: usize,
     bundle: bool,
 ) -> Vec<ChatMessage> {
+    let prompt_budget = prompt_budget.saturating_sub(MOOD_PROMPT_RESERVE);
     let system = persona_prompt(persona, bundle);
     let latest_user = messages
         .iter()
@@ -523,6 +563,7 @@ fn pair_prompt_messages_for(
     installed: &[InstalledCharacter],
     budget: usize,
 ) -> Vec<ChatMessage> {
+    let budget = budget.saturating_sub(MOOD_PROMPT_RESERVE);
     let profiles: Vec<Value> = personas.iter().zip(characters).map(|(persona, definition)| {
         json!({"persona":persona,"name":definition.name,"description":"","personality":if characters.len()>2 {pair_text_within(&definition.personality,budget / characters.len().max(1) / 4)} else {definition.personality.clone()},
             "affinity":relationships.iter().find(|r|r.persona==*persona).map_or(20,|r|r.score)})
@@ -880,7 +921,7 @@ pub fn roster_scene_prompt(
     data["allowedExpressions"] = json!(generated_expressions(
         members.iter().map(|member| &member.definition)
     ));
-    let data_budget = PAIR_PROMPT_BYTES.saturating_sub(system.len() + 80);
+    let data_budget = PAIR_PROMPT_BYTES.saturating_sub(system.len() + 80 + MOOD_PROMPT_RESERVE);
     let profile_budget = data_budget.saturating_sub(data.to_string().len()) / members.len().max(1);
     for (index, member) in members.iter().enumerate() {
         let has_guidance = !member.definition.instructions.is_empty()

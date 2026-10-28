@@ -74,6 +74,8 @@ impl Runtime {
             focus,
             rest,
             sleeping_character_ids: self.states.sleeping_character_ids.clone(),
+            mood_high_character_ids: self.states.mood_high_character_ids.clone(),
+            mood_low_character_ids: self.states.mood_low_character_ids.clone(),
         };
         let changed = next != self.states;
         self.states = next;
@@ -96,7 +98,10 @@ pub(crate) fn refresh(app: &tauri::AppHandle, state: &AppState) -> Result<bool, 
         && app.get_webview_window("planner").is_some_and(|window| {
             window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true)
         });
-    let sleeping_ids = lock(&state.life)?.sleeping_ids();
+    let life = lock(&state.life)?;
+    let sleeping_ids = life.sleeping_ids();
+    let (mood_high_ids, mood_low_ids) = life.mood_ids();
+    drop(life);
     let mut runtime = lock(&state.animation_states)?;
     let changed = runtime.update(
         &widgets,
@@ -106,7 +111,11 @@ pub(crate) fn refresh(app: &tauri::AppHandle, state: &AppState) -> Result<bool, 
     );
     let sleeping_changed = runtime.states.sleeping_character_ids != sleeping_ids;
     runtime.states.sleeping_character_ids = sleeping_ids;
-    Ok(changed || sleeping_changed)
+    let mood_changed = runtime.states.mood_high_character_ids != mood_high_ids
+        || runtime.states.mood_low_character_ids != mood_low_ids;
+    runtime.states.mood_high_character_ids = mood_high_ids;
+    runtime.states.mood_low_character_ids = mood_low_ids;
+    Ok(changed || sleeping_changed || mood_changed)
 }
 
 #[cfg(test)]

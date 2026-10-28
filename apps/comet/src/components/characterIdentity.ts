@@ -46,6 +46,15 @@ export function resolveExpression(
     ? expression
     : DEFAULT_EXPRESSION;
 }
+export function moodExpression(
+  character: InstalledCharacter | undefined,
+  mood: number,
+): string | undefined {
+  const expressions = character?.definition.expressions;
+  if (!expressions) return undefined;
+  const candidates = mood > 0 ? ["happy"] : mood < 0 ? ["sad", "tired"] : [DEFAULT_EXPRESSION];
+  return candidates.find((key) => Object.hasOwn(expressions, key));
+}
 export function expressionLabel(
   character: InstalledCharacter | undefined,
   expression: string,

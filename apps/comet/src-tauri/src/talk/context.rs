@@ -74,6 +74,10 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         ("character", "count") => "지금 바탕화면에 함께 지내는 캐릭터 수(1~8). speakers: random 장면의 화자 수 조건에 사용",
         (_, "sourceId") if prefix.starts_with("character.") => "현재 자리에 설치된 캐릭터의 원본 sourceId. 표시 이름·로컬 ID와 구분",
         (_, "affinity") if prefix.starts_with("character.") => "해당 캐릭터의 현재 친밀도 점수",
+        (_, "mood") if prefix.starts_with("character.") => "해당 캐릭터의 현재 단기 기분(-2~2)",
+        ("event", "from") => "기분 변경 전 값(-2~2)",
+        ("event", "to") => "기분 변경 후 값(-2~2)",
+        ("event", "source") => "기분 변경을 일으킨 사건의 종류",
         (_, "total") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "현재 사용자와 해당 캐릭터의 누적 교감 횟수",
         (_, "stroke") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "현재 사용자와 해당 캐릭터의 누적 쓰다듬기 횟수",
         (_, "poke") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "현재 사용자와 해당 캐릭터의 누적 찌르기 횟수",
@@ -208,6 +212,10 @@ pub fn registry() -> Registry {
     ] {
         add("event", name, ValueType::String, true, None);
     }
+    add("event", "source", ValueType::String, true, None);
+    for name in ["from", "to"] {
+        add("event", name, ValueType::Number, true, None);
+    }
     add("interaction", "milestone", ValueType::Number, true, None);
     add("interaction", "milestoneAction", ValueType::String, true, None);
     add("dialogue", "variant", ValueType::Number, false, None);
@@ -254,6 +262,13 @@ pub fn registry() -> Registry {
             true,
             None,
         );
+        add(
+            &format!("character.{persona}"),
+            "mood",
+            ValueType::Number,
+            true,
+            None,
+        );
     }
     add(
         "character.nadir",
@@ -263,6 +278,7 @@ pub fn registry() -> Registry {
         None,
     );
     add("character.nadir", "affinity", ValueType::Number, true, None);
+    add("character.nadir", "mood", ValueType::Number, true, None);
     add("character", "count", ValueType::Number, false, None);
     Registry {
         variables,
@@ -277,6 +293,7 @@ pub fn registry() -> Registry {
             "device-woke",
             "interaction.touch",
             "interaction.milestone",
+            "mood.changed",
             "ball.stopped",
             "paper-plane.landed",
             "bubbles.streak",
@@ -723,12 +740,16 @@ pub fn build(
             ("outcome", "outcome"),
             ("mode", "mode"),
             ("itemName", "name"),
+            ("source", "source"),
         ] {
             let value = event.event.payload[source]
                 .as_str()
                 .map(|text| json!(text))
                 .unwrap_or(Value::Null);
             values.insert(format!("event.{field}"), value);
+        }
+        for field in ["from", "to"] {
+            values.insert(format!("event.{field}"), event.event.payload[field].clone());
         }
         if body_data.is_some() && event.event.payload["action"] == "cheek-grab" {
             values.insert("event.action".into(), json!("stroke"));
@@ -751,6 +772,12 @@ pub fn build(
     values.insert("character.nadir.present".into(), json!(false));
     values.insert("character.count".into(), json!(characters.len()));
     for (persona, character) in crate::characters::SLOTS.into_iter().zip(&characters) {
+        if event.is_some_and(|event| {
+            event.event.kind == "mood.changed"
+                && event.event.payload["character"].as_str() == Some(&character.id)
+        }) {
+            values.insert("event.character".into(), json!(persona));
+        }
         let touches = storage::character_touches(db, &character.id, now_ms)?;
         for (field, count) in [
             ("total", touches.total),
