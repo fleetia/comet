@@ -659,6 +659,34 @@ mod tests {
     }
 
     #[test]
+    fn milestone_requires_owned_receipt_and_follows_widget_reaction_setting() {
+        let state = crate::app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let owner = crate::characters::active_ids(&db).unwrap()[0].clone();
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut event = widgets::storage::body_interaction(
+            &db, &owner, "stroke", &uuid::Uuid::new_v4().to_string(), now,
+        ).unwrap().unwrap();
+        event.event.kind = "interaction.milestone".into();
+        let source = "format: 1\nscene: milestone\non: interaction.milestone\nwhen: interaction.milestone == 1\n---\nA: 처음이야.\n===\n";
+        lock(&state.talk).unwrap().apply(Ok(talk::validate_source(Path::new("milestone.talk"), source, &talk::context::registry()).unwrap()));
+        assert!(prepare(&state, &db, Some(&event)).unwrap().is_some());
+        assert!(current(&state, &db).unwrap());
+        widgets::storage::set_reaction(&db, &event.instance_id, false).unwrap();
+        assert!(!current(&state, &db).unwrap());
+        assert!(prepare(&state, &db, Some(&event)).unwrap().is_none());
+        widgets::storage::set_reaction(&db, &event.instance_id, true).unwrap();
+        assert!(prepare(&state, &db, Some(&event)).unwrap().is_some());
+        let mut forged = event.clone();
+        forged.id = uuid::Uuid::new_v4().to_string();
+        assert!(prepare(&state, &db, Some(&forged)).unwrap().is_none());
+        forged.event.payload["source"] = serde_json::Value::Null;
+        let source = "format: 1\nscene: milestone\non: interaction.milestone\n---\nA: 처음이야.\n===\n";
+        lock(&state.talk).unwrap().apply(Ok(talk::validate_source(Path::new("milestone.talk"), source, &talk::context::registry()).unwrap()));
+        assert!(prepare(&state, &db, Some(&forged)).unwrap().is_none());
+    }
+
+    #[test]
     fn core_weather_revision_change_cancels_even_when_condition_and_text_still_match() {
         let state = crate::app::tests::state();
         let db = lock(&state.db).unwrap();
