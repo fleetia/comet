@@ -256,19 +256,17 @@ mod music_open_tests {
     }
 
     #[test]
-    fn disabling_and_reenabling_music_cannot_revive_an_earlier_open() {
+    fn cancelling_music_jobs_cannot_revive_an_earlier_open() {
         let state = crate::app::tests::state();
         let directory = tempfile::tempdir().unwrap();
         let id = change(&state, |db| {
-            storage::install(db, directory.path(), &["music".into()])?;
-            Ok(storage::instances(db)?.remove(0).id)
+            storage::verify_packages(db, directory.path())?;
+            Ok(storage::instances(db)?.into_iter().find(|widget| widget.kind == "music").ok_or("음악 위젯이 없어요")?.id)
         })
         .unwrap();
         let pending = begin_widget_open(&state, &id).unwrap();
         change(&state, |db| {
-            storage::set_enabled(db, &id, false)?;
             cancel_widget_jobs(&state, Some(&id))?;
-            storage::set_enabled(db, &id, true)?;
             validate_open_widget(&state, &storage::get(db, &id)?, None)
         })
         .unwrap();
@@ -277,17 +275,16 @@ mod music_open_tests {
     }
 
     #[test]
-    fn removing_music_or_stopping_the_app_invalidates_pending_opens() {
+    fn cancelling_music_jobs_or_stopping_the_app_invalidates_pending_opens() {
         let state = crate::app::tests::state();
         let directory = tempfile::tempdir().unwrap();
         let id = change(&state, |db| {
-            storage::install(db, directory.path(), &["music".into()])?;
-            Ok(storage::instances(db)?.remove(0).id)
+            storage::verify_packages(db, directory.path())?;
+            Ok(storage::instances(db)?.into_iter().find(|widget| widget.kind == "music").ok_or("음악 위젯이 없어요")?.id)
         })
         .unwrap();
         let removed = begin_widget_open(&state, &id).unwrap();
         change(&state, |db| {
-            storage::remove(db, directory.path(), &id, false)?;
             cancel_widget_jobs(&state, Some(&id))
         })
         .unwrap();
@@ -779,8 +776,6 @@ mod conversation_open_tests {
             id: uuid::Uuid::new_v4().to_string(),
             kind: "ball".into(),
             version: 1,
-            installed: true,
-            enabled: true,
             revision: 3,
             data: serde_json::json!({}),
             error: None,
@@ -1255,12 +1250,7 @@ mod tests {
         let db = rusqlite::Connection::open_in_memory().unwrap();
         storage::initialize(&db).unwrap();
         let directory = tempfile::tempdir().unwrap();
-        storage::install(
-            &db,
-            directory.path(),
-            &["todo".into(), "preparation".into()],
-        )
-        .unwrap();
+        storage::verify_packages(&db, directory.path()).unwrap();
         for (kind, action, field) in [
             ("todo", "add", "items"),
             ("preparation", "create", "envelopes"),
@@ -1324,12 +1314,7 @@ mod tests {
             let db = rusqlite::Connection::open_in_memory().unwrap();
             storage::initialize(&db).unwrap();
             let directory = tempfile::tempdir().unwrap();
-            storage::install(
-                &db,
-                directory.path(),
-                &["todo".into(), "preparation".into(), "calendar".into()],
-            )
-            .unwrap();
+            storage::verify_packages(&db, directory.path()).unwrap();
             let instances = storage::instances(&db).unwrap();
             let preparation = instances
                 .iter()
@@ -1415,12 +1400,7 @@ mod tests {
         let db = rusqlite::Connection::open_in_memory().unwrap();
         storage::initialize(&db).unwrap();
         let directory = tempfile::tempdir().unwrap();
-        storage::install(
-            &db,
-            directory.path(),
-            &["todo".into(), "preparation".into(), "calendar".into()],
-        )
-        .unwrap();
+        storage::verify_packages(&db, directory.path()).unwrap();
         let instances = storage::instances(&db).unwrap();
         let preparation = instances
             .iter()
@@ -1449,7 +1429,6 @@ mod tests {
             .unwrap();
         let saved = storage::get(&db, &preparation.id).unwrap().data;
         let tasks = storage::get(&db, &todo.id).unwrap().data;
-        storage::set_enabled(&db, &preparation.id, false).unwrap();
         for events in [
             serde_json::json!([{"id":"event","title":"모임","connectionId":"local","cancelled":true}]),
             serde_json::json!([]),
@@ -1482,8 +1461,6 @@ mod tests {
             id: uuid::Uuid::new_v4().to_string(),
             kind: "ball".into(),
             version: 1,
-            installed: true,
-            enabled: true,
             revision: 3,
             data: serde_json::json!({}),
             error: None,
@@ -1492,9 +1469,6 @@ mod tests {
         assert!(validate_open_widget(&state, &instance, Some((3, 0))).is_ok());
         assert!(validate_open_widget(&state, &instance, Some((2, 0))).is_err());
         assert!(validate_open_widget(&state, &instance, Some((3, 1))).is_err());
-        let mut disabled = instance;
-        disabled.enabled = false;
-        assert!(validate_open_widget(&state, &disabled, Some((3, 0))).is_err());
     }
 
     #[test]
@@ -1503,12 +1477,12 @@ mod tests {
         let mut state = crate::app::tests::state();
         state.app_data = directory.path().into();
         let first = change(&state, |db| {
-            storage::install(db, &state.app_data, &["memo".into()])?;
-            Ok(storage::instances(db)?.remove(0))
+            storage::verify_packages(db, &state.app_data)?;
+            storage::instances(db)?.into_iter().find(|widget| widget.kind == "memo").ok_or("메모 위젯이 없어요".into())
         })
         .unwrap();
         let created = create_memo_for_open(&state, &first.id, None).unwrap();
-        let note = &created.widgets[0].instance.data["notes"][0];
+        let note = &created.widgets.iter().find(|widget| widget.instance.id == first.id).unwrap().instance.data["notes"][0];
         assert_eq!(note["isOpen"], true);
         let note_id = note["id"].clone();
         change(&state, |db| {
@@ -1532,7 +1506,7 @@ mod tests {
         assert!(create_memo_for_open(&state, &first.id, Some((first.revision, 0))).is_err());
         assert!(create_memo_for_open(&state, &first.id, Some((before.revision, 1))).is_err());
         let result = create_memo_for_open(&state, &first.id, Some((before.revision, 0))).unwrap();
-        let notes = result.widgets[0].instance.data["notes"].as_array().unwrap();
+        let notes = result.widgets.iter().find(|widget| widget.instance.id == first.id).unwrap().instance.data["notes"].as_array().unwrap();
         assert_eq!(notes.len(), 2);
         assert_eq!(notes[0], before.data["notes"][0]);
         assert_eq!(notes[1]["isOpen"], true);
@@ -1883,16 +1857,8 @@ mod play_tests {
         let state = crate::app::tests::state();
         let directory = tempfile::tempdir().unwrap();
         let db = lock(&state.db).unwrap();
-        assert_eq!(
-            prepare_play(&db, "small-match", Some("coin"), 1).unwrap(),
-            None
-        );
-        storage::install(
-            &db,
-            directory.path(),
-            &["small-match".into(), "guessing".into(), "fortune".into()],
-        )
-        .unwrap();
+
+        storage::verify_packages(&db, directory.path()).unwrap();
         let id = prepare_play(&db, "small-match", Some("coin"), 1)
             .unwrap()
             .unwrap();
@@ -1924,12 +1890,7 @@ mod play_tests {
         let state = crate::app::tests::state();
         let directory = tempfile::tempdir().unwrap();
         let db = lock(&state.db).unwrap();
-        storage::install(
-            &db,
-            directory.path(),
-            &["small-match".into(), "guessing".into(), "fortune".into()],
-        )
-        .unwrap();
+        storage::verify_packages(&db, directory.path()).unwrap();
         let before = ["messages", "affinity", "memories"].map(|table| count(&db, table));
         for (kind, mode, action, input) in [
             ("small-match", Some("dice"), "dice", serde_json::json!({})),
