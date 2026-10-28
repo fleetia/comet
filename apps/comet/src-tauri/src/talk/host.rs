@@ -633,12 +633,12 @@ mod tests {
         let db = lock(&state.db).unwrap();
         let now = chrono::Utc::now().timestamp_millis();
         let data = json!({"status":"ready","lastSuccessAt":now,"observation":{"temperature":1,"weatherCode":3,"name":"서울","observedAt":now}});
-        db.execute("INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data,error) VALUES('weather','weather',1,1,1,0,?1,NULL)", [data.to_string()]).unwrap();
+        db.execute("UPDATE widget_instances SET revision=0,data=?1 WHERE kind='weather'", [data.to_string()]).unwrap();
         let program = talk::validate_source(Path::new("core.talk"), "format: 1\nscene: weather\non: idle\nwhen: environment.weatherReady and environment.weatherTemperature != null and environment.weatherTemperature < 5\n---\nA: 기온이 낮네.\nB: 겉옷을 챙겨.\n===", &talk::context::registry()).unwrap();
         lock(&state.talk).unwrap().apply(Ok(program));
         assert!(prepare(&state, &db, None).unwrap().is_some());
         assert!(current(&state, &db).unwrap());
-        db.execute("UPDATE widget_instances SET revision=revision+1,data=json_set(data,'$.observation.temperature',2) WHERE id='weather'", []).unwrap();
+        db.execute("UPDATE widget_instances SET revision=revision+1,data=json_set(data,'$.observation.temperature',2) WHERE kind='weather'", []).unwrap();
         assert!(!current(&state, &db).unwrap());
     }
 
@@ -646,11 +646,12 @@ mod tests {
     fn unknown_weather_fallback_can_play_with_a_disabled_or_missing_connection() {
         let state = crate::app::tests::state();
         let db = lock(&state.db).unwrap();
+        db.execute("DELETE FROM widget_instances WHERE kind='weather'", []).unwrap();
         let program = talk::validate_source(Path::new("core.talk"), "format: 1\nscene: unknown\non: idle\nwhen: not environment.weatherReady\n---\nA: 지금 날씨는 몰라.\n===", &talk::context::registry()).unwrap();
         lock(&state.talk).unwrap().apply(Ok(program));
         assert!(prepare(&state, &db, None).unwrap().is_some());
         assert!(current(&state, &db).unwrap());
-        db.execute("INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data,error) VALUES('weather','weather',1,1,0,0,'{}',NULL)", []).unwrap();
+        db.execute("INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data,error) VALUES('weather','weather',1,1,1,0,?1,NULL)", [json!({"config":{"allowTalk":false}}).to_string()]).unwrap();
         assert!(prepare(&state, &db, None).unwrap().is_some());
         assert!(current(&state, &db).unwrap());
     }
