@@ -735,27 +735,38 @@ async fn execute_registered_action(
             });
         }
     };
-    let receipt = crate::widgets::commands::change(state, |db| {
-        check_current()?;
-        if let Some(receipt) = generated::actions::replay(db, &request)? {
+    let receipt = finish_registered_action(state, &request, &before, epoch, &cancel, output)?;
+    publish(app);
+    Ok(receipt)
+}
+
+fn finish_registered_action(
+    state: &AppState,
+    request: &generated::actions::ActionRequest,
+    before: &generated::GeneratedWidget,
+    epoch: Option<u64>,
+    cancel: &Arc<AtomicBool>,
+    output: generated::execution::ExecutionOutput,
+) -> Result<generated::actions::GeneratedReceipt> {
+    crate::widgets::commands::change(state, |db| {
+        check_execution_current(state, epoch, cancel)?;
+        if let Some(receipt) = generated::actions::replay(db, request)? {
             return Ok(receipt);
         }
-        if generated::get(db, &request.widget_id)? != before {
+        if !generated::get(db, &request.widget_id)?.same_execution_source(before) {
             return Err("실행 중 위젯이 변경되어 결과를 저장하지 않았어요.".into());
         }
         // Observe the old state before the transaction so only the committed transition can react.
         sync_epoch(state, db)?;
-        observe_generated_state(state, db, &before)?;
-        let receipt = generated::actions::commit(db, &request, &before, output.state, output.view)?;
+        observe_generated_state(state, db, before)?;
+        let receipt = generated::actions::commit(db, request, before, output.state, output.view)?;
         if let Ok(current) = generated::get(db, &request.widget_id) {
             if observe_generated_state(state, db, &current).is_err() {
                 crate::report_error!("widget_reaction_refresh", "Saved generated widget action; reaction refresh deferred");
             }
         }
         Ok(receipt)
-    })?;
-    publish(app);
-    Ok(receipt)
+    })
 }
 
 #[derive(Serialize)]
@@ -1634,6 +1645,77 @@ mod tests {
             automatic: false,
         };
         (widget, request)
+    }
+
+    #[test]
+    fn completed_action_survives_reaction_change_at_the_caller_boundary() {
+        let state = app::tests::state();
+        let (before, request) = ready_action_fixture(&state);
+        let cancel = Arc::new(AtomicBool::new(false));
+        storage::set_reaction(&lock(&state.db).unwrap(), &before.id, false).unwrap();
+        let receipt = finish_registered_action(
+            &state,
+            &request,
+            &before,
+            Some(state.epoch.load(Ordering::SeqCst)),
+            &cancel,
+            generated::execution::ExecutionOutput {
+                state: json!({"n":1}),
+                view: json!([]),
+            },
+        ).unwrap();
+        let db = lock(&state.db).unwrap();
+        let current = generated::get(&db, &before.id).unwrap();
+        assert_eq!(current.state, json!({"n":1}));
+        assert_eq!(current.revision, before.revision + 1);
+        assert!(!current.reaction);
+        assert_eq!(generated::actions::replay(&db, &request).unwrap().unwrap().id, receipt.id);
+    }
+
+    #[test]
+    fn completed_action_rejects_cancelled_or_changed_work_at_the_caller_boundary() {
+        for mutation in ["cancel", "epoch", "user", "state", "definition", "retired"] {
+            let state = app::tests::state();
+            let (before, request) = ready_action_fixture(&state);
+            let epoch = state.epoch.load(Ordering::SeqCst);
+            let cancel = Arc::new(AtomicBool::new(false));
+            {
+                let db = lock(&state.db).unwrap();
+                match mutation {
+                    "cancel" => cancel.store(true, Ordering::SeqCst),
+                    "epoch" => { state.epoch.fetch_add(1, Ordering::SeqCst); }
+                    "user" => {
+                        db.execute("INSERT INTO kv VALUES('active_user_id','someone-else') ON CONFLICT(key) DO UPDATE SET value=excluded.value", []).unwrap();
+                    }
+                    "state" => { generated::save_state(&db, &before.id, before.revision, json!({"n":7})).unwrap(); }
+                    "definition" => {
+                        generated::replace(&db, &before.id, before.revision, generated::Definition {
+                            source: "function render(){return []} function reduce(s){return s}".into(),
+                            ..before.definition.clone()
+                        }).unwrap();
+                    }
+                    "retired" => { generated::retire(&db, &before.id, before.revision).unwrap(); }
+                    _ => unreachable!(),
+                }
+            }
+            let current = generated::get(&lock(&state.db).unwrap(), &before.id).unwrap();
+            assert!(finish_registered_action(
+                &state,
+                &request,
+                &before,
+                Some(epoch),
+                &cancel,
+                generated::execution::ExecutionOutput { state: json!({"n":1}), view: json!([]) },
+            ).is_err(), "{mutation}");
+            let db = lock(&state.db).unwrap();
+            assert_eq!(generated::get(&db, &before.id).unwrap(), current, "{mutation}");
+            let receipts: i64 = db.query_row(
+                "SELECT COUNT(*) FROM generated_action_receipts WHERE id=?1",
+                [&request.request_id],
+                |row| row.get(0),
+            ).unwrap();
+            assert_eq!(receipts, 0, "{mutation}");
+        }
     }
 
     #[test]
