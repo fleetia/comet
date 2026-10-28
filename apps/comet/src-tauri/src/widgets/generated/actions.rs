@@ -436,7 +436,7 @@ pub fn commit(
     let current = get(&tx, &request.widget_id)?;
     let action = definition(&current, &request.action_id)?;
     validate_input(action, &request.input)?;
-    if current.revision != request.expected_revision || current != *before {
+    if current.revision != request.expected_revision || !current.same_execution_source(before) {
         return Err("실행 중 위젯이 변경되어 결과를 저장하지 않았어요.".into());
     }
     if action.operation == "read" && state != current.state {
@@ -566,6 +566,7 @@ mod tests {
         let db = Connection::open_in_memory().unwrap();
         db.execute_batch("CREATE TABLE kv(key TEXT PRIMARY KEY,value TEXT NOT NULL)")
             .unwrap();
+        crate::widgets::storage::initialize(&db).unwrap();
         super::super::initialize(&db).unwrap();
         db
     }
@@ -632,8 +633,31 @@ mod tests {
         assert_eq!(tools[0]["id"], format!("generated:{}:add", widget.id));
         assert_eq!(tools[0]["automatic"], true);
         assert!(context(&db, &widget.id).unwrap().get("source").is_none());
-        super::super::set_enabled(&db, &widget.id, widget.revision, false).unwrap();
+        crate::widgets::storage::set_reaction(&db, &widget.id, false).unwrap();
+        assert_eq!(catalog(&db).unwrap().len(), 1);
+        assert_eq!(get(&db, &widget.id).unwrap().revision, widget.revision);
+        super::super::retire(&db, &widget.id, widget.revision).unwrap();
         assert!(catalog(&db).unwrap().is_empty());
+    }
+
+    #[test]
+    fn changing_reaction_does_not_cancel_an_in_flight_action() {
+        let db = database();
+        let widget = ready(&db, "create");
+        let request = request(&widget);
+        crate::widgets::storage::set_reaction(&db, &widget.id, false).unwrap();
+        let receipt = commit(
+            &db,
+            &request,
+            &widget,
+            added(),
+            json!([{"type":"text","value":"저장됨"}]),
+        ).unwrap();
+        let updated = get(&db, &widget.id).unwrap();
+        assert!(!updated.reaction);
+        assert_eq!(updated.state, added());
+        assert_eq!(updated.revision, widget.revision + 1);
+        assert_eq!(visible_result(&db, "legacy-user", &receipt.id).unwrap(), Some(receipt.result));
     }
 
     #[test]
@@ -786,7 +810,7 @@ mod tests {
     #[test]
     fn saved_results_are_visible_only_while_their_source_and_user_remain_current() {
         for change in [
-            "disabled",
+            "reaction-off",
             "retired",
             "edited",
             "definition",
@@ -813,8 +837,8 @@ mod tests {
                 .is_none());
             let current = get(&db, &widget.id).unwrap();
             match change {
-                "disabled" => {
-                    super::super::set_enabled(&db, &widget.id, current.revision, false).unwrap();
+                "reaction-off" => {
+                    crate::widgets::storage::set_reaction(&db, &widget.id, false).unwrap();
                 }
                 "retired" => {
                     super::super::retire(&db, &widget.id, current.revision).unwrap();
@@ -845,6 +869,8 @@ mod tests {
             let visible = visible_result(&db, "legacy-user", &saved.id);
             if change == "user" {
                 assert!(visible.is_err());
+            } else if change == "reaction-off" {
+                assert!(visible.unwrap().is_some());
             } else {
                 assert!(visible.unwrap().is_none(), "{change}");
             }
