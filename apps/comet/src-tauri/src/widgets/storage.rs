@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS desktop_toy_results(id TEXT PRIMARY KEY,widget_id TEX
     )
     .map_err(err)?;
     retire_removed_widgets(db)?;
+    super::backgrounds::initialize(db)
+}
+
+pub(crate) fn seed_external_notice(db: &Connection) -> Result<()> {
     if !instances(db)?
         .iter()
         .any(|instance| instance.kind == "external-notice")
@@ -43,7 +47,7 @@ CREATE TABLE IF NOT EXISTS desktop_toy_results(id TEXT PRIMARY KEY,widget_id TEX
             },
         )?;
     }
-    super::backgrounds::initialize(db)
+    Ok(())
 }
 
 fn retire_removed_widgets(db: &Connection) -> Result<()> {

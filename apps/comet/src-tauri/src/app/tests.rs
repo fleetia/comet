@@ -2175,6 +2175,22 @@ fn timed_pause_expires_once_and_never_overrides_a_newer_pause() {
 }
 
 #[test]
+fn external_notice_is_seeded_once_when_session_opens() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("session.sqlite");
+    let db = open_session(&path).unwrap();
+    let first = widgets::storage::instances(&db).unwrap();
+    let first = first.iter().find(|item| item.kind == "external-notice").unwrap();
+    let id = first.id.clone();
+    drop(db);
+    let reopened = open_session(&path).unwrap();
+    let notices: Vec<_> = widgets::storage::instances(&reopened).unwrap()
+        .into_iter().filter(|item| item.kind == "external-notice").collect();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].id, id);
+}
+
+#[test]
 fn restart_discards_prepared_scenes_but_keeps_saved_conversations_and_wordbook() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("session.sqlite");

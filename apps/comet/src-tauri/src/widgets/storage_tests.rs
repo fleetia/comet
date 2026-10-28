@@ -9,6 +9,12 @@ fn database() -> Connection {
     db
 }
 
+#[test]
+fn storage_initialization_does_not_install_widgets() {
+    let db = database();
+    assert!(storage::instances(&db).unwrap().is_empty());
+}
+
 fn install(db: &Connection, path: &Path, kinds: &[&str]) {
     storage::install(
         db,

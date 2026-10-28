@@ -112,6 +112,7 @@ pub(crate) fn lock<T>(value: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>, 
 
 pub(crate) fn open_session(path: &std::path::Path) -> Result<Connection, String> {
     let db = store::open(path)?;
+    widgets::storage::seed_external_notice(&db)?;
     story::initialize(&db)?;
     if let Some(directory) = path.parent() {
         widgets::storage::verify_packages(&db, directory)?;
