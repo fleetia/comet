@@ -338,12 +338,14 @@ export type WeatherWidgetProps = HTMLAttributes<HTMLDivElement> &
     temperature: string;
     condition: string;
     location: string;
+    tomorrow?: string;
     opaque?: boolean;
   };
 export function WeatherWidget({
   temperature,
   condition,
   location,
+  tomorrow,
   ...props
 }: WeatherWidgetProps): JSX.Element {
   return (
@@ -354,6 +356,7 @@ export function WeatherWidget({
         <span className={styles.weatherCondition}>
           <strong>{condition}</strong>
           <span className={styles.weatherLocation}>{location}</span>
+          {tomorrow && <span className={styles.weatherLocation}>{tomorrow}</span>}
         </span>
       </div>
     </FreeformSkin>
