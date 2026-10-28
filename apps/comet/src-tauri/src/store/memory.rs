@@ -337,7 +337,7 @@ pub fn insert_moment(
                 params![user_id, source, event, summary, at, widget_kind, widget_id],
             ).map_err(err)?;
             conn.execute(
-                "INSERT INTO moment_event_keepers(user_id,source,character_id,memory_id) VALUES(?1,?2,?3,?4)",
+                "INSERT INTO moment_event_keepers(user_id,source,character_id,memory_id,content_version) SELECT ?1,?2,?3,id,content_version FROM memories WHERE id=?4",
                 params![user_id, source, character_id, memory_id],
             ).map_err(err)?;
         }

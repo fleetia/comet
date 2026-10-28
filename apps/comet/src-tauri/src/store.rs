@@ -97,7 +97,7 @@ INSERT OR IGNORE INTO kv VALUES('revision','0');").map_err(err)?;
         PRIMARY KEY(user_id, source)
     );
     CREATE TEMP TABLE moment_event_keepers(
-        user_id TEXT NOT NULL, source TEXT NOT NULL, character_id TEXT NOT NULL, memory_id TEXT NOT NULL,
+        user_id TEXT NOT NULL, source TEXT NOT NULL, character_id TEXT NOT NULL, memory_id TEXT NOT NULL, content_version INTEGER NOT NULL,
         PRIMARY KEY(user_id, source, character_id),
         FOREIGN KEY(user_id, source) REFERENCES moment_events(user_id, source) ON DELETE CASCADE
     );").map_err(err)?;

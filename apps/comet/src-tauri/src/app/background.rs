@@ -233,9 +233,9 @@ fn take_moment_reaction(state: &AppState, db: &Connection, at: i64) -> Result<Op
         [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
     ).optional().map_err(|error| error.to_string())?;
     let Some((user_id, source, kind, summary, created_at, widget_kind, widget_id)) = row else { return Ok(None) };
-    let mut query = db.prepare("SELECT memory_id FROM moment_event_keepers WHERE user_id=?1 AND source=?2")
+    let mut query = db.prepare("SELECT memory_id,content_version FROM moment_event_keepers WHERE user_id=?1 AND source=?2")
         .map_err(|error| error.to_string())?;
-    let keepers = query.query_map(rusqlite::params![user_id, source], |row| row.get::<_, String>(0))
+    let keepers = query.query_map(rusqlite::params![user_id, source], |row| Ok(serde_json::json!({"id":row.get::<_, String>(0)?,"version":row.get::<_, i64>(1)?})))
         .map_err(|error| error.to_string())?.collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|error| error.to_string())?;
     drop(query);
@@ -257,7 +257,7 @@ fn take_moment_reaction(state: &AppState, db: &Connection, at: i64) -> Result<Op
         id: uuid::Uuid::new_v4().to_string(), instance_id, widget_kind: "moment".into(), revision: 0,
         created_at, expires_at: created_at.saturating_add(60_000),
         event: widgets::EventDraft { kind: "moment.added".into(), text: String::new(),
-            payload: serde_json::json!({"userId":user_id,"momentSource":source,"event":kind,"summary":summary,"memoryIds":keepers,"widgetKind":widget_kind}) },
+            payload: serde_json::json!({"userId":user_id,"momentSource":source,"event":kind,"summary":summary,"memoryRefs":keepers,"widgetKind":widget_kind}) },
     }))
 }
 
@@ -916,7 +916,7 @@ mod moment_event_tests {
         assert_eq!(event.event.kind, "moment.added");
         assert_eq!(event.event.payload["event"], "bloom");
         assert_eq!(event.event.payload["summary"], "꽃이 핀 날");
-        assert_eq!(event.event.payload["memoryIds"].as_array().unwrap().len(), actors.len());
+        assert_eq!(event.event.payload["memoryRefs"].as_array().unwrap().len(), actors.len());
         assert!(take_moment_reaction(&state, &db, at).unwrap().is_none());
         assert_eq!(db.query_row("SELECT COUNT(*) FROM moment_event_keepers", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
 

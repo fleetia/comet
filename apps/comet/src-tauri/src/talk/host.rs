@@ -155,7 +155,7 @@ fn moment_event_current(
     let Some(user_id) = event.event.payload["userId"].as_str() else { return Ok(false) };
     let Some(source) = event.event.payload["momentSource"].as_str() else { return Ok(false) };
     let Some(summary) = event.event.payload["summary"].as_str() else { return Ok(false) };
-    let Some(memory_ids) = event.event.payload["memoryIds"].as_array() else { return Ok(false) };
+    let Some(memory_refs) = event.event.payload["memoryRefs"].as_array() else { return Ok(false) };
     if let Some(kind) = event.event.payload["widgetKind"].as_str() {
         if !widgets::storage::instances(db)?.iter().any(|widget| widget.id == event.instance_id && widget.kind == kind)
             || !widgets::storage::reaction_enabled(db, &event.instance_id)?
@@ -174,8 +174,8 @@ fn moment_event_current(
     let mut found = false;
     for character in speakers {
         let exists: bool = db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM memories WHERE user_id=?1 AND character_id=?2 AND source=?3 AND content=?4 AND id IN (SELECT value FROM json_each(?5)) AND kind='experience' AND deleted=0 AND expired=0 AND required_chapter IS NULL)",
-            rusqlite::params![user_id, character, source, summary, serde_json::to_string(memory_ids).map_err(|error| error.to_string())?], |row| row.get(0),
+            "SELECT EXISTS(SELECT 1 FROM memories m WHERE user_id=?1 AND character_id=?2 AND source=?3 AND content=?4 AND EXISTS(SELECT 1 FROM json_each(?5) r WHERE json_extract(r.value,'$.id')=m.id AND json_extract(r.value,'$.version')=m.content_version) AND kind='experience' AND deleted=0 AND expired=0 AND required_chapter IS NULL)",
+            rusqlite::params![user_id, character, source, summary, serde_json::to_string(memory_refs).map_err(|error| error.to_string())?], |row| row.get(0),
         ).map_err(|error| error.to_string())?;
         let eligible = exists && visible.contains(&character);
         if !lines.is_empty() && !eligible { return Ok(false); }
@@ -1005,11 +1005,11 @@ mod tests {
         assert!(crate::store::insert_moment(&db, &characters[0], &user.id, "bloom", "꽃이 핀 날", now, None, json!({}), None, None).unwrap());
         let (memory_id, source): (String, String) = db.query_row("SELECT id,source FROM memories WHERE source LIKE 'moment:bloom:%'", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
         let plant = widgets::storage::instances(&db).unwrap().into_iter().find(|widget| widget.kind == "plant").unwrap();
-        let event = widgets::WidgetEvent {
+        let mut event = widgets::WidgetEvent {
             id: "event".into(), instance_id: plant.id.clone(), widget_kind: "moment".into(), revision: 0,
             created_at: now, expires_at: now + 60_000,
             event: widgets::EventDraft { kind: "moment.added".into(), text: String::new(),
-                payload: json!({"userId":user.id,"momentSource":source,"event":"bloom","summary":"꽃이 핀 날","memoryIds":[memory_id],"widgetKind":"plant"}) },
+                payload: json!({"userId":user.id,"momentSource":source,"event":"bloom","summary":"꽃이 핀 날","memoryRefs":[{"id":memory_id,"version":1}],"widgetKind":"plant"}) },
         };
         let program = talk::validate_source(Path::new("moment.talk"),
             "format: 1\nscene: other\non: moment.added\n---\nB: 내 추억이야.\n===\nscene: owner\non: moment.added\nwhen: event.event == \"bloom\"\n---\nA: ${event.summary}\n===\n",
@@ -1025,6 +1025,15 @@ mod tests {
         db.execute("UPDATE memories SET content='수정됨' WHERE id=?1", [&memory_id]).unwrap();
         assert!(!current(&state, &db).unwrap());
         db.execute("UPDATE memories SET content='꽃이 핀 날' WHERE id=?1", [&memory_id]).unwrap();
+        assert!(!current(&state, &db).unwrap());
+        let version: i64 = db.query_row("SELECT content_version FROM memories WHERE id=?1", [&memory_id], |row| row.get(0)).unwrap();
+        event.event.payload["memoryRefs"][0]["version"] = json!(version);
+        assert!(prepare(&state, &db, Some(&event)).unwrap().is_some());
+        assert!(current(&state, &db).unwrap());
+        db.execute("UPDATE kv SET value=?1 WHERE key='active_user_id'", [serde_json::to_string("other-user").unwrap()]).unwrap();
+        assert!(!current(&state, &db).unwrap());
+        db.execute("UPDATE kv SET value=?1 WHERE key='active_user_id'", [serde_json::to_string(&user.id).unwrap()]).unwrap();
+        assert!(current(&state, &db).unwrap());
         lock(&state.presence).unwrap().leave_for_tests(&characters[0]);
         assert!(!current(&state, &db).unwrap());
     }
