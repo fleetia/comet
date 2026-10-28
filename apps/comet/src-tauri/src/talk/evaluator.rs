@@ -271,6 +271,7 @@ fn render(
                     *speaker
                 };
                 lines.push(SceneLine {
+                    widget: None,
                     motion: motion.clone(),
                     persona: crate::characters::SLOTS
                         .get(mapped)

@@ -301,6 +301,12 @@ export type Playback = SceneLine & {
     | "npc"
     | "scenario";
   endsAt: number;
+  link?: {
+    instanceId: string;
+    kind: string;
+    label: string;
+    item?: { entity: string; id: string } | null;
+  } | null;
   textSpeed?: number;
   displayStartedAt?: number | null;
   lineIndex: number;

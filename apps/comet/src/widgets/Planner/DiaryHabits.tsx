@@ -55,6 +55,7 @@ function blankHabit(): DiaryHabit {
 
 export function DiaryHabits({
   state,
+  requestedHabit,
   date,
   onDateChange,
   onAction,
@@ -62,6 +63,7 @@ export function DiaryHabits({
   onDirtyChange,
 }: {
   state: DiaryState;
+  requestedHabit?: { id: string; version: number } | null;
   date: string;
   onDateChange?: (date: string) => void;
   onAction: DiaryAction;
@@ -99,6 +101,13 @@ export function DiaryHabits({
   }, [draft, confirmDelete, saving]);
   useEffect(() => () => report.current?.(false), []);
   useEffect(() => setRecordDate(date), [date]);
+  useEffect(() => {
+    if (!requestedHabit) return;
+    const habit = habits.find((value) => value.id === requestedHabit.id);
+    if (!habit) return;
+    setShowArchived(habit.archived);
+    setSelectedId(habit.id);
+  }, [requestedHabit]);
 
   function checkFor(habit: DiaryHabit, day: string): DiaryHabitCheck | undefined {
     return checks.find((check) => check.habitId === habit.id && check.date === day);

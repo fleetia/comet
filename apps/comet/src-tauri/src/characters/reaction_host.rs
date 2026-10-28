@@ -1128,6 +1128,7 @@ fn prepare_reaction(
                     persona: character_id.into(),
                     expression,
                     text: selection.variant.text.unwrap_or_default(),
+                    widget: None,
                     motion: MotionOverride::Inherit,
                 },
                 token,

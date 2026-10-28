@@ -444,7 +444,7 @@ pub(crate) async fn run_background(
         if question { "question:" } else { "" },
         uuid::Uuid::new_v4()
     );
-    let prompt = {
+    let mut prompt = {
         let db = lock(&state.db)?;
         if !is_current(state, epoch, &cancel) || store::revision(&db)? != revision {
             return Ok(());
@@ -468,21 +468,28 @@ pub(crate) async fn run_background(
     };
     let expressions =
         domain::generated_expressions(characters.iter().map(|member| &member.definition));
+    let mut schema = domain::scene_schema_for(
+        &targets,
+        if targets.len() == 1 { 1 } else { 2 },
+        if targets.len() == 1 { 1 } else { 4 },
+        &expressions,
+    );
+    let widget_kinds = domain::configure_widget_replies(
+        &*lock(&state.db)?,
+        &mut prompt,
+        &mut schema,
+        settings.mode == "apple",
+    )?;
     let result = background_generate(
         state,
         &settings,
         &prompt,
-        domain::scene_schema_for(
-            &targets,
-            if targets.len() == 1 { 1 } else { 2 },
-            if targets.len() == 1 { 1 } else { 4 },
-            &expressions,
-        ),
+        schema,
         512,
         cancel.clone(),
     )
     .await?;
-    let lines = domain::parse_lines_for(
+    let mut lines = domain::parse_lines_for(
         result,
         &targets,
         if targets.len() == 1 { 1 } else { 2 },
@@ -490,6 +497,7 @@ pub(crate) async fn run_background(
         false,
     )?;
     domain::validate_generated_expressions(&lines, &expressions)?;
+    domain::validate_generated_widgets(&mut lines, &widget_kinds);
     let _action = lock(&state.action)?;
     let db = lock(&state.db)?;
     if !is_current(state, epoch, &cancel)

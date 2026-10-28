@@ -4,7 +4,7 @@ import type { Playback } from "../../types";
 import * as s from "../companion.css";
 import { responseOrigin } from "./conversationStatus";
 
-/** A spoken line outside a panel; clicking it opens a reply to that exact line. */
+/** A spoken line outside a panel; clicking it opens its widget or a reply. */
 export function IdleSpeech({
   name,
   textStyle,
@@ -13,6 +13,7 @@ export function IdleSpeech({
   responding,
   speech,
   onReply,
+  onOpenLink,
 }: {
   name: string;
   textStyle: CSSProperties;
@@ -21,6 +22,7 @@ export function IdleSpeech({
   responding: boolean;
   speech: ReactNode;
   onReply: (playbackId: string) => void;
+  onOpenLink: (playbackId: string) => void;
 }): JSX.Element {
   return (
     <>
@@ -34,9 +36,15 @@ export function IdleSpeech({
         {playback ? (
           <button
             className={s.replySpeech}
-            aria-label={`${name}에게 답장: ${fullText}`}
-            title="클릭해서 답장"
-            onClick={() => onReply(playback.id)}
+            aria-label={
+              playback.link
+                ? `${playback.link.label} 열기: ${fullText}`
+                : `${name}에게 답장: ${fullText}`
+            }
+            title={playback.link ? undefined : "클릭해서 답장"}
+            onClick={() =>
+              playback.link ? onOpenLink(playback.id) : onReply(playback.id)
+            }
           >
             {speech}
           </button>
