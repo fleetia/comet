@@ -75,6 +75,9 @@ it("has no save buttons and saves timer-owned settings immediately without chang
       {
         restDurationMs: 600000,
         autoStartRest: true,
+        continuous: false,
+        longRestDurationMs: 900000,
+        longRestEvery: 4,
         finishNotification: "both",
         finishSoundEnabled: true,
         linkedEventLeadMinutes: 17,

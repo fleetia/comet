@@ -947,6 +947,7 @@ export function TimerTool({
             {tab === "stats" && (
               <div className={s.tabPanel}>
                 <FocusTimerStats
+                  hideTabs
                   sessions={sessions}
                   day={localDay(new Date(now))}
                   selectedId={selectedSession}
@@ -974,6 +975,7 @@ export function TimerTool({
             {tab === "notes" && (
               <div className={s.tabPanel}>
                 <FocusTimerNotes
+                  hideTabs
                   active={active}
                   widgets={widgets}
                   noteRef={draft.noteRef}

@@ -876,6 +876,9 @@ pub(super) fn act(
             // A cancelled focus stays out of the records; only one that already reached its deadline counts.
             if completed {
                 save_session(&mut state, now, "completed");
+                if state.mode == "focus" {
+                    state.cycle = state.cycle.saturating_add(1);
+                }
             } else {
                 state.active_session = None;
             }
