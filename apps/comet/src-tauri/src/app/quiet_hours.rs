@@ -204,6 +204,8 @@ mod tests {
             persona: "a".into(),
             expression: "평온".into(),
             text: "조용히 기다려요.".into(),
+            widget: None,
+            widget: None,
             motion: Default::default(),
         }
     }

@@ -159,6 +159,7 @@ fn advance_notice(state: &AppState, updates: &UpdateState, now: i64) -> Result<b
         text: "새로운 업데이트가 있어요!".into(),
         motion: Default::default(),
         source: "update".into(),
+        link: None,
         text_speed: 0,
         display_started_at: None,
         ends_at: 0,

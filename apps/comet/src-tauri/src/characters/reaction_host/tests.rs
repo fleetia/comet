@@ -310,6 +310,7 @@ fn playback(source: &str, id: &str) -> Playback {
         text: "읽던 대화".into(),
         motion: MotionOverride::Inherit,
         source: source.into(),
+        link: None,
         text_speed: 0,
         display_started_at: Some(1),
         ends_at: i64::MAX,
@@ -719,6 +720,7 @@ fn completed_widget_scene_allows_click_speech_while_active_widget_remains_protec
         persona: id.clone(),
         expression: "평온".into(),
         text: "타이머가 끝났어.".into(),
+        widget: None,
         motion: MotionOverride::Inherit,
     };
     assert!(scene::present_line(

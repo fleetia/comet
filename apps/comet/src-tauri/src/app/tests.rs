@@ -90,6 +90,7 @@ fn test_lines() -> Vec<SceneLine> {
         .into_iter()
         .enumerate()
         .map(|(index, persona)| SceneLine {
+            widget: None,
             motion: Default::default(),
             persona: persona.into(),
             expression: "평온".into(),
@@ -459,6 +460,7 @@ fn widget_lines_stop_after_source_change_or_user_cancellation() {
             token
         };
         let line = SceneLine {
+            widget: None,
             motion: Default::default(),
             persona: "a".into(),
             expression: "normal".into(),
@@ -546,6 +548,7 @@ fn inactive_character_installs_preserve_playback_but_active_definition_edits_can
         )
     };
     let line = SceneLine {
+        widget: None,
         motion: Default::default(),
         persona: "a".into(),
         expression: "평온".into(),
@@ -637,6 +640,7 @@ fn inactive_relationship_target_rename_and_removal_cancel_stale_character_contex
         let (epoch, cancel) = interrupt(&state, false).unwrap();
         let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
         let line = SceneLine {
+            widget: None,
             motion: Default::default(),
             persona: "a".into(),
             expression: "평온".into(),
@@ -723,6 +727,7 @@ fn character_change_cancels_old_playback_and_retry_preserving_the_transcript() {
     };
     let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
     let line = SceneLine {
+        widget: None,
         motion: Default::default(),
         persona: "a".into(),
         expression: "평온".into(),
@@ -801,6 +806,7 @@ fn pack_switch_cancels_stale_playback_and_restores_the_same_characters_and_perso
     };
     let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
     let line = SceneLine {
+        widget: None,
         motion: Default::default(),
         persona: "a".into(),
         expression: "평온".into(),
@@ -892,6 +898,7 @@ fn authored_idle_wordbook_overrides_the_character_pair_fallback() {
     let state = state();
     let db = lock(&state.db).unwrap();
     let lines = vec![SceneLine {
+        widget: None,
         motion: Default::default(),
         persona: "b".into(),
         expression: "장난".into(),
@@ -960,6 +967,7 @@ fn shared_character_pack_uses_authored_keyword_order_after_personal_entries() {
         title: "테스트 별사탕".into(),
         keywords: vec!["별사탕".into()],
         lines: vec![SceneLine {
+            widget: None,
             motion: Default::default(),
             persona: "a".into(),
             expression: "평온".into(),
@@ -994,6 +1002,7 @@ fn shared_character_pack_uses_authored_keyword_order_after_personal_entries() {
         title: "개인 대사".into(),
         keywords: vec!["별".into()],
         lines: vec![SceneLine {
+            widget: None,
             motion: Default::default(),
             persona: "b".into(),
             expression: "장난".into(),
@@ -1031,12 +1040,14 @@ fn keyword_route_works_without_a_model_and_preserves_authored_lines() {
         keywords: vec!["수박".into()],
         lines: vec![
             SceneLine {
+                widget: None,
                 motion: Default::default(),
                 persona: "b".into(),
                 expression: "장난".into(),
                 text: "  그대로\n\n말할게.  ".into(),
             },
             SceneLine {
+                widget: None,
                 motion: Default::default(),
                 persona: "b".into(),
                 expression: "평온".into(),
@@ -1136,6 +1147,7 @@ fn explicit_ai_input_bypasses_personal_and_character_keywords_without_changing_d
             title: "합성 키워드".into(),
             keywords: vec!["lighthouse".into()],
             lines: vec![SceneLine {
+                widget: None,
                 motion: Default::default(),
                 persona: "a".into(),
                 expression: "평온".into(),
@@ -1234,6 +1246,7 @@ fn single_recipient_keyword_routes_filter_whole_scenes_before_matching() {
             lines: lines
                 .iter()
                 .map(|(persona, text)| SceneLine {
+                    widget: None,
                     motion: Default::default(),
                     persona: (*persona).into(),
                     expression: "평온".into(),
@@ -1377,6 +1390,7 @@ fn unavailable_wordbook_winner_is_reported_before_shorter_or_later_matches() {
         title: "짧은 항목".into(),
         keywords: vec!["테스트".into()],
         lines: vec![SceneLine {
+            widget: None,
             motion: Default::default(),
             persona: "a".into(),
             expression: "평온".into(),
@@ -1456,6 +1470,7 @@ fn presenting_a_line_captures_its_characters_text_speed_and_complete_original() 
     let token = interrupt(&state, false).unwrap();
     let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
     let line = SceneLine {
+        widget: None,
         motion: Default::default(),
         persona: "a".into(),
         expression: "평온".into(),
@@ -1779,6 +1794,7 @@ fn starting_and_resuming_focus_cancel_existing_speech_without_erasing_the_conver
         persona: persona.clone(),
         expression: "평온".into(),
         text: "집중 전에 읽던 대사".into(),
+        widget: None,
         motion: Default::default(),
     };
     for action in ["start", "resume"] {
@@ -1878,6 +1894,7 @@ fn focus_rejects_keyword_input_and_fresh_playback_before_saving_any_content() {
         persona: "a".into(),
         expression: "평온".into(),
         text: "  등록한 원문\n그대로  ".into(),
+        widget: None,
         motion: Default::default(),
     };
     wordbook::save(
@@ -2263,6 +2280,7 @@ fn model_change_preserves_history_and_invalidates_previous_work() {
                 id: "previous-model-scene".into(),
                 revision: store::revision(&db).unwrap(),
                 lines: vec![SceneLine {
+                    widget: None,
                     motion: Default::default(),
                     persona: "a".into(),
                     expression: "평온".into(),
@@ -3519,6 +3537,7 @@ mod retry_display_tests {
             persona: "builtin-a".into(),
             text: "  저장된 답변\n공백 보존  ".into(),
             expression: "평온".into(),
+            widget: None,
             motion: crate::characters::reactions::MotionOverride::Static,
         };
         let reply = Message {
@@ -3552,6 +3571,7 @@ mod retry_display_tests {
         save_reply_scene(&db, &input.id, &lines).unwrap();
         let changed = SceneLine {
             text: "바꾼 본문".into(),
+            widget: None,
             motion: Default::default(),
             ..line.clone()
         };

@@ -54,6 +54,8 @@ fn scene(persona: &str) -> SceneLine {
         persona: persona.into(),
         expression: "평온".into(),
         text: "  원문\n그대로  ".into(),
+        widget: None,
+        widget: None,
         motion: motion(false),
     }
 }

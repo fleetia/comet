@@ -319,6 +319,8 @@ pub struct SceneLine {
     pub persona: String,
     pub expression: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub widget: Option<String>,
     #[serde(
         default,
         skip_serializing_if = "crate::characters::reactions::MotionOverride::is_inherit"
@@ -361,6 +363,8 @@ pub struct Playback {
     )]
     pub motion: crate::characters::reactions::MotionOverride,
     pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<PlaybackLink>,
     #[serde(default)]
     pub text_speed: u32,
     #[serde(default)]
@@ -368,6 +372,23 @@ pub struct Playback {
     pub ends_at: i64,
     pub line_index: usize,
     pub line_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybackLink {
+    pub instance_id: String,
+    pub kind: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item: Option<PlaybackLinkItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybackLinkItem {
+    pub entity: String,
+    pub id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

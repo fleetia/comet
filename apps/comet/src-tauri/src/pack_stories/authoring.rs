@@ -326,6 +326,7 @@ fn entry_lines(actor: &AuthoringActor) -> Vec<SceneLine> {
             persona: actor.id.clone(),
             expression: line.expression.clone(),
             text: line.text.clone(),
+            widget: None,
             motion: line.motion.clone(),
         })
         .collect()
@@ -756,6 +757,7 @@ pub(crate) fn authoring_trial(request: AuthoringTrialRequest) -> Result<Authorin
                                         persona: actor.id.clone(),
                                         expression: line.expression.clone(),
                                         text: line.text.clone(),
+                                        widget: None,
                                         motion: line.motion.clone(),
                                     }));
                                 }

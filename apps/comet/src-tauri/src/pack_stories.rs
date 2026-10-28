@@ -106,6 +106,7 @@ fn strict_lines<'de, D: serde::Deserializer<'de>>(
             persona: line.persona,
             expression: line.expression,
             text: line.text,
+            widget: None,
             motion: line.motion,
         })
         .collect())
@@ -670,6 +671,7 @@ fn make_plan(
                     persona: id.clone(),
                     expression: line.expression.clone(),
                     text: line.text.clone(),
+                    widget: None,
                     motion: line.motion.clone(),
                 })
                 .collect(),
@@ -693,6 +695,7 @@ fn make_plan(
                     persona: id.clone(),
                     expression: line.expression.clone(),
                     text: line.text.clone(),
+                    widget: None,
                     motion: line.motion.clone(),
                 }));
             }

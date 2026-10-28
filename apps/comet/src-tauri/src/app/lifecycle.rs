@@ -660,6 +660,7 @@ pub fn run() {
             widgets::commands::open_widgets,
             widgets::commands::close_widgets,
             widgets::commands::open_widget,
+            widgets::commands::open_playback_link,
             widgets::commands::close_widget,
             crate::widgets::desktop::get_widget_desktop,
             crate::widgets::desktop::configure_widget_desktop,

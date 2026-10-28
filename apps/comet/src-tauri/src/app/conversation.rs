@@ -1578,7 +1578,7 @@ pub(crate) async fn generate_turn_with_memories(
     cancel: Arc<AtomicBool>,
     memories: &[store::MemorySearchHit],
 ) -> Result<(Vec<SceneLine>, i64), String> {
-    let (settings, prompt, revision, bundle, ticket, expressions, names, earlier) = {
+    let (settings, mut prompt, revision, bundle, ticket, expressions, names, earlier) = {
         let _action = lock(&state.action)?;
         if cancel.load(Ordering::SeqCst) {
             return Err("이전 생성 요청은 취소됐어요.".into());
@@ -1607,6 +1607,7 @@ pub(crate) async fn generate_turn_with_memories(
                     persona: target.clone(),
                     expression: expression.into(),
                     text,
+                    widget: None,
                     motion: Default::default(),
                 };
                 return Ok((vec![line], store::revision(&db)?));
@@ -1708,13 +1709,19 @@ pub(crate) async fn generate_turn_with_memories(
     let paired = targets.len() == 2;
     // Only a small model's single reply has earlier lines to compare.
     let small = !earlier.is_empty();
-    let schema = if bundle || paired {
+    let mut schema = if bundle || paired {
         domain::scene_schema_for(targets, targets.len(), targets.len(), &expressions)
     } else if small {
         domain::small_reply_schema_for(targets, &expressions)
     } else {
         domain::reply_schema_for(targets, &expressions)
     };
+    let widget_kinds = domain::configure_widget_replies(
+        &*lock(&state.db)?,
+        &mut prompt,
+        &mut schema,
+        settings.mode == "apple",
+    )?;
     let mut value = inference::generate(
         &state.inference,
         &settings,
@@ -1782,6 +1789,7 @@ pub(crate) async fn generate_turn_with_memories(
         }
     }
     domain::validate_generated_expressions(&lines, &expressions)?;
+    domain::validate_generated_widgets(&mut lines, &widget_kinds);
     if bundle {
         let _action = lock(&state.action)?;
         if !is_current(state, ticket.epoch, &cancel) {
@@ -2212,6 +2220,7 @@ mod retry_display_tests {
                 persona: ids[0].clone(),
                 expression: "평온".into(),
                 text: "  저장한 답변\n그대로  ".into(),
+                widget: None,
                 motion: Default::default(),
             };
             let reply = Message {
@@ -2290,6 +2299,7 @@ mod unified_send_tests {
                 persona: "a".into(),
                 text: text.into(),
                 expression: "평온".into(),
+                widget: None,
                 motion: Default::default(),
             }],
             enabled: true,

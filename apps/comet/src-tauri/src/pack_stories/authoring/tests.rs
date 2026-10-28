@@ -31,6 +31,7 @@ fn fixture(subject: AuthoringSubject) -> AuthoringTrialRequest {
         persona: source.into(),
         expression: "평온".into(),
         text: text.into(),
+        widget: None,
         motion: Default::default(),
     };
     AuthoringTrialRequest {
