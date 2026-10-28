@@ -67,6 +67,17 @@ jobs:
         if: steps.scope.outputs.ds_only != 'true'
       - run: pnpm --filter comet test
         if: steps.scope.outputs.ds_only != 'true'
+      - run: pnpm --filter comet exec playwright install --with-deps chromium
+        if: steps.scope.outputs.ds_only != 'true'
+      - run: pnpm --filter comet test:e2e:web
+        if: steps.scope.outputs.ds_only != 'true'
+      - name: Upload web E2E traces
+        if: failure() && steps.scope.outputs.ds_only != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-e2e-traces
+          path: apps/comet/test-results/e2e
+          if-no-files-found: ignore
       - run: pnpm test:release
         if: steps.scope.outputs.ds_only != 'true'
       - run: pnpm test:native-runtime
