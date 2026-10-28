@@ -930,4 +930,18 @@ mod moment_event_tests {
         assert!(take_moment_reaction(&state, &db, at).unwrap().is_none());
         assert_eq!(db.query_row("SELECT COUNT(*) FROM moment_events", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
     }
+
+    #[test]
+    fn manual_interruption_discards_pending_reaction_without_deleting_the_memory() {
+        let state = super::super::tests::state();
+        let db = lock(&state.db).unwrap();
+        let at = chrono::Utc::now().timestamp_millis();
+        store::set_user_name(&db, "친구", at).unwrap();
+        let user = store::current_user(&db).unwrap().unwrap();
+        let actor = characters::active_ids(&db).unwrap().remove(0);
+        store::insert_moment(&db, &actor, &user.id, "bloom", "꽃이 핀 날", at, None, serde_json::json!({}), None, None).unwrap();
+        super::super::interrupt_with_db(&state, false, &db).unwrap();
+        assert!(take_moment_reaction(&state, &db, at).unwrap().is_none());
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:bloom:%'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+    }
 }

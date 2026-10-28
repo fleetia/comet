@@ -207,6 +207,7 @@ fn begin_reply(state: &AppState, playback_id: &str) -> Result<u64, String> {
         persona: line.persona,
         mode: if registered { "input" } else { "name" }.into(),
     });
+    super::discard_moment_events(&db)?;
     state.last_input.store(now(), Ordering::SeqCst);
     Ok(epoch)
 }

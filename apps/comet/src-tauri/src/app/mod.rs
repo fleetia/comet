@@ -259,7 +259,7 @@ pub(crate) fn interrupt_with_db(
     db: &rusqlite::Connection,
 ) -> Result<(u64, Arc<AtomicBool>), String> {
     if !automatic {
-        db.execute("DELETE FROM moment_events", []).map_err(|error| error.to_string())?;
+        discard_moment_events(db)?;
     }
     let run_id = lock(&state.pack_stories)?
         .run
@@ -271,6 +271,11 @@ pub(crate) fn interrupt_with_db(
         crate::characters::guests::leave_run_locked(state, &run_id)?;
     }
     interrupt_for_conversation(state, automatic)
+}
+
+pub(crate) fn discard_moment_events(db: &rusqlite::Connection) -> Result<(), String> {
+    db.execute("DELETE FROM moment_events", []).map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 pub(crate) fn interrupt_for_conversation(
