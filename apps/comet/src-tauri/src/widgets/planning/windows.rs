@@ -139,8 +139,6 @@ fn validate_view_target(
             .iter()
             .any(|widget| {
                 widget.kind == "todo"
-                    && widget.installed
-                    && widget.enabled
                     && widget.data["items"]
                         .as_array()
                         .is_some_and(|items| items.iter().any(|item| item["id"] == id))

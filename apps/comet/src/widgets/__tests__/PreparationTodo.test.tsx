@@ -71,7 +71,7 @@ const preparation = widget("preparation", {
 });
 it("opens preparation links through the native allowlist and keeps disconnected checklists editable", async () => {
   render(<PreparationTool widget={preparation} widgets={[]} act={act} />);
-  expect(screen.getByText(/연결 끊김.*캘린더가 꺼져/)).toBeTruthy();
+  expect(screen.getByText(/연결 끊김.*캘린더를 찾을 수 없어요/)).toBeTruthy();
   expect(screen.getByRole("link", { name: /발표 자료/ })).toBeTruthy();
   fireEvent.click(screen.getByRole("link", { name: /발표 자료/ }));
   await waitFor(() =>
