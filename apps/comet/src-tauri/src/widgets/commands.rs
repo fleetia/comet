@@ -134,12 +134,7 @@ pub(crate) fn set_widget_reaction(
     if !enabled {
         let _action = lock(&state.action)?;
         let db = lock(&state.db)?;
-        let is_target = lock(&state.widget_playback)?
-            .as_ref()
-            .is_some_and(|event| event.instance_id == id);
-        if is_target {
-            cancel_stale_widget_scene(&state, &db)?;
-        }
+        cancel_stale_widget_scene(&state, &db)?;
         drop(db);
         drop(_action);
         publish(&app, &state);
@@ -230,6 +225,40 @@ fn widget_open_current(state: &AppState, id: &str, token: &Arc<AtomicBool>) -> R
 #[cfg(test)]
 mod music_open_tests {
     use super::*;
+
+    #[test]
+    fn disabling_a_widget_reaction_cancels_its_prepared_idle_talk() {
+        let state = crate::app::tests::state();
+        let token = crate::app::interrupt(&state, true).unwrap();
+        let db = lock(&state.db).unwrap();
+        let todo = storage::instances(&db).unwrap().into_iter()
+            .find(|widget| widget.kind == "todo").unwrap();
+        let source = "format: 1\nscene: todo\non: idle\nwhen: todo.ready\n---\nA: 할 일이 있나 볼까?\n===\n";
+        let program = crate::talk::validate_source(std::path::Path::new("todo.talk"), source, &crate::talk::context::registry()).unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        assert!(crate::talk::host::prepare(&state, &db, None).unwrap().is_some());
+        storage::set_reaction(&db, &todo.id, false).unwrap();
+        cancel_stale_widget_scene(&state, &db).unwrap();
+        assert!(token.1.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(lock(&state.talk_playback).unwrap().is_none());
+    }
+
+    #[test]
+    fn disabling_an_unrelated_widget_preserves_prepared_idle_talk() {
+        let state = crate::app::tests::state();
+        let token = crate::app::interrupt(&state, true).unwrap();
+        let db = lock(&state.db).unwrap();
+        let todo = storage::instances(&db).unwrap().into_iter()
+            .find(|widget| widget.kind == "todo").unwrap();
+        let source = "format: 1\nscene: generic\non: idle\n---\nA: 안녕!\n===\n";
+        let program = crate::talk::validate_source(std::path::Path::new("generic.talk"), source, &crate::talk::context::registry()).unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        assert!(crate::talk::host::prepare(&state, &db, None).unwrap().is_some());
+        storage::set_reaction(&db, &todo.id, false).unwrap();
+        cancel_stale_widget_scene(&state, &db).unwrap();
+        assert!(!token.1.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(lock(&state.talk_playback).unwrap().is_some());
+    }
 
     #[test]
     fn newer_music_open_supersedes_a_waiting_open_without_using_refresh_slots() {

@@ -80,6 +80,14 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         ("character", "count") => "지금 바탕화면에 함께 지내는 캐릭터 수(1~8). speakers: random 장면의 화자 수 조건에 사용",
         (_, "sourceId") if prefix.starts_with("character.") => "현재 자리에 설치된 캐릭터의 원본 sourceId. 표시 이름·로컬 ID와 구분",
         (_, "affinity") if prefix.starts_with("character.") => "해당 캐릭터의 현재 친밀도 점수",
+        (_, "total") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "현재 사용자와 해당 캐릭터의 누적 교감 횟수",
+        (_, "stroke") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "현재 사용자와 해당 캐릭터의 누적 쓰다듬기 횟수",
+        (_, "poke") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "현재 사용자와 해당 캐릭터의 누적 찌르기 횟수",
+        (_, "cheek") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "현재 사용자와 해당 캐릭터의 누적 볼 잡기 횟수",
+        (_, "snack") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "현재 사용자와 해당 캐릭터의 누적 간식 횟수",
+        (_, "today") if prefix.starts_with("character.") && prefix.ends_with(".touches") => "기기 현지 오늘의 교감 횟수",
+        ("interaction", "milestone") => "이번 교감에서 달성한 기념 횟수. 기념이 없으면 null",
+        ("interaction", "milestoneAction") => "기념 횟수를 달성한 누적 종류: total, stroke, poke, cheek 또는 snack",
 
         ("travel", "count") => "끝나지 않은 여행 수. 다녀와서 정리 중인 여행도 포함",
         ("travel", "daysUntil") => "가장 가까운 여행의 첫날까지 남은 일수(그곳 날짜 기준). 이미 시작했으면 0 이하",
@@ -218,6 +226,8 @@ pub fn registry() -> Registry {
     ] {
         add("event", name, ValueType::String, true, None);
     }
+    add("interaction", "milestone", ValueType::Number, true, None);
+    add("interaction", "milestoneAction", ValueType::String, true, None);
     add("dialogue", "variant", ValueType::Number, false, None);
     add("environment", "hour", ValueType::Number, true, None);
     add(
@@ -239,6 +249,15 @@ pub fn registry() -> Registry {
     }
     add("environment", "weatherName", ValueType::String, true, None);
     for persona in crate::characters::SLOTS {
+        for field in ["total", "stroke", "poke", "cheek", "snack", "today"] {
+            add(
+                &format!("character.{persona}.touches"),
+                field,
+                ValueType::Number,
+                true,
+                None,
+            );
+        }
         add(
             &format!("character.{persona}"),
             "sourceId",
@@ -277,6 +296,7 @@ pub fn registry() -> Registry {
             "weather.rain-tomorrow",
             "weather.last-year",
             "interaction.touch",
+            "interaction.milestone",
             "ball.stopped",
             "paper-plane.landed",
             "bubbles.streak",
@@ -656,7 +676,10 @@ fn body_interaction_data<'a>(
 ) -> Result<Option<&'a Value>, String> {
     let Some(event) = event.filter(|event| {
         event.widget_kind == "interaction"
-            && event.event.kind == "interaction.touch"
+            && matches!(
+                event.event.kind.as_str(),
+                "interaction.touch" | "interaction.milestone"
+            )
             && event.event.payload["source"] == "body"
             && event.created_at <= now
             && now.saturating_sub(event.created_at) < 30_000
@@ -760,7 +783,8 @@ pub fn build(
         }
     }
     let is_body_receipt = if let Some(event) = event.filter(|event| {
-        event.widget_kind == "interaction" && event.event.kind == "interaction.touch"
+        event.widget_kind == "interaction"
+            && matches!(event.event.kind.as_str(), "interaction.touch" | "interaction.milestone")
     }) {
         let receipt: Option<String> = db
             .query_row(
@@ -776,6 +800,7 @@ pub fn build(
     };
     let event = event.filter(|event| {
         !widgets::is_retired(&event.widget_kind)
+            && (event.event.kind != "interaction.milestone" || body_data.is_some())
             && ((event.event.payload["source"] != "body" && !is_body_receipt)
                 || body_data.is_some())
     });
@@ -798,12 +823,38 @@ pub fn build(
         if body_data.is_some() && event.event.payload["action"] == "cheek-grab" {
             values.insert("event.action".into(), json!("stroke"));
         }
+        if body_data.is_some() {
+            if let Some(milestone) = event.event.payload["milestone"].as_i64() {
+                values.insert("interaction.milestone".into(), json!(milestone));
+                let counter = match event.event.payload["counter"].as_str() {
+                    Some(counter @ ("total" | "stroke" | "poke" | "cheek" | "snack")) => {
+                        Some(counter)
+                    }
+                    _ => None,
+                };
+                values.insert("interaction.milestoneAction".into(), json!(counter));
+            }
+        }
     }
     let relationships = crate::store::relationships(db)?;
     values.insert("dialogue.variant".into(), json!(seed % 5));
     values.insert("character.nadir.present".into(), json!(false));
     values.insert("character.count".into(), json!(characters.len()));
     for (persona, character) in crate::characters::SLOTS.into_iter().zip(&characters) {
+        let touches = storage::character_touches(db, &character.id, now_ms)?;
+        for (field, count) in [
+            ("total", touches.total),
+            ("stroke", touches.stroke),
+            ("poke", touches.poke),
+            ("cheek", touches.cheek),
+            ("snack", touches.snack),
+            ("today", touches.today),
+        ] {
+            values.insert(
+                format!("character.{persona}.touches.{field}"),
+                json!(count),
+            );
+        }
         let score = relationships
             .iter()
             .find(|item| item.persona == character.id)

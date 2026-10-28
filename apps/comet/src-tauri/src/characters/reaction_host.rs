@@ -316,13 +316,21 @@ pub(crate) fn direct_common(
         }
         let db = lock(&state.db)?;
         if crate::characters::guests::actor(&state, &db, character_id).is_err()
-            || event.event.kind != "interaction.touch"
+            || !matches!(event.event.kind.as_str(), "interaction.touch" | "interaction.milestone")
             || event.event.payload["owner"].as_str() != Some(character_id)
         {
             return Ok(false);
         }
-        let token = app::interrupt_with_db(&state, false, &db)?;
-        let lines = crate::talk::host::prepare(&state, &db, Some(event))?;
+        let milestone = event.event.kind == "interaction.milestone";
+        let (lines, token) = if milestone {
+            let Some((lines, token)) = prepare_milestone(&state, &db, event)? else {
+                return Ok(false);
+            };
+            (Some(lines), token)
+        } else {
+            let token = app::interrupt_with_db(&state, false, &db)?;
+            (crate::talk::host::prepare(&state, &db, Some(event))?, token)
+        };
         if let Some(lines) = lines {
             lock(&state.runtime)?.phase = RuntimePhase::Playing;
             state.last_input.store(app::now(), Ordering::SeqCst);
@@ -341,6 +349,57 @@ pub(crate) fn direct_common(
     scene::start_scene(app.clone(), state.clone(), lines, "talk", token, None);
     app::publish(app, &state);
     Ok(true)
+}
+
+fn prepare_milestone(
+    state: &AppState,
+    db: &rusqlite::Connection,
+    event: &crate::widgets::WidgetEvent,
+) -> Result<Option<(Vec<SceneLine>, (u64, Arc<std::sync::atomic::AtomicBool>))>> {
+    let settings = crate::store::settings(db)?;
+    if !settings.autonomous_enabled
+        || lock(&state.runtime)?.paused
+        || app::quiet_hours::automatic_blocked(state, &settings)?
+        || state.launcher_open.load(Ordering::SeqCst)
+    {
+        return Ok(None);
+    }
+    let Some(lines) = crate::talk::host::prepare(state, db, Some(event))? else {
+        return Ok(None);
+    };
+    let prepared = lock(&state.talk_playback)?.take();
+    let token = app::interrupt_with_db(state, true, db)?;
+    *lock(&state.talk_playback)? = prepared;
+    Ok(Some((lines, token)))
+}
+
+pub(crate) fn direct_milestone(
+    app: &AppHandle,
+    state: Arc<AppState>,
+    character_id: &str,
+    event: &crate::widgets::WidgetEvent,
+    window: usize,
+) -> Result<bool> {
+    if event.event.payload["milestone"].is_null() {
+        return Ok(false);
+    }
+    let mut milestone = event.clone();
+    milestone.event.kind = "interaction.milestone".into();
+    direct_common(app, state, character_id, &milestone, window)
+}
+
+pub(crate) fn direct_motion(
+    app: &AppHandle,
+    state: Arc<AppState>,
+    character_id: &str,
+    gesture: &str,
+    region_id: Option<&str>,
+    window: usize,
+) -> Result<()> {
+    if prepare_direct(&state, character_id, gesture, region_id, window)?.is_some() {
+        app::publish(app, &state);
+    }
+    Ok(())
 }
 
 fn prepare_direct(
@@ -708,9 +767,10 @@ fn speech_reason(state: &AppState) -> Result<Option<&'static str>> {
         return Ok(Some("위젯 알림을 읽고 있어요."));
     }
     let ambient = state.automatic.load(Ordering::SeqCst)
-        && lock(&state.playback)?.as_ref().is_some_and(|line| {
-            matches!(line.source.as_str(), "script" | "wordbook" | "llm" | "talk")
-        });
+        && lock(&state.playback)?.as_ref().map_or(
+            phase == RuntimePhase::Playing,
+            |line| matches!(line.source.as_str(), "script" | "wordbook" | "llm" | "talk"),
+        );
     Ok((!ambient).then_some("진행 중인 대화를 읽고 있어요."))
 }
 

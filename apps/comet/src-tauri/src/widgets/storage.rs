@@ -22,6 +22,11 @@ id TEXT UNIQUE NOT NULL,instance_id TEXT NOT NULL,data TEXT NOT NULL,pending INT
 CREATE TABLE IF NOT EXISTS widget_journal(event_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS widget_preferences(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS weather_history(day TEXT NOT NULL,lat REAL NOT NULL,lon REAL NOT NULL,code INTEGER NOT NULL,tMax REAL NOT NULL,tMin REAL NOT NULL,tObserved REAL,source TEXT NOT NULL DEFAULT 'live',PRIMARY KEY(day,lat,lon));
+CREATE TABLE IF NOT EXISTS character_touches(character_id TEXT NOT NULL,user_id TEXT NOT NULL,action TEXT NOT NULL,count INTEGER NOT NULL,last_at INTEGER NOT NULL,PRIMARY KEY(character_id,user_id,action));
+CREATE TABLE IF NOT EXISTS character_touch_events(character_id TEXT NOT NULL,user_id TEXT NOT NULL,created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS character_touch_events_lookup ON character_touch_events(character_id,user_id,created_at);
+CREATE INDEX IF NOT EXISTS character_touch_events_expiry ON character_touch_events(created_at);
+
 CREATE TABLE IF NOT EXISTS desktop_toy_results(id TEXT PRIMARY KEY,widget_id TEXT NOT NULL,kind TEXT NOT NULL,created_at INTEGER NOT NULL,data TEXT NOT NULL);",
     )
     .map_err(err)?;
@@ -116,6 +121,45 @@ CREATE TABLE IF NOT EXISTS desktop_toy_results(id TEXT PRIMARY KEY,widget_id TEX
     .map_err(err)?;
     tx.commit().map_err(err)?;
     super::backgrounds::initialize(db)
+}
+
+#[derive(Default, serde::Serialize)]
+pub(crate) struct CharacterTouches {
+    pub total: i64,
+    pub stroke: i64,
+    pub poke: i64,
+    pub cheek: i64,
+    pub snack: i64,
+    pub today: i64,
+}
+
+pub(crate) fn character_touches(db: &Connection, character_id: &str, now: i64) -> Result<CharacterTouches> {
+    use chrono::TimeZone;
+    let user_id = crate::store::active_user_id(db)?;
+    let mut counts = CharacterTouches::default();
+    let mut statement = db.prepare("SELECT action,count FROM character_touches WHERE character_id=?1 AND user_id=?2").map_err(err)?;
+    let rows = statement.query_map(params![character_id, user_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))).map_err(err)?;
+    for row in rows {
+        let (action, count) = row.map_err(err)?;
+        counts.total += count;
+        match action.as_str() {
+            "stroke" => counts.stroke = count,
+            "poke" => counts.poke = count,
+            "cheek-grab" => counts.cheek = count,
+            "snack" => counts.snack = count,
+            _ => {}
+        }
+    }
+    let today = chrono::Local.timestamp_millis_opt(now).single().ok_or("시각이 올바르지 않아요.")?.date_naive();
+    // UTC timestamps let today's count follow the device timezone even after it changes.
+    let mut statement = db.prepare("SELECT created_at FROM character_touch_events WHERE character_id=?1 AND user_id=?2 AND created_at>=?3 AND created_at<=?4").map_err(err)?;
+    let rows = statement.query_map(params![character_id, user_id, now.saturating_sub(172_800_000), now.saturating_add(172_800_000)], |row| row.get::<_, i64>(0)).map_err(err)?;
+    for row in rows {
+        if chrono::Local.timestamp_millis_opt(row.map_err(err)?).single().is_some_and(|at| at.date_naive() == today) {
+            counts.today += 1;
+        }
+    }
+    Ok(counts)
 }
 
 fn retire_removed_widgets(db: &Connection) -> Result<()> {
@@ -487,10 +531,38 @@ fn body_interaction_at(
         });
     let input = json!({"character":((b'A' + slot as u8) as char).to_string(),"owner":character_id});
     let effect = super::toys::act("interaction", &instance.data, action, &input, now, 0)?;
-    let draft = effect.events.into_iter().next().map(|mut event| {
+    let mut draft = effect.events.into_iter().next().map(|mut event| {
         event.payload["source"] = json!("body");
         event
     });
+    if matches!(action, "poke" | "stroke" | "cheek-grab" | "snack") {
+        let user_id = crate::store::active_user_id(&tx)?;
+        tx.execute("INSERT INTO character_touches(character_id,user_id,action,count,last_at) VALUES(?1,?2,?3,1,?4) ON CONFLICT(character_id,user_id,action) DO UPDATE SET count=count+1,last_at=excluded.last_at", params![character_id, user_id, action, now]).map_err(err)?;
+        tx.execute("INSERT INTO character_touch_events(character_id,user_id,created_at) VALUES(?1,?2,?3)", params![character_id, user_id, now]).map_err(err)?;
+        tx.execute("DELETE FROM character_touch_events WHERE created_at<?1", [now.saturating_sub(172_800_000)]).map_err(err)?;
+        let (total, action_count): (i64, i64) = tx.query_row(
+            "SELECT SUM(count),SUM(CASE WHEN action=?3 THEN count ELSE 0 END) FROM character_touches WHERE character_id=?1 AND user_id=?2",
+            params![character_id, user_id, action],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).map_err(err)?;
+        const MILESTONES: [i64; 9] = [1, 10, 50, 100, 200, 500, 1000, 2000, 5000];
+        let milestone = if MILESTONES.contains(&total) {
+            Some((total, "total"))
+        } else if MILESTONES.contains(&action_count) {
+            Some((action_count, if action == "cheek-grab" { "cheek" } else { action }))
+        } else {
+            None
+        };
+        if let Some((number, counter)) = milestone {
+            let event = draft.get_or_insert_with(|| EventDraft {
+                kind: "interaction.milestone".into(),
+                text: String::new(),
+                payload: json!({"source":"body","character":((b'A' + slot as u8) as char).to_string(),"owner":character_id,"action":action}),
+            });
+            event.payload["milestone"] = json!(number);
+            event.payload["counter"] = json!(counter);
+        }
+    }
     instance.data = effect.data;
     instance.revision += 1;
     put(&tx, &instance)?;
