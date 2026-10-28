@@ -16,11 +16,22 @@ pub(crate) fn simulate_with_validation(
     history: &History,
     validate_lines: impl Fn(&[SceneLine]) -> Result<(), String>,
 ) -> Simulation {
+    simulate_with_policy(program, context, history, |selection| {
+        validate_lines(&selection.lines).map_err(|error| format!("motion_error: {error}"))
+    })
+}
+
+pub(crate) fn simulate_with_policy(
+    program: &Program,
+    context: &EvalContext,
+    history: &History,
+    validate: impl Fn(&Selection) -> Result<(), String>,
+) -> Simulation {
     let mut candidates = Vec::new();
     let mut playable = Vec::new();
     for scene in &program.scenes {
         match eligible(scene, context, history, &context.values).and_then(|selection| {
-            validate_lines(&selection.lines).map_err(|error| format!("motion_error: {error}"))?;
+            validate(&selection)?;
             Ok(selection)
         }) {
             Ok(selection) => {
