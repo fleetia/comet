@@ -1068,32 +1068,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
             state.travels.push(value);
         }
         "travel-update" | "travel-delete" => {
-            let at = position(
-                &state.travels,
-                input,
-                |v| v.id.as_str(),
-                "여행을 찾을 수 없습니다.",
-            )?;
-            check_expected(input, &state.travels[at])?;
-            let id = state.travels[at].id.clone();
-            if action == "travel-delete" {
-                state.travels.remove(at);
-                state.travel_plans.retain(|value| value.travel_id != id);
-                state.travel_bookings.retain(|value| value.travel_id != id);
-                // Money already spent stays in the ledger; only the link to the trip goes away.
-                state.travel_expenses.retain(|value| value.travel_id != id);
-                state.travel_people.retain(|value| value.travel_id != id);
-                state.travel_transfers.retain(|value| value.travel_id != id);
-                state.travel_photos.retain(|value| value.travel_id != id);
-            } else {
-                let finished = state.travels[at].finished;
-                let title_changed = input.get("title").and_then(Value::as_str)
-                    != Some(state.travels[at].title.as_str());
-                state.travels[at] = travel(input, id.clone(), finished)?;
-                if title_changed {
-                    sync_travel_ledger(state, &id)?;
-                }
-            }
+            update_travel(state, action, input)?;
         }
         "travel-plan-create" => {
             capacity(state.travel_plans.len(), 20_000)?;
@@ -1163,133 +1138,13 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
             sync_ledger(state, &id)?;
         }
         "travel-expense-update" | "travel-expense-delete" => {
-            let at = position(
-                &state.travel_expenses,
-                input,
-                |v| v.id.as_str(),
-                "비용을 찾을 수 없습니다.",
-            )?;
-            check_expected(input, &state.travel_expenses[at])?;
-            let current = state.travel_expenses[at].clone();
-            if action == "travel-expense-delete" {
-                if current.booking_id.is_some() {
-                    return Err(
-                        "예약에서 생긴 비용은 예약에서 금액을 지우거나 예약을 지워 주세요.".into(),
-                    );
-                }
-                remove_expense(state, at);
-                return Ok(());
-            }
-            let mut value = expense(state, input, current.id.clone())?;
-            if value.travel_id != current.travel_id {
-                return Err("비용을 다른 여행으로 옮길 수 없습니다.".into());
-            }
-            if current.booking_id.is_some() {
-                // The booking owns the price, date and payment state; here only who pays and shares change.
-                value.title = current.title.clone();
-                value.date = current.date.clone();
-                value.amount = current.amount;
-                value.currency = current.currency.clone();
-                value.rate = current.rate;
-                value.category = current.category.clone();
-                value.paid = current.paid;
-                value.booking_id = current.booking_id.clone();
-            }
-            value.ledger_entry_id = if value.paid && !current.paid {
-                None
-            } else {
-                current.ledger_entry_id.clone()
-            };
-            if !value.paid {
-                if let Some(id) = &current.ledger_entry_id {
-                    state.ledger_entries.retain(|entry| &entry.id != id);
-                }
-                value.ledger_entry_id = None;
-            }
-            state.travel_expenses[at] = value;
-            sync_ledger(state, &current.id)?;
+            update_expense(state, action, input)?;
         }
         "travel-person-create" => {
-            capacity(state.travel_people.len(), 2_000)?;
-            let owner = owner(state, input)?.id.clone();
-            if state
-                .travel_people
-                .iter()
-                .filter(|v| v.travel_id == owner)
-                .count()
-                >= 30
-            {
-                return Err("함께 가는 사람은 30명까지 적을 수 있어요.".into());
-            }
-            let color = string(input, "color", 20, true)?;
-            if !PERSON_COLORS.contains(&color.as_str()) {
-                return Err("색을 다시 골라 주세요.".into());
-            }
-            let person = Person {
-                id: new_id(),
-                travel_id: owner.clone(),
-                name: string(input, "name", 30, true)?,
-                color,
-            };
-            let id = person.id.clone();
-            state.travel_people.push(person);
-            if boolean(input, "joinShares", true)? {
-                // A new companion shares every bill split evenly so far; custom splits stay as they are.
-                for expense in state
-                    .travel_expenses
-                    .iter_mut()
-                    .filter(|v| v.travel_id == owner)
-                {
-                    if expense.shares.iter().all(|share| share.weight == 1) {
-                        expense.shares.push(Share {
-                            person: id.clone(),
-                            weight: 1,
-                        });
-                    }
-                }
-                sync_travel_ledger(state, &owner)?;
-            }
+            create_person(state, input)?;
         }
         "travel-person-update" | "travel-person-delete" => {
-            let at = position(
-                &state.travel_people,
-                input,
-                |v| v.id.as_str(),
-                "사람을 찾을 수 없습니다.",
-            )?;
-            check_expected(input, &state.travel_people[at])?;
-            let current = state.travel_people[at].clone();
-            if action == "travel-person-delete" {
-                if state.travel_expenses.iter().any(|v| v.payer == current.id)
-                    || state
-                        .travel_transfers
-                        .iter()
-                        .any(|v| v.from == current.id || v.to == current.id)
-                {
-                    return Err(
-                        "이 사람이 낸 비용이나 보낸 기록이 있어요. 먼저 그 기록을 바꿔 주세요."
-                            .into(),
-                    );
-                }
-                state.travel_people.remove(at);
-                for expense in &mut state.travel_expenses {
-                    expense.shares.retain(|share| share.person != current.id);
-                    if expense.shares.is_empty() {
-                        expense.shares.push(Share {
-                            person: ME.into(),
-                            weight: 1,
-                        });
-                    }
-                }
-                sync_travel_ledger(state, &current.travel_id)?;
-            } else {
-                let color = string(input, "color", 20, true)?;
-                if !PERSON_COLORS.contains(&color.as_str()) {
-                    return Err("색을 다시 골라 주세요.".into());
-                }
-                state.travel_people[at].name = string(input, "name", 30, true)?;
-                state.travel_people[at].color = color;
-            }
+            update_person(state, action, input)?;
         }
         "travel-transfer-create" => {
             capacity(state.travel_transfers.len(), 20_000)?;
@@ -1397,6 +1252,168 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
             };
         }
         _ => return Err("지원하지 않는 여행 동작입니다.".into()),
+    }
+    Ok(())
+}
+
+fn update_person(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
+    let at = position(
+        &state.travel_people,
+        input,
+        |v| v.id.as_str(),
+        "사람을 찾을 수 없습니다.",
+    )?;
+    check_expected(input, &state.travel_people[at])?;
+    let current = state.travel_people[at].clone();
+    if action == "travel-person-delete" {
+        if state.travel_expenses.iter().any(|v| v.payer == current.id)
+            || state
+                .travel_transfers
+                .iter()
+                .any(|v| v.from == current.id || v.to == current.id)
+        {
+            return Err(
+                "이 사람이 낸 비용이나 보낸 기록이 있어요. 먼저 그 기록을 바꿔 주세요.".into(),
+            );
+        }
+        state.travel_people.remove(at);
+        for expense in &mut state.travel_expenses {
+            expense.shares.retain(|share| share.person != current.id);
+            if expense.shares.is_empty() {
+                expense.shares.push(Share {
+                    person: ME.into(),
+                    weight: 1,
+                });
+            }
+        }
+        sync_travel_ledger(state, &current.travel_id)?;
+    } else {
+        let color = string(input, "color", 20, true)?;
+        if !PERSON_COLORS.contains(&color.as_str()) {
+            return Err("색을 다시 골라 주세요.".into());
+        }
+        state.travel_people[at].name = string(input, "name", 30, true)?;
+        state.travel_people[at].color = color;
+    }
+    Ok(())
+}
+
+fn create_person(state: &mut DiaryState, input: &Value) -> Result<()> {
+    capacity(state.travel_people.len(), 2_000)?;
+    let owner = owner(state, input)?.id.clone();
+    if state
+        .travel_people
+        .iter()
+        .filter(|v| v.travel_id == owner)
+        .count()
+        >= 30
+    {
+        return Err("함께 가는 사람은 30명까지 적을 수 있어요.".into());
+    }
+    let color = string(input, "color", 20, true)?;
+    if !PERSON_COLORS.contains(&color.as_str()) {
+        return Err("색을 다시 골라 주세요.".into());
+    }
+    let person = Person {
+        id: new_id(),
+        travel_id: owner.clone(),
+        name: string(input, "name", 30, true)?,
+        color,
+    };
+    let id = person.id.clone();
+    state.travel_people.push(person);
+    if boolean(input, "joinShares", true)? {
+        // A new companion shares every bill split evenly so far; custom splits stay as they are.
+        for expense in state
+            .travel_expenses
+            .iter_mut()
+            .filter(|v| v.travel_id == owner)
+        {
+            if expense.shares.iter().all(|share| share.weight == 1) {
+                expense.shares.push(Share {
+                    person: id.clone(),
+                    weight: 1,
+                });
+            }
+        }
+        sync_travel_ledger(state, &owner)?;
+    }
+    Ok(())
+}
+
+fn update_expense(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
+    let at = position(
+        &state.travel_expenses,
+        input,
+        |v| v.id.as_str(),
+        "비용을 찾을 수 없습니다.",
+    )?;
+    check_expected(input, &state.travel_expenses[at])?;
+    let current = state.travel_expenses[at].clone();
+    if action == "travel-expense-delete" {
+        if current.booking_id.is_some() {
+            return Err("예약에서 생긴 비용은 예약에서 금액을 지우거나 예약을 지워 주세요.".into());
+        }
+        remove_expense(state, at);
+        return Ok(());
+    }
+    let mut value = expense(state, input, current.id.clone())?;
+    if value.travel_id != current.travel_id {
+        return Err("비용을 다른 여행으로 옮길 수 없습니다.".into());
+    }
+    if current.booking_id.is_some() {
+        // The booking owns the price, date and payment state; here only who pays and shares change.
+        value.title = current.title.clone();
+        value.date = current.date.clone();
+        value.amount = current.amount;
+        value.currency = current.currency.clone();
+        value.rate = current.rate;
+        value.category = current.category.clone();
+        value.paid = current.paid;
+        value.booking_id = current.booking_id.clone();
+    }
+    value.ledger_entry_id = if value.paid && !current.paid {
+        None
+    } else {
+        current.ledger_entry_id.clone()
+    };
+    if !value.paid {
+        if let Some(id) = &current.ledger_entry_id {
+            state.ledger_entries.retain(|entry| &entry.id != id);
+        }
+        value.ledger_entry_id = None;
+    }
+    state.travel_expenses[at] = value;
+    sync_ledger(state, &current.id)?;
+    Ok(())
+}
+
+fn update_travel(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
+    let at = position(
+        &state.travels,
+        input,
+        |v| v.id.as_str(),
+        "여행을 찾을 수 없습니다.",
+    )?;
+    check_expected(input, &state.travels[at])?;
+    let id = state.travels[at].id.clone();
+    if action == "travel-delete" {
+        state.travels.remove(at);
+        state.travel_plans.retain(|value| value.travel_id != id);
+        state.travel_bookings.retain(|value| value.travel_id != id);
+        // Money already spent stays in the ledger; only the link to the trip goes away.
+        state.travel_expenses.retain(|value| value.travel_id != id);
+        state.travel_people.retain(|value| value.travel_id != id);
+        state.travel_transfers.retain(|value| value.travel_id != id);
+        state.travel_photos.retain(|value| value.travel_id != id);
+    } else {
+        let finished = state.travels[at].finished;
+        let title_changed =
+            input.get("title").and_then(Value::as_str) != Some(state.travels[at].title.as_str());
+        state.travels[at] = travel(input, id.clone(), finished)?;
+        if title_changed {
+            sync_travel_ledger(state, &id)?;
+        }
     }
     Ok(())
 }
