@@ -282,7 +282,13 @@ pub fn registry() -> Registry {
         add("recall", name, ValueType::Number, true, None);
     }
     add("interaction", "milestone", ValueType::Number, true, None);
-    add("interaction", "milestoneAction", ValueType::String, true, None);
+    add(
+        "interaction",
+        "milestoneAction",
+        ValueType::String,
+        true,
+        None,
+    );
     add("dialogue", "variant", ValueType::Number, false, None);
     add("activity", "ready", ValueType::Boolean, false, None);
     for field in ["appName", "category"] {
@@ -694,219 +700,7 @@ pub(crate) fn project(
             }
             set(field, d[field].clone());
         }
-        match kind {
-            "todo" => {
-                let items = rows(&d["items"]);
-                let open = items
-                    .iter()
-                    .filter(|item| item["completedAt"].is_null())
-                    .collect::<Vec<_>>();
-                set("openCount", json!(open.len()));
-                set("completedCount", json!(items.len() - open.len()));
-                set(
-                    "overdueCount",
-                    json!(open
-                        .iter()
-                        .filter(|item| item["dueAt"].as_i64().is_some_and(|at| at < now)
-                            || (item["dueAt"].is_null()
-                                && item["dueDate"]
-                                    .as_str()
-                                    .and_then(
-                                        |date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()
-                                    )
-                                    .zip(today)
-                                    .is_some_and(|(date, today)| date < today)))
-                        .count()),
-                );
-            }
-            "calendar" => {
-                let events = rows(&d["events"])
-                    .iter()
-                    .filter(|event| event["cancelled"] != true)
-                    .collect::<Vec<_>>();
-                set("eventCount", json!(events.len()));
-                let next = events
-                    .iter()
-                    .filter_map(|event| {
-                        let at = event["startAt"].as_i64().or_else(|| {
-                            event["startDate"]
-                                .as_str()
-                                .and_then(|date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok())
-                                .zip(today)
-                                .map(|(date, today)| now + (date - today).num_days() * 86_400_000)
-                        })?;
-                        (at >= now).then_some((at, *event))
-                    })
-                    .min_by_key(|(at, _)| *at);
-                if let Some((_, event)) = next {
-                    set("nextTitle", event["title"].clone());
-                    set("nextAllDay", event["allDay"].clone());
-                }
-            }
-            "focus-timer" => {
-                set("state", d["status"].clone());
-                set("cycle", json!(d["cycle"].as_u64().unwrap_or(0)));
-                set("queueCount", json!(rows(&d["queue"]).len()));
-                set(
-                    "continuous",
-                    json!(d["settings"]["continuous"].as_bool().unwrap_or(false)),
-                );
-                if d["status"] == "running" {
-                    set(
-                        "remainingMs",
-                        d["deadline"]
-                            .as_i64()
-                            .map(|at| json!(at.saturating_sub(now).max(0)))
-                            .unwrap_or(Value::Null),
-                    );
-                }
-            }
-            "preparation" => {
-                let envelopes = rows(&d["envelopes"]);
-                set("count", json!(envelopes.len()));
-                set(
-                    "checkCount",
-                    json!(envelopes
-                        .iter()
-                        .map(|item| rows(&item["checks"]).len())
-                        .sum::<usize>()),
-                );
-                set(
-                    "uncheckedCount",
-                    json!(envelopes
-                        .iter()
-                        .flat_map(|item| rows(&item["checks"]))
-                        .filter(|item| item["done"] != true)
-                        .count()),
-                );
-            }
-            "completion-jar" => set("count", json!(rows(&d["completed"]).len())),
-            "clock" => {
-                set(
-                    "hour",
-                    instant
-                        .map(|time| json!(time.hour()))
-                        .unwrap_or(Value::Null),
-                );
-                set("anniversaryCount", json!(rows(&d["anniversaries"]).len()));
-                let next = rows(&d["anniversaries"])
-                    .iter()
-                    .filter_map(|item| {
-                        item["date"]
-                            .as_str()
-                            .and_then(|date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok())
-                            .zip(today)
-                            .map(|(date, today)| ((date - today).num_days(), item))
-                    })
-                    .min_by_key(|(days, _)| days.unsigned_abs());
-                if let Some((days, item)) = next {
-                    set("daysUntil", json!(days));
-                    set("title", item["title"].clone());
-                }
-            }
-            "memo" => set("count", json!(rows(&d["notes"]).len())),
-            "weather" => {
-                if d["config"]["allowTalk"] == false {
-                    set("ready", json!(false));
-                    set("status", json!("disabled"));
-                    available.remove(kind);
-                    continue;
-                }
-                let o = &d["observation"];
-                set("temperature", o["temperature"].clone());
-                set("code", o["weatherCode"].clone());
-                set("name", o["name"].clone());
-                let forecast = &d["forecast"];
-                let weather_today = DateTime::from_timestamp_millis(now).and_then(|instant| {
-                    forecast["timezone"]
-                        .as_str()
-                        .and_then(|name| name.parse::<chrono_tz::Tz>().ok())
-                        .map(|zone| instant.with_timezone(&zone).date_naive())
-                });
-                if weather_today.is_some_and(|day| {
-                    forecast["today"]["date"].as_str() == Some(day.to_string().as_str())
-                }) {
-                    for (field, source) in [("todayMax", "tMax"), ("todayMin", "tMin")] {
-                        set(field, forecast["today"][source].clone());
-                    }
-                }
-                if weather_today
-                    .and_then(|day| day.succ_opt())
-                    .is_some_and(|day| {
-                        forecast["tomorrow"]["date"].as_str() == Some(day.to_string().as_str())
-                    })
-                {
-                    for (field, source) in [
-                        ("tomorrowCode", "code"),
-                        ("tomorrowName", "name"),
-                        ("tomorrowMax", "tMax"),
-                        ("tomorrowMin", "tMin"),
-                        ("tomorrowRainProb", "precipProb"),
-                    ] {
-                        set(field, forecast["tomorrow"][source].clone());
-                    }
-                }
-                let last_year = &d["lastYear"];
-                let last_year_day = last_year["date"]
-                    .as_str()
-                    .and_then(|date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok());
-                let expected_last_year = weather_today.and_then(|day| {
-                    day.with_year(day.year() - 1)
-                        .or_else(|| day.pred_opt()?.with_year(day.year() - 1))
-                });
-                if expected_last_year.is_some() && expected_last_year == last_year_day {
-                    for (field, source) in [
-                        ("lastYearCode", "code"),
-                        ("lastYearName", "name"),
-                        ("lastYearMax", "tMax"),
-                        ("lastYearMin", "tMin"),
-                        ("lastYearSource", "source"),
-                    ] {
-                        set(field, last_year[source].clone());
-                    }
-                }
-            }
-            "music" => {
-                if d["config"]["allowTalk"] == false {
-                    set("ready", json!(false));
-                    set("status", json!("disabled"));
-                    available.remove(kind);
-                    continue;
-                }
-                for field in ["running", "playing"] {
-                    set(field, d["observation"][field].clone());
-                }
-                if d["observation"]["playing"] == true {
-                    for field in ["title", "artist"] {
-                        set(field, d["observation"][field].clone());
-                    }
-                }
-            }
-            "device" => {
-                let o = &d["observation"];
-                set("hasBattery", o["hasBattery"].clone());
-                if let Some(battery) = rows(&o["batteries"])
-                    .iter()
-                    .min_by_key(|item| item["percent"].as_u64().unwrap_or(101))
-                {
-                    set("percent", battery["percent"].clone());
-                    set("powerState", battery["status"].clone());
-                }
-                set(
-                    "woke",
-                    json!(d["lastWakeAt"]
-                        .as_i64()
-                        .is_some_and(|at| now >= at && now - at <= 60_000)),
-                );
-            }
-            "bubbles" => set("count", json!(rows(&d["bubbles"]).len())),
-            "pet" => set("moving", json!(!d["food"].is_null())),
-            "collection" => {
-                set("count", json!(rows(&d["items"]).len()));
-                set("decorationCount", json!(rows(&d["decorations"]).len()));
-            }
-            _ => {}
-        }
+        project_widget(kind, d, now, today, instant, &mut available, &mut set);
     }
     values.insert(
         "environment.hour".into(),
@@ -925,6 +719,229 @@ pub(crate) fn project(
         );
     }
     (values, available)
+}
+
+/// Values one ready widget adds beyond its plain fields.
+fn project_widget(
+    kind: &str,
+    d: &Value,
+    now: i64,
+    today: Option<NaiveDate>,
+    instant: Option<DateTime<Local>>,
+    available: &mut BTreeSet<String>,
+    set: &mut impl FnMut(&str, Value),
+) {
+    match kind {
+        "todo" => {
+            let items = rows(&d["items"]);
+            let open = items
+                .iter()
+                .filter(|item| item["completedAt"].is_null())
+                .collect::<Vec<_>>();
+            set("openCount", json!(open.len()));
+            set("completedCount", json!(items.len() - open.len()));
+            set(
+                "overdueCount",
+                json!(open
+                    .iter()
+                    .filter(|item| item["dueAt"].as_i64().is_some_and(|at| at < now)
+                        || (item["dueAt"].is_null()
+                            && item["dueDate"]
+                                .as_str()
+                                .and_then(|date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok())
+                                .zip(today)
+                                .is_some_and(|(date, today)| date < today)))
+                    .count()),
+            );
+        }
+        "calendar" => {
+            let events = rows(&d["events"])
+                .iter()
+                .filter(|event| event["cancelled"] != true)
+                .collect::<Vec<_>>();
+            set("eventCount", json!(events.len()));
+            let next = events
+                .iter()
+                .filter_map(|event| {
+                    let at = event["startAt"].as_i64().or_else(|| {
+                        event["startDate"]
+                            .as_str()
+                            .and_then(|date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok())
+                            .zip(today)
+                            .map(|(date, today)| now + (date - today).num_days() * 86_400_000)
+                    })?;
+                    (at >= now).then_some((at, *event))
+                })
+                .min_by_key(|(at, _)| *at);
+            if let Some((_, event)) = next {
+                set("nextTitle", event["title"].clone());
+                set("nextAllDay", event["allDay"].clone());
+            }
+        }
+        "focus-timer" => {
+            set("state", d["status"].clone());
+            set("cycle", json!(d["cycle"].as_u64().unwrap_or(0)));
+            set("queueCount", json!(rows(&d["queue"]).len()));
+            set(
+                "continuous",
+                json!(d["settings"]["continuous"].as_bool().unwrap_or(false)),
+            );
+            if d["status"] == "running" {
+                set(
+                    "remainingMs",
+                    d["deadline"]
+                        .as_i64()
+                        .map(|at| json!(at.saturating_sub(now).max(0)))
+                        .unwrap_or(Value::Null),
+                );
+            }
+        }
+        "preparation" => {
+            let envelopes = rows(&d["envelopes"]);
+            set("count", json!(envelopes.len()));
+            set(
+                "checkCount",
+                json!(envelopes
+                    .iter()
+                    .map(|item| rows(&item["checks"]).len())
+                    .sum::<usize>()),
+            );
+            set(
+                "uncheckedCount",
+                json!(envelopes
+                    .iter()
+                    .flat_map(|item| rows(&item["checks"]))
+                    .filter(|item| item["done"] != true)
+                    .count()),
+            );
+        }
+        "completion-jar" => set("count", json!(rows(&d["completed"]).len())),
+        "clock" => {
+            set(
+                "hour",
+                instant
+                    .map(|time| json!(time.hour()))
+                    .unwrap_or(Value::Null),
+            );
+            set("anniversaryCount", json!(rows(&d["anniversaries"]).len()));
+            let next = rows(&d["anniversaries"])
+                .iter()
+                .filter_map(|item| {
+                    item["date"]
+                        .as_str()
+                        .and_then(|date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok())
+                        .zip(today)
+                        .map(|(date, today)| ((date - today).num_days(), item))
+                })
+                .min_by_key(|(days, _)| days.unsigned_abs());
+            if let Some((days, item)) = next {
+                set("daysUntil", json!(days));
+                set("title", item["title"].clone());
+            }
+        }
+        "memo" => set("count", json!(rows(&d["notes"]).len())),
+        "weather" => {
+            if d["config"]["allowTalk"] == false {
+                set("ready", json!(false));
+                set("status", json!("disabled"));
+                available.remove(kind);
+                return;
+            }
+            let o = &d["observation"];
+            set("temperature", o["temperature"].clone());
+            set("code", o["weatherCode"].clone());
+            set("name", o["name"].clone());
+            let forecast = &d["forecast"];
+            let weather_today = DateTime::from_timestamp_millis(now).and_then(|instant| {
+                forecast["timezone"]
+                    .as_str()
+                    .and_then(|name| name.parse::<chrono_tz::Tz>().ok())
+                    .map(|zone| instant.with_timezone(&zone).date_naive())
+            });
+            if weather_today.is_some_and(|day| {
+                forecast["today"]["date"].as_str() == Some(day.to_string().as_str())
+            }) {
+                for (field, source) in [("todayMax", "tMax"), ("todayMin", "tMin")] {
+                    set(field, forecast["today"][source].clone());
+                }
+            }
+            if weather_today
+                .and_then(|day| day.succ_opt())
+                .is_some_and(|day| {
+                    forecast["tomorrow"]["date"].as_str() == Some(day.to_string().as_str())
+                })
+            {
+                for (field, source) in [
+                    ("tomorrowCode", "code"),
+                    ("tomorrowName", "name"),
+                    ("tomorrowMax", "tMax"),
+                    ("tomorrowMin", "tMin"),
+                    ("tomorrowRainProb", "precipProb"),
+                ] {
+                    set(field, forecast["tomorrow"][source].clone());
+                }
+            }
+            let last_year = &d["lastYear"];
+            let last_year_day = last_year["date"]
+                .as_str()
+                .and_then(|date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok());
+            let expected_last_year = weather_today.and_then(|day| {
+                day.with_year(day.year() - 1)
+                    .or_else(|| day.pred_opt()?.with_year(day.year() - 1))
+            });
+            if expected_last_year.is_some() && expected_last_year == last_year_day {
+                for (field, source) in [
+                    ("lastYearCode", "code"),
+                    ("lastYearName", "name"),
+                    ("lastYearMax", "tMax"),
+                    ("lastYearMin", "tMin"),
+                    ("lastYearSource", "source"),
+                ] {
+                    set(field, last_year[source].clone());
+                }
+            }
+        }
+        "music" => {
+            if d["config"]["allowTalk"] == false {
+                set("ready", json!(false));
+                set("status", json!("disabled"));
+                available.remove(kind);
+                return;
+            }
+            for field in ["running", "playing"] {
+                set(field, d["observation"][field].clone());
+            }
+            if d["observation"]["playing"] == true {
+                for field in ["title", "artist"] {
+                    set(field, d["observation"][field].clone());
+                }
+            }
+        }
+        "device" => {
+            let o = &d["observation"];
+            set("hasBattery", o["hasBattery"].clone());
+            if let Some(battery) = rows(&o["batteries"])
+                .iter()
+                .min_by_key(|item| item["percent"].as_u64().unwrap_or(101))
+            {
+                set("percent", battery["percent"].clone());
+                set("powerState", battery["status"].clone());
+            }
+            set(
+                "woke",
+                json!(d["lastWakeAt"]
+                    .as_i64()
+                    .is_some_and(|at| now >= at && now - at <= 60_000)),
+            );
+        }
+        "bubbles" => set("count", json!(rows(&d["bubbles"]).len())),
+        "pet" => set("moving", json!(!d["food"].is_null())),
+        "collection" => {
+            set("count", json!(rows(&d["items"]).len()));
+            set("decorationCount", json!(rows(&d["decorations"]).len()));
+        }
+        _ => {}
+    }
 }
 
 fn body_interaction_data<'a>(
@@ -1127,7 +1144,10 @@ pub fn build(
     }
     let is_body_receipt = if let Some(event) = event.filter(|event| {
         event.widget_kind == "interaction"
-            && matches!(event.event.kind.as_str(), "interaction.touch" | "interaction.milestone")
+            && matches!(
+                event.event.kind.as_str(),
+                "interaction.touch" | "interaction.milestone"
+            )
     }) {
         let receipt: Option<String> = db
             .query_row(
@@ -1257,10 +1277,7 @@ pub fn build(
             ("snack", touches.snack),
             ("today", touches.today),
         ] {
-            values.insert(
-                format!("character.{persona}.touches.{field}"),
-                json!(count),
-            );
+            values.insert(format!("character.{persona}.touches.{field}"), json!(count));
         }
         let score = relationships
             .iter()
@@ -1317,10 +1334,15 @@ mod tests {
         crate::store::set_user_name(&db, "친구", now).unwrap();
         let character = crate::characters::active_character(&db, "a").unwrap();
         let event = crate::widgets::WidgetEvent {
-            id: "mood".into(), instance_id: "mood".into(), widget_kind: "mood".into(),
-            revision: 0, created_at: now, expires_at: now + 1000,
+            id: "mood".into(),
+            instance_id: "mood".into(),
+            widget_kind: "mood".into(),
+            revision: 0,
+            created_at: now,
+            expires_at: now + 1000,
             event: crate::widgets::EventDraft {
-                kind: "mood.changed".into(), text: "".into(),
+                kind: "mood.changed".into(),
+                text: "".into(),
                 payload: json!({"character": character.id, "source": "focus", "from": 0, "to": 1}),
             },
         };
@@ -1339,19 +1361,38 @@ mod tests {
         let now = chrono::Utc::now().timestamp_millis();
         let date = (chrono::Local::now().date_naive() - chrono::Days::new(7)).to_string();
         let diary = json!({"revision":1,"pages":[{"id":"page","title":"","date":date,"entries":[{"id":"note","kind":"note","text":"private diary"}]}],"notes":[],"moves":[]});
-        db.execute("UPDATE diary_state SET data=?1 WHERE id=1", [diary.to_string()]).unwrap();
+        db.execute(
+            "UPDATE diary_state SET data=?1 WHERE id=1",
+            [diary.to_string()],
+        )
+        .unwrap();
         let mut settings = crate::store::settings(&db).unwrap();
         settings.diary_recall_enabled = false;
         crate::store::save_settings(&db, &settings).unwrap();
         let event = crate::widgets::WidgetEvent {
-            id: "event".into(), instance_id: "widget".into(), widget_kind: "weather".into(),
-            revision: 1, created_at: now, expires_at: now + 1000,
-            event: crate::widgets::EventDraft { kind: "weather.changed".into(), text: "".into(), payload: json!({}) },
+            id: "event".into(),
+            instance_id: "widget".into(),
+            widget_kind: "weather".into(),
+            revision: 1,
+            created_at: now,
+            expires_at: now + 1000,
+            event: crate::widgets::EventDraft {
+                kind: "weather.changed".into(),
+                text: "".into(),
+                payload: json!({}),
+            },
         };
         for event in [None, Some(&event)] {
             let context = build(&db, event, now, 0).unwrap();
             assert_eq!(context.values["recall.ready"], false);
-            for name in ["kind", "date", "daysAgo", "snippet", "rating", "focusMinutes"] {
+            for name in [
+                "kind",
+                "date",
+                "daysAgo",
+                "snippet",
+                "rating",
+                "focusMinutes",
+            ] {
                 assert_eq!(context.values[&format!("recall.{name}")], Value::Null);
             }
         }
@@ -1429,15 +1470,24 @@ mod tests {
         assert!(stale.available.contains("interaction"));
         assert_eq!(stale.values["event.action"], Value::Null);
 
-        let widget = storage::instances(&db).unwrap().into_iter()
-            .find(|instance| instance.kind == "interaction").unwrap();
-        storage::execute(&db, &crate::widgets::WidgetRequest {
-            request_id: uuid::Uuid::new_v4().to_string(),
-            instance_id: widget.id,
-            expected_revision: widget.revision,
-            action: "stroke".into(),
-            input: json!({"character":"B", "owner":owner}),
-        }, 12_000, 0).unwrap();
+        let widget = storage::instances(&db)
+            .unwrap()
+            .into_iter()
+            .find(|instance| instance.kind == "interaction")
+            .unwrap();
+        storage::execute(
+            &db,
+            &crate::widgets::WidgetRequest {
+                request_id: uuid::Uuid::new_v4().to_string(),
+                instance_id: widget.id,
+                expected_revision: widget.revision,
+                action: "stroke".into(),
+                input: json!({"character":"B", "owner":owner}),
+            },
+            12_000,
+            0,
+        )
+        .unwrap();
         let normal_event = storage::take_reaction(&db, 12_001).unwrap().unwrap();
         let normal_context = build(&db, Some(&normal_event), 12_001, 0).unwrap();
         assert_eq!(normal_context.values["event.action"], "stroke");
@@ -1456,7 +1506,10 @@ mod tests {
                 .hour()
         );
         assert_eq!(context.values["environment.weatherReady"], false);
-        assert_eq!(context.values["environment.weatherStatus"], "permission-needed");
+        assert_eq!(
+            context.values["environment.weatherStatus"],
+            "permission-needed"
+        );
         assert_eq!(
             context.values["environment.weatherTemperature"],
             Value::Null
@@ -1665,12 +1718,17 @@ mod tests {
                 .count()
         );
         let (image_values, available) = project(
-            &snapshot("image", json!({"images":[{"id":"private-image-id","path":"private-image-path"}]})),
+            &snapshot(
+                "image",
+                json!({"images":[{"id":"private-image-id","path":"private-image-path"}]}),
+            ),
             0,
         );
         assert!(!available.contains("image"));
         assert!(!image_values.keys().any(|key| key.starts_with("image.")));
-        assert!(!serde_json::to_string(&image_values).unwrap().contains("private-image"));
+        assert!(!serde_json::to_string(&image_values)
+            .unwrap()
+            .contains("private-image"));
     }
 
     #[test]
