@@ -986,6 +986,36 @@ mod tests {
         assert_eq!(recovered.error, None);
         assert!(refresh_due(&recovered, 5000 + REFRESH_INTERVAL_MS));
     }
+    #[tokio::test]
+    async fn credential_permission_and_reauth_failures_wait_for_manual_refresh_then_recover() {
+        let unreadable = bounded_credential_read(
+            Arc::new(tokio::sync::Semaphore::new(1)),
+            Duration::from_secs(1),
+            || Err::<(), _>(error("auth-error", "OS 자격 증명을 읽지 못했어요.")),
+        )
+        .await
+        .unwrap_err();
+        let failures = [
+            unreadable,
+            error("permission-needed", "캘린더 접근 권한이 거부됐어요."),
+            error("auth-error", "다시 인증하지 못했어요."),
+        ];
+        let original = success(&connection("일정".into(), "google"), 1000);
+        for failure in failures {
+            let broken = failed(&original, &failure, 2000);
+            assert_eq!(broken.status, failure.status);
+            assert_eq!(broken.error.as_deref(), Some(failure.message.as_str()));
+            assert_eq!(broken.last_success_at, Some(1000));
+            if failure.status == "auth-error" {
+                assert!(!refresh_due(&broken, i64::MAX - 1));
+            }
+            let recovered = success(&broken, 3000);
+            assert_eq!(recovered.status, "ready");
+            assert_eq!(recovered.error, None);
+            assert_eq!(recovered.failure_count, 0);
+            assert!(refresh_due(&recovered, 3000 + REFRESH_INTERVAL_MS));
+        }
+    }
     #[test]
     fn google_all_day_cancelled_and_offset_times_are_distinct() {
         let day=google_event(&serde_json::json!({"id":"day","start":{"date":"2026-09-15"},"end":{"date":"2026-09-16"}}),"c","primary").unwrap();

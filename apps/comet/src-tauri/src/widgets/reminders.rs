@@ -646,6 +646,24 @@ mod tests {
             .is_empty());
     }
     #[test]
+    fn zero_and_advance_leads_fire_only_when_their_own_alert_time_is_crossed() {
+        let start = 1_600_000;
+        for lead in [0, 10] {
+            let mut value = data();
+            value["reminders"]["leadMinutes"] = json!(lead);
+            let at = start - lead * 60_000;
+            assert!(due_targets(&value, None, at - 2_000, at - 1)
+                .unwrap()
+                .is_empty());
+            let due = due_targets(&value, None, at - 1, at).unwrap();
+            assert_eq!(due.len(), 1, "lead {lead}");
+            assert_eq!(due[0]["title"], "회의");
+            assert!(due_targets(&value, None, at, at + 1_000)
+                .unwrap()
+                .is_empty());
+        }
+    }
+    #[test]
     fn local_calendar_alerts_work_offline_and_honor_existing_preferences() {
         let mut value = data();
         value["connections"] = json!([]);
