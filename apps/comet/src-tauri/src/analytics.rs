@@ -109,6 +109,7 @@ enum CredentialFailure {
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(clippy::enum_variant_names)] // The snake_case names are the reported GA values.
 enum ErrorSource {
     FrontendRuntime,
     FrontendPromise,

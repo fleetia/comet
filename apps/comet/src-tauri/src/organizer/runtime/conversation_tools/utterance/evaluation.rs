@@ -579,12 +579,13 @@ fn generate() -> Vec<Line> {
         ("보여줘", "보여죠"),
         (" 할 일 ", " 할일 "),
     ];
-    let clean: Vec<(
+    type Clean = (
         String,
         &'static str,
         &'static [&'static str],
         Vec<(&'static str, Value)>,
-    )> = lines
+    );
+    let clean: Vec<Clean> = lines
         .iter()
         .filter_map(|line| match &line.expect {
             Expect::Tools(kinds, _, slots) if line.family.starts_with("task_") => {

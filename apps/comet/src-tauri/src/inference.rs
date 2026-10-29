@@ -759,6 +759,7 @@ async fn completion(
     completion_observed(url, key, settings, messages, schema, budget, cancel, None).await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn completion_observed(
     url: &str,
     key: Option<&str>,
@@ -895,6 +896,7 @@ async fn local_completion_without_reasoning(
     Err("API 요청 실패".into())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn completion_request(
     url: &str,
     key: Option<&str>,
@@ -1587,10 +1589,9 @@ mod tests {
         (result, requests[0].1.clone())
     }
 
-    fn observed_runtime(
-        directory: &std::path::Path,
-        begin: RequestBegin,
-    ) -> (Inference, Arc<std::sync::Mutex<Vec<(RequestReport, u64)>>>) {
+    type Reports = Arc<std::sync::Mutex<Vec<(RequestReport, u64)>>>;
+
+    fn observed_runtime(directory: &std::path::Path, begin: RequestBegin) -> (Inference, Reports) {
         let inference = Inference::new(directory.into(), PathBuf::new(), PathBuf::new());
         let reports = Arc::new(std::sync::Mutex::new(Vec::new()));
         let received = reports.clone();

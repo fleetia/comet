@@ -740,6 +740,7 @@ pub(crate) fn instruction_text(query: &str) -> String {
 pub(crate) fn instruction_ranges(query: &str) -> Vec<std::ops::Range<usize>> {
     let chars: Vec<_> = query.char_indices().collect();
     let mut quote = None;
+    #[allow(clippy::single_range_in_vec_init)] // A list of ranges that starts with one empty range.
     let mut ranges = vec![0..0];
     for (index, (offset, c)) in chars.iter().copied().enumerate() {
         if let Some(end) = quote {

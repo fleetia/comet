@@ -17,6 +17,7 @@ pub(crate) struct BackgroundInfo {
     pub updated_at: i64,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Background {
     pub mime: String,
@@ -69,6 +70,7 @@ pub(crate) fn info(conn: &Connection, widget_id: &str) -> Result<Option<Backgrou
     .map_err(error)
 }
 
+#[cfg(test)]
 pub(crate) fn get(conn: &Connection, widget_id: &str) -> Result<Option<Background>> {
     if let Some((mime, len, chunked)) = media_info(conn, widget_id)? {
         if chunked {

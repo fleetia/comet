@@ -392,11 +392,23 @@ fn compound_records_use_their_own_committed_revision_but_reject_intervening_edit
 fn replay_refreshes_queries_even_when_reactions_are_disabled() {
     let db = store::open(std::path::Path::new(":memory:")).unwrap();
     let user = store::active_user_id(&db).unwrap();
-    let revision = actions::entities_for(&db, "task_add", "").unwrap()["revision"].as_i64().unwrap();
-    actions::execute_registry(&db, &user, "create", 0, "할 일을 추가해줘", &actions::Action {
-        kind: "task_add".into(), target_id: String::new(), expected_revision: revision,
-        input: json!({"title":"보존할 할 일"}),
-    }).unwrap();
+    let revision = actions::entities_for(&db, "task_add", "").unwrap()["revision"]
+        .as_i64()
+        .unwrap();
+    actions::execute_registry(
+        &db,
+        &user,
+        "create",
+        0,
+        "할 일을 추가해줘",
+        &actions::Action {
+            kind: "task_add".into(),
+            target_id: String::new(),
+            expected_revision: revision,
+            input: json!({"title":"보존할 할 일"}),
+        },
+    )
+    .unwrap();
     let mut turn = new_turn(&message("query", "할 일 알려줘")).unwrap();
     turn.selected = vec!["task_query".into()];
     let context = actions::entities_for(&db, "task_query", "").unwrap();
@@ -425,7 +437,8 @@ fn replay_refreshes_queries_even_when_reactions_are_disabled() {
         .unwrap();
     assert!(!fresh.to_string().contains("staleSecret"));
     assert!(fresh["context"]["operations"][0]["result"].is_object());
-    crate::widgets::storage::set_reaction(&db, context["ownerId"].as_str().unwrap(), false).unwrap();
+    crate::widgets::storage::set_reaction(&db, context["ownerId"].as_str().unwrap(), false)
+        .unwrap();
     let replayed = actions::replay_context(&db, &user, "query")
         .unwrap()
         .unwrap();
@@ -487,19 +500,35 @@ fn control_reply_keeps_the_actual_roll_but_hides_it_after_source_changes() {
     assert!(visible["receipts"][0].get("result").is_none());
     let owner = context["ownerId"].as_str().unwrap();
     crate::widgets::storage::set_reaction(&db, owner, false).unwrap();
-    let replayed = actions::replay_context(&db, &user, "roll").unwrap().unwrap();
-    assert_eq!(replayed["context"]["operations"][0]["result"]["outcome"], outcome);
+    let replayed = actions::replay_context(&db, &user, "roll")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        replayed["context"]["operations"][0]["result"]["outcome"],
+        outcome
+    );
     let widget = crate::widgets::storage::get(&db, owner).unwrap();
-    crate::widgets::storage::execute(&db, &crate::widgets::WidgetRequest {
-        request_id: uuid::Uuid::new_v4().to_string(),
-        instance_id: owner.into(), expected_revision: widget.revision,
-        action: "choose".into(), input: json!({"game":"coin"}),
-    }, 0, 0).unwrap();
+    crate::widgets::storage::execute(
+        &db,
+        &crate::widgets::WidgetRequest {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            instance_id: owner.into(),
+            expected_revision: widget.revision,
+            action: "choose".into(),
+            input: json!({"game":"coin"}),
+        },
+        0,
+        0,
+    )
+    .unwrap();
     let hidden = actions::replay_context(&db, &user, "roll")
         .unwrap()
         .unwrap();
     assert!(hidden["context"]["operations"][0]["result"]["outcome"].is_null());
-    assert_eq!(hidden["receipts"][0]["title"], visible["receipts"][0]["title"]);
+    assert_eq!(
+        hidden["receipts"][0]["title"],
+        visible["receipts"][0]["title"]
+    );
 }
 
 #[test]

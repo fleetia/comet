@@ -1223,7 +1223,8 @@ it("shows the plan date and deadline apart and opens the editor on the field tha
         name === "execute_widget" &&
         (args as { request: { action: string } }).request.action === "update",
     );
-  expect((update?.[1] as { request: { input: DataRecord } }).request.input.dueDate).toBe(
+  expect(update).toBeDefined();
+  expect((update![1] as { request: { input: DataRecord } }).request.input.dueDate).toBe(
     "2026-09-30",
   );
 });

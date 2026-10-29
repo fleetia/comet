@@ -469,24 +469,6 @@ pub(crate) async fn flush_notes(
     Ok(flushed)
 }
 
-pub(crate) async fn with_flushed_notes<T>(
-    app: &tauri::AppHandle,
-    state: &AppState,
-    id: &str,
-    action: impl FnOnce(&rusqlite::Connection) -> Result<T, String>,
-) -> Result<T, String> {
-    if storage::get(&*lock(&state.db)?, id)?.kind != "memo" {
-        return change(state, action);
-    }
-    let mut flushed = flush_notes(app, state, Some(id)).await?;
-    let result = change(state, |db| {
-        flushed.ensure_current(app, db)?;
-        action(db)
-    })?;
-    flushed.keep_locked();
-    Ok(result)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

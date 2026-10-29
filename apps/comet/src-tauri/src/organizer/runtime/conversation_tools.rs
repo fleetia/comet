@@ -1123,7 +1123,7 @@ enum Planned {
     Done(bool),
     Execute {
         user: String,
-        turn: Turn,
+        turn: Box<Turn>,
     },
 }
 
@@ -1136,7 +1136,7 @@ pub(super) async fn direct(
 ) -> Result<bool, String> {
     let (user, mut turn) = match plan(state, input, epoch, cancel.clone()).await? {
         Planned::Done(handled) => return Ok(handled),
-        Planned::Execute { user, turn } => (user, turn),
+        Planned::Execute { user, turn } => (user, *turn),
     };
     execute_plan(app, state, &user, input, &mut turn, epoch, cancel).await?;
     Ok(true)
@@ -1307,7 +1307,10 @@ async fn plan(
             return Ok(Planned::Done(true));
         }
     }
-    Ok(Planned::Execute { user, turn })
+    Ok(Planned::Execute {
+        user,
+        turn: Box::new(turn),
+    })
 }
 
 fn accept_result(turn: &mut Turn, index: usize, result: Value) {
@@ -1408,6 +1411,7 @@ async fn execute_plan(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute_operation(
     app: &tauri::AppHandle,
     state: &AppState,
@@ -1512,13 +1516,12 @@ fn registry_operation(
         if spec["effect"] == "read" {
             actions::query_registry(db, &action.kind, &action.input)
         } else {
-            let present = crate::app::presence::present_ids(
-                state, &crate::characters::active_ids(db)?,
-            )?;
+            let present =
+                crate::app::presence::present_ids(state, &crate::characters::active_ids(db)?)?;
             actions::execute_registry_with_presence(
                 db, user, input_id, index, request, &action, &present,
             )
-                .and_then(|receipt| serde_json::to_value(receipt).map_err(|e| e.to_string()))
+            .and_then(|receipt| serde_json::to_value(receipt).map_err(|e| e.to_string()))
         }
     })
 }

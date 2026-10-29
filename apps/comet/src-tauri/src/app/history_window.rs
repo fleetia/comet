@@ -423,7 +423,7 @@ mod tests {
         }
         assert!(!valid_restoration(&state, &value).unwrap());
         // Even a forged current user cannot restore another user's selected session.
-        value.user_id = store::current_user(&*lock(&state.db).unwrap())
+        value.user_id = store::current_user(&lock(&state.db).unwrap())
             .unwrap()
             .unwrap()
             .id;
