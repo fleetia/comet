@@ -626,42 +626,10 @@ pub(crate) async fn send_message_inner(
         }
         let db = lock(&state.db)?;
         let (content, target, session_id) = if let Some((request_id, option_id)) = &choice {
-            let mut slot = lock(&state.follow_ups)?;
-            let Some(request) = slot
-                .as_ref()
-                .filter(|request| &request.request_id == request_id)
-            else {
+            let Some(chosen) = chosen_follow_up(&state, &db, request_id, option_id)? else {
                 return Ok(());
             };
-            if store::active_conversation(&db)?
-                .is_none_or(|session| session.id != request.session_id || !session.draft.is_empty())
-                || lock(&state.panel)?
-                    .as_ref()
-                    .is_none_or(|panel| panel.mode != request.surface)
-                || lock(&state.runtime)?.hidden
-                || lock(&state.story)?.is_some()
-                || lock(&state.pack_stories)?
-                    .run
-                    .as_ref()
-                    .is_some_and(|run| run.ready)
-            {
-                *slot = None;
-                return Ok(());
-            }
-            let Some(option) = request
-                .options
-                .iter()
-                .find(|option| &option.id == option_id)
-            else {
-                return Ok(());
-            };
-            let result = (
-                option.label.clone(),
-                request.target.clone(),
-                Some(request.session_id.clone()),
-            );
-            *slot = None;
-            result
+            chosen
         } else {
             *lock(&state.follow_ups)? = None;
             (content, target, session_id)
@@ -746,11 +714,13 @@ pub(crate) async fn send_message_inner(
             &client_message_id,
             false,
         );
-        let recorded = db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM messages WHERE id=?1)",
-            [&client_message_id],
-            |row| row.get::<_, bool>(0),
-        ).map_err(|error| error.to_string())?;
+        let recorded = db
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM messages WHERE id=?1)",
+                [&client_message_id],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|error| error.to_string())?;
         if recorded {
             crate::characters::life::note_mood_input(&state)?;
         }
@@ -877,6 +847,48 @@ pub(crate) async fn send_message_inner(
         token,
     );
     Ok(())
+}
+
+/// The follow-up option the user picked as (text, target, session), or `None` when the offer
+/// is gone or no longer fits the current conversation and the pick is dropped.
+fn chosen_follow_up(
+    state: &AppState,
+    db: &Connection,
+    request_id: &str,
+    option_id: &str,
+) -> Result<Option<(String, String, Option<String>)>, String> {
+    let mut slot = lock(&state.follow_ups)?;
+    let Some(request) = slot
+        .as_ref()
+        .filter(|request| request.request_id == request_id)
+    else {
+        return Ok(None);
+    };
+    if store::active_conversation(db)?
+        .is_none_or(|session| session.id != request.session_id || !session.draft.is_empty())
+        || lock(&state.panel)?
+            .as_ref()
+            .is_none_or(|panel| panel.mode != request.surface)
+        || lock(&state.runtime)?.hidden
+        || lock(&state.story)?.is_some()
+        || lock(&state.pack_stories)?
+            .run
+            .as_ref()
+            .is_some_and(|run| run.ready)
+    {
+        *slot = None;
+        return Ok(None);
+    }
+    let Some(option) = request.options.iter().find(|option| option.id == option_id) else {
+        return Ok(None);
+    };
+    let result = (
+        option.label.clone(),
+        request.target.clone(),
+        Some(request.session_id.clone()),
+    );
+    *slot = None;
+    Ok(Some(result))
 }
 
 #[tauri::command]
@@ -1677,7 +1689,17 @@ async fn generate_turn_with_follow_ups(
     cancel: Arc<AtomicBool>,
     memories: &[store::MemorySearchHit],
 ) -> Result<(Vec<SceneLine>, i64, Vec<String>), String> {
-    let (settings, mut prompt, revision, bundle, ticket, expressions, names, earlier, allow_follow_ups) = {
+    let (
+        settings,
+        mut prompt,
+        revision,
+        bundle,
+        ticket,
+        expressions,
+        names,
+        earlier,
+        allow_follow_ups,
+    ) = {
         let _action = lock(&state.action)?;
         if cancel.load(Ordering::SeqCst) {
             return Err("이전 생성 요청은 취소됐어요.".into());
@@ -1722,10 +1744,13 @@ async fn generate_turn_with_follow_ups(
             prompt_with_history(&db, targets, message_id, &recalled)?
         };
         let small = use_small_model_prompt(state, &db, targets, bundle, &mut prompt)?;
-        let moods = targets.iter().map(|target| {
-            let actor = characters::guests::actor(state, &db, target)?;
-            Ok((target.clone(), characters::life::mood(state, &actor.id)?))
-        }).collect::<Result<std::collections::BTreeMap<_, _>, String>>()?;
+        let moods = targets
+            .iter()
+            .map(|target| {
+                let actor = characters::guests::actor(state, &db, target)?;
+                Ok((target.clone(), characters::life::mood(state, &actor.id)?))
+            })
+            .collect::<Result<std::collections::BTreeMap<_, _>, String>>()?;
         #[cfg(debug_assertions)]
         if !context.selected_knowledge_ids.is_empty() {
             eprintln!(
@@ -1772,7 +1797,11 @@ async fn generate_turn_with_follow_ups(
                 system.content.push_str(domain::FOLLOW_UP_PROMPT);
             }
         }
-        let mood_budget = if bundle || targets.len() > 1 { 7200 } else { 4800 };
+        let mood_budget = if bundle || targets.len() > 1 {
+            7200
+        } else {
+            4800
+        };
         domain::with_moods(&mut prompt, &moods, !small, mood_budget);
         let input: String = db
             .query_row(
@@ -2167,7 +2196,14 @@ mod session_tests {
     fn small_model_keeps_or_drops_moments_with_the_replaced_system_budget() {
         let state = super::super::tests::state();
         let db = lock(&state.db).unwrap();
-        store::save_settings(&db, &Settings { mode: "apple".into(), ..Settings::default() }).unwrap();
+        store::save_settings(
+            &db,
+            &Settings {
+                mode: "apple".into(),
+                ..Settings::default()
+            },
+        )
+        .unwrap();
         let target = characters::active_ids(&db).unwrap().remove(0);
         let mut actor = characters::get(&db, &target).unwrap();
         actor.definition.personality = "가".repeat(300);
@@ -2181,10 +2217,20 @@ mod session_tests {
                 }).to_string() },
                 ChatMessage { role: "user".into(), content: "최근 입력".into() },
             ];
-            assert!(use_small_model_prompt(&state, &db, std::slice::from_ref(&target), false, &mut prompt).unwrap());
+            assert!(use_small_model_prompt(
+                &state,
+                &db,
+                std::slice::from_ref(&target),
+                false,
+                &mut prompt
+            )
+            .unwrap());
             let context: serde_json::Value = serde_json::from_str(&prompt[1].content).unwrap();
             assert_eq!(context.get("sharedMoments").is_some(), retained);
-            assert_eq!(prompt[0].content.contains(domain::SHARED_MOMENT_RULES), retained);
+            assert_eq!(
+                prompt[0].content.contains(domain::SHARED_MOMENT_RULES),
+                retained
+            );
             assert_eq!(prompt[2].content, "최근 입력");
         }
     }
