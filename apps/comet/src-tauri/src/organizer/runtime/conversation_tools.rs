@@ -1512,13 +1512,12 @@ fn registry_operation(
         if spec["effect"] == "read" {
             actions::query_registry(db, &action.kind, &action.input)
         } else {
-            let present = crate::app::presence::present_ids(
-                state, &crate::characters::active_ids(db)?,
-            )?;
+            let present =
+                crate::app::presence::present_ids(state, &crate::characters::active_ids(db)?)?;
             actions::execute_registry_with_presence(
                 db, user, input_id, index, request, &action, &present,
             )
-                .and_then(|receipt| serde_json::to_value(receipt).map_err(|e| e.to_string()))
+            .and_then(|receipt| serde_json::to_value(receipt).map_err(|e| e.to_string()))
         }
     })
 }
