@@ -192,6 +192,8 @@
   --comet-color-cat-focus: rgb(143 227 214);
   --comet-color-cat-life: rgb(255 159 133);
   --comet-color-cat-record: rgb(255 204 51);
+  --comet-color-cat-record-hover: rgb(255 214.200009 91.800004);
+  --comet-color-cat-record-pressed: rgb(224.399999 179.519999 44.88);
   --comet-color-cat-rest: rgb(182 160 234);
   --comet-color-cat-work: rgb(110 139 255);
   --comet-color-check-ink: rgb(26 20 51);
@@ -469,6 +471,8 @@
   --comet-color-cat-focus: rgb(43 143 163);
   --comet-color-cat-life: rgb(226 122 82);
   --comet-color-cat-record: rgb(217 165 33);
+  --comet-color-cat-record-hover: rgb(224.600005 183 77.4);
+  --comet-color-cat-record-pressed: rgb(190.96 145.199997 29.040003);
   --comet-color-cat-rest: rgb(139 116 211);
   --comet-color-cat-work: rgb(79 111 219);
   --comet-color-check-ink: rgb(255 255 255);
@@ -746,6 +750,8 @@
   --comet-color-cat-focus: rgb(43 143 163);
   --comet-color-cat-life: rgb(226 122 82);
   --comet-color-cat-record: rgb(217 165 33);
+  --comet-color-cat-record-hover: rgb(224.600005 183 77.4);
+  --comet-color-cat-record-pressed: rgb(190.96 145.199997 29.040003);
   --comet-color-cat-rest: rgb(139 116 211);
   --comet-color-cat-work: rgb(79 111 219);
   --comet-color-check-ink: rgb(255 255 255);
@@ -1023,6 +1029,8 @@
   --comet-color-cat-focus: rgb(43 143 163);
   --comet-color-cat-life: rgb(226 122 82);
   --comet-color-cat-record: rgb(217 165 33);
+  --comet-color-cat-record-hover: rgb(224.600005 183 77.4);
+  --comet-color-cat-record-pressed: rgb(190.96 145.199997 29.040003);
   --comet-color-cat-rest: rgb(139 116 211);
   --comet-color-cat-work: rgb(79 111 219);
   --comet-color-check-ink: rgb(255 255 255);

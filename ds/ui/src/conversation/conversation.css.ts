@@ -1,6 +1,6 @@
 import { globalStyle, style, styleVariants } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
-import { stateTransition } from "../motion/motion.css";
+import { pressable, stateTransition } from "../motion/motion.css";
 
 export const glass = style({
   position: "relative",
@@ -146,7 +146,7 @@ export const inputLarge = style({
   lineHeight: "normal",
 });
 export const send = style([
-  stateTransition,
+  pressable,
   {
     appearance: "none",
     border: 0,
@@ -160,6 +160,8 @@ export const send = style([
     color: tokens["color/on-primary"],
     cursor: "pointer",
     selectors: {
+      "&:hover:not(:disabled)": { background: tokens["color/primary-hover"] },
+      "&:active:not(:disabled)": { background: tokens["color/primary-pressed"] },
       "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 3 },
       "&:disabled": { opacity: 0.4, cursor: "not-allowed" },
     },
@@ -169,6 +171,10 @@ export const sendLarge = style({
   width: 38,
   height: 38,
   background: tokens["color/cat-record"],
+  selectors: {
+    "&:hover:not(:disabled)": { background: tokens["color/cat-record-hover"] },
+    "&:active:not(:disabled)": { background: tokens["color/cat-record-pressed"] },
+  },
 });
 export const sendCompact = style({ width: 32, height: 32 });
 export const choice = style([
