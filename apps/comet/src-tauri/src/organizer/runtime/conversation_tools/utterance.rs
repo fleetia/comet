@@ -7,7 +7,6 @@
 use crate::nlp::protocol::{Analysis, Token};
 use chrono::{Datelike, Duration, NaiveDate};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::ops::Range;
 
 pub(super) const RULE_VERSION: u32 = 1;
@@ -139,12 +138,9 @@ pub(super) fn judge(
     request: &str,
     analysis: Option<&Analysis>,
     anchor: NaiveDate,
-    available: &[Value],
+    available: &[crate::organizer::actions::Capability],
 ) -> Judgment {
-    let ids: Vec<&str> = available
-        .iter()
-        .filter_map(|spec| spec["id"].as_str())
-        .collect();
+    let ids: Vec<&str> = available.iter().map(|spec| spec.id.as_str()).collect();
     if !request.chars().any(is_hangul) {
         return english(request, &ids);
     }
@@ -179,14 +175,10 @@ pub(super) fn judge(
             Morph::new(token, corrected)
         })
         .collect();
+    // Only AI widget actions carry a title.
     let generated: Vec<&str> = available
         .iter()
-        .filter(|spec| {
-            spec["id"]
-                .as_str()
-                .is_some_and(|id| id.starts_with("generated:"))
-        })
-        .filter_map(|spec| spec["title"].as_str())
+        .filter_map(|spec| spec.title())
         .filter(|title| !title.trim().is_empty())
         .collect();
     let mut reader = Reader {

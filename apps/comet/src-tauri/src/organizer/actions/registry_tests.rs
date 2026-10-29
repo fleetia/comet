@@ -216,7 +216,7 @@ fn registry_exposes_official_actions_and_keeps_connection_secrets_out() {
     assert!(catalog(&db)
         .unwrap()
         .iter()
-        .any(|item| item["id"] == "music_query"));
+        .any(|item| item.id == "music_query"));
     let widget = storage::instances(&db)
         .unwrap()
         .into_iter()
@@ -239,8 +239,8 @@ fn registry_exposes_official_actions_and_keeps_connection_secrets_out() {
     assert!(catalog(&db)
         .unwrap()
         .iter()
-        .filter(|item| item["owner"] == "music")
-        .all(|item| item["effect"] == "read"));
+        .filter(|item| matches!(item.source, Source::Registry { owner: "music", .. }))
+        .all(Capability::is_read));
 }
 
 #[test]

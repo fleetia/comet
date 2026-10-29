@@ -1,5 +1,5 @@
 use super::*;
-use serde_json::json;
+use serde_json::Value;
 use std::collections::HashMap;
 
 /// One corpus line. `kiwi_tokens.json` holds Kiwi's analysis of the same text, recorded with
@@ -58,7 +58,7 @@ fn analyses() -> HashMap<String, Analysis> {
         .collect()
 }
 
-fn catalog(memo: bool, without: &[&str]) -> Vec<Value> {
+fn catalog(memo: bool, without: &[&str]) -> Vec<crate::organizer::actions::Capability> {
     let mut ids = vec![
         "note_create",
         "note_update",
@@ -85,7 +85,7 @@ fn catalog(memo: bool, without: &[&str]) -> Vec<Value> {
     }
     ids.into_iter()
         .filter(|id| !without.contains(id))
-        .map(|id| json!({"id": id}))
+        .map(crate::organizer::actions::Capability::stub)
         .collect()
 }
 

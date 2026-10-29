@@ -305,7 +305,7 @@ fn matches_dates(item: &Value, from: Option<&str>, through: Option<&str>) -> boo
 
 pub(crate) fn query_registry(db: &Connection, kind: &str, input: &Value) -> Result<Value> {
     let definition = catalog::definition(kind)?;
-    if definition.effect != "read" {
+    if definition.effect != Effect::Read {
         return Err("조회 작업만 실행할 수 있어요.".into());
     }
     catalog::validate(definition, input)?;
@@ -391,7 +391,7 @@ pub(crate) fn authorize_registry(
     explicit: bool,
 ) -> Result<()> {
     let definition = catalog::definition(kind)?;
-    if definition.effect == "read" {
+    if definition.effect == Effect::Read {
         return Ok(());
     }
     authorize_evidence(query, mode, evidence, definition.automatic, explicit)?;
@@ -883,7 +883,7 @@ pub(crate) fn execute_registry_with_presence(
     if definition.action == "desktop-open" {
         return Err("바탕화면 열기는 네이티브 실행 경로에서만 처리할 수 있어요.".into());
     }
-    if definition.effect == "read" {
+    if definition.effect == Effect::Read {
         return Err("조회는 query_registry를 사용해 주세요.".into());
     }
     if request.is_some_and(|request| request.trim().is_empty()) {
@@ -985,7 +985,7 @@ pub(crate) fn execute_registry_with_presence(
     } else {
         action.target_id.clone()
     };
-    let mut result = if definition.effect == "control" {
+    let mut result = if definition.effect == Effect::Control {
         context(definition, &owner_id, revision + 1, &after, "")
     } else {
         let collection = after[definition.collection]

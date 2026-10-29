@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::nlp::NlpService;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::path::PathBuf;
 
 enum Expect {
@@ -618,7 +618,7 @@ fn ro(word: &str) -> &'static str {
     }
 }
 
-fn catalog() -> Vec<Value> {
+fn catalog() -> Vec<crate::organizer::actions::Capability> {
     [
         "note_create",
         "note_update",
@@ -641,7 +641,7 @@ fn catalog() -> Vec<Value> {
         "focus_start",
     ]
     .into_iter()
-    .map(|id| json!({ "id": id }))
+    .map(crate::organizer::actions::Capability::stub)
     .collect()
 }
 

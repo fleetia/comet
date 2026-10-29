@@ -7,7 +7,11 @@
 
 mod mcp;
 
-use crate::{app, organizer::actions, store, widgets};
+use crate::{
+    app,
+    organizer::actions::{self, Capability},
+    store, widgets,
+};
 use rusqlite::Connection;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -145,7 +149,14 @@ fn dispatch(
     }
     let params = request.params;
     match request.method.as_str() {
-        "catalog" => Ok(json!(catalog(&*app::lock(&state.db)?)?)),
+        "catalog" => Ok(json!(catalog(&*app::lock(&state.db)?)?
+            .iter()
+            .map(|spec| {
+                let mut value = spec.to_json();
+                value["confirmRequired"] = json!(confirm_required(spec));
+                value
+            })
+            .collect::<Vec<_>>())),
         "context" => {
             let lookup: Lookup = serde_json::from_value(params).map_err(|e| e.to_string())?;
             let db = app::lock(&state.db)?;
@@ -155,7 +166,7 @@ fn dispatch(
         "query" => {
             let lookup: Lookup = serde_json::from_value(params).map_err(|e| e.to_string())?;
             let db = app::lock(&state.db)?;
-            if spec(&db, &lookup.kind)?["effect"] != "read" {
+            if !spec(&db, &lookup.kind)?.is_read() {
                 return Err("조회 기능이 아니에요. comet_execute를 사용해 주세요.".into());
             }
             let input = if lookup.input.is_null() {
@@ -181,30 +192,22 @@ fn dispatch(
 }
 
 /// Registry actions available now, without ones that need the native desktop window.
-fn catalog(db: &Connection) -> Result<Vec<Value>, String> {
+fn catalog(db: &Connection) -> Result<Vec<Capability>, String> {
     Ok(actions::catalog(db)?
         .into_iter()
-        .filter(|spec| spec["effect"] == "read" || spec["receipt"] == true)
-        .map(|mut spec| {
-            spec["confirmRequired"] = json!(confirm_required(&spec));
-            spec
-        })
+        .filter(|spec| spec.is_read() || spec.receipt())
         .collect())
 }
 
-fn spec(db: &Connection, kind: &str) -> Result<Value, String> {
+fn spec(db: &Connection, kind: &str) -> Result<Capability, String> {
     catalog(db)?
         .into_iter()
-        .find(|spec| spec["id"] == kind)
+        .find(|spec| spec.id == kind)
         .ok_or_else(|| "현재 사용할 수 없는 기능이에요. comet_catalog로 확인해 주세요.".into())
 }
 
-fn confirm_required(spec: &Value) -> bool {
-    spec["effect"] != "read"
-        && (spec["id"]
-            .as_str()
-            .is_some_and(|id| id.ends_with("_delete"))
-            || spec["undoSupported"] != true)
+fn confirm_required(spec: &Capability) -> bool {
+    !spec.is_read() && (spec.id.ends_with("_delete") || !spec.undo_supported)
 }
 
 fn run(
@@ -220,7 +223,7 @@ fn run(
         return Err("requestId를 100자 안에서 정해 주세요.".into());
     }
     let spec = spec(db, &request.kind)?;
-    if spec["effect"] == "read" {
+    if spec.is_read() {
         return Err("조회는 comet_query를 사용해 주세요.".into());
     }
     if confirm_required(&spec) && !request.confirmed {
@@ -411,7 +414,7 @@ mod tests {
         let ids: Vec<_> = catalog(&db)
             .unwrap()
             .into_iter()
-            .map(|spec| spec["id"].clone())
+            .map(|spec| json!(spec.id))
             .collect();
         assert!(ids.contains(&json!("travel_create")));
         assert!(!ids
