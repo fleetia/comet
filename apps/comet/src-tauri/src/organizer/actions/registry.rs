@@ -660,7 +660,7 @@ fn payload(
     definition: &Definition,
     action: &Action,
     data: &Value,
-    query: &str,
+    request: Option<&str>,
 ) -> Result<Value> {
     let mut payload = action.input.clone();
     if definition.id == "focus_queue_add" {
@@ -789,7 +789,7 @@ fn payload(
             &action.input,
             &mut payload,
             original,
-            query,
+            request,
         )?;
     }
     Ok(payload)
@@ -864,15 +864,18 @@ pub(crate) fn execute_registry(
     query: &str,
     action: &Action,
 ) -> Result<Receipt> {
-    execute_registry_with_presence(db, user, input_id, step, query, action, &[])
+    execute_registry_with_presence(db, user, input_id, step, Some(query), action, &[])
 }
 
+/// `request` is the user's own words when Comet's conversation planned the action, and
+/// verbatim values are checked against it. `None` is a caller that passes structured input
+/// itself; it must apply its own authorization before calling.
 pub(crate) fn execute_registry_with_presence(
     db: &Connection,
     user: &str,
     input_id: &str,
     step: usize,
-    query: &str,
+    request: Option<&str>,
     action: &Action,
     present: &[String],
 ) -> Result<Receipt> {
@@ -883,7 +886,7 @@ pub(crate) fn execute_registry_with_presence(
     if definition.effect == "read" {
         return Err("조회는 query_registry를 사용해 주세요.".into());
     }
-    if query.trim().is_empty() {
+    if request.is_some_and(|request| request.trim().is_empty()) {
         return Err("사용자의 실행 요청이 필요해요.".into());
     }
     catalog::validate(definition, &action.input)?;
@@ -913,7 +916,7 @@ pub(crate) fn execute_registry_with_presence(
             "원본이 바뀌었어요. 최신 revision {revision}의 내용을 확인하고 다시 요청해 주세요."
         ));
     }
-    let payload = payload(&tx, definition, action, &before, query)?;
+    let payload = payload(&tx, definition, action, &before, request)?;
     let timestamp = chrono::Utc::now().timestamp_millis();
     let after = if definition.owner == "diary" {
         let before_state = if definition.action == "habit-check" {

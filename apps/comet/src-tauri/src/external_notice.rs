@@ -48,6 +48,7 @@ struct Notice {
     result: Option<String>,
     urgent: bool,
     os: bool,
+    source: &'static str,
 }
 
 pub(crate) fn cli(args: &[String]) -> Option<i32> {
@@ -109,6 +110,7 @@ pub(crate) fn cli(args: &[String]) -> Option<i32> {
                 result,
                 urgent,
                 os,
+                source: "cli",
             },
             dry_run,
         ))
@@ -117,7 +119,7 @@ pub(crate) fn cli(args: &[String]) -> Option<i32> {
         Ok((notice, true)) => {
             println!(
                 "{}",
-                json!({"title": notice.title, "text": notice.text, "result": notice.result, "urgent": notice.urgent, "os": notice.os, "source": "cli"})
+                json!({"title": notice.title, "text": notice.text, "result": notice.result, "urgent": notice.urgent, "os": notice.os, "source": notice.source})
             );
             Some(0)
         }
@@ -192,6 +194,7 @@ fn parse_url(url: &tauri::Url) -> Result<Notice, String> {
         result,
         urgent: flag("urgent")?,
         os: flag("os")?,
+        source: "url",
     })
 }
 
@@ -234,7 +237,7 @@ fn prepare_notice(notice: &Notice, data: &Value, now: i64) -> (widgets::EventDra
     let draft = widgets::EventDraft {
         kind: "external-notice".into(),
         text,
-        payload: json!({"title": notice.title, "text": notice.text, "result": notice.result, "urgent": notice.urgent, "source": "url", "receivedAt": now}),
+        payload: json!({"title": notice.title, "text": notice.text, "result": notice.result, "urgent": notice.urgent, "source": notice.source, "receivedAt": now}),
     };
     (draft, data["osNotifications"] == true)
 }
@@ -251,6 +254,26 @@ pub(crate) fn receive_url(app: &tauri::AppHandle, url: &tauri::Url) {
     };
     if let Some(state) = app.try_state::<Arc<app::AppState>>() {
         let _ = receive(app, &state, &runtime, notice);
+    }
+}
+
+/// Lets the character mention a change another program made through the external API.
+/// It follows the same switch, rate limit and stop conditions as a `comet://notify` link.
+pub(crate) fn announce(app: &tauri::AppHandle, state: &app::AppState, title: &str, text: &str) {
+    let Some(runtime) = app.try_state::<Runtime>() else {
+        return;
+    };
+    let title = clean(title, 40);
+    let notice = Notice {
+        title: (!title.is_empty()).then_some(title),
+        text: clean(text, 200),
+        result: Some("ok".into()),
+        urgent: false,
+        os: false,
+        source: "api",
+    };
+    if let Ok(Some(notice)) = runtime.queue_or_ready(notice) {
+        let _ = receive(app, state, &runtime, notice);
     }
 }
 
@@ -320,7 +343,7 @@ mod tests {
     #[test]
     fn startup_notices_are_bounded_and_drained_in_order_before_live_delivery() {
         let runtime = Runtime::default();
-        let notice = |text: &str| Notice { title: None, text: text.into(), result: None, urgent: false, os: false };
+        let notice = |text: &str| Notice { title: None, text: text.into(), result: None, urgent: false, os: false, source: "url" };
         for text in ["one", "two", "three", "four", "five", "six"] {
             assert!(runtime.queue_or_ready(notice(text)).unwrap().is_none());
         }

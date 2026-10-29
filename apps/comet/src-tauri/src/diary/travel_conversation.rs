@@ -231,11 +231,14 @@ fn booking_category(kind: &str) -> &'static str {
 }
 
 /// Copies only text the user actually wrote; masked or invented values never replace the saved one.
-fn verbatim(model: &Value, key: &str, request: &str) -> Result<()> {
+/// Without a request the caller passed the value itself, so only masked values are refused.
+fn verbatim(model: &Value, key: &str, request: Option<&str>) -> Result<()> {
     let Some(value) = model.get(key).and_then(Value::as_str) else {
         return Ok(());
     };
-    if !value.is_empty() && (value.contains('•') || !request.contains(value)) {
+    if !value.is_empty()
+        && (value.contains('•') || request.is_some_and(|request| !request.contains(value)))
+    {
         return Err(match key {
             "confirmation" => {
                 "예약번호는 직접 적은 그대로만 저장해요. 예약번호를 다시 알려 주세요."
@@ -283,7 +286,7 @@ pub(crate) fn prepare(
     model: &Value,
     payload: &mut Value,
     original: Option<&Value>,
-    request: &str,
+    request: Option<&str>,
 ) -> Result<()> {
     verbatim(model, "confirmation", request)?;
     verbatim(model, "link", request)?;
