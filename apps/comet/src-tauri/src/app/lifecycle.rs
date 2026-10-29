@@ -194,382 +194,8 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .register_uri_scheme_protocol(SPRITE_SCHEME, serve_sprite)
         .register_uri_scheme_protocol(WIDGET_BACKGROUND_SCHEME, widgets::backgrounds::serve)
-        .setup(|app| {
-            let app_data = app.path().app_data_dir()?;
-            migrate_app_data(&app_data)?;
-            std::fs::create_dir_all(&app_data)?;
-            if let Err(error) = super::reset::apply_pending(&app_data) {
-                crate::report_error!("reset_cleanup", "Reset cleanup incomplete: {error}");
-            }
-            if crate::exbrain::initialize(&app_data).is_err() {
-                crate::report_error!(
-                    "widget_context_init",
-                    "Widget context initialization deferred"
-                );
-            }
-            let (sidecar, runtime) = resource_paths(app.handle()).map_err(std::io::Error::other)?;
-            let talk = talk::host::initialize(&app_data);
-            if let Err(error) = story::initialize_files(&app_data) {
-                crate::report_error!("story_init", "Story initialization: {error}");
-            }
-            let story_catalog = story::load(&app_data)
-                .or_else(|_| story::catalog())
-                .map_err(std::io::Error::other)?;
-            let db = open_session(&app_data.join(DATABASE_FILE)).map_err(std::io::Error::other)?;
-            let mood_event_cursor = widgets::mood::latest_event(&db).map_err(std::io::Error::other)?;
-            let state = Arc::new(AppState {
-                organizer: crate::organizer::runtime::Runtime::default(),
-                db: Mutex::new(db),
-                inference: inference::Inference::new(app_data.clone(), sidecar, runtime),
-                nlp: crate::memory_commands::new_nlp(app.handle(), &app_data)
-                    .map_err(std::io::Error::other)?,
-                app_data,
-                runtime: Mutex::new(RuntimeStatus::default()),
-                playback: Mutex::new(None),
-                panel: Mutex::new(None),
-                launcher: Mutex::new(launcher::Runtime::default()),
-                history_window: Mutex::new(super::history_window::Runtime::default()),
-                launcher_open: AtomicBool::new(false),
-                widget_editing: AtomicBool::new(false),
-                launcher_session: AtomicU64::new(0),
-                launcher_gate: tokio::sync::Mutex::new(()),
-                settings_section: Mutex::new(windows::SettingsSection::default()),
-                settings_character: Mutex::new(None),
-                settings_dirty: AtomicBool::new(false),
-                settings_exit_confirmed: AtomicBool::new(false),
-                tasks: Mutex::new(super::tasks::Registry::default()),
-                cancellation: Mutex::new(None),
-                download_cancel: Mutex::new(None),
-                gate: tokio::sync::Mutex::new(()),
-                epoch: AtomicU64::new(0),
-                widget_epoch: AtomicU64::new(0),
-                playback_link_gate: tokio::sync::Mutex::new(()),
-                widget_playback: Mutex::new(None),
-                talk: Mutex::new(talk),
-                talk_playback: Mutex::new(None),
-                talk_turn: AtomicBool::new(true),
-                story: Mutex::new(None),
-                follow_ups: Mutex::new(None),
-                follow_up_dismissed_epoch: AtomicU64::new(u64::MAX),
-                pack_stories: Mutex::new(crate::pack_stories::Runtime::default()),
-                story_clock: Mutex::new(story::Clock::default()),
-                story_catalog: Mutex::new(story_catalog),
-                widget_jobs: Mutex::new(HashMap::new()),
-                widget_open_intents: Mutex::new(HashMap::new()),
-                widget_clocks: Mutex::new(std::collections::BTreeMap::new()),
-                app_usage_tracker: Mutex::new(crate::app_usage::tracking::Tracker::default()),
-                last_input: AtomicI64::new(now()),
-                last_foreground: AtomicI64::new(now()),
-                last_scene: AtomicI64::new(now()),
-                next_idle: AtomicI64::new(now() + 5),
-                quiet_hours: Mutex::new(super::quiet_hours::Runtime::default()),
-                last_preparation: AtomicI64::new(0),
-                last_background_check: AtomicI64::new(0),
-                idle_sequence: AtomicU64::new(0),
-                presence: Mutex::new(super::presence::Presence::for_app(app.handle())),
-                action: Mutex::new(()),
-                automatic: AtomicBool::new(false),
-                stopping: AtomicBool::new(false),
-                update_installing: AtomicBool::new(false),
-                behavior: Mutex::new(behavior::Machine::default()),
-                reactions: Mutex::new(crate::characters::reaction_host::Runtime::default()),
-                animation_states: Mutex::new(
-                    crate::characters::animation_states::Runtime::default(),
-                ),
-                life: Mutex::new(crate::characters::life::Runtime::default()),
-                guests: Mutex::new(crate::characters::guests::Runtime::default()),
-                positions: Mutex::new(HashMap::new()),
-            });
-            app.manage(state.clone());
-            crate::analytics::attach_request_observer(app.handle(), &state.inference);
-            crate::analytics::crash::install(app.handle(), &state);
-            state
-                .inference
-                .configure_chatgpt(&app.config().identifier)
-                .map_err(std::io::Error::other)?;
-            crate::characters::reaction_host::install(app.handle(), state.clone());
-            app.manage(desktop::toys::Runtime::default());
-            app.manage(crate::widgets::runtime::Runtime::default());
-            app.manage(crate::widgets::desktop::Runtime::default());
-            app.manage(updater::UpdateState::default());
-            launcher::initialize(app.handle(), &state).map_err(std::io::Error::other)?;
-            crate::widgets::memo_notes::schedule_sync(app.handle());
-            crate::widgets::images::schedule_sync(app.handle());
-            lock(&state.runtime).map_err(std::io::Error::other)?.hidden =
-                !behavior::preferences(&*lock(&state.db).map_err(std::io::Error::other)?)
-                    .map_err(std::io::Error::other)?
-                    .characters_visible;
-            desktop::create_boxes(app.handle(), &state).map_err(std::io::Error::other)?;
-            desktop::menu::create(app.handle()).map_err(std::io::Error::other)?;
-            crate::widgets::desktop::restore_on_start(app.handle(), state.clone());
-            crate::widgets::planning::notifications::install(app.handle())?;
-            crate::external_notice::finish_startup(app.handle(), &state).map_err(std::io::Error::other)?;
-            if let Err(error) = crate::external_api::start(app.handle(), state.clone()) {
-                crate::report_error!("external_api_start", "External API unavailable: {error}");
-            }
-            #[cfg(not(target_os = "macos"))]
-            for url in std::env::args()
-                .skip(1)
-                .filter_map(|arg| tauri::Url::parse(&arg).ok())
-                .filter(|url| url.scheme() == "comet")
-            {
-                crate::external_notice::receive_url(app.handle(), &url);
-            }
-            if let Err(error) = device::wake::install(app.handle()) {
-                crate::report_error!(
-                    "device_resume_notification",
-                    "기기 복귀 알림 연결 실패: {error}"
-                );
-            }
-            let handle = app.handle().clone();
-            talk::host::watch(handle.clone(), state.clone());
-            tauri::async_runtime::spawn(story::host::run_clock(handle.clone(), state.clone()));
-            desktop::toys::start(handle.clone());
-            updater::start(handle.clone());
-            tauri::async_runtime::spawn(crate::widgets::connection_host::restore_music_bridges(
-                handle.clone(),
-                state.clone(),
-            ));
-            tauri::async_runtime::spawn(background_loop(handle, state, mood_event_cursor));
-            Ok(())
-        })
-        .on_window_event(|window, event| {
-            if matches!(event, WindowEvent::CloseRequested { .. }) {
-                if let Some(id) = window.label().strip_prefix("widget-") {
-                    if uuid::Uuid::parse_str(id).is_ok() {
-                        let state = window.state::<Arc<AppState>>();
-                        let _ = widgets::commands::cancel_widget_opens(&state, Some(id));
-                    }
-                }
-            }
-            if matches!(event, WindowEvent::Moved(_)) {
-                crate::widgets::desktop::moved(window);
-            }
-            if matches!(event, WindowEvent::Destroyed) {
-                let label = window.label();
-                if label == "widget-editor" {
-                    crate::widgets::desktop::editor_destroyed(window.app_handle());
-                }
-                #[cfg(not(target_os = "macos"))]
-                if let Some(id) = label.strip_prefix("desktop-toy-") {
-                    crate::desktop::toys::remove_actor(window.app_handle(), id);
-                }
-                if label == "planner" || label.starts_with("widget-") {
-                    crate::widgets::runtime::refresh(window.app_handle());
-                }
-            }
-            if window.label().starts_with("generated-widget-") {
-                match event {
-                    WindowEvent::CloseRequested { .. } => {
-                        let _ = crate::widgets::generated::commands::cancel_for_window(
-                            window.app_handle(),
-                            window.label(),
-                            None,
-                        );
-                    }
-                    WindowEvent::Destroyed => {
-                        let app = window.app_handle().clone();
-                        let label = window.label().to_string();
-                        let epoch = window.state::<Arc<AppState>>().epoch.load(Ordering::SeqCst);
-                        tauri::async_runtime::spawn(async move {
-                            let _ = crate::widgets::generated::commands::cancel_for_window(
-                                &app,
-                                &label,
-                                Some(epoch),
-                            );
-                        });
-                    }
-                    _ => {}
-                }
-                return;
-            }
-            if window.label() == "widget-workshop" {
-                if matches!(event, WindowEvent::Destroyed) {
-                    let app = window.app_handle().clone();
-                    let epoch = window.state::<Arc<AppState>>().epoch.load(Ordering::SeqCst);
-                    tauri::async_runtime::spawn(async move {
-                        let _ = crate::widgets::generated::commands::cancel_workshop_for_window(
-                            &app,
-                            Some(epoch),
-                        );
-                    });
-                }
-                return;
-            }
-            if window.label() == "launcher" {
-                launcher::window_event(window, event);
-                return;
-            }
-            if matches!(window.label(), "planner" | "travel") {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    // Frontend guards approve closing before releasing its generation.
-                    api.prevent_close();
-                }
-                return;
-            }
-            if window.label() == "settings" {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    if let Err(error) = window.hide() {
-                        crate::report_error!(
-                            "settings_window_hide",
-                            "Settings window hide failed: {error}"
-                        );
-                    }
-                }
-                return;
-            }
-            if window.label() == "conversation-history" {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    // The webview flushes its draft before release_conversation_history destroys it.
-                    api.prevent_close();
-                }
-                return;
-            }
-            if matches!(window.label(), "balloon" | "conversation-input") {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let app = window.app_handle();
-                    let _ = skip_talk(app.clone(), app.state::<Arc<AppState>>());
-                }
-                return;
-            }
-            let face = desktop::is_face(window.label());
-            if !face && !desktop::is_body(window.label()) {
-                return;
-            }
-            if let WindowEvent::Destroyed = event {
-                let state = window.state::<Arc<AppState>>();
-                let identity = crate::characters::reaction_host::native_window_identity(window);
-                let tracked =
-                    crate::characters::guests::forget_window(&state, window.label(), identity)
-                        .unwrap_or(false);
-                let missing = window
-                    .app_handle()
-                    .get_webview_window(window.label())
-                    .is_none_or(|current| {
-                        crate::characters::reaction_host::window_identity(&current) == 0
-                    });
-                if tracked || missing {
-                    if missing {
-                        let _ = crate::characters::guests::forget_missing_window(
-                            &state,
-                            window.label(),
-                        );
-                    }
-                    if !face {
-                        crate::characters::gestures::cancel_window(
-                            window.app_handle(),
-                            window.label(),
-                        );
-                    }
-                    crate::characters::collision_host::remove(window.app_handle(), window.label());
-                }
-                return;
-            }
-            if !face {
-                match event {
-                    WindowEvent::Moved(_)
-                    | WindowEvent::Resized(_)
-                    | WindowEvent::ScaleFactorChanged { .. }
-                    | WindowEvent::Focused(_) => crate::characters::collision_host::refresh(
-                        window.app_handle(),
-                        window.label(),
-                    ),
-                    _ => {}
-                }
-            }
-            let state = window.state::<Arc<AppState>>();
-            match event {
-                WindowEvent::Moved(pos) => {
-                    crate::characters::gestures::trace_window_moved(window, pos);
-                    if crate::characters::guests::window_authority(
-                        &state,
-                        window.label(),
-                        crate::characters::reaction_host::native_window_identity(window),
-                    )
-                    .ok()
-                    .flatten()
-                    .is_none()
-                    {
-                        return;
-                    }
-                    if !face {
-                        crate::characters::gestures::moved(window.app_handle(), window.label());
-                    }
-                    let resident_face = face
-                        && crate::characters::guests::window_authority(
-                            &state,
-                            window.label(),
-                            crate::characters::reaction_host::native_window_identity(window),
-                        )
-                        .ok()
-                            == Some(Some(None));
-                    if resident_face {
-                        if let Ok(mut positions) = lock(&state.positions) {
-                            positions.insert(
-                                window.label().into(),
-                                (
-                                    WindowPosition {
-                                        x: pos.x as f64,
-                                        y: pos.y as f64,
-                                    },
-                                    Instant::now(),
-                                ),
-                            );
-                        }
-                    }
-                    if !face {
-                        if let Ok(data) = snapshot(&state) {
-                            desktop::sync_balloon(window.app_handle(), &data);
-                        }
-                    }
-                }
-                WindowEvent::CloseRequested { api, .. } if face => {
-                    api.prevent_close();
-                    if let Some(view) = window
-                        .app_handle()
-                        .get_webview_window(window.label())
-                        .filter(|view| {
-                            crate::characters::reaction_host::window_identity(view)
-                                == crate::characters::reaction_host::native_window_identity(window)
-                        })
-                    {
-                        let _ = desktop::hide_ambient(&view);
-                    }
-                }
-                WindowEvent::CloseRequested { api, .. } => {
-                    api.prevent_close();
-                    let app = window.app_handle().clone();
-                    let authority = crate::characters::guests::window_authority(
-                        &state,
-                        window.label(),
-                        crate::characters::reaction_host::native_window_identity(window),
-                    )
-                    .ok()
-                    .flatten();
-                    if let Some(Some(generation)) = authority {
-                        let Some(id) = window.label().strip_prefix("body-") else {
-                            return;
-                        };
-                        let id = id.to_string();
-                        let state = state.inner().clone();
-                        tauri::async_runtime::spawn(async move {
-                            let _ = crate::characters::guests::close(&app, &state, &id, generation);
-                        });
-                        return;
-                    }
-                    if authority.is_none() {
-                        return;
-                    }
-                    tauri::async_runtime::spawn(async move {
-                        let state = app.state::<Arc<AppState>>();
-                        let _ = hide_boxes(app.clone(), state).await;
-                    });
-                }
-                _ => {}
-            }
-        })
+        .setup(setup)
+        .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
             crate::analytics::get_analytics_context,
             crate::analytics::get_analytics_consent,
@@ -849,74 +475,444 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("failed to build comet")
-        .run(|app, event| match event {
-            #[cfg(target_os = "macos")]
-            tauri::RunEvent::Opened { urls } => {
-                for url in urls {
-                    crate::external_notice::receive_url(app, &url);
-                }
+        .run(on_run_event);
+}
+
+fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let app_data = app.path().app_data_dir()?;
+    migrate_app_data(&app_data)?;
+    std::fs::create_dir_all(&app_data)?;
+    if let Err(error) = super::reset::apply_pending(&app_data) {
+        crate::report_error!("reset_cleanup", "Reset cleanup incomplete: {error}");
+    }
+    if crate::exbrain::initialize(&app_data).is_err() {
+        crate::report_error!(
+            "widget_context_init",
+            "Widget context initialization deferred"
+        );
+    }
+    let (sidecar, runtime) = resource_paths(app.handle()).map_err(std::io::Error::other)?;
+    let talk = talk::host::initialize(&app_data);
+    if let Err(error) = story::initialize_files(&app_data) {
+        crate::report_error!("story_init", "Story initialization: {error}");
+    }
+    let story_catalog = story::load(&app_data)
+        .or_else(|_| story::catalog())
+        .map_err(std::io::Error::other)?;
+    let db = open_session(&app_data.join(DATABASE_FILE)).map_err(std::io::Error::other)?;
+    let mood_event_cursor = widgets::mood::latest_event(&db).map_err(std::io::Error::other)?;
+    let state = Arc::new(AppState {
+        organizer: crate::organizer::runtime::Runtime::default(),
+        db: Mutex::new(db),
+        inference: inference::Inference::new(app_data.clone(), sidecar, runtime),
+        nlp: crate::memory_commands::new_nlp(app.handle(), &app_data)
+            .map_err(std::io::Error::other)?,
+        app_data,
+        runtime: Mutex::new(RuntimeStatus::default()),
+        playback: Mutex::new(None),
+        panel: Mutex::new(None),
+        launcher: Mutex::new(launcher::Runtime::default()),
+        history_window: Mutex::new(super::history_window::Runtime::default()),
+        launcher_open: AtomicBool::new(false),
+        widget_editing: AtomicBool::new(false),
+        launcher_session: AtomicU64::new(0),
+        launcher_gate: tokio::sync::Mutex::new(()),
+        settings_section: Mutex::new(windows::SettingsSection::default()),
+        settings_character: Mutex::new(None),
+        settings_dirty: AtomicBool::new(false),
+        settings_exit_confirmed: AtomicBool::new(false),
+        tasks: Mutex::new(super::tasks::Registry::default()),
+        cancellation: Mutex::new(None),
+        download_cancel: Mutex::new(None),
+        gate: tokio::sync::Mutex::new(()),
+        epoch: AtomicU64::new(0),
+        widget_epoch: AtomicU64::new(0),
+        playback_link_gate: tokio::sync::Mutex::new(()),
+        widget_playback: Mutex::new(None),
+        talk: Mutex::new(talk),
+        talk_playback: Mutex::new(None),
+        talk_turn: AtomicBool::new(true),
+        story: Mutex::new(None),
+        follow_ups: Mutex::new(None),
+        follow_up_dismissed_epoch: AtomicU64::new(u64::MAX),
+        pack_stories: Mutex::new(crate::pack_stories::Runtime::default()),
+        story_clock: Mutex::new(story::Clock::default()),
+        story_catalog: Mutex::new(story_catalog),
+        widget_jobs: Mutex::new(HashMap::new()),
+        widget_open_intents: Mutex::new(HashMap::new()),
+        widget_clocks: Mutex::new(std::collections::BTreeMap::new()),
+        app_usage_tracker: Mutex::new(crate::app_usage::tracking::Tracker::default()),
+        last_input: AtomicI64::new(now()),
+        last_foreground: AtomicI64::new(now()),
+        last_scene: AtomicI64::new(now()),
+        next_idle: AtomicI64::new(now() + 5),
+        quiet_hours: Mutex::new(super::quiet_hours::Runtime::default()),
+        last_preparation: AtomicI64::new(0),
+        last_background_check: AtomicI64::new(0),
+        idle_sequence: AtomicU64::new(0),
+        presence: Mutex::new(super::presence::Presence::for_app(app.handle())),
+        action: Mutex::new(()),
+        automatic: AtomicBool::new(false),
+        stopping: AtomicBool::new(false),
+        update_installing: AtomicBool::new(false),
+        behavior: Mutex::new(behavior::Machine::default()),
+        reactions: Mutex::new(crate::characters::reaction_host::Runtime::default()),
+        animation_states: Mutex::new(crate::characters::animation_states::Runtime::default()),
+        life: Mutex::new(crate::characters::life::Runtime::default()),
+        guests: Mutex::new(crate::characters::guests::Runtime::default()),
+        positions: Mutex::new(HashMap::new()),
+    });
+    app.manage(state.clone());
+    crate::analytics::attach_request_observer(app.handle(), &state.inference);
+    crate::analytics::crash::install(app.handle(), &state);
+    state
+        .inference
+        .configure_chatgpt(&app.config().identifier)
+        .map_err(std::io::Error::other)?;
+    crate::characters::reaction_host::install(app.handle(), state.clone());
+    app.manage(desktop::toys::Runtime::default());
+    app.manage(crate::widgets::runtime::Runtime::default());
+    app.manage(crate::widgets::desktop::Runtime::default());
+    app.manage(updater::UpdateState::default());
+    launcher::initialize(app.handle(), &state).map_err(std::io::Error::other)?;
+    crate::widgets::memo_notes::schedule_sync(app.handle());
+    crate::widgets::images::schedule_sync(app.handle());
+    lock(&state.runtime).map_err(std::io::Error::other)?.hidden =
+        !behavior::preferences(&*lock(&state.db).map_err(std::io::Error::other)?)
+            .map_err(std::io::Error::other)?
+            .characters_visible;
+    desktop::create_boxes(app.handle(), &state).map_err(std::io::Error::other)?;
+    desktop::menu::create(app.handle()).map_err(std::io::Error::other)?;
+    crate::widgets::desktop::restore_on_start(app.handle(), state.clone());
+    crate::widgets::planning::notifications::install(app.handle())?;
+    crate::external_notice::finish_startup(app.handle(), &state).map_err(std::io::Error::other)?;
+    if let Err(error) = crate::external_api::start(app.handle(), state.clone()) {
+        crate::report_error!("external_api_start", "External API unavailable: {error}");
+    }
+    #[cfg(not(target_os = "macos"))]
+    for url in std::env::args()
+        .skip(1)
+        .filter_map(|arg| tauri::Url::parse(&arg).ok())
+        .filter(|url| url.scheme() == "comet")
+    {
+        crate::external_notice::receive_url(app.handle(), &url);
+    }
+    if let Err(error) = device::wake::install(app.handle()) {
+        crate::report_error!(
+            "device_resume_notification",
+            "기기 복귀 알림 연결 실패: {error}"
+        );
+    }
+    let handle = app.handle().clone();
+    talk::host::watch(handle.clone(), state.clone());
+    tauri::async_runtime::spawn(story::host::run_clock(handle.clone(), state.clone()));
+    desktop::toys::start(handle.clone());
+    updater::start(handle.clone());
+    tauri::async_runtime::spawn(crate::widgets::connection_host::restore_music_bridges(
+        handle.clone(),
+        state.clone(),
+    ));
+    tauri::async_runtime::spawn(background_loop(handle, state, mood_event_cursor));
+    Ok(())
+}
+
+fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
+    if matches!(event, WindowEvent::CloseRequested { .. }) {
+        if let Some(id) = window.label().strip_prefix("widget-") {
+            if uuid::Uuid::parse_str(id).is_ok() {
+                let state = window.state::<Arc<AppState>>();
+                let _ = widgets::commands::cancel_widget_opens(&state, Some(id));
             }
-            tauri::RunEvent::Ready => {
-                let auth_state = app.state::<Arc<AppState>>().inner().clone();
-                let auth_app = app.clone();
+        }
+    }
+    if matches!(event, WindowEvent::Moved(_)) {
+        crate::widgets::desktop::moved(window);
+    }
+    if matches!(event, WindowEvent::Destroyed) {
+        let label = window.label();
+        if label == "widget-editor" {
+            crate::widgets::desktop::editor_destroyed(window.app_handle());
+        }
+        #[cfg(not(target_os = "macos"))]
+        if let Some(id) = label.strip_prefix("desktop-toy-") {
+            crate::desktop::toys::remove_actor(window.app_handle(), id);
+        }
+        if label == "planner" || label.starts_with("widget-") {
+            crate::widgets::runtime::refresh(window.app_handle());
+        }
+    }
+    if window.label().starts_with("generated-widget-") {
+        match event {
+            WindowEvent::CloseRequested { .. } => {
+                let _ = crate::widgets::generated::commands::cancel_for_window(
+                    window.app_handle(),
+                    window.label(),
+                    None,
+                );
+            }
+            WindowEvent::Destroyed => {
+                let app = window.app_handle().clone();
+                let label = window.label().to_string();
+                let epoch = window.state::<Arc<AppState>>().epoch.load(Ordering::SeqCst);
                 tauri::async_runtime::spawn(async move {
-                    let _ = auth_state.inference.chatgpt.initialize().await;
-                    publish(&auth_app, &auth_state);
+                    let _ = crate::widgets::generated::commands::cancel_for_window(
+                        &app,
+                        &label,
+                        Some(epoch),
+                    );
                 });
             }
-            tauri::RunEvent::ExitRequested { api, code, .. } => {
-                if let Some(state) = app.try_state::<Arc<AppState>>() {
-                    if windows::settings_exit_needs_confirmation(&state) {
-                        api.prevent_exit();
-                        if let Err(error) = windows::confirm_settings_exit(app, &state) {
-                            crate::report_error!(
-                                "settings_exit_confirm",
-                                "Failed to confirm unsaved settings before exit: {error}"
-                            );
-                        }
-                        return;
-                    }
-                }
-                if code == Some(tauri::RESTART_EXIT_CODE) {
-                    return;
-                }
-                if let Some(state) = app.try_state::<Arc<AppState>>() {
-                    api.prevent_exit();
-                    if unavailable(&state) {
-                        return;
-                    }
-                    let app = app.clone();
-                    tauri::async_runtime::spawn(async move {
-                        request_exit(&app).await;
-                    });
-                }
+            _ => {}
+        }
+        return;
+    }
+    if window.label() == "widget-workshop" {
+        if matches!(event, WindowEvent::Destroyed) {
+            let app = window.app_handle().clone();
+            let epoch = window.state::<Arc<AppState>>().epoch.load(Ordering::SeqCst);
+            tauri::async_runtime::spawn(async move {
+                let _ = crate::widgets::generated::commands::cancel_workshop_for_window(
+                    &app,
+                    Some(epoch),
+                );
+            });
+        }
+        return;
+    }
+    if window.label() == "launcher" {
+        launcher::window_event(window, event);
+        return;
+    }
+    if matches!(window.label(), "planner" | "travel") {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            // Frontend guards approve closing before releasing its generation.
+            api.prevent_close();
+        }
+        return;
+    }
+    if window.label() == "settings" {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            if let Err(error) = window.hide() {
+                crate::report_error!(
+                    "settings_window_hide",
+                    "Settings window hide failed: {error}"
+                );
             }
-            tauri::RunEvent::WindowEvent {
-                label,
-                event: WindowEvent::Destroyed,
-                ..
-            } if label == "conversation-history" => {
-                super::history_window::destroyed(app);
+        }
+        return;
+    }
+    if window.label() == "conversation-history" {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            // The webview flushes its draft before release_conversation_history destroys it.
+            api.prevent_close();
+        }
+        return;
+    }
+    if matches!(window.label(), "balloon" | "conversation-input") {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let app = window.app_handle();
+            let _ = skip_talk(app.clone(), app.state::<Arc<AppState>>());
+        }
+        return;
+    }
+    let face = desktop::is_face(window.label());
+    if !face && !desktop::is_body(window.label()) {
+        return;
+    }
+    if let WindowEvent::Destroyed = event {
+        let state = window.state::<Arc<AppState>>();
+        let identity = crate::characters::reaction_host::native_window_identity(window);
+        let tracked = crate::characters::guests::forget_window(&state, window.label(), identity)
+            .unwrap_or(false);
+        let missing = window
+            .app_handle()
+            .get_webview_window(window.label())
+            .is_none_or(|current| crate::characters::reaction_host::window_identity(&current) == 0);
+        if tracked || missing {
+            if missing {
+                let _ = crate::characters::guests::forget_missing_window(&state, window.label());
             }
-            tauri::RunEvent::WindowEvent {
-                label,
-                event: WindowEvent::Destroyed,
-                ..
-            } if matches!(label.as_str(), "planner" | "travel") => {
-                crate::widgets::planning::windows::destroyed(app, &label);
+            if !face {
+                crate::characters::gestures::cancel_window(window.app_handle(), window.label());
             }
-            tauri::RunEvent::Exit => {
-                device::wake::shutdown(app);
-                if let Some(state) = app.try_state::<Arc<AppState>>() {
-                    crate::external_api::stop(&state.app_data);
-                    let _ = prepare_exit(&state);
-                    // Native macOS termination can skip ExitRequested. Finish before returning to Cocoa.
-                    tauri::async_runtime::block_on(stop_owned_work(&state));
-                }
-                crate::analytics::crash::clean_exit(app);
+            crate::characters::collision_host::remove(window.app_handle(), window.label());
+        }
+        return;
+    }
+    if !face {
+        match event {
+            WindowEvent::Moved(_)
+            | WindowEvent::Resized(_)
+            | WindowEvent::ScaleFactorChanged { .. }
+            | WindowEvent::Focused(_) => {
+                crate::characters::collision_host::refresh(window.app_handle(), window.label())
             }
             _ => {}
-        });
+        }
+    }
+    let state = window.state::<Arc<AppState>>();
+    match event {
+        WindowEvent::Moved(pos) => {
+            crate::characters::gestures::trace_window_moved(window, pos);
+            if crate::characters::guests::window_authority(
+                &state,
+                window.label(),
+                crate::characters::reaction_host::native_window_identity(window),
+            )
+            .ok()
+            .flatten()
+            .is_none()
+            {
+                return;
+            }
+            if !face {
+                crate::characters::gestures::moved(window.app_handle(), window.label());
+            }
+            let resident_face = face
+                && crate::characters::guests::window_authority(
+                    &state,
+                    window.label(),
+                    crate::characters::reaction_host::native_window_identity(window),
+                )
+                .ok()
+                    == Some(Some(None));
+            if resident_face {
+                if let Ok(mut positions) = lock(&state.positions) {
+                    positions.insert(
+                        window.label().into(),
+                        (
+                            WindowPosition {
+                                x: pos.x as f64,
+                                y: pos.y as f64,
+                            },
+                            Instant::now(),
+                        ),
+                    );
+                }
+            }
+            if !face {
+                if let Ok(data) = snapshot(&state) {
+                    desktop::sync_balloon(window.app_handle(), &data);
+                }
+            }
+        }
+        WindowEvent::CloseRequested { api, .. } if face => {
+            api.prevent_close();
+            if let Some(view) = window
+                .app_handle()
+                .get_webview_window(window.label())
+                .filter(|view| {
+                    crate::characters::reaction_host::window_identity(view)
+                        == crate::characters::reaction_host::native_window_identity(window)
+                })
+            {
+                let _ = desktop::hide_ambient(&view);
+            }
+        }
+        WindowEvent::CloseRequested { api, .. } => {
+            api.prevent_close();
+            let app = window.app_handle().clone();
+            let authority = crate::characters::guests::window_authority(
+                &state,
+                window.label(),
+                crate::characters::reaction_host::native_window_identity(window),
+            )
+            .ok()
+            .flatten();
+            if let Some(Some(generation)) = authority {
+                let Some(id) = window.label().strip_prefix("body-") else {
+                    return;
+                };
+                let id = id.to_string();
+                let state = state.inner().clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = crate::characters::guests::close(&app, &state, &id, generation);
+                });
+                return;
+            }
+            if authority.is_none() {
+                return;
+            }
+            tauri::async_runtime::spawn(async move {
+                let state = app.state::<Arc<AppState>>();
+                let _ = hide_boxes(app.clone(), state).await;
+            });
+        }
+        _ => {}
+    }
+}
+
+fn on_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
+    match event {
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Opened { urls } => {
+            for url in urls {
+                crate::external_notice::receive_url(app, &url);
+            }
+        }
+        tauri::RunEvent::Ready => {
+            let auth_state = app.state::<Arc<AppState>>().inner().clone();
+            let auth_app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = auth_state.inference.chatgpt.initialize().await;
+                publish(&auth_app, &auth_state);
+            });
+        }
+        tauri::RunEvent::ExitRequested { api, code, .. } => {
+            if let Some(state) = app.try_state::<Arc<AppState>>() {
+                if windows::settings_exit_needs_confirmation(&state) {
+                    api.prevent_exit();
+                    if let Err(error) = windows::confirm_settings_exit(app, &state) {
+                        crate::report_error!(
+                            "settings_exit_confirm",
+                            "Failed to confirm unsaved settings before exit: {error}"
+                        );
+                    }
+                    return;
+                }
+            }
+            if code == Some(tauri::RESTART_EXIT_CODE) {
+                return;
+            }
+            if let Some(state) = app.try_state::<Arc<AppState>>() {
+                api.prevent_exit();
+                if unavailable(&state) {
+                    return;
+                }
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    request_exit(&app).await;
+                });
+            }
+        }
+        tauri::RunEvent::WindowEvent {
+            label,
+            event: WindowEvent::Destroyed,
+            ..
+        } if label == "conversation-history" => {
+            super::history_window::destroyed(app);
+        }
+        tauri::RunEvent::WindowEvent {
+            label,
+            event: WindowEvent::Destroyed,
+            ..
+        } if matches!(label.as_str(), "planner" | "travel") => {
+            crate::widgets::planning::windows::destroyed(app, &label);
+        }
+        tauri::RunEvent::Exit => {
+            device::wake::shutdown(app);
+            if let Some(state) = app.try_state::<Arc<AppState>>() {
+                crate::external_api::stop(&state.app_data);
+                let _ = prepare_exit(&state);
+                // Native macOS termination can skip ExitRequested. Finish before returning to Cocoa.
+                tauri::async_runtime::block_on(stop_owned_work(&state));
+            }
+            crate::analytics::crash::clean_exit(app);
+        }
+        _ => {}
+    }
 }
 
 pub(crate) async fn stop_owned_work(state: &AppState) {
