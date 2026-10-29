@@ -7,8 +7,12 @@ use crate::behavior;
 use crate::{
     characters, domain, inference, models, resources, store, story,
     types::*,
-    widgets::{self, commands::{advance_widgets, play_widget_reaction},
-        connection_host::start_due_widget_refreshes, storage},
+    widgets::{
+        self,
+        commands::{advance_widgets, play_widget_reaction},
+        connection_host::start_due_widget_refreshes,
+        storage,
+    },
 };
 use chrono::Datelike;
 use rusqlite::{Connection, OptionalExtension};
@@ -20,7 +24,11 @@ use std::{
     time::Duration,
 };
 
-pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>, mut mood_event_cursor: i64) {
+pub(crate) async fn background_loop(
+    app: tauri::AppHandle,
+    state: Arc<AppState>,
+    mut mood_event_cursor: i64,
+) {
     let mut interval = tokio::time::interval(Duration::from_millis(500));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
@@ -162,15 +170,20 @@ fn play_mood_reaction(app: &tauri::AppHandle, state: &Arc<AppState>) -> Result<b
         let status = lock(&state.runtime)?.clone();
         let db = lock(&state.db)?;
         let settings = store::settings(&db)?;
-        if unavailable(state) || status.hidden || status.paused || !settings.autonomous_enabled
+        if unavailable(state)
+            || status.hidden
+            || status.paused
+            || !settings.autonomous_enabled
             || storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
             || super::quiet_hours::automatic_blocked(state, &settings)?
         {
             crate::characters::life::discard_mood_changes(state)?;
             return Ok(false);
         }
-        if status.phase != "idle" || state.launcher_open.load(Ordering::SeqCst)
-            || lock(&state.panel)?.is_some() || lock(&state.pack_stories)?.run.is_some()
+        if status.phase != "idle"
+            || state.launcher_open.load(Ordering::SeqCst)
+            || lock(&state.panel)?.is_some()
+            || lock(&state.pack_stories)?.run.is_some()
             || behavior::reactions_blocked(state)?
         {
             return Ok(false);
@@ -186,10 +199,14 @@ fn play_mood_reaction(app: &tauri::AppHandle, state: &Arc<AppState>) -> Result<b
         let previous_epoch = change.epoch;
         let event = crate::widgets::WidgetEvent {
             id: uuid::Uuid::new_v4().to_string(),
-            instance_id: String::new(), widget_kind: "mood".into(), revision: 0,
-            created_at: change.at, expires_at: change.at.saturating_add(60_000),
+            instance_id: String::new(),
+            widget_kind: "mood".into(),
+            revision: 0,
+            created_at: change.at,
+            expires_at: change.at.saturating_add(60_000),
             event: crate::widgets::EventDraft {
-                kind: "mood.changed".into(), text: String::new(),
+                kind: "mood.changed".into(),
+                text: String::new(),
                 payload: serde_json::json!({"character": change.character, "from": change.from, "to": change.to, "source": change.source}),
             },
         };
@@ -197,7 +214,11 @@ fn play_mood_reaction(app: &tauri::AppHandle, state: &Arc<AppState>) -> Result<b
             Some(lines) => {
                 let prepared = lock(&state.talk_playback)?.take();
                 let token = super::interrupt_with_db(state, true, &db)?;
-                crate::characters::life::advance_mood_changes_epoch(state, previous_epoch, token.0)?;
+                crate::characters::life::advance_mood_changes_epoch(
+                    state,
+                    previous_epoch,
+                    token.0,
+                )?;
                 *lock(&state.talk_playback)? = prepared;
                 Some((token, lines))
             }
@@ -211,54 +232,107 @@ fn play_mood_reaction(app: &tauri::AppHandle, state: &Arc<AppState>) -> Result<b
     Ok(false)
 }
 
-fn take_moment_reaction(state: &AppState, db: &Connection, at: i64) -> Result<Option<widgets::WidgetEvent>, String> {
+fn take_moment_reaction(
+    state: &AppState,
+    db: &Connection,
+    at: i64,
+) -> Result<Option<widgets::WidgetEvent>, String> {
     let status = lock(&state.runtime)?.clone();
     let settings = store::settings(db)?;
-    if unavailable(state) || status.hidden || status.paused || !settings.autonomous_enabled
-        || storage::focus_active(db, at)? || super::quiet_hours::automatic_blocked(state, &settings)?
+    if unavailable(state)
+        || status.hidden
+        || status.paused
+        || !settings.autonomous_enabled
+        || storage::focus_active(db, at)?
+        || super::quiet_hours::automatic_blocked(state, &settings)?
     {
-        db.execute("DELETE FROM moment_events", []).map_err(|error| error.to_string())?;
+        db.execute("DELETE FROM moment_events", [])
+            .map_err(|error| error.to_string())?;
         return Ok(None);
     }
-    db.execute("DELETE FROM moment_events WHERE created_at <= ?1 OR created_at < ?2", rusqlite::params![at.saturating_sub(60_000), state.last_input.load(Ordering::SeqCst).saturating_mul(1000)])
-        .map_err(|error| error.to_string())?;
-    if status.phase != "idle" || state.launcher_open.load(Ordering::SeqCst)
-        || lock(&state.panel)?.is_some() || lock(&state.pack_stories)?.run.is_some()
-        || behavior::reactions_blocked(state)? || now() - state.last_input.load(Ordering::SeqCst) < 3
+    db.execute(
+        "DELETE FROM moment_events WHERE created_at <= ?1 OR created_at < ?2",
+        rusqlite::params![
+            at.saturating_sub(60_000),
+            state.last_input.load(Ordering::SeqCst).saturating_mul(1000)
+        ],
+    )
+    .map_err(|error| error.to_string())?;
+    if status.phase != "idle"
+        || state.launcher_open.load(Ordering::SeqCst)
+        || lock(&state.panel)?.is_some()
+        || lock(&state.pack_stories)?.run.is_some()
+        || behavior::reactions_blocked(state)?
+        || now() - state.last_input.load(Ordering::SeqCst) < 3
     {
         return Ok(None);
     }
-    type MomentRow = (String, String, String, String, i64, Option<String>, Option<String>);
+    type MomentRow = (
+        String,
+        String,
+        String,
+        String,
+        i64,
+        Option<String>,
+        Option<String>,
+    );
     let row: Option<MomentRow> = db.query_row(
         "SELECT user_id,source,event,summary,created_at,widget_kind,widget_id FROM moment_events ORDER BY created_at,source LIMIT 1",
         [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
     ).optional().map_err(|error| error.to_string())?;
-    let Some((user_id, source, kind, summary, created_at, widget_kind, widget_id)) = row else { return Ok(None) };
+    let Some((user_id, source, kind, summary, created_at, widget_kind, widget_id)) = row else {
+        return Ok(None);
+    };
     let mut query = db.prepare("SELECT memory_id,content_version FROM moment_event_keepers WHERE user_id=?1 AND source=?2")
         .map_err(|error| error.to_string())?;
-    let keepers = query.query_map(rusqlite::params![user_id, source], |row| Ok(serde_json::json!({"id":row.get::<_, String>(0)?,"version":row.get::<_, i64>(1)?})))
-        .map_err(|error| error.to_string())?.collect::<rusqlite::Result<Vec<_>>>()
+    let keepers = query
+        .query_map(rusqlite::params![user_id, source], |row| {
+            Ok(serde_json::json!({"id":row.get::<_, String>(0)?,"version":row.get::<_, i64>(1)?}))
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|error| error.to_string())?;
     drop(query);
-    db.execute("DELETE FROM moment_events WHERE user_id=?1 AND source=?2", rusqlite::params![user_id, source])
-        .map_err(|error| error.to_string())?;
-    if store::current_user(db)?.as_ref().map(|user| user.id.as_str()) != Some(user_id.as_str()) {
+    db.execute(
+        "DELETE FROM moment_events WHERE user_id=?1 AND source=?2",
+        rusqlite::params![user_id, source],
+    )
+    .map_err(|error| error.to_string())?;
+    if store::current_user(db)?
+        .as_ref()
+        .map(|user| user.id.as_str())
+        != Some(user_id.as_str())
+    {
         return Ok(None);
     }
     let instance_id = match (&widget_kind, widget_id) {
         (Some(kind), Some(id)) => {
-            let Some(widget) = storage::instances(db)?.into_iter().find(|widget| widget.kind == *kind && widget.id == id) else { return Ok(None) };
-            if !storage::reaction_enabled(db, &widget.id)? { return Ok(None); }
+            let Some(widget) = storage::instances(db)?
+                .into_iter()
+                .find(|widget| widget.kind == *kind && widget.id == id)
+            else {
+                return Ok(None);
+            };
+            if !storage::reaction_enabled(db, &widget.id)? {
+                return Ok(None);
+            }
             widget.id
         }
         (None, None) => String::new(),
         _ => return Ok(None),
     };
     Ok(Some(widgets::WidgetEvent {
-        id: uuid::Uuid::new_v4().to_string(), instance_id, widget_kind: "moment".into(), revision: 0,
-        created_at, expires_at: created_at.saturating_add(60_000),
-        event: widgets::EventDraft { kind: "moment.added".into(), text: String::new(),
-            payload: serde_json::json!({"userId":user_id,"momentSource":source,"event":kind,"summary":summary,"memoryRefs":keepers,"widgetKind":widget_kind}) },
+        id: uuid::Uuid::new_v4().to_string(),
+        instance_id,
+        widget_kind: "moment".into(),
+        revision: 0,
+        created_at,
+        expires_at: created_at.saturating_add(60_000),
+        event: widgets::EventDraft {
+            kind: "moment.added".into(),
+            text: String::new(),
+            payload: serde_json::json!({"userId":user_id,"momentSource":source,"event":kind,"summary":summary,"memoryRefs":keepers,"widgetKind":widget_kind}),
+        },
     }))
 }
 
@@ -266,7 +340,10 @@ fn play_moment_reaction(app: &tauri::AppHandle, state: &Arc<AppState>) -> Result
     let pending = {
         let _action = lock(&state.action)?;
         let db = lock(&state.db)?;
-        let Some(event) = take_moment_reaction(state, &db, chrono::Utc::now().timestamp_millis())? else { return Ok(false) };
+        let Some(event) = take_moment_reaction(state, &db, chrono::Utc::now().timestamp_millis())?
+        else {
+            return Ok(false);
+        };
         match crate::talk::host::prepare(state, &db, Some(&event))? {
             Some(lines) => {
                 let prepared = lock(&state.talk_playback)?.take();
@@ -419,59 +496,7 @@ pub(crate) async fn run_background(
         return Ok(());
     }
     if settings.autonomous_enabled && now() >= state.next_idle.load(Ordering::SeqCst) {
-        if super::users::begin_name_prompt(state, epoch, &cancel)? {
-            super::publish(app, state);
-            return Ok(());
-        }
-        let (lines, source) = {
-            let _action = lock(&state.action)?;
-            if !is_current(state, epoch, &cancel) {
-                return Ok(());
-            }
-            if defer_recent_recall(state, settings.diary_recall_enabled, now()) {
-                return Ok(());
-            }
-            schedule_idle(state, settings.idle_minutes);
-            state.last_scene.store(now(), Ordering::SeqCst);
-            let selected = {
-                let db = lock(&state.db)?;
-                let mut selected = None;
-                for birthday in due_birthdays(state, &db)? {
-                    if let Some(lines) = crate::talk::host::prepare_birthday(state, &db, birthday)? {
-                        selected = Some(lines);
-                        break;
-                    }
-                }
-                if selected.is_none() {
-                    if let Some(anniversary) = due_relationship_anniversary(&db)? {
-                        selected = crate::talk::host::prepare_anniversary(state, &db, anniversary)?;
-                    }
-                }
-                if selected.is_none()
-                    && settings.diary_recall_enabled
-                    && claim_recall_opportunity(&db)?
-                {
-                    selected = crate::talk::host::prepare_recall(state, &db)?;
-                }
-                selected
-            };
-            if let Some(lines) = selected {
-                (lines, "talk")
-            } else {
-                next_scene(state)?
-            }
-        };
-        return run_scene(
-            app,
-            state,
-            &lines,
-            source,
-            &uuid::Uuid::new_v4().to_string(),
-            false,
-            epoch,
-            cancel,
-        )
-        .await;
+        return run_idle_scene(app, state, &settings, epoch, cancel).await;
     }
     if now() - state.last_input.load(Ordering::SeqCst) < 15 {
         return Ok(());
@@ -489,79 +514,8 @@ pub(crate) async fn run_background(
                 && !settings.api_model.is_empty()
         };
         if ready && now() - state.last_preparation.load(Ordering::SeqCst) >= 15 {
-            state.last_preparation.store(now(), Ordering::SeqCst);
-            phase(
-                app,
-                state,
-                epoch,
-                crate::types::RuntimePhase::Analyzing,
-                None,
-                None,
-            );
-            let batch = {
-                let db = lock(&state.db)?;
-                domain::analysis_batch_for_conversations(
-                    &pending,
-                    &store::analysis_memories(&db, &pending)?,
-                    revision,
-                    &store::completed_conversation_sources(&db, &pending)?,
-                )
-            };
-            {
-                let _action = lock(&state.action)?;
-                let db = lock(&state.db)?;
-                if !is_current(state, epoch, &cancel)
-                    || super::quiet_hours::automatic_blocked(state, &store::settings(&db)?)?
-                    || store::revision(&db)? != batch.revision
-                {
-                    return Ok(());
-                }
-                store::defer_analysis(&db, &batch.deferred_ids, "source_budget")?;
-            }
-            if batch.submitted_ids.is_empty() {
-                return Ok(());
-            }
-            let prompt = batch.messages;
-            let result = background_generate(
-                state,
-                &settings,
-                &prompt,
-                domain::analysis_schema(),
-                768,
-                cancel.clone(),
-            )
-            .await;
-            let _action = lock(&state.action)?;
-            let db = lock(&state.db)?;
-            if !is_current(state, epoch, &cancel)
-                || super::quiet_hours::automatic_blocked(state, &store::settings(&db)?)?
-                || store::revision(&db)? != batch.revision
-            {
-                return Ok(());
-            }
-            match result {
-                Ok(value) => {
-                    if let Err(error) =
-                        store::analyze_apply_batch(&db, &value, &batch.submitted_ids)
-                    {
-                        store::analysis_failure(
-                            &db,
-                            &batch.submitted_ids,
-                            chrono::Utc::now().timestamp_millis(),
-                        )?;
-                        return Err(error);
-                    }
-                }
-                Err(error) => {
-                    store::analysis_failure(
-                        &db,
-                        &batch.submitted_ids,
-                        chrono::Utc::now().timestamp_millis(),
-                    )?;
-                    return Err(error);
-                }
-            }
-            return Ok(());
+            return analyze_pending(app, state, &settings, &pending, revision, epoch, &cancel)
+                .await;
         }
     }
     if crate::organizer::runtime::run_next(app, state, epoch, cancel.clone(), false).await? {
@@ -669,10 +623,17 @@ pub(crate) async fn run_background(
             ),
             store::current_user(&db)?.as_ref(),
         );
-        let moods = characters.iter().map(|character| {
-            Ok((character.id.clone(), crate::characters::life::mood(state, &character.id)?))
-        }).collect::<Result<std::collections::BTreeMap<_, _>, String>>()?;
-        let small = settings.mode == "apple" || (settings.mode == "local" && models::selected_small(&settings));
+        let moods = characters
+            .iter()
+            .map(|character| {
+                Ok((
+                    character.id.clone(),
+                    crate::characters::life::mood(state, &character.id)?,
+                ))
+            })
+            .collect::<Result<std::collections::BTreeMap<_, _>, String>>()?;
+        let small = settings.mode == "apple"
+            || (settings.mode == "local" && models::selected_small(&settings));
         domain::with_moods(&mut prompt, &moods, !small, 7200);
         prompt
     };
@@ -690,15 +651,8 @@ pub(crate) async fn run_background(
         &mut schema,
         settings.mode == "apple",
     )?;
-    let result = background_generate(
-        state,
-        &settings,
-        &prompt,
-        schema,
-        512,
-        cancel.clone(),
-    )
-    .await?;
+    let result =
+        background_generate(state, &settings, &prompt, schema, 512, cancel.clone()).await?;
     let mut lines = domain::parse_lines_for(
         result,
         &targets,
@@ -728,7 +682,154 @@ pub(crate) async fn run_background(
     Ok(())
 }
 
-fn due_relationship_anniversary(db: &Connection) -> Result<Option<crate::talk::host::AnniversaryTrigger>, String> {
+/// The idle line when its time has come: a birthday, anniversary or recall first, then the next
+/// prepared scene.
+async fn run_idle_scene(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    settings: &Settings,
+    epoch: u64,
+    cancel: Arc<AtomicBool>,
+) -> Result<(), String> {
+    if super::users::begin_name_prompt(state, epoch, &cancel)? {
+        super::publish(app, state);
+        return Ok(());
+    }
+    let (lines, source) = {
+        let _action = lock(&state.action)?;
+        if !is_current(state, epoch, &cancel) {
+            return Ok(());
+        }
+        if defer_recent_recall(state, settings.diary_recall_enabled, now()) {
+            return Ok(());
+        }
+        schedule_idle(state, settings.idle_minutes);
+        state.last_scene.store(now(), Ordering::SeqCst);
+        let selected = {
+            let db = lock(&state.db)?;
+            let mut selected = None;
+            for birthday in due_birthdays(state, &db)? {
+                if let Some(lines) = crate::talk::host::prepare_birthday(state, &db, birthday)? {
+                    selected = Some(lines);
+                    break;
+                }
+            }
+            if selected.is_none() {
+                if let Some(anniversary) = due_relationship_anniversary(&db)? {
+                    selected = crate::talk::host::prepare_anniversary(state, &db, anniversary)?;
+                }
+            }
+            if selected.is_none() && settings.diary_recall_enabled && claim_recall_opportunity(&db)?
+            {
+                selected = crate::talk::host::prepare_recall(state, &db)?;
+            }
+            selected
+        };
+        if let Some(lines) = selected {
+            (lines, "talk")
+        } else {
+            next_scene(state)?
+        }
+    };
+    run_scene(
+        app,
+        state,
+        &lines,
+        source,
+        &uuid::Uuid::new_v4().to_string(),
+        false,
+        epoch,
+        cancel,
+    )
+    .await
+}
+
+/// Sends pending user messages for memory analysis and applies the result if nothing changed meanwhile.
+async fn analyze_pending(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    settings: &Settings,
+    pending: &[Message],
+    revision: i64,
+    epoch: u64,
+    cancel: &Arc<AtomicBool>,
+) -> Result<(), String> {
+    state.last_preparation.store(now(), Ordering::SeqCst);
+    phase(
+        app,
+        state,
+        epoch,
+        crate::types::RuntimePhase::Analyzing,
+        None,
+        None,
+    );
+    let batch = {
+        let db = lock(&state.db)?;
+        domain::analysis_batch_for_conversations(
+            pending,
+            &store::analysis_memories(&db, pending)?,
+            revision,
+            &store::completed_conversation_sources(&db, pending)?,
+        )
+    };
+    {
+        let _action = lock(&state.action)?;
+        let db = lock(&state.db)?;
+        if !is_current(state, epoch, cancel)
+            || super::quiet_hours::automatic_blocked(state, &store::settings(&db)?)?
+            || store::revision(&db)? != batch.revision
+        {
+            return Ok(());
+        }
+        store::defer_analysis(&db, &batch.deferred_ids, "source_budget")?;
+    }
+    if batch.submitted_ids.is_empty() {
+        return Ok(());
+    }
+    let prompt = batch.messages;
+    let result = background_generate(
+        state,
+        settings,
+        &prompt,
+        domain::analysis_schema(),
+        768,
+        cancel.clone(),
+    )
+    .await;
+    let _action = lock(&state.action)?;
+    let db = lock(&state.db)?;
+    if !is_current(state, epoch, cancel)
+        || super::quiet_hours::automatic_blocked(state, &store::settings(&db)?)?
+        || store::revision(&db)? != batch.revision
+    {
+        return Ok(());
+    }
+    match result {
+        Ok(value) => {
+            if let Err(error) = store::analyze_apply_batch(&db, &value, &batch.submitted_ids) {
+                store::analysis_failure(
+                    &db,
+                    &batch.submitted_ids,
+                    chrono::Utc::now().timestamp_millis(),
+                )?;
+                return Err(error);
+            }
+        }
+        Err(error) => {
+            store::analysis_failure(
+                &db,
+                &batch.submitted_ids,
+                chrono::Utc::now().timestamp_millis(),
+            )?;
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+fn due_relationship_anniversary(
+    db: &Connection,
+) -> Result<Option<crate::talk::host::AnniversaryTrigger>, String> {
     let Some(user) = store::current_user(db)? else {
         return Ok(None);
     };
@@ -737,15 +838,27 @@ fn due_relationship_anniversary(db: &Connection) -> Result<Option<crate::talk::h
     };
     let start = start.with_timezone(&chrono::Local).date_naive();
     let today = chrono::Local::now().date_naive();
-    if today.year() <= start.year() || !crate::talk::context::birthday_today(today, start.month(), start.day()) {
+    if today.year() <= start.year()
+        || !crate::talk::context::birthday_today(today, start.month(), start.day())
+    {
         return Ok(None);
     }
     let key = format!("relationship:anniversary:{}:{}", user.id, today.year());
-    let displayed: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM kv WHERE key=?1)", [&key], |row| row.get(0)).map_err(|error| error.to_string())?;
+    let displayed: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM kv WHERE key=?1)",
+            [&key],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
     if displayed {
         return Ok(None);
     }
-    Ok(Some(crate::talk::host::AnniversaryTrigger { user_id: user.id, date: today, key }))
+    Ok(Some(crate::talk::host::AnniversaryTrigger {
+        user_id: user.id,
+        date: today,
+        key,
+    }))
 }
 
 fn due_birthdays(
@@ -909,27 +1022,90 @@ mod moment_event_tests {
         store::set_user_name(&db, "친구", at).unwrap();
         let user = store::current_user(&db).unwrap().unwrap();
         let actors = characters::active_ids(&db).unwrap();
-        let plant = storage::instances(&db).unwrap().into_iter().find(|widget| widget.kind == "plant").unwrap();
+        let plant = storage::instances(&db)
+            .unwrap()
+            .into_iter()
+            .find(|widget| widget.kind == "plant")
+            .unwrap();
         for actor in &actors {
-            store::insert_moment(&db, actor, &user.id, "bloom", "꽃이 핀 날", at, None, serde_json::json!({}), Some("plant"), Some(&plant.id)).unwrap();
+            store::insert_moment(
+                &db,
+                actor,
+                &user.id,
+                "bloom",
+                "꽃이 핀 날",
+                at,
+                None,
+                serde_json::json!({}),
+                Some("plant"),
+                Some(&plant.id),
+            )
+            .unwrap();
         }
         let event = take_moment_reaction(&state, &db, at).unwrap().unwrap();
         assert_eq!(event.event.kind, "moment.added");
         assert_eq!(event.event.payload["event"], "bloom");
         assert_eq!(event.event.payload["summary"], "꽃이 핀 날");
-        assert_eq!(event.event.payload["memoryRefs"].as_array().unwrap().len(), actors.len());
+        assert_eq!(
+            event.event.payload["memoryRefs"].as_array().unwrap().len(),
+            actors.len()
+        );
         assert!(take_moment_reaction(&state, &db, at).unwrap().is_none());
-        assert_eq!(db.query_row("SELECT COUNT(*) FROM moment_event_keepers", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+        assert_eq!(
+            db.query_row("SELECT COUNT(*) FROM moment_event_keepers", [], |row| row
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+            0
+        );
 
         storage::set_reaction(&db, &plant.id, false).unwrap();
-        store::insert_moment(&db, &actors[0], &user.id, "first-catch", "처음 잡은 물고기", at, None, serde_json::json!({}), Some("plant"), Some(&plant.id)).unwrap();
+        store::insert_moment(
+            &db,
+            &actors[0],
+            &user.id,
+            "first-catch",
+            "처음 잡은 물고기",
+            at,
+            None,
+            serde_json::json!({}),
+            Some("plant"),
+            Some(&plant.id),
+        )
+        .unwrap();
         assert!(take_moment_reaction(&state, &db, at).unwrap().is_none());
-        assert_eq!(db.query_row("SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:first-catch:%'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+        assert_eq!(
+            db.query_row(
+                "SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:first-catch:%'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
 
-        store::insert_moment(&db, &actors[0], &user.id, "focus-day", "집중한 날", at, None, serde_json::json!({}), None, None).unwrap();
+        store::insert_moment(
+            &db,
+            &actors[0],
+            &user.id,
+            "focus-day",
+            "집중한 날",
+            at,
+            None,
+            serde_json::json!({}),
+            None,
+            None,
+        )
+        .unwrap();
         lock(&state.runtime).unwrap().hidden = true;
         assert!(take_moment_reaction(&state, &db, at).unwrap().is_none());
-        assert_eq!(db.query_row("SELECT COUNT(*) FROM moment_events", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+        assert_eq!(
+            db.query_row("SELECT COUNT(*) FROM moment_events", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -940,9 +1116,29 @@ mod moment_event_tests {
         store::set_user_name(&db, "친구", at).unwrap();
         let user = store::current_user(&db).unwrap().unwrap();
         let actor = characters::active_ids(&db).unwrap().remove(0);
-        store::insert_moment(&db, &actor, &user.id, "bloom", "꽃이 핀 날", at, None, serde_json::json!({}), None, None).unwrap();
+        store::insert_moment(
+            &db,
+            &actor,
+            &user.id,
+            "bloom",
+            "꽃이 핀 날",
+            at,
+            None,
+            serde_json::json!({}),
+            None,
+            None,
+        )
+        .unwrap();
         super::super::interrupt_with_db(&state, false, &db).unwrap();
         assert!(take_moment_reaction(&state, &db, at).unwrap().is_none());
-        assert_eq!(db.query_row("SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:bloom:%'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+        assert_eq!(
+            db.query_row(
+                "SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:bloom:%'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
     }
 }
