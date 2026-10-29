@@ -842,6 +842,17 @@ fn authorize_selection(turn: &mut Turn, catalog: &[Value]) -> Result<(), String>
     Ok(())
 }
 
+/// A retry whose inference fails never reaches [`prepare_plan`], so the previous rejection is cleared here.
+fn planned(
+    plan: Result<Plan, String>,
+    turn: &mut Turn,
+    catalog: &[Value],
+    contexts: &Value,
+) -> Result<(), String> {
+    turn.rejected_input = None;
+    plan.and_then(|plan| prepare_plan(plan, turn, catalog, contexts))
+}
+
 fn prepare_plan(
     plan: Plan,
     turn: &mut Turn,
@@ -1273,12 +1284,12 @@ async fn plan(
             let local = store::settings(&db)?.mode == "local";
             (Value::Object(contexts), selected, local)
         };
-        let outcome = match host_plan(&turn, &selected, &contexts) {
-            Some(plan) => prepare_plan(plan, &mut turn, &selected, &contexts),
+        let plan = match host_plan(&turn, &selected, &contexts) {
+            Some(plan) => Ok(plan),
             None => {
                 let instruction = plan_instruction(&selected, local);
                 let data = json!({"request":turn.request,"evidenceScope":actions::instruction_text(&turn.request),"anchorTime":turn.anchor_time,"catalog":selected,"context":contexts});
-                let plan = if local {
+                if local {
                     let schema = local_plan_schema(&turn, &selected, &contexts);
                     infer::<LocalPlan>(state, &instruction, data, schema, 2400, cancel.clone())
                         .await
@@ -1293,10 +1304,10 @@ async fn plan(
                         cancel.clone(),
                     )
                     .await
-                };
-                plan.and_then(|plan| prepare_plan(plan, &mut turn, &selected, &contexts))
+                }
             }
         };
+        let outcome = planned(plan, &mut turn, &selected, &contexts);
         {
             let _action = lock(&state.action)?;
             let db = lock(&state.db)?;
