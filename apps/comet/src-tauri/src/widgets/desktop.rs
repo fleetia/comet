@@ -667,16 +667,6 @@ fn widget_id(id: &str) -> Result<(), String> {
         .map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())
 }
 
-/// Called after a widget is disabled or removed so stale ids never block later saves.
-pub(crate) fn prune(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
-    let (before, after) =
-        widgets::commands::change(state, |db| Ok((read(db)?.revision, load(db)?)))?;
-    if after.revision != before {
-        emit_state(app, state, &after);
-    }
-    Ok(())
-}
-
 fn area_of(monitor: &tauri::Monitor) -> Rect {
     let scale = monitor.scale_factor();
     let area = monitor.work_area();

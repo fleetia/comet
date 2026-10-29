@@ -1691,7 +1691,7 @@ mod tests {
         let prompt = roster_turn_prompt(
             &members,
             &[vec![latest.clone()]],
-            &[memory.clone()],
+            std::slice::from_ref(&memory),
             &[],
             &latest,
             &members,

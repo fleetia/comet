@@ -228,7 +228,8 @@ fn take_moment_reaction(state: &AppState, db: &Connection, at: i64) -> Result<Op
     {
         return Ok(None);
     }
-    let row: Option<(String, String, String, String, i64, Option<String>, Option<String>)> = db.query_row(
+    type MomentRow = (String, String, String, String, i64, Option<String>, Option<String>);
+    let row: Option<MomentRow> = db.query_row(
         "SELECT user_id,source,event,summary,created_at,widget_kind,widget_id FROM moment_events ORDER BY created_at,source LIMIT 1",
         [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
     ).optional().map_err(|error| error.to_string())?;

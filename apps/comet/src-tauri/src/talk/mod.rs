@@ -13,7 +13,9 @@ pub mod runtime;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use evaluator::{simulate_with_policy, simulate_with_validation};
+pub(crate) use evaluator::simulate_with_policy;
+#[cfg(test)]
+pub(crate) use evaluator::simulate_with_validation;
 pub use evaluator::{render_scene, render_scene_with_text_values, simulate};
 pub use expr::{Expr, Operator};
 pub use parser::{load, load_bundle, load_pack, validate_source};

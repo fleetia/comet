@@ -343,10 +343,7 @@ mod music_open_tests {
         })
         .unwrap();
         let removed = begin_widget_open(&state, &id).unwrap();
-        change(&state, |db| {
-            cancel_widget_jobs(&state, Some(&id))
-        })
-        .unwrap();
+        change(&state, |_| cancel_widget_jobs(&state, Some(&id))).unwrap();
         assert!(widget_open_current(&state, &id, &removed).is_err());
         let stopping = begin_widget_open(&state, &id).unwrap();
         cancel_widget_jobs(&state, None).unwrap();

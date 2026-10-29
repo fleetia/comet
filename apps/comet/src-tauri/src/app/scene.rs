@@ -1116,10 +1116,9 @@ mod tests {
             let kinds = crate::domain::configure_widget_replies(&db, &mut prompt, &mut schema, false)
                 .unwrap();
             assert!(kinds.iter().any(|kind| kind == "device"));
-            assert_eq!(
-                playback_link(&db, &state, "llm", "message", &line).unwrap().is_some(),
-                true
-            );
+            assert!(playback_link(&db, &state, "llm", "message", &line)
+                .unwrap()
+                .is_some());
         }
     }
 

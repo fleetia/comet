@@ -1123,7 +1123,7 @@ enum Planned {
     Done(bool),
     Execute {
         user: String,
-        turn: Turn,
+        turn: Box<Turn>,
     },
 }
 
@@ -1136,7 +1136,7 @@ pub(super) async fn direct(
 ) -> Result<bool, String> {
     let (user, mut turn) = match plan(state, input, epoch, cancel.clone()).await? {
         Planned::Done(handled) => return Ok(handled),
-        Planned::Execute { user, turn } => (user, turn),
+        Planned::Execute { user, turn } => (user, *turn),
     };
     execute_plan(app, state, &user, input, &mut turn, epoch, cancel).await?;
     Ok(true)
@@ -1307,7 +1307,10 @@ async fn plan(
             return Ok(Planned::Done(true));
         }
     }
-    Ok(Planned::Execute { user, turn })
+    Ok(Planned::Execute {
+        user,
+        turn: Box::new(turn),
+    })
 }
 
 fn accept_result(turn: &mut Turn, index: usize, result: Value) {
@@ -1408,6 +1411,7 @@ async fn execute_plan(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute_operation(
     app: &tauri::AppHandle,
     state: &AppState,

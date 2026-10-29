@@ -883,10 +883,6 @@ mod pipeline_tests {
     #[test]
     fn default_pack_reaches_every_widget_initial_state_with_the_factory_roster() {
         let catalog = widgets::catalog().unwrap();
-        let kinds = catalog
-            .iter()
-            .map(|manifest| manifest.id.as_str())
-            .collect::<Vec<_>>();
         let directory = tempfile::tempdir().unwrap();
         let db = crate::store::open(Path::new(":memory:")).unwrap();
         storage::verify_packages(&db, directory.path()).unwrap();

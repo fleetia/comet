@@ -679,6 +679,7 @@ fn record_action_failure(
     })
 }
 
+#[allow(clippy::result_large_err)]
 async fn execute_registered_action(
     app: &tauri::AppHandle,
     state: &AppState,
@@ -783,6 +784,7 @@ pub(crate) struct GeneratedUiResult {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments, clippy::result_large_err)]
 pub(crate) async fn execute_generated_ui_action(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,

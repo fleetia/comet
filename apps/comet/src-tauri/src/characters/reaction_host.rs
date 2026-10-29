@@ -378,11 +378,13 @@ pub(crate) fn direct_common(
     Ok(true)
 }
 
+type Milestone = (Vec<SceneLine>, (u64, Arc<std::sync::atomic::AtomicBool>));
+
 fn prepare_milestone(
     state: &AppState,
     db: &rusqlite::Connection,
     event: &crate::widgets::WidgetEvent,
-) -> Result<Option<(Vec<SceneLine>, (u64, Arc<std::sync::atomic::AtomicBool>))>> {
+) -> Result<Option<Milestone>> {
     let settings = crate::store::settings(db)?;
     if !settings.autonomous_enabled
         || lock(&state.runtime)?.paused
