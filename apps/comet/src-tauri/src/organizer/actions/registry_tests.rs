@@ -809,22 +809,33 @@ fn deleting_or_undoing_a_referenced_task_is_atomic_and_rejected() {
 }
 
 fn ask(db: &Connection, kind: &str, target: &str, input: Value, query: &str) -> Result<Receipt> {
+    submit(db, kind, target, input, Some(query))
+}
+
+fn submit(
+    db: &Connection,
+    kind: &str,
+    target: &str,
+    input: Value,
+    request: Option<&str>,
+) -> Result<Receipt> {
     let user = store::active_user_id(db).unwrap();
     let revision = entities_for(db, kind, "").unwrap()["revision"]
         .as_i64()
         .unwrap();
-    execute_registry(
+    execute_registry_with_presence(
         db,
         &user,
         &uuid::Uuid::new_v4().to_string(),
         0,
-        query,
+        request,
         &Action {
             kind: kind.into(),
             target_id: target.into(),
             expected_revision: revision,
             input,
         },
+        &[],
     )
 }
 
@@ -979,7 +990,7 @@ fn travel_defaults_skip_unpriced_rates_and_deleted_categories() {
         &model,
         &mut payload,
         None,
-        "",
+        Some(""),
     )
     .unwrap();
     assert_eq!(payload["category"], first);
@@ -1124,4 +1135,59 @@ fn travel_edits_keep_unmentioned_fields_and_never_take_masked_or_invented_number
         saved_diary(&db)["travelBookings"][0]["confirmation"],
         "AB12-4821"
     );
+}
+
+#[test]
+fn structured_callers_pass_values_without_a_request_but_keep_the_other_checks() {
+    let db = database();
+    let travel = submit(
+        &db,
+        "travel_create",
+        "",
+        json!({"title":"오사카","startDate":"2026-10-31","endDate":"2026-11-02",
+               "timeZone":"Asia/Tokyo","currency":"JPY","budget":800_000}),
+        None,
+    )
+    .unwrap()
+    .target_id;
+    submit(
+        &db,
+        "travel_booking_add",
+        "",
+        json!({"travelId":travel,"kind":"stay","title":"난바 숙소","status":"paid",
+               "amount":"30000","rate":"9.1","startDate":"2026-10-31","confirmation":"OS-5512"}),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        saved_diary(&db)["travelBookings"][0]["confirmation"],
+        "OS-5512"
+    );
+    let booking = saved_diary(&db)["travelBookings"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(submit(
+        &db,
+        "travel_booking_update",
+        &booking,
+        json!({"confirmation":"•••• 5512"}),
+        None
+    )
+    .unwrap_err()
+    .contains("예약번호"));
+    // A conversation still needs the number in the user's words, and an empty request is no request.
+    for request in ["예약번호 바꿔줘", " "] {
+        assert!(submit(
+            &db,
+            "travel_booking_update",
+            &booking,
+            json!({"confirmation":"OS-9999"}),
+            Some(request)
+        )
+        .is_err());
+    }
+    assert!(submit(&db, "travel_query", "", json!({}), None)
+        .unwrap_err()
+        .contains("query_registry"));
 }
