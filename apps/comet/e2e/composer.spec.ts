@@ -79,8 +79,6 @@ test("the AI connection action shows distinct rest, hover and pressed states", a
 });
 
 test("the send button shows distinct rest, hover and pressed states", async ({ page, tauri }) => {
-  // Known gap (2026-10-29): the design-system InputCapsule send button has no hover or pressed style.
-  test.fail();
   await openInputSurface(page, tauri);
   await page.getByRole("textbox").fill("안녕");
   await expectPressFeedback(page, page.getByRole("button", { name: "보내기" }));

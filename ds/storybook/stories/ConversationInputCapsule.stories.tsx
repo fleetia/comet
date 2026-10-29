@@ -70,7 +70,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "기본 입력·여러 줄·큰 입력·보내는 중 상태를 담습니다. onSend는 원문을 전달하며 제출 후에도 초안을 유지합니다. sending은 기본적으로 제출과 입력을 막고, disableInputWhileSending=false이면 다음 초안을 적을 수 있습니다. sendDisabled는 제출만 막습니다. asTextarea는 큰 입력에도 textarea를 사용하며, textareaProps와 inputRef로 소비자의 조합·키보드·포커스 처리를 연결합니다.",
+          "기본 입력·여러 줄·큰 입력·보내는 중 상태를 담습니다. onSend는 원문을 전달하며 제출 후에도 초안을 유지합니다. sending은 기본적으로 제출과 입력을 막고, disableInputWhileSending=false이면 다음 초안을 적을 수 있습니다. sendDisabled는 제출만 막습니다. asTextarea는 큰 입력에도 textarea를 사용하며, textareaProps와 inputRef로 소비자의 조합·키보드·포커스 처리를 연결합니다. 보내기 버튼은 hover·pressed에서 바탕이 바뀌고(기본 primary-hover·pressed, 큰 입력 cat-record-hover·pressed) 누르는 동안 scale-pressed로 줄어듭니다. [Figma · Capsule/Input](https://www.figma.com/design/aWNznF6uo5AlqF0YokiXZY?node-id=49-49326)",
       },
     },
   },
