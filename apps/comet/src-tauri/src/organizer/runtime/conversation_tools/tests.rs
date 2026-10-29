@@ -817,6 +817,48 @@ fn an_unreadable_query_input_keeps_its_raw_value_locally_but_not_in_replay() {
 }
 
 #[test]
+fn a_failed_retry_does_not_keep_the_previous_rejected_input() {
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let user = store::active_user_id(&db).unwrap();
+    let request = "Show my diary note QA travel pouch.";
+    let contexts = json!({"note_query":actions::entities_for(&db,"note_query",request).unwrap()});
+    let catalog = catalog(&db).unwrap();
+    let mut turn = new_turn(&message("retry", request)).unwrap();
+    turn.selected = vec!["note_query".into()];
+    let unreadable = Plan {
+        question: String::new(),
+        operations: vec![Proposal {
+            kind: "note_query".into(),
+            target_id: String::new(),
+            expected_revision: contexts["note_query"]["revision"].as_i64().unwrap(),
+            input_json: "{".into(),
+            mode: "explicit".into(),
+            evidence: "Show my diary note".into(),
+        }],
+    };
+    let outcome = planned(Ok(unreadable), &mut turn, &catalog, &contexts);
+    save_planning_outcome(&db, &user, "retry", &mut turn, outcome).unwrap_err();
+    assert!(load_turn(&db, &user, "retry")
+        .unwrap()
+        .unwrap()
+        .rejected_input
+        .is_some());
+
+    let outcome = planned(
+        Err("AI 응답을 받지 못했어요.".into()),
+        &mut turn,
+        &catalog,
+        &contexts,
+    );
+    save_planning_outcome(&db, &user, "retry", &mut turn, outcome).unwrap_err();
+
+    let saved = load_turn(&db, &user, "retry").unwrap().unwrap();
+    assert_eq!(saved.state, "failed");
+    assert_eq!(saved.error.as_deref(), Some("AI 응답을 받지 못했어요."));
+    assert!(saved.rejected_input.is_none());
+}
+
+#[test]
 fn deleting_a_trip_waits_for_a_plain_yes_to_the_apps_own_question() {
     let db = store::open(std::path::Path::new(":memory:")).unwrap();
     let user = store::active_user_id(&db).unwrap();
