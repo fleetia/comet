@@ -4,3 +4,5 @@
 apps/comet/resources/ex-brain/** text eol=lf
 # The bundled review fixture is hashed byte-for-byte on every platform.
 apps/comet/src-tauri/src/app/tests/fixtures/model_review_cases.json text eol=lf
+# Golden files are compared byte-for-byte on every platform.
+apps/comet/src-tauri/src/**/*.golden.json text eol=lf
