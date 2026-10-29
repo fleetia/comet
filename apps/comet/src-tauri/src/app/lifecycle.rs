@@ -304,6 +304,9 @@ pub fn run() {
             crate::widgets::desktop::restore_on_start(app.handle(), state.clone());
             crate::widgets::planning::notifications::install(app.handle())?;
             crate::external_notice::finish_startup(app.handle(), &state).map_err(std::io::Error::other)?;
+            if let Err(error) = crate::external_api::start(app.handle(), state.clone()) {
+                crate::report_error!("external_api_start", "External API unavailable: {error}");
+            }
             #[cfg(not(target_os = "macos"))]
             for url in std::env::args()
                 .skip(1)
@@ -905,6 +908,7 @@ pub fn run() {
             tauri::RunEvent::Exit => {
                 device::wake::shutdown(app);
                 if let Some(state) = app.try_state::<Arc<AppState>>() {
+                    crate::external_api::stop(&state.app_data);
                     let _ = prepare_exit(&state);
                     // Native macOS termination can skip ExitRequested. Finish before returning to Cocoa.
                     tauri::async_runtime::block_on(stop_owned_work(&state));

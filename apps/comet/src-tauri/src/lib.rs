@@ -11,6 +11,7 @@ mod device;
 mod diary;
 mod domain;
 mod exbrain;
+mod external_api;
 mod external_notice;
 mod inference;
 mod legacy_names;
@@ -36,6 +37,10 @@ pub use app::lifecycle::run;
 
 pub fn external_notice_cli(args: &[String]) -> Option<i32> {
     external_notice::cli(args)
+}
+
+pub fn mcp_cli(args: &[String]) -> Option<i32> {
+    external_api::cli(args)
 }
 
 pub(crate) use app::lifecycle::{prepare_update_install, restore_update_install};
