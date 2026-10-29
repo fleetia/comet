@@ -132,7 +132,7 @@ export function CharacterImportPreview({
         {pack ? (
           <>
             {warnings.map((warning, index) => (
-              <p key={index} className={styles.error} role="status">
+              <p key={index} className={styles.caption} role="status">
                 {warning}
               </p>
             ))}
