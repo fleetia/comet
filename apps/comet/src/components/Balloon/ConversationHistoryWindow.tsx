@@ -1425,6 +1425,7 @@ export function ConversationHistoryWindow({
               {saveRequest && (
                 <div className={s.save}>
                   <ConversationSave
+                    key={`${snapshot.user?.id ?? ""}:${saveRequest.sessionId}:${saveRequest.message.id}:${saveRequest.kind}`}
                     snapshot={snapshot}
                     request={saveRequest}
                     onClose={() => setSaveRequest(null)}

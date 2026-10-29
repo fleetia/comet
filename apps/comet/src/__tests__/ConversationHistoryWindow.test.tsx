@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { listen } from "@tauri-apps/api/event";
 import { ConversationHistoryWindow } from "../components/Balloon/ConversationHistoryWindow";
@@ -828,6 +828,68 @@ it("preserves provenance and keeps save controls keyboard accessible without alt
     "value",
     MESSAGE.content,
   );
+});
+
+describe("switching the save form to another message", () => {
+  const OTHER = { ...MESSAGE, id: "other-message", content: "다른 원문" };
+  const NOTE_REF = { kind: "diary", id: "note-a" };
+
+  async function openNoteForm(user: ReturnType<typeof userEvent.setup>, content: string | RegExp) {
+    const article = screen.getByText(content).closest("article")!;
+    await user.click(within(article).getByText("남기기", { selector: "summary" }));
+    await user.click(within(article).getByRole("button", { name: "메모에 남기기" }));
+  }
+
+  function renderWith(saveNote: () => Promise<unknown>) {
+    vi.mocked(command).mockImplementation(async (name) => {
+      if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+      if (name === "release_conversation_history") return true;
+      if (name === "get_conversations") return [FIRST];
+      if (name === "get_conversation_messages")
+        return { ...FIRST_VIEW, messages: [MESSAGE, OTHER] };
+      if (name === "get_conversation_notes") return [];
+      if (name === "save_conversation_note") return saveNote();
+    });
+    render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  }
+
+  it("does not carry the previous saved state to the next message", async () => {
+    const user = userEvent.setup();
+    renderWith(async () => NOTE_REF);
+    await screen.findByText(OTHER.content);
+    await openNoteForm(user, OTHER.content);
+    await user.type(screen.getByRole("textbox", { name: "메모 제목" }), "A");
+    await user.click(screen.getByRole("button", { name: "메모 저장" }));
+    expect(await screen.findByText("메모에 저장했어요.")).toBeTruthy();
+
+    await openNoteForm(user, /첫 대화 원문/);
+    expect(screen.queryByText("메모에 저장했어요.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "메모 열기" })).toBeNull();
+    expect(screen.getByRole("textbox", { name: "저장할 내용" })).toHaveProperty(
+      "value",
+      MESSAGE.content,
+    );
+  });
+
+  it("ignores a late save response after switching to another message", async () => {
+    const user = userEvent.setup();
+    const save = deferred<unknown>();
+    renderWith(() => save.promise);
+    await screen.findByText(OTHER.content);
+    await openNoteForm(user, OTHER.content);
+    await user.type(screen.getByRole("textbox", { name: "메모 제목" }), "A");
+    await user.click(screen.getByRole("button", { name: "메모 저장" }));
+    await openNoteForm(user, /첫 대화 원문/);
+
+    await act(async () => save.resolve(NOTE_REF));
+    expect(screen.queryByText("메모에 저장했어요.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "메모 열기" })).toBeNull();
+    expect(screen.getByRole("button", { name: "메모 저장" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "저장할 내용" })).toHaveProperty(
+      "value",
+      MESSAGE.content,
+    );
+  });
 });
 
 it("locks competing selection and close operations until the draft is saved for character settings", async () => {
