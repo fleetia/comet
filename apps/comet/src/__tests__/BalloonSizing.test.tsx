@@ -45,7 +45,7 @@ it("bounds a block-flow input viewport without growing the native balloon", asyn
   expect(viewport).toContain("minHeight: 0");
   expect(viewport).toContain('overflowY: "auto"');
   const balloon = companionStyles.match(/export const balloon = style\(\{([\s\S]*?)\}\);/)?.[1];
-  expect(balloon).toContain("maxWidth: 320");
+  expect(balloon).toContain("maxWidth: 400");
   expect(balloon).toContain("maxHeight: 520");
   expect(balloon).toContain('overflow: "hidden"');
 });
@@ -94,6 +94,29 @@ it("sends final width and height with the current content key, deduplicates and 
   );
   unmount();
   expect(disconnect).toHaveBeenCalledTimes(1);
+});
+
+it("caps ordinary balloon panels at 420px so the birthday fields fit on one row", async () => {
+  window.history.replaceState(null, "", "/?view=balloon");
+  vi.stubGlobal(
+    "ResizeObserver",
+    vi.fn(function () {
+      return { observe: vi.fn(), disconnect: vi.fn() };
+    }),
+  );
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(0, 0, 500, 300),
+  );
+  render(
+    <Balloon snapshot={{ ...PREVIEW_SNAPSHOT, user: null, panel: { persona: "a", mode: "name" } }} />,
+  );
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("resize_balloon", {
+      width: 420,
+      height: 300,
+      contentKey: "panel:a:name",
+    }),
+  );
 });
 
 it("measures the separate input webview without replacing the response measurement", async () => {
@@ -407,7 +430,7 @@ it("preserves wide anchored branches and clears the anchor for an ordinary panel
   rerender(<Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "input" } }} />);
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("resize_balloon", {
-      width: 340,
+      width: 420,
       height: 500,
       contentKey: "panel:a:input",
     }),

@@ -64,7 +64,7 @@ export function useBalloonSizing(
       const story = contentKey.startsWith("story:");
       const anchor = element!.querySelector<HTMLElement>("[data-character-orbit-anchor]");
       const width = Math.min(
-        anchor ? 640 : surface === "input" ? 520 : 340,
+        anchor ? 640 : surface === "input" ? 520 : 420,
         Math.max(48, Math.ceil(story ? Math.max(rect.width, element!.scrollWidth) : rect.width)),
       );
       const height = Math.min(
