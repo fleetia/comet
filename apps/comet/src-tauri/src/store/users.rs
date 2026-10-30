@@ -201,16 +201,16 @@ pub fn require_user(conn: &Connection) -> Result<UserIdentity> {
 }
 
 pub fn set_user_name(conn: &Connection, name: &str, at: i64) -> Result<bool> {
-    save_user_name(conn, name, at, None, None)
+    save_user_name(conn, name, at, false, None, None)
 }
 
 pub fn register_user_name(
     conn: &Connection,
     name: &str,
     at: i64,
-    analytics_consent: bool,
+    analytics_consent: Option<bool>,
 ) -> Result<bool> {
-    save_user_name(conn, name, at, Some(analytics_consent), None)
+    save_user_name(conn, name, at, true, analytics_consent, None)
 }
 
 pub fn register_user_profile(
@@ -218,18 +218,19 @@ pub fn register_user_profile(
     name: &str,
     birthday: Option<&UserBirthday>,
     at: i64,
-    analytics_consent: bool,
+    analytics_consent: Option<bool>,
 ) -> Result<bool> {
     if let Some(birthday) = birthday {
         validate_birthday(birthday)?;
     }
-    save_user_name(conn, name, at, Some(analytics_consent), birthday)
+    save_user_name(conn, name, at, true, analytics_consent, birthday)
 }
 
 fn save_user_name(
     conn: &Connection,
     name: &str,
     at: i64,
+    first_only: bool,
     analytics_consent: Option<bool>,
     birthday: Option<&UserBirthday>,
 ) -> Result<bool> {
@@ -240,7 +241,7 @@ fn save_user_name(
     let tx = conn.unchecked_transaction().map_err(err)?;
     let at = effective_memory_time(&tx, at)?;
     if let Some(current) = current_user(&tx)? {
-        if analytics_consent.is_some() {
+        if first_only {
             return Err("이미 이름을 등록했어요. 설정 → 일반 → 사용자에서 바꿀 수 있어요.".into());
         }
         if current.name == name {

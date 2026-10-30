@@ -69,6 +69,10 @@ function setConsent(consent: boolean): void {
   hasConsent = consent;
   const target = window as Window & { "ga-disable-G-4Z0X58WFVB"?: boolean };
   target["ga-disable-G-4Z0X58WFVB"] = !consent;
+  if (!consent) {
+    reportedErrors.clear();
+    errorWindowStartedAt = undefined;
+  }
 }
 
 export function updateAnalyticsConsent(consent: boolean): void {
@@ -278,11 +282,12 @@ export function trackSuccessfulCommand(name: string, args?: Record<string, unkno
       void initializeAnalytics();
     }
     const event = commandEvent(name, args ?? {});
-    if (!event) {
+    if (!event || hasConsent === false) {
       return;
     }
+    const revision = consentRevision;
     void initializeAnalytics().then((context) => {
-      if (context) {
+      if (context && revision === consentRevision) {
         push(context, event);
       }
     });
@@ -292,11 +297,12 @@ export function trackSuccessfulCommand(name: string, args?: Record<string, unkno
 }
 
 export function trackSettingsView(section: string): void {
-  if (!allowed(section, SETTINGS_SECTIONS)) {
+  if (!allowed(section, SETTINGS_SECTIONS) || hasConsent === false) {
     return;
   }
+  const revision = consentRevision;
   void initializeAnalytics().then((context) => {
-    if (context) {
+    if (context && revision === consentRevision) {
       push(context, { event: "comet_settings_view", section });
     }
   });

@@ -2505,23 +2505,31 @@ fn apple_selection_keeps_saved_providers_and_invalidates_work_without_reselectin
 }
 
 #[test]
-fn analytics_consent_cannot_be_withdrawn_by_any_settings_save_scope() {
-    for scope in [
-        None,
-        Some(SettingsScope::Automatic),
-        Some(SettingsScope::Model),
-    ] {
-        let state = state();
-        let draft = Settings {
-            analytics_consent: false,
-            ..Settings::default()
-        };
-        apply_settings(&state, &draft, scope, None).unwrap();
-        assert!(
-            store::settings(&lock(&state.db).unwrap())
-                .unwrap()
-                .analytics_consent
-        );
+fn analytics_consent_is_preserved_by_all_unrelated_settings_save_scopes() {
+    for consent in [true, false] {
+        for scope in [
+            None,
+            Some(SettingsScope::Automatic),
+            Some(SettingsScope::Model),
+        ] {
+            let state = state();
+            let saved = Settings {
+                analytics_consent: consent,
+                ..Settings::default()
+            };
+            store::save_settings(&lock(&state.db).unwrap(), &saved).unwrap();
+            let draft = Settings {
+                analytics_consent: !consent,
+                ..saved
+            };
+            apply_settings(&state, &draft, scope, None).unwrap();
+            assert_eq!(
+                store::settings(&lock(&state.db).unwrap())
+                    .unwrap()
+                    .analytics_consent,
+                consent
+            );
+        }
     }
 }
 
