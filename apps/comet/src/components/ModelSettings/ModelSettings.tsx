@@ -255,7 +255,7 @@ export function ModelSettings({
                         }
                       >
                         <ImportIcon size={15} />
-                        {download?.error && download.error !== "모델 내려받기가 중단됐어요."
+                        {download?.error && download.status !== "cancelled" && download.error !== "모델 내려받기가 중단됐어요."
                           ? "다시 시도"
                           : received ? "이어 받기" : "내려받기"}
                       </Button>

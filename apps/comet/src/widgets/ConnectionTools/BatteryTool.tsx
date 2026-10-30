@@ -66,16 +66,20 @@ export function BatteryTool({ widget }: { widget: WidgetView }): ReactElement {
   const observation = record(data.observation);
   const { busy, error, run } = useConnectionCommand();
   useEffect(() => {
-    const generation = ++permissionGeneration.current;
-    if (isDesktop()) {
+    const refreshPermission = (): void => {
+      if (!isDesktop() || permissionPending.current) return;
+      const generation = ++permissionGeneration.current;
       void command<string>("get_planner_notification_permission")
         .then((value) => {
           if (permissionGeneration.current === generation) setPermission(value);
         })
         .catch(() => {});
-    }
+    };
+    refreshPermission();
+    window.addEventListener("focus", refreshPermission);
     return () => {
       permissionGeneration.current += 1;
+      window.removeEventListener("focus", refreshPermission);
     };
   }, []);
   useEffect(() => {

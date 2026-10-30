@@ -118,7 +118,7 @@ test("widget editing: the remove dialog traps focus and Cancel and Escape both r
     .first()
     .click();
   const settings = page.getByRole("region", { name: "뜨개 단수 설정" });
-  const remove = settings.getByRole("button", { name: "위젯 제거" });
+  const remove = settings.getByRole("button", { name: "위젯 삭제" });
   await remove.focus();
   await page.keyboard.press("Enter");
 
