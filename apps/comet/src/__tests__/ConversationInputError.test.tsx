@@ -49,6 +49,29 @@ it.each([error, `${error} ${"긴오류".repeat(120)}`])(
   },
 );
 
+it.each([
+  ["cancelled", "취소됨", "이 기기의 모델을 아직 내려받지 않았어요."],
+  ["error", "모델 내려받기 서버(Hugging Face)에 연결할 수 없어요.", "모델 내려받기 서버(Hugging Face)에 연결할 수 없어요."],
+])("uses only failed downloads to replace the readiness error: %s", (status, downloadError, expected) => {
+  const snapshot = {
+    ...PREVIEW_SNAPSHOT,
+    panel: { persona: "builtin-a", mode: "input" as const },
+    runtime: {
+      ...PREVIEW_SNAPSHOT.runtime,
+      error: "이 기기의 모델을 아직 내려받지 않았어요.",
+      download: {
+        model: PREVIEW_SNAPSHOT.settings.localModel,
+        received: 1024,
+        total: 2048,
+        status,
+        error: downloadError,
+      },
+    },
+  };
+  render(<Balloon snapshot={snapshot} surface="input" preview />);
+  expect(screen.getByRole("alert").textContent).toBe(expected);
+});
+
 it("shows the available alternatives as a separate neutral caption for readiness errors", () => {
   const snapshot = {
     ...PREVIEW_SNAPSHOT,

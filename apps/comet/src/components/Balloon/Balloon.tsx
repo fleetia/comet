@@ -227,7 +227,7 @@ export function Balloon({
   const download = snapshot.runtime.download;
   const visibleError =
     inputError === "이 기기의 모델을 아직 내려받지 않았어요." &&
-    download?.model === snapshot.settings.localModel && download.error
+    download?.model === snapshot.settings.localModel && download.status === "error" && download.error
       ? download.error
       : inputError;
   const readinessError = Boolean(inputError && ([
