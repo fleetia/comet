@@ -42,9 +42,6 @@ export function Balloon({
   ...props
 }: BalloonProps): JSX.Element {
   const names = { byulkkori: "별꼬리", nadir: "나디르", "moon-rabbit": "달토끼" };
-  const speechClassName = [styles.speech, content === "typing" && styles.typingSpeech]
-    .filter(Boolean)
-    .join(" ");
   const speech = (
     <>
       {children}
@@ -58,14 +55,7 @@ export function Balloon({
   return (
     <div
       {...props}
-      className={[
-        styles.balloon,
-        content !== "text" && styles.balloonContent,
-        content === "typing" && styles.balloonTyping,
-        className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      className={[styles.balloon, className].filter(Boolean).join(" ")}
     >
       <span className={[styles.speaker, styles.speakers[speaker]].join(" ")}>
         {speakerName ?? names[speaker]}
@@ -74,14 +64,14 @@ export function Balloon({
         <button
           {...speechTrigger}
           type={speechTrigger.type ?? "button"}
-          className={[speechClassName, styles.speechTrigger, speechTrigger.className]
+          className={[styles.speech, styles.speechTrigger, speechTrigger.className]
             .filter(Boolean)
             .join(" ")}
         >
           {speech}
         </button>
       ) : (
-        <div className={speechClassName}>{speech}</div>
+        <div className={styles.speech}>{speech}</div>
       )}
       {actions && <div className={styles.actions}>{actions}</div>}
       {result && <div className={styles.result}>{result}</div>}

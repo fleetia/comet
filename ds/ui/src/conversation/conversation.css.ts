@@ -16,14 +16,13 @@ globalStyle(`${glass} *, ${glass} *::before, ${glass} *::after`, { boxSizing: "b
 export const balloon = style([
   glass,
   {
-    width: 230,
-    minHeight: 78,
+    width: "max-content",
+    minWidth: 48,
+    maxWidth: 400,
     padding: "16px 18px",
     borderRadius: tokens["radius/radius-22"],
   },
 ]);
-export const balloonContent = style({ width: 290 });
-export const balloonTyping = style({ width: 240, minHeight: 81 });
 export const speaker = style({
   display: "block",
   fontSize: 12,
@@ -37,8 +36,8 @@ export const speakers = styleVariants({
   "moon-rabbit": { color: tokens["color/moon-ink"] },
 });
 export const speech = style({
-  fontSize: 14,
-  lineHeight: "20px",
+  fontSize: 16,
+  lineHeight: "24px",
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
 });
@@ -57,7 +56,6 @@ export const speechTrigger = style({
     "&:disabled": { cursor: "default" },
   },
 });
-export const typingSpeech = style({ fontSize: 16, lineHeight: "23px" });
 export const caret = style({
   display: "inline-block",
   width: 1.4,
@@ -82,7 +80,7 @@ export const tails = styleVariants({
   center: { left: "calc(50% - 8px)" },
   right: { right: 22 },
 });
-export const actions = style({ display: "flex", gap: 8, marginTop: 10 });
+export const actions = style({ display: "flex", gap: 8, marginTop: 8 });
 export const result = style({
   display: "flex",
   alignItems: "center",

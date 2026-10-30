@@ -56,7 +56,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "캐릭터 이름·본문·꼬리 위치를 조합하는 작은 말풍선입니다. actions와 result는 소비자가 구성하고 typing 상태의 대기 표시는 접근 가능한 status를 제공합니다. speechTrigger를 전달하면 본문을 키보드로 누를 수 있는 버튼으로 표시하며 펼침 상태와 이동 동작은 소비자가 관리합니다. 원문의 공백과 줄바꿈을 보존합니다.",
+          "캐릭터 이름·본문·꼬리 위치를 조합하는 작은 말풍선입니다. 내용에 맞춰 너비가 늘어나고 최대 400px에서 줄바꿈합니다. actions와 result는 소비자가 구성하고 typing 상태의 대기 표시는 접근 가능한 status를 제공합니다. speechTrigger를 전달하면 본문을 키보드로 누를 수 있는 버튼으로 표시하며 펼침 상태와 이동 동작은 소비자가 관리합니다. 원문의 공백과 줄바꿈을 보존합니다.",
       },
     },
   },
@@ -128,6 +128,13 @@ export const RightTail: Story = {
 export const OriginalText: Story = {
   name: "공백과 줄바꿈",
   args: { children: "오늘  떠오른 말\n다음 줄도 그대로" },
+};
+export const LongSpeech: Story = {
+  name: "긴 대사",
+  args: {
+    children:
+      "오늘은 창밖을 오래 바라봤어. 구름이 천천히 지나가는 모습을 보니까 마음이 한결 가벼워지는 것 같아. 너도 잠깐 쉬어 가면 좋겠어.",
+  },
 };
 
 export const UpdateNoticeCollapsed: Story = {
