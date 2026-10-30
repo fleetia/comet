@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useMemo } from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ChatGptSettings, type ChatgptStatus } from "../components/ChatGptSettings/ChatGptSettings";
 import { useSettingsDraft } from "../hooks/useSettingsDraft";
 import { command, PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
@@ -20,6 +20,7 @@ const disconnected: ChatgptStatus = {
   loginPending: false,
   usageUrl: "https://chatgpt.com/settings/usage",
   notice: null,
+  disconnectReason: null,
 };
 const connected: ChatgptStatus = {
   ...disconnected,
@@ -41,6 +42,206 @@ function Settings({ savedModel = "" }: { savedModel?: string }): React.JSX.Eleme
   );
 }
 
+it("shows the disconnected card and requires consent to connect", async () => {
+  vi.mocked(command).mockResolvedValue(disconnected);
+  render(<Settings />);
+  expect(await screen.findByText("연결 필요")).toBeTruthy();
+  expect(
+    screen.getByText(
+      "ChatGPT는 Plus·Pro 플랜에서만 쓸 수 있어요. 무료 계정이면 이 기기의 모델을 써요.",
+    ),
+  ).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: /동의해요/ })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "ChatGPT로 연결" })).toHaveProperty("disabled", true);
+  expect(screen.queryByRole("button", { name: "연결 끊기" })).toBeNull();
+  expect(screen.queryByLabelText("ChatGPT 계정")).toBeNull();
+});
+
+it("shows the connecting card while the browser login is pending", async () => {
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "list_chatgpt_models" ? [] : { ...connected, loginPending: true },
+  );
+  render(<Settings />);
+  expect(await screen.findByText("브라우저에서 연결 중")).toBeTruthy();
+  expect(screen.getByText("브라우저에서 연결을 마치면 이 화면으로 돌아와요.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "취소" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "연결 끊기" })).toBeTruthy();
+  expect(screen.queryByRole("checkbox", { name: /동의해요/ })).toBeNull();
+});
+
+it("shows the connected card with account actions", async () => {
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "list_chatgpt_models" ? [] : connected,
+  );
+  render(<Settings />);
+  expect(await screen.findByText("계정 1")).toBeTruthy();
+  expect(screen.getByText("연결됨")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "연결 끊기" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "다른 계정으로 바꾸기" })).toBeTruthy();
+  expect(
+    screen.getByText("연결 정보는 이 기기의 보안 저장소에만 두고 화면이나 기록에 남기지 않아요."),
+  ).toBeTruthy();
+  expect(screen.queryByRole("checkbox", { name: /동의해요/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: "계정 추가…" })).toBeNull();
+});
+
+it("shows the connected card without plan access", async () => {
+  vi.mocked(command).mockResolvedValue({
+    ...connected,
+    accounts: connected.accounts.map((account) => ({ ...account, sharing: false })),
+  });
+  render(<Settings />);
+  expect(
+    await screen.findByText("연결됨 · 이 계정은 플랜을 쓸 수 없어요 (Plus·Pro만)"),
+  ).toBeTruthy();
+  expect(screen.getByText("무료 계정이면 이 기기의 모델을 써요.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "연결 끊기" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "다른 계정으로 바꾸기" })).toBeTruthy();
+});
+
+it("allows disconnecting an account after its connection is lost", async () => {
+  const lost = {
+    ...connected,
+    accounts: connected.accounts.map((account) => ({ ...account, connected: false })),
+    notice: "ChatGPT 자격 증명 저장소를 읽거나 저장하지 못했어요. 기존 정보는 보존했어요.",
+  };
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "logout_chatgpt" ? disconnected : lost,
+  );
+  render(<Settings />);
+  expect(await screen.findByText("연결이 끊겼어요")).toBeTruthy();
+  expect(screen.getByText("끊긴 계정도 여기서 바로 지울 수 있어요.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "다시 연결" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "연결 끊기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("logout_chatgpt", { accountId: "account-1" }),
+  );
+});
+
+for (const [disconnectReason, label] of [
+  ["save_failed", "연결 정보를 저장하지 못했어요"],
+  ["expired", "연결 정보가 만료됐어요"],
+] as const) {
+  it(`shows the ${disconnectReason} reason independently of the notice`, async () => {
+    vi.mocked(command).mockResolvedValue({
+      ...connected,
+      accounts: connected.accounts.map((account) => ({ ...account, connected: false })),
+      disconnectReason,
+      notice: null,
+    });
+    render(<Settings />);
+    expect(await screen.findByText(`연결이 끊겼어요 · ${label}`)).toBeTruthy();
+  });
+}
+
+it("deletes another account from the collapsed list when the active connection is lost", async () => {
+  const multiple: ChatgptStatus = {
+    ...connected,
+    accounts: [
+      { ...connected.accounts[0], connected: false },
+      { id: "account-2", label: "계정 2", email: null, connected: true, sharing: true },
+    ],
+  };
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "list_chatgpt_models" ? [] : multiple,
+  );
+  render(<Settings />);
+  fireEvent.click(await screen.findByText("다른 계정 1개"));
+  expect(screen.getByText("계정 2")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "이 계정으로" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "지우기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("logout_chatgpt", { accountId: "account-2" }),
+  );
+});
+
+it("offers disconnect while connecting without an active account", async () => {
+  vi.mocked(command).mockResolvedValue({ ...disconnected, loginPending: true });
+  render(<Settings />);
+  expect(await screen.findByText("브라우저에서 연결 중")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "연결 끊기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("cancel_chatgpt_login", undefined));
+});
+
+for (const shouldDelete of [false, true]) {
+  it(`asks once about the previous account after switching and ${shouldDelete ? "deletes" : "keeps"} it`, async () => {
+    let current = connected;
+    const next: ChatgptStatus = {
+      ...connected,
+      activeAccountId: "account-2",
+      accounts: [
+        ...connected.accounts,
+        { id: "account-2", label: "계정 2", email: null, connected: true, sharing: true },
+      ],
+    };
+    vi.mocked(command).mockImplementation(async (name) => {
+      if (name === "list_chatgpt_models") return [];
+      if (name === "login_chatgpt") current = next;
+      if (name === "logout_chatgpt") current = { ...next, accounts: [next.accounts[1]] };
+      return current;
+    });
+    render(<Settings />);
+    fireEvent.click(await screen.findByRole("button", { name: "다른 계정으로 바꾸기" }));
+    expect(await screen.findByRole("dialog", { name: "이전 계정을 지울까요?" })).toBeTruthy();
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "이전 계정을 지울까요?" })).getByRole("button", {
+        name: shouldDelete ? "지우기" : "남기기",
+      }),
+    );
+    if (shouldDelete) {
+      await waitFor(() =>
+        expect(command).toHaveBeenCalledWith("logout_chatgpt", { accountId: "account-1" }),
+      );
+    } else {
+      expect(command).not.toHaveBeenCalledWith("logout_chatgpt", expect.anything());
+      expect(await screen.findByText("다른 계정 1개")).toBeTruthy();
+    }
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "이전 계정을 지울까요?" })).toBeNull(),
+    );
+  });
+}
+
+it("does not ask to delete the previous account when reconnecting the same account", async () => {
+  const lost: ChatgptStatus = {
+    ...connected,
+    accounts: connected.accounts.map((account) => ({ ...account, connected: false })),
+  };
+  let current = lost;
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "list_chatgpt_models") return [];
+    if (name === "login_chatgpt") current = connected;
+    return current;
+  });
+  render(<Settings />);
+  fireEvent.click(await screen.findByRole("button", { name: "다시 연결" }));
+  expect(await screen.findByText("연결됨")).toBeTruthy();
+  expect(command).toHaveBeenCalledWith("login_chatgpt", { accountId: "account-1", consent: true });
+  expect(screen.queryByRole("dialog", { name: "이전 계정을 지울까요?" })).toBeNull();
+});
+
+it("does not ask to delete a lost account removed after reconnecting as another account", async () => {
+  const lost: ChatgptStatus = {
+    ...connected,
+    accounts: connected.accounts.map((account) => ({ ...account, connected: false })),
+  };
+  const next: ChatgptStatus = {
+    ...connected,
+    activeAccountId: "account-2",
+    accounts: [{ id: "account-2", label: "계정 2", email: null, connected: true, sharing: true }],
+  };
+  let current = lost;
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "list_chatgpt_models") return [];
+    if (name === "login_chatgpt") current = next;
+    return current;
+  });
+  render(<Settings />);
+  fireEvent.click(await screen.findByRole("button", { name: "다시 연결" }));
+  expect(await screen.findByText("계정 2")).toBeTruthy();
+  expect(screen.queryByRole("dialog", { name: "이전 계정을 지울까요?" })).toBeNull();
+});
+
 it("requires consent and lets cancellation finish before a late login result", async () => {
   let finishLogin!: (value: ChatgptStatus) => void;
   vi.mocked(command).mockImplementation(async (name) =>
@@ -56,11 +257,11 @@ it("requires consent and lets cancellation finish before a late login result", a
   fireEvent.click(screen.getByRole("checkbox", { name: /동의해요/ }));
   fireEvent.click(login);
   expect(command).toHaveBeenCalledWith("login_chatgpt", { consent: true });
-  fireEvent.click(await screen.findByRole("button", { name: "연결 취소" }));
+  fireEvent.click(await screen.findByRole("button", { name: "취소" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("cancel_chatgpt_login", undefined));
   await act(async () => finishLogin(connected));
   expect(screen.queryByText("연결됨")).toBeNull();
-  expect(screen.queryByRole("button", { name: "연결 취소" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "취소" })).toBeNull();
 });
 
 it("does not silently replace an unavailable saved model and preserves other provider drafts", async () => {
@@ -121,7 +322,8 @@ it("separates login from plan permission and does not load or enable models with
   );
   expect(screen.getByLabelText("ChatGPT 모델")).toHaveProperty("disabled", true);
   expect(screen.getByLabelText("ChatGPT 모델")).toHaveProperty("value", "saved-model");
-  expect(screen.getByRole("button", { name: "선택한 계정 다시 연결" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "다른 계정으로 바꾸기" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "연결 끊기" })).toBeTruthy();
   expect(command).not.toHaveBeenCalledWith("list_chatgpt_models");
   expect(command).not.toHaveBeenCalledWith("save_settings", expect.anything());
 });

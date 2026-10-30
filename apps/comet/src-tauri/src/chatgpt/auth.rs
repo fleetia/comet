@@ -370,14 +370,6 @@ pub(super) async fn login(
         let identity = verify_identity(id_token, &received.client_id, Some(&nonce))
             .await
             .map_err(protocol_error)?;
-        if account
-            .and_then(|a| a.subject.as_ref())
-            .is_some_and(|sub| sub != &identity.sub)
-        {
-            return Err(protocol_error(
-                "선택한 ChatGPT 계정과 로그인한 계정이 달라요.",
-            ));
-        }
         let tokens = parse_tokens(&result, None).map_err(protocol_error)?;
         service
             .commit_login(

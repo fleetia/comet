@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
-import { Button, Checkbox, FormField, Select, SettingControlRow, Surface, Switch } from "@comet/ui";
+import {
+  Button,
+  Checkbox,
+  Dialog,
+  FormField,
+  Select,
+  SettingControlRow,
+  Surface,
+  Switch,
+} from "@comet/ui";
 import { UserIcon } from "@comet/icon";
 import * as figma from "../SettingsPanel/figmaSettings.css";
 import * as ai from "../ModelSettings/aiSettings.css";
@@ -20,6 +29,7 @@ export type ChatgptStatus = {
   loginPending: boolean;
   usageUrl: string;
   notice: string | null;
+  disconnectReason: "save_failed" | "expired" | null;
   requestBlocked?: boolean;
 };
 export type ChatgptModel = { slug: string; displayName: string };
@@ -29,6 +39,7 @@ const PREVIEW: ChatgptStatus = {
   loginPending: false,
   usageUrl: "https://chatgpt.com/settings/usage",
   notice: null,
+  disconnectReason: null,
 };
 
 export function ChatGptSettings({
@@ -52,6 +63,7 @@ export function ChatGptSettings({
   const [consent, setConsent] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [previousAccountId, setPreviousAccountId] = useState<string | null>(null);
   const mounted = useRef(true);
   const operation = useRef(0);
   const loading = useRef(false);
@@ -104,14 +116,29 @@ export function ChatGptSettings({
     };
   }, []);
   async function run(name: string, args?: Record<string, unknown>): Promise<void> {
-    if (pending && name !== "cancel_chatgpt_login") return;
+    if (
+      pending &&
+      !(pending === "login_chatgpt" && ["cancel_chatgpt_login", "logout_chatgpt"].includes(name))
+    )
+      return;
+    const oldAccountId = name === "login_chatgpt" ? status?.activeAccountId : null;
     const version = ++operation.current;
     setPending(name);
     setError(null);
     try {
       const result = await command<ChatgptStatus | undefined>(name, args);
       if (mounted.current && version === operation.current) {
-        if (result?.accounts) setStatus(result);
+        if (result?.accounts) {
+          setStatus(result);
+          if (
+            oldAccountId &&
+            result.activeAccountId &&
+            result.activeAccountId !== oldAccountId &&
+            result.accounts.some((value) => value.id === oldAccountId)
+          ) {
+            setPreviousAccountId(oldAccountId);
+          }
+        }
         modelAccount.current = null;
         await refresh();
       }
@@ -129,8 +156,180 @@ export function ChatGptSettings({
     Boolean(draft.settings.chatgptModel) &&
     !models.some((model) => model.slug === draft.settings.chatgptModel);
   const missingModel = modelsLoaded && selectedModelAbsent;
-  const connectionFailure = ["ChatGPT 연결을 마치지 못했어요.", "연결 대기 시간이 끝났어요."].includes(
-    error || status?.notice || "",
+  const otherAccounts =
+    status?.accounts.filter((value) => value.id !== account?.id && value.connected) ?? [];
+  const canInterruptLogin = !pending || pending === "login_chatgpt";
+  const disconnectedReason = status?.disconnectReason
+    ? {
+        save_failed: "연결 정보를 저장하지 못했어요",
+        expired: "연결 정보가 만료됐어요",
+      }[status.disconnectReason]
+    : null;
+  const cardState = loginPending
+    ? "connecting"
+    : !account
+      ? "disconnected"
+      : !account.connected
+        ? "lost"
+        : !account.sharing
+          ? "no-plan"
+          : "connected";
+  const cardStatus = {
+    disconnected: "연결 필요",
+    connecting: "브라우저에서 연결 중",
+    connected: "연결됨",
+    "no-plan": "연결됨 · 이 계정은 플랜을 쓸 수 없어요 (Plus·Pro만)",
+    lost: `연결이 끊겼어요${disconnectedReason ? ` · ${disconnectedReason}` : ""}`,
+  }[cardState];
+  const cardNotice = {
+    disconnected:
+      "ChatGPT는 Plus·Pro 플랜에서만 쓸 수 있어요. 무료 계정이면 이 기기의 모델을 써요.",
+    connecting: "브라우저에서 연결을 마치면 이 화면으로 돌아와요.",
+    connected: "연결 정보는 이 기기의 보안 저장소에만 두고 화면이나 기록에 남기지 않아요.",
+    "no-plan": "무료 계정이면 이 기기의 모델을 써요.",
+    lost: "끊긴 계정도 여기서 바로 지울 수 있어요.",
+  }[cardState];
+  const connectionCard = (
+    <>
+      <div className={ai.connectionStatus}>
+        <div className={ai.accountHeader}>
+          <span className={figma.icon}>
+            <UserIcon size={26} />
+          </span>
+          <div className={figma.noteCopy}>
+            <strong className={ai.accountLabel}>{account?.label || "ChatGPT"}</strong>
+            <span className={figma.caption}>{cardStatus}</span>
+          </div>
+        </div>
+      </div>
+      {cardState === "disconnected" && (
+        <Checkbox
+          checked={consent}
+          disabled={busy}
+          onChange={(event) => setConsent(event.target.checked)}
+          label="대화와 고른 자료를 ChatGPT로 보내는 데 동의해요"
+        />
+      )}
+      <div className={ai.keyActions}>
+        {cardState === "disconnected" && (
+          <Button
+            variant="primary"
+            size="small"
+            disabled={busy || !consent}
+            onClick={() => void run("login_chatgpt", { consent: true })}
+          >
+            ChatGPT로 연결
+          </Button>
+        )}
+        {cardState === "connecting" && (
+          <Button
+            variant="ghost"
+            size="small"
+            disabled={!canInterruptLogin}
+            onClick={() => void run("cancel_chatgpt_login")}
+          >
+            취소
+          </Button>
+        )}
+        {cardState === "lost" && account && (
+          <Button
+            variant="primary"
+            size="small"
+            disabled={busy}
+            onClick={() => void run("login_chatgpt", { accountId: account.id, consent: true })}
+          >
+            다시 연결
+          </Button>
+        )}
+        {cardState !== "disconnected" && (
+          <Button
+            variant="ghost"
+            size="small"
+            disabled={!isDesktop() || !canInterruptLogin || Boolean(draft.pending)}
+            onClick={() => {
+              if (account) void run("logout_chatgpt", { accountId: account.id });
+              else void run("cancel_chatgpt_login");
+            }}
+          >
+            연결 끊기
+          </Button>
+        )}
+        {(cardState === "connected" || cardState === "no-plan") && (
+          <Button
+            variant="ghost"
+            size="small"
+            disabled={busy}
+            onClick={() => void run("login_chatgpt", { consent: true })}
+          >
+            다른 계정으로 바꾸기
+          </Button>
+        )}
+      </div>
+      {otherAccounts.length > 0 && (
+        <details>
+          <summary className={figma.caption}>다른 계정 {otherAccounts.length}개</summary>
+          {otherAccounts.map((value) => (
+            <div key={value.id} className={ai.keyActions}>
+              <span className={ai.accountLabel}>{value.label}</span>
+              <Button
+                variant="ghost"
+                size="small"
+                disabled={busy}
+                onClick={() => void run("select_chatgpt_account", { accountId: value.id })}
+              >
+                이 계정으로
+              </Button>
+              <Button
+                variant="ghost"
+                size="small"
+                disabled={!isDesktop() || !canInterruptLogin || Boolean(draft.pending)}
+                onClick={() => void run("logout_chatgpt", { accountId: value.id })}
+              >
+                지우기
+              </Button>
+            </div>
+          ))}
+        </details>
+      )}
+      <p className={figma.caption}>{cardNotice}</p>
+      {error && (
+        <p role="alert" className={s.error}>
+          {error}
+        </p>
+      )}
+      {status?.notice && status.notice !== error && pending !== "login_chatgpt" && (
+        <p role="status" className={figma.caption}>
+          {status.notice}
+        </p>
+      )}
+      {!status && !error && <p role="status">연결 상태를 확인하고 있어요.</p>}
+      <Dialog
+        isOpen={previousAccountId !== null}
+        title="이전 계정을 지울까요?"
+        variant="confirm"
+        onOpenChange={(open) => {
+          if (!open) setPreviousAccountId(null);
+        }}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setPreviousAccountId(null)}>
+              남기기
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                if (previousAccountId) void run("logout_chatgpt", { accountId: previousAccountId });
+                setPreviousAccountId(null);
+              }}
+            >
+              지우기
+            </Button>
+          </>
+        }
+      >
+        <p>남겨 두면 다른 계정 목록에서 다시 선택할 수 있어요.</p>
+      </Dialog>
+    </>
   );
   let requestState = "플랜 권한 있음 · 모델 확인 필요";
   if (!account?.connected) {
@@ -149,115 +348,7 @@ export function ChatGptSettings({
       <div className={figma.split}>
         <aside className={figma.inspector}>
           {inspectorHeader}
-          <div className={ai.connectionStatus}>
-            <div className={ai.accountHeader}>
-              <span className={figma.icon}>
-                <UserIcon size={26} />
-              </span>
-              <div className={figma.noteCopy}>
-                <strong className={ai.accountLabel}>{account?.label || "내 ChatGPT 계정"}</strong>
-                <span className={figma.caption}>
-                  {loginPending
-                    ? "브라우저에서 연결 중"
-                    : account?.connected
-                      ? account.sharing
-                        ? `연결됨 · 계정 ${status?.accounts.length || 0}개`
-                        : "연결됨 · 이 계정은 플랜을 쓸 수 없어요"
-                      : "ChatGPT 연결 필요"}
-                </span>
-              </div>
-            </div>
-            {!!status?.accounts.length && (
-              <Select
-                className={ai.modelSelect}
-                aria-label="ChatGPT 계정"
-                value={status.activeAccountId ?? ""}
-                disabled={busy}
-                onChange={(event) =>
-                  void run("select_chatgpt_account", { accountId: event.target.value })
-                }
-              >
-                {!status.activeAccountId && <option value="">계정 선택</option>}
-                {status.accounts.map((value) => (
-                  <option key={value.id} value={value.id}>
-                    {value.label}
-                    {value.connected ? "" : " · 연결이 끊겼어요"}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </div>
-          <Checkbox
-            checked={consent}
-            disabled={busy}
-            onChange={(event) => setConsent(event.target.checked)}
-            label="대화와 고른 자료를 ChatGPT로 보내는 데 동의해요"
-          />
-          <p className={figma.caption}>
-            내 플랜의 사용량을 써요. 기존 ChatGPT 대화나 기억은 가져오지 않아요.
-          </p>
-          <div className={figma.controls}>
-            <Button
-              variant="ghost"
-              size="small"
-              disabled={busy || !consent}
-              onClick={() =>
-                void run("login_chatgpt", {
-                  ...(account ? { accountId: account.id } : {}),
-                  consent: true,
-                })
-              }
-            >
-              {account || connectionFailure ? "다시 연결" : "ChatGPT로 연결"}
-            </Button>
-            {account && (
-              <Button
-                variant="ghost"
-                size="small"
-                disabled={busy}
-                onClick={() => void run("logout_chatgpt", { accountId: account.id })}
-              >
-                연결 끊기
-              </Button>
-            )}
-            {!!status?.accounts.length && (
-              <Button
-                variant="link"
-                size="small"
-                disabled={busy || !consent}
-                onClick={() => void run("login_chatgpt", { consent: true })}
-              >
-                계정 추가…
-              </Button>
-            )}
-            {loginPending && (
-              <Button
-                variant="ghost"
-                size="small"
-                disabled={pending === "cancel_chatgpt_login"}
-                onClick={() => void run("cancel_chatgpt_login")}
-              >
-                연결 취소
-              </Button>
-            )}
-          </div>
-          <p className={figma.caption}>
-            연결 정보는 운영체제 보안 저장소에만 두고 화면이나 기억에 남기지 않아요.
-          </p>
-          <p className={figma.caption}>
-            연결만으로 사용하는 AI가 바뀌지는 않아요. 모델을 선택하고 AI 연결을 저장해 주세요.
-          </p>
-          {error && (
-            <p role="alert" className={s.error}>
-              {error}
-            </p>
-          )}
-          {status?.notice && status.notice !== error && pending !== "login_chatgpt" && (
-            <p role="status" className={figma.caption}>
-              {status.notice}
-            </p>
-          )}
-          {!status && !error && <p role="status">연결 상태를 확인하고 있어요.</p>}
+          {connectionCard}
         </aside>
         <div className={figma.right}>
           <section className={figma.section}>
@@ -332,8 +423,8 @@ export function ChatGptSettings({
             </div>
             {account?.connected && !account.sharing && (
               <p role="alert" className={s.error}>
-                연결은 완료됐지만 Comet에서 ChatGPT 플랜을 사용할 권한이 없어요. 전송 안내에
-                동의한 뒤 다시 연결하거나 다른 AI를 선택해 주세요.
+                연결은 완료됐지만 Comet에서 ChatGPT 플랜을 사용할 권한이 없어요. 전송 안내에 동의한
+                뒤 다시 연결하거나 다른 AI를 선택해 주세요.
               </p>
             )}
             {missingModel && (
@@ -382,83 +473,14 @@ export function ChatGptSettings({
   return (
     <Surface variant="panel" className={styles.connectionPanel} aria-label="ChatGPT 연결">
       <div className={styles.body}>
-        <div className={styles.heading}>
-          <h2 className={styles.title}>ChatGPT로 대화하기</h2>
-          <span className={styles.caption}>
-            {loginPending ? "브라우저에서 연결 중" : requestState}
-          </span>
-        </div>
-        <p className={styles.caption}>
-          ChatGPT 플랜으로 캐릭터와 대화해요. 기존 ChatGPT 대화나 기억은 가져오지 않아요.
-        </p>
+        {connectionCard}
+        <p className={styles.caption}>{requestState}</p>
         {account?.connected && !account.sharing && (
           <p role="alert" className={s.error}>
             연결은 완료됐지만 Comet에서 ChatGPT 플랜을 사용할 권한이 없어요. 전송 안내에 동의한 뒤
             다시 연결하거나 다른 AI를 선택해 주세요.
           </p>
         )}
-        {status?.accounts.length ? (
-          <FormField label="ChatGPT 계정" className={styles.field}>
-            <Select
-              fill
-              value={status.activeAccountId ?? ""}
-              disabled={busy}
-              onChange={(event) =>
-                void run("select_chatgpt_account", { accountId: event.target.value })
-              }
-            >
-              {!status.activeAccountId && <option value="">계정 선택</option>}
-              {status.accounts.map((value) => (
-                <option key={value.id} value={value.id}>
-                  {value.label}
-                  {value.connected ? "" : " · 연결이 끊겼어요"}
-                </option>
-              ))}
-            </Select>
-          </FormField>
-        ) : null}
-        <Checkbox
-          checked={consent}
-          disabled={busy}
-          onChange={(event) => setConsent(event.target.checked)}
-          label="대화와 선택한 자료를 ChatGPT로 보내고 내 플랜의 사용량을 쓰는 데 동의해요."
-        />
-        <div className={styles.actions}>
-          <Button
-            variant="primary"
-            disabled={busy || !consent}
-            onClick={() => void run("login_chatgpt", { consent: true })}
-          >
-            {connectionFailure ? "다시 연결" : "ChatGPT로 연결"}
-          </Button>
-          {account && (!account.connected || !account.sharing) && (
-            <Button
-              variant="ghost"
-              disabled={busy || !consent}
-              onClick={() => void run("login_chatgpt", { accountId: account.id, consent: true })}
-            >
-              선택한 계정 다시 연결
-            </Button>
-          )}
-          {loginPending && (
-            <Button
-              variant="ghost"
-              disabled={pending === "cancel_chatgpt_login"}
-              onClick={() => void run("cancel_chatgpt_login")}
-            >
-              연결 취소
-            </Button>
-          )}
-          {account && (
-            <Button
-              variant="ghost"
-              disabled={busy}
-              onClick={() => void run("logout_chatgpt", { accountId: account.id })}
-            >
-              선택한 계정 연결 끊기
-            </Button>
-          )}
-        </div>
         <FormField label="ChatGPT 모델" className={styles.field}>
           <Select
             fill
@@ -517,17 +539,6 @@ export function ChatGptSettings({
           계정 연결은 즉시 적용돼요. 대화 방식과 모델 선택은 아래 AI 연결 저장으로 적용해요. 자동
           잡담은 자동 대화에서 별도로 허용할 수 있어요.
         </p>
-        {status?.notice && status.notice !== error && pending !== "login_chatgpt" && (
-          <p role="status" className={styles.caption}>
-            {status.notice}
-          </p>
-        )}
-        {error && (
-          <p role="alert" className={s.error}>
-            {error}
-          </p>
-        )}
-        {!status && !error && <p role="status">연결 상태를 확인하고 있어요.</p>}
       </div>
       {footer}
     </Surface>
