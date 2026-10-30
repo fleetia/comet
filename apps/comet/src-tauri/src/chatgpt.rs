@@ -549,11 +549,14 @@ impl Service {
     }
     fn cancel_login(&self) -> Result<()> {
         let mut state = lock(&self.0.state)?;
+        self.cancel_login_locked(&mut state);
+        Ok(())
+    }
+    fn cancel_login_locked(&self, state: &mut State) {
         if let Some((_, cancel)) = state.pending.take() {
             cancel.store(true, Ordering::SeqCst);
         }
         self.0.login_generation.fetch_add(1, Ordering::SeqCst);
-        Ok(())
     }
     fn begin_login(&self) -> Result<(u64, Arc<AtomicBool>)> {
         let mut state = lock(&self.0.state)?;
@@ -799,6 +802,29 @@ fn interrupt_requests(state: &AppState) -> Result<()> {
     }
     Ok(())
 }
+fn begin_logout(state: &AppState, account_id: &str) -> Result<()> {
+    let service = &state.inference.chatgpt;
+    let is_active = {
+        let mut inner = lock(&service.0.state)?;
+        service.cancel_login_locked(&mut inner);
+        if inner.signing_out.is_some() {
+            return Err("연결을 끊고 있어요.".into());
+        }
+        if !inner.saved.accounts.iter().any(|a| a.id == account_id) {
+            return Err("ChatGPT 계정을 찾지 못했어요.".into());
+        }
+        inner.signing_out = Some(account_id.into());
+        inner.saved.active.as_deref() == Some(account_id)
+    };
+    if is_active {
+        if let Err(error) = interrupt_requests(state) {
+            lock(&service.0.state)?.signing_out = None;
+            return Err(error);
+        }
+        service.0.generation.fetch_add(1, Ordering::SeqCst);
+    }
+    Ok(())
+}
 #[tauri::command]
 pub(crate) async fn get_chatgpt_status(state: tauri::State<'_, Arc<AppState>>) -> Result<Status> {
     // Polling UI state must never start or wait for an OS credential prompt.
@@ -909,19 +935,7 @@ pub(crate) async fn logout_chatgpt(
 ) -> Result<Status> {
     let service = &state.inference.chatgpt;
     service.initialize().await?;
-    service.cancel_login()?;
-    interrupt_requests(&state)?;
-    {
-        let mut inner = lock(&service.0.state)?;
-        if inner.signing_out.is_some() {
-            return Err("연결을 끊고 있어요.".into());
-        }
-        if !inner.saved.accounts.iter().any(|a| a.id == account_id) {
-            return Err("ChatGPT 계정을 찾지 못했어요.".into());
-        }
-        inner.signing_out = Some(account_id.clone());
-        service.0.generation.fetch_add(1, Ordering::SeqCst);
-    }
+    begin_logout(&state, &account_id)?;
     publish(&app, &state);
     let _refresh = service.0.refresh.lock().await;
     let account = lock(&service.0.state)?
@@ -997,6 +1011,92 @@ mod tests {
             });
         }
         service
+    }
+    fn logout_request_fixture() -> (AppState, u64, Arc<AtomicBool>, u64) {
+        let mut state = crate::app::tests::state();
+        state.inference.chatgpt = connected();
+        {
+            let service = &state.inference.chatgpt;
+            let mut inner = lock(&service.0.state).unwrap();
+            let mut other = inner.saved.accounts[0].clone();
+            other.id = "other-account".into();
+            inner.saved.accounts.push(other);
+        }
+        {
+            let db = app::lock(&state.db).unwrap();
+            let mut settings = crate::store::settings(&db).unwrap();
+            settings.mode = "chatgpt".into();
+            crate::store::save_settings(&db, &settings).unwrap();
+        }
+        let (epoch, cancel) = {
+            let _action = app::lock(&state.action).unwrap();
+            app::interrupt(&state, false).unwrap()
+        };
+        {
+            let mut runtime = app::lock(&state.runtime).unwrap();
+            runtime.phase = crate::types::RuntimePhase::Generating;
+            runtime.persona = Some("a".into());
+            runtime.error = Some("existing".into());
+        }
+        let generation = state.inference.chatgpt.0.generation.load(Ordering::SeqCst);
+        (state, epoch, cancel, generation)
+    }
+    #[test]
+    fn beginning_inactive_logout_preserves_active_request() {
+        let (state, epoch, cancel, generation) = logout_request_fixture();
+        let service = &state.inference.chatgpt;
+        let (_, login_cancel) = service.begin_login().unwrap();
+
+        begin_logout(&state, "other-account").unwrap();
+
+        assert!(login_cancel.load(Ordering::SeqCst));
+        assert!(app::is_current(&state, epoch, &cancel));
+        assert!(service.current(generation, &cancel).is_ok());
+        assert_eq!(service.0.generation.load(Ordering::SeqCst), generation);
+        assert!(service.ready());
+        assert!(service
+            .status()
+            .unwrap()
+            .accounts
+            .iter()
+            .any(|account| account.id == "test-account" && account.connected));
+        assert!(Arc::ptr_eq(
+            app::lock(&state.cancellation).unwrap().as_ref().unwrap(),
+            &cancel
+        ));
+        let runtime = app::lock(&state.runtime).unwrap();
+        assert_eq!(runtime.phase, crate::types::RuntimePhase::Generating);
+        assert_eq!(runtime.persona.as_deref(), Some("a"));
+        assert_eq!(runtime.error.as_deref(), Some("existing"));
+        drop(runtime);
+        let mut inner = lock(&service.0.state).unwrap();
+        assert_eq!(inner.signing_out.as_deref(), Some("other-account"));
+        assert!(select_account(&mut inner, "other-account").is_err());
+        drop(inner);
+        assert!(service.begin_login().is_err());
+    }
+    #[test]
+    fn beginning_active_logout_interrupts_and_invalidates_request() {
+        let (state, epoch, cancel, generation) = logout_request_fixture();
+        let service = &state.inference.chatgpt;
+
+        begin_logout(&state, "test-account").unwrap();
+
+        assert!(cancel.load(Ordering::SeqCst));
+        assert!(!app::is_current(&state, epoch, &cancel));
+        assert_eq!(state.epoch.load(Ordering::SeqCst), epoch + 1);
+        assert_eq!(service.0.generation.load(Ordering::SeqCst), generation + 1);
+        assert!(service
+            .current(generation, &AtomicBool::new(false))
+            .is_err());
+        assert_eq!(
+            lock(&service.0.state).unwrap().signing_out.as_deref(),
+            Some("test-account")
+        );
+        let runtime = app::lock(&state.runtime).unwrap();
+        assert_eq!(runtime.phase, crate::types::RuntimePhase::Idle);
+        assert!(runtime.persona.is_none());
+        assert!(runtime.error.is_none());
     }
     #[test]
     fn cleanup_keeps_connected_and_active_disconnected_accounts() {
