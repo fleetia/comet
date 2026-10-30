@@ -58,11 +58,13 @@ fn standalone_initialization_keeps_the_birthday_migration_marker() {
     let conn = Connection::open_in_memory().unwrap();
     initialize(&conn).unwrap();
     initialize(&conn).unwrap();
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM kv WHERE key='character:official-birthdays:v1'",
-        [],
-        |row| row.get(0),
-    ).unwrap();
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM kv WHERE key='character:official-birthdays:v1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert_eq!(count, 1);
 }
 
@@ -652,6 +654,108 @@ fn legacy_pack_versions_are_discarded_without_relaxing_field_validation() {
         value["characters"][0]["version"] = serde_json::json!("invalid");
         assert!(parse_pack(&value.to_string()).is_err());
     }
+}
+
+#[test]
+fn chapter_pack_requires_format_14_and_survives_import_export() {
+    let mut source = pack();
+    source.format_version = 14;
+    let first = source.characters[0].source_id.clone();
+    let second = source.characters[1].source_id.clone();
+    source.scenarios.push(
+        serde_json::from_value(serde_json::json!({
+            "id": "scene", "title": "장면", "centerId": first,
+            "participants": [first, second], "purpose": "tutorial",
+            "chapters": [{"id": "chapter", "title": "첫 장", "steps": [
+                {"kind": "line", "persona": second, "expression": "평온", "text": "안녕"},
+                {"kind": "wait", "event": "body.clicked", "timeoutSec": 10,
+                 "onTimeout": {"steps": [{"kind": "line", "persona": first,
+                     "expression": "평온", "text": "다음에 보자"}], "then": "end"}}
+            ]}]
+        }))
+        .unwrap(),
+    );
+    let wire = pack_json(&source).unwrap();
+    let parsed = parse_pack(&wire).unwrap();
+    assert_eq!(parsed.scenarios, source.scenarios);
+    for old_version in [1, 2, 3, 4, 5, 6, 7, 8, 12, 13] {
+        let mut old: serde_json::Value = serde_json::from_str(&wire).unwrap();
+        old["formatVersion"] = old_version.into();
+        assert!(parse_pack(&old.to_string()).is_err());
+    }
+
+    let conn = database();
+    let installed = import_pack(&conn, &parsed).unwrap();
+    let ids = vec![installed[1].id.clone(), installed[0].id.clone()];
+    let exported = export_pack(&conn, &ids, &[]).unwrap();
+    assert_eq!(exported.format_version, 14);
+    let scene = serde_json::to_value(&exported.scenarios[0]).unwrap();
+    assert_eq!(
+        scene["chapters"][0]["steps"][0]["persona"],
+        exported.characters[0].source_id
+    );
+    assert_eq!(
+        scene["chapters"][0]["steps"][1]["onTimeout"]["steps"][0]["persona"],
+        exported.characters[1].source_id
+    );
+    let reparsed = parse_pack(&pack_json(&exported).unwrap()).unwrap();
+    assert_eq!(reparsed.scenarios, exported.scenarios);
+    let second_db = database();
+    let second_import = import_pack(&second_db, &reparsed).unwrap();
+    let second_ids: Vec<_> = second_import
+        .iter()
+        .map(|character| character.id.clone())
+        .collect();
+    let reexported = export_pack(&second_db, &second_ids, &[]).unwrap();
+    assert_eq!(reexported.format_version, 14);
+    assert_eq!(reexported.scenarios, exported.scenarios);
+}
+
+#[test]
+fn legacy_story_pack_output_omits_purpose() {
+    let mut source = pack();
+    source.format_version = 8;
+    let first = source.characters[0].source_id.clone();
+    let line = serde_json::json!({"persona": first, "expression": "평온", "text": "안녕"});
+    source.scenarios.push(
+        serde_json::from_value(serde_json::json!({
+            "id": "story", "title": "이야기", "centerId": first,
+            "participants": [first], "purpose": "story",
+            "intro": [line], "accept": [line], "decline": [line], "ending": [line]
+        }))
+        .unwrap(),
+    );
+
+    for version in [8, 12, 13] {
+        source.format_version = version;
+        let wire: serde_json::Value = serde_json::from_str(&pack_json(&source).unwrap()).unwrap();
+        assert!(wire["scenarios"][0].get("purpose").is_none());
+        let mut explicit_story = wire;
+        explicit_story["scenarios"][0]["purpose"] = "story".into();
+        let parsed = parse_pack(&explicit_story.to_string()).unwrap();
+        let normalized: serde_json::Value =
+            serde_json::from_str(&pack_json(&parsed).unwrap()).unwrap();
+        assert!(normalized["scenarios"][0].get("purpose").is_none());
+
+        let mut tutorial = parsed;
+        tutorial.scenarios[0].purpose = crate::pack_stories::ScenarioPurpose::Tutorial;
+        assert_eq!(
+            pack_json(&tutorial).unwrap_err(),
+            "튜토리얼은 장면형 이야기로만 만들 수 있어요."
+        );
+    }
+
+    source.format_version = 8;
+    let conn = database();
+    let installed = import_pack(&conn, &source).unwrap();
+    let ids: Vec<_> = installed
+        .iter()
+        .map(|character| character.id.clone())
+        .collect();
+    let exported = export_pack(&conn, &ids, &[]).unwrap();
+    assert_eq!(exported.format_version, 8);
+    let wire: serde_json::Value = serde_json::from_str(&pack_json(&exported).unwrap()).unwrap();
+    assert!(wire["scenarios"][0].get("purpose").is_none());
 }
 
 #[test]

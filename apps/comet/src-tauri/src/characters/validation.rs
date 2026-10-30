@@ -124,8 +124,8 @@ pub(super) fn validate_pack(pack: &CharacterPack) -> Result<()> {
     super::prepare_pack(pack.clone()).map(|_| ())
 }
 pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
-    // 9~11 are reserved for parts formats; stories use 12 and mood uses 13.
-    if ![1, 2, 3, 4, 5, 6, 7, 8, 12, 13].contains(&pack.format_version)
+    // 9~11 are reserved for parts formats.
+    if ![1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14].contains(&pack.format_version)
         || !(1..=if pack.format_version == 1 {
             2
         } else {
@@ -143,10 +143,19 @@ pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
         return Err("지원하지 않는 팩 버전 또는 잘못된 팩 구성입니다.".into());
     }
     crate::pack_stories::validate_pack(&pack.characters, &pack.story_definition())?;
+    if pack.format_version < 14
+        && pack
+            .scenarios
+            .iter()
+            .any(|scenario| scenario.chapters.is_some())
+    {
+        return Err("장면형 이야기는 캐릭터팩 버전 14 이상이 필요해요.".into());
+    }
     if pack.format_version < 12
-        && pack.scenarios.iter().any(|scenario| {
-            scenario.reveal_affinity.is_some() || !scenario.defer.is_empty()
-        })
+        && pack
+            .scenarios
+            .iter()
+            .any(|scenario| scenario.reveal_affinity.is_some() || !scenario.defer.is_empty())
     {
         return Err("이야기 노출·유보 정보는 캐릭터팩 버전 12 이상이 필요해요.".into());
     }
@@ -310,7 +319,7 @@ pub(crate) fn parse_pack_preview(json: &str) -> Result<PackPreview> {
     }
     let mut value: serde_json::Value =
         serde_json::from_str(json).map_err(|_| "캐릭터팩 JSON을 읽을 수 없습니다.")?;
-    if matches!(value["formatVersion"].as_u64(), Some(2..=8 | 12 | 13)) {
+    if matches!(value["formatVersion"].as_u64(), Some(2..=8 | 12 | 13 | 14)) {
         convert_pack_speakers(&mut value, false)?;
     }
     if let Some(scenes) = value.get("pairScenes").and_then(|v| v.as_array()) {
@@ -532,8 +541,7 @@ pub(super) fn validate_attribution(author: &str, source_url: &str) -> Result<()>
 pub(super) fn has_state_bindings(pack: &CharacterPack) -> bool {
     pack.characters.iter().any(|definition| {
         definition.animation.as_ref().is_some_and(|animation| {
-            animation.bindings.music_playing.is_some()
-                || animation.bindings.calendar_open.is_some()
+            animation.bindings.music_playing.is_some() || animation.bindings.calendar_open.is_some()
         })
     })
 }

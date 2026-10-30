@@ -62,6 +62,8 @@ fn fixture(subject: AuthoringSubject) -> AuthoringTrialRequest {
             ],
             scenarios: vec![ScenarioDefinition {
                 id: "one".into(),
+                purpose: Default::default(),
+                chapters: None,
                 title: "원문 이야기".into(),
                 center_id: center_source.clone(),
                 participants: vec![center_source.clone(), guest_source],
@@ -108,6 +110,32 @@ fn scenario() -> AuthoringTrialRequest {
     fixture(AuthoringSubject::Scenario {
         scenario_id: "one".into(),
     })
+}
+
+#[test]
+fn chapter_scenario_cannot_be_tried() {
+    let mut request = scenario();
+    let scene = &mut request.definition.scenarios[0];
+    scene.intro.clear();
+    scene.accept.clear();
+    scene.decline.clear();
+    scene.ending.clear();
+    scene.accept_keywords.clear();
+    scene.decline_keywords.clear();
+    scene.proceed_keywords.clear();
+    scene.cancel_keywords.clear();
+    scene.chapters = Some(
+        serde_json::from_value(serde_json::json!([{
+            "id": "start", "title": "시작", "steps": [{
+                "kind": "line", "persona": scene.center_id, "expression": "평온", "text": "안녕"
+            }]
+        }]))
+        .unwrap(),
+    );
+    assert_eq!(
+        authoring_trial(request).unwrap_err(),
+        "아직 시험할 수 없어요."
+    );
 }
 
 #[test]

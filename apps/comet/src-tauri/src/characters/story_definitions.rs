@@ -1,6 +1,31 @@
 use super::*;
 use crate::pack_stories::{PackStoryDefinition, PackStoryDefinitionSnapshot};
 
+fn remap_chapter_step(
+    step: &mut crate::pack_stories::StoryStep,
+    mapping: &BTreeMap<String, String>,
+) -> Result<()> {
+    use crate::pack_stories::StoryStep;
+    match step {
+        StoryStep::Line { persona, .. }
+        | StoryStep::Move { persona, .. }
+        | StoryStep::Ask { persona, .. }
+        | StoryStep::Choice { persona, .. } => {
+            *persona = mapping
+                .get(persona)
+                .cloned()
+                .ok_or("이야기·지식의 참가자를 함께 선택해 내보내 주세요.")?;
+        }
+        StoryStep::Wait { on_timeout, .. } => {
+            for step in &mut on_timeout.steps {
+                remap_chapter_step(step, mapping)?;
+            }
+        }
+        StoryStep::Action { .. } => {}
+    }
+    Ok(())
+}
+
 pub(super) fn initialize(db: &Connection) -> Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS character_pack_definition_revisions(pack_id TEXT PRIMARY KEY,revision INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS character_definition_revisions(character_id TEXT PRIMARY KEY,revision INTEGER NOT NULL);
     INSERT OR IGNORE INTO character_pack_definition_revisions SELECT id,0 FROM character_packs;
@@ -98,6 +123,12 @@ pub fn save_pack_story_definition_expected(
         pack.set_story_definition(definition.clone());
         if !definition.is_empty() {
             let required_version = if definition
+                .scenarios
+                .iter()
+                .any(|scene| scene.chapters.is_some())
+            {
+                14
+            } else if definition
                 .scenarios
                 .iter()
                 .any(|scene| scene.reveal_affinity.is_some() || !scene.defer.is_empty())
@@ -228,6 +259,11 @@ pub(super) fn export_extras(
                 .chain(&mut scenario.ending)
             {
                 remap(&mut line.persona)?;
+            }
+            if let Some(chapters) = &mut scenario.chapters {
+                for step in chapters.iter_mut().flat_map(|chapter| &mut chapter.steps) {
+                    remap_chapter_step(step, &mapping)?;
+                }
             }
         }
         // Single-pack exports retain authored IDs. Cross-pack collisions are explicit errors.

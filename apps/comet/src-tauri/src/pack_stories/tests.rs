@@ -31,6 +31,8 @@ fn fixture() -> (Connection, String, String, String) {
     }];
     pack.scenarios = vec![ScenarioDefinition {
         id: "one".into(),
+        purpose: Default::default(),
+        chapters: None,
         title: "작은 이야기".into(),
         center_id: center.clone(),
         participants: vec![center.clone(), guest],
@@ -65,6 +67,58 @@ fn fixture() -> (Connection, String, String, String) {
         installed[1].id.clone(),
     )
 }
+
+#[test]
+fn chapter_scenarios_are_skipped_by_selection_and_trial() {
+    let (db, pack_id, center, guest) = fixture();
+    let mut snapshot = characters::get_pack_story_definition(&db, &pack_id).unwrap();
+    let mut scene = snapshot.definition.scenarios[0].clone();
+    scene.id = "chapter-story".into();
+    scene.intro.clear();
+    scene.accept.clear();
+    scene.decline.clear();
+    scene.ending.clear();
+    scene.accept_keywords.clear();
+    scene.decline_keywords.clear();
+    scene.proceed_keywords.clear();
+    scene.cancel_keywords.clear();
+    scene.chapters = Some(
+        serde_json::from_value(serde_json::json!([{
+            "id": "start", "title": "시작", "steps": [{
+                "kind": "line", "persona": scene.center_id, "expression": "평온", "text": "안녕"
+            }]
+        }]))
+        .unwrap(),
+    );
+    snapshot.definition.scenarios.insert(0, scene);
+    characters::save_pack_story_definition_expected(
+        &db,
+        &pack_id,
+        &snapshot.definition,
+        &snapshot.baseline,
+    )
+    .unwrap();
+
+    let context = input(&db, &center, "이야기", 1);
+    let selected = select(&db, &Runtime::default(), &context, "이야기")
+        .unwrap()
+        .unwrap();
+    assert_eq!(selected.run.scenario_id.as_deref(), Some("one"));
+
+    let pack = characters::export_pack(&db, &[center, guest], &[]).unwrap();
+    assert_eq!(
+        trial(
+            &pack.characters,
+            &pack.story_definition(),
+            "chapter-story",
+            &[],
+            20,
+            &[]
+        )
+        .unwrap_err(),
+        "아직 시험할 수 없어요."
+    );
+}
 #[test]
 fn new_story_fields_require_pack_format_12() {
     let (db, _, center, guest) = fixture();
@@ -94,11 +148,23 @@ fn mood_and_story_features_preserve_the_highest_pack_version() {
     let mut definition = characters::get(&db, &center).unwrap().definition;
     definition.animation = Some(Animation {
         clips: vec![Clip {
-            id: "mood".into(), name: "기분".into(), fps: 6,
-            frames: vec![Frame { asset_id: asset.asset_id.clone(), x: 0, y: 0, width: 2, height: 2 }],
+            id: "mood".into(),
+            name: "기분".into(),
+            fps: 6,
+            frames: vec![Frame {
+                asset_id: asset.asset_id.clone(),
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 2,
+            }],
         }],
         bindings: Bindings {
-            mood_high: Some(Binding { clip_id: "mood".into(), repeat: true, interval_ms: 0 }),
+            mood_high: Some(Binding {
+                clip_id: "mood".into(),
+                repeat: true,
+                interval_ms: 0,
+            }),
             ..Default::default()
         },
         overrides: Default::default(),
@@ -106,15 +172,32 @@ fn mood_and_story_features_preserve_the_highest_pack_version() {
     characters::save_with_assets(&db, &center, &definition, &[asset]).unwrap();
     let mut story = characters::get_pack_story_definition(&db, &pack_id).unwrap();
     story.definition.scenarios[0].reveal_affinity = Some(0);
-    characters::save_pack_story_definition_expected(&db, &pack_id, &story.definition, &story.baseline).unwrap();
+    characters::save_pack_story_definition_expected(
+        &db,
+        &pack_id,
+        &story.definition,
+        &story.baseline,
+    )
+    .unwrap();
     let exported = characters::export_pack(&db, &[center, guest], &[]).unwrap();
     assert_eq!(exported.format_version, 13);
     let target = store::open(Path::new(":memory:")).unwrap();
     let installed = characters::import_pack(&target, &exported).unwrap();
     let imported_pack = installed[0].pack_id.as_ref().unwrap();
     let story = characters::get_pack_story_definition(&target, imported_pack).unwrap();
-    characters::save_pack_story_definition_expected(&target, imported_pack, &story.definition, &story.baseline).unwrap();
-    let reexported = characters::export_pack(&target, &installed.iter().map(|c| c.id.clone()).collect::<Vec<_>>(), &[]).unwrap();
+    characters::save_pack_story_definition_expected(
+        &target,
+        imported_pack,
+        &story.definition,
+        &story.baseline,
+    )
+    .unwrap();
+    let reexported = characters::export_pack(
+        &target,
+        &installed.iter().map(|c| c.id.clone()).collect::<Vec<_>>(),
+        &[],
+    )
+    .unwrap();
     assert_eq!(reexported.format_version, 13);
     assert!(reexported.scenarios[0].reveal_affinity.is_some());
 }
@@ -980,4 +1063,343 @@ fn deferred_cancel_flush_is_atomic_and_recovery_preserves_wait_after_a_failed_wr
             .unwrap(),
         wait
     );
+}
+
+fn scene_schema_fixture() -> (Vec<CharacterDefinition>, PackStoryDefinition) {
+    let (db, _, center, guest) = fixture();
+    let pack = characters::export_pack(&db, &[center, guest], &[]).unwrap();
+    let mut extras = pack.story_definition();
+    let scene = &mut extras.scenarios[0];
+    scene.intro.clear();
+    scene.accept.clear();
+    scene.decline.clear();
+    scene.ending.clear();
+    scene.accept_keywords.clear();
+    scene.decline_keywords.clear();
+    scene.proceed_keywords.clear();
+    scene.cancel_keywords.clear();
+    scene.chapters = Some(serde_json::from_value(serde_json::json!([{
+        "id": "start", "title": "시작", "steps": [
+            {"kind":"ask", "id":"name", "persona":scene.center_id, "expression":"평온", "prompt":"이름은?", "input":"name", "known":"반가워요 {userName}"},
+            {"kind":"ask", "id":"topic", "persona":scene.center_id, "expression":"평온", "prompt":"무엇을 좋아해요?", "input":"text"},
+            {"kind":"line", "persona":scene.center_id, "expression":"평온", "text":"{userName}님, {answer.topic}!"},
+            {"kind":"action", "do":"widget.open", "widget":"focus-timer"},
+            {"kind":"wait", "event":"focus.started", "timeoutSec":90, "cancelOn":[{"event":"window.closed", "window":"focus-timer"}], "onTimeout":{"steps":[{"kind":"action", "do":"focus.start", "minutes":5}], "then":"next"}},
+            {"kind":"choice", "persona":scene.center_id, "expression":"평온", "prompt":"고르세요", "options":[{"id":"a", "label":"계속", "goto":"next"}, {"id":"b", "label":"끝", "goto":"end"}]}
+        ]
+    }])).unwrap());
+    (pack.characters, extras)
+}
+
+#[test]
+fn chapter_schema_validates_and_round_trips_all_step_types() {
+    let (characters, mut extras) = scene_schema_fixture();
+    let scene = &mut extras.scenarios[0];
+    scene.purpose = ScenarioPurpose::Tutorial;
+    scene.chapters.as_mut().unwrap()[0].steps.push(
+        serde_json::from_value(
+            serde_json::json!({"kind":"move", "persona":scene.center_id, "enter":"left"}),
+        )
+        .unwrap(),
+    );
+    validate_pack(&characters, &extras).unwrap();
+    let encoded = serde_json::to_string(&extras).unwrap();
+    assert_eq!(
+        serde_json::from_str::<PackStoryDefinition>(&encoded).unwrap(),
+        extras
+    );
+}
+
+#[test]
+fn tutorial_rejects_proposal_story_without_chapters() {
+    let (db, _, center, guest) = fixture();
+    let pack = characters::export_pack(&db, &[center, guest], &[]).unwrap();
+    let mut proposal = pack.story_definition();
+    validate_pack(&pack.characters, &proposal).unwrap();
+    proposal.scenarios[0].purpose = ScenarioPurpose::Tutorial;
+
+    let original = serde_json::to_value(&proposal).unwrap();
+    for chapters in [None, Some(serde_json::Value::Null)] {
+        let mut input = original.clone();
+        if let Some(chapters) = chapters {
+            input["scenarios"][0]["chapters"] = chapters;
+        }
+        let parsed: PackStoryDefinition = serde_json::from_value(input).unwrap();
+        assert_eq!(
+            validate_pack(&pack.characters, &parsed).unwrap_err(),
+            "튜토리얼은 장면형 이야기로만 만들 수 있어요."
+        );
+    }
+
+    let (characters, mut extras) = scene_schema_fixture();
+    extras.scenarios[0].purpose = ScenarioPurpose::Tutorial;
+    let mut invalid = extras.scenarios[0].clone();
+    invalid.chapters = None;
+    invalid.title.clear();
+    extras.scenarios.push(invalid);
+    assert_eq!(
+        validate_pack(&characters, &extras).unwrap_err(),
+        "튜토리얼은 장면형 이야기로만 만들 수 있어요."
+    );
+}
+
+#[test]
+fn chapter_schema_rejects_wrong_shapes_and_unsupported_targets() {
+    for value in [
+        serde_json::json!({"kind":"line", "persona":"p", "expression":"e", "text":"x", "extra":true}),
+        serde_json::json!({"kind":"action", "do":"widget.open", "widget":"unknown"}),
+        serde_json::json!({"kind":"action", "do":"focus.stop", "minutes":5}),
+        serde_json::json!({"kind":"action", "do":"guide.open", "page":"unknown"}),
+        serde_json::json!({"kind":"wait", "event":"widget.saved", "widget":"todo", "timeoutSec":90, "onTimeout":{"steps":[], "then":"end"}}),
+        serde_json::json!({"kind":"wait", "event":"body.clicked", "window":"settings", "timeoutSec":90, "onTimeout":{"steps":[], "then":"end"}}),
+    ] {
+        assert!(serde_json::from_value::<StoryStep>(value).is_err());
+    }
+}
+
+#[test]
+fn chapter_schema_rejects_invalid_scenes() {
+    let (characters, extras) = scene_schema_fixture();
+    let original = serde_json::to_value(&extras).unwrap();
+    let invalid = [
+        (
+            "/scenarios/0/intro",
+            serde_json::json!([{"persona":"bad", "expression":"평온", "text":"x"}]),
+        ),
+        ("/scenarios/0/chapters", serde_json::json!([])),
+        ("/scenarios/0/chapters/0/steps", serde_json::json!([])),
+        ("/scenarios/0/chapters/0/title", serde_json::json!("")),
+        ("/scenarios/0/chapters/0/next", serde_json::json!("missing")),
+        (
+            "/scenarios/0/chapters/0/steps/0/known",
+            serde_json::Value::Null,
+        ),
+        (
+            "/scenarios/0/chapters/0/steps/2/text",
+            serde_json::json!(""),
+        ),
+        (
+            "/scenarios/0/chapters/0/steps/2/persona",
+            serde_json::json!("missing"),
+        ),
+        (
+            "/scenarios/0/chapters/0/steps/2/expression",
+            serde_json::json!("missing"),
+        ),
+        (
+            "/scenarios/0/chapters/0/steps/4/timeoutSec",
+            serde_json::json!(9),
+        ),
+        (
+            "/scenarios/0/chapters/0/steps/4/onTimeout/then",
+            serde_json::json!("missing"),
+        ),
+        (
+            "/scenarios/0/chapters/0/steps/4/onTimeout/steps/0/minutes",
+            serde_json::json!(61),
+        ),
+        (
+            "/scenarios/0/chapters/0/steps/5/options/0/goto",
+            serde_json::json!("missing"),
+        ),
+        (
+            "/scenarios/0/chapters/0/steps/5/options/0/label",
+            serde_json::json!(""),
+        ),
+        (
+            "/scenarios/0/chapters/0/steps/2/text",
+            serde_json::json!("{answer.missing}"),
+        ),
+        (
+            "/scenarios/0/chapters/0/steps/0/prompt",
+            serde_json::json!("{userName}"),
+        ),
+    ];
+    for (path, value) in invalid {
+        let mut input = original.clone();
+        if path == "/scenarios/0/chapters/0/next" {
+            input["scenarios"][0]["chapters"][0]["next"] = value;
+        } else {
+            *input.pointer_mut(path).unwrap() = value;
+        }
+        let parsed: PackStoryDefinition = serde_json::from_value(input).unwrap();
+        assert!(validate_pack(&characters, &parsed).is_err(), "{path}");
+    }
+    let mut duplicate = extras.clone();
+    let mut second = duplicate.scenarios[0].clone();
+    duplicate.scenarios[0].purpose = ScenarioPurpose::Tutorial;
+    second.purpose = ScenarioPurpose::Tutorial;
+    second.id = "other".into();
+    duplicate.scenarios.push(second);
+    assert!(validate_pack(&characters, &duplicate).is_err());
+}
+
+#[test]
+fn chapter_schema_rejects_unconditional_cycles_and_name_bypasses() {
+    let (characters, extras) = scene_schema_fixture();
+    let mut cycle = extras.clone();
+    let chapter = &mut cycle.scenarios[0].chapters.as_mut().unwrap()[0];
+    chapter
+        .steps
+        .retain(|step| matches!(step, StoryStep::Line { .. } | StoryStep::Action { .. }));
+    chapter.next = Some("start".into());
+    assert!(validate_pack(&characters, &cycle).is_err());
+
+    let mut bypass = extras.clone();
+    let scene = &mut bypass.scenarios[0];
+    let chapters = scene.chapters.as_mut().unwrap();
+    let first = serde_json::from_value(serde_json::json!({"id":"branch", "title":"선택", "steps":[
+        {"kind":"choice", "persona":scene.center_id, "expression":"평온", "prompt":"고르세요", "options":[{"id":"a", "label":"다음", "goto":"next"}, {"id":"b", "label":"건너뛰기", "goto":"after"}]}
+    ]})).unwrap();
+    let last = serde_json::from_value(serde_json::json!({"id":"after", "title":"뒤", "steps":[{"kind":"line", "persona":scene.center_id, "expression":"평온", "text":"{userName}"}]})).unwrap();
+    chapters.insert(0, first);
+    chapters.push(last);
+    assert!(validate_pack(&characters, &bypass).is_err());
+}
+
+#[test]
+fn chapter_schema_enforces_count_limits_and_story_size() {
+    let (characters, extras) = scene_schema_fixture();
+    let mut value = serde_json::to_value(&extras).unwrap();
+    let chapter = value["scenarios"][0]["chapters"][0].clone();
+    let check = |candidate: serde_json::Value| {
+        let scene = serde_json::from_value::<PackStoryDefinition>(candidate).unwrap();
+        assert!(validate_pack(&characters, &scene).is_err());
+    };
+    value["scenarios"][0]["chapters"] = serde_json::json!(vec![chapter.clone(); 13]);
+    check(value.clone());
+    value = serde_json::to_value(&extras).unwrap();
+    value["scenarios"][0]["chapters"][0]["steps"] =
+        serde_json::json!(vec![chapter["steps"][2].clone(); 33]);
+    check(value.clone());
+    value = serde_json::to_value(&extras).unwrap();
+    value["scenarios"][0]["chapters"][0]["steps"][5]["options"] =
+        serde_json::json!([{"id":"a", "label":"하나", "goto":"end"}]);
+    check(value.clone());
+    value = serde_json::to_value(&extras).unwrap();
+    value["scenarios"][0]["chapters"][0]["steps"][4]["onTimeout"]["steps"] =
+        serde_json::json!(vec![chapter["steps"][3].clone(); 5]);
+    check(value.clone());
+    value = serde_json::to_value(&extras).unwrap();
+    value["scenarios"][0]["chapters"][0]["steps"][4]["onTimeout"]["steps"] =
+        serde_json::json!([chapter["steps"][0].clone()]);
+    check(value);
+
+    let mut large_scene = extras.clone();
+    let persona = large_scene.scenarios[0].center_id.clone();
+    let line = StoryStep::Line {
+        persona: persona.clone(),
+        expression: "평온".into(),
+        text: "가".repeat(500),
+        motion: Default::default(),
+    };
+    large_scene.scenarios[0].chapters = Some(
+        (0..4)
+            .map(|index| Chapter {
+                id: format!("chapter-{index}"),
+                title: "장".into(),
+                next: None,
+                steps: vec![line.clone(); 32],
+            })
+            .collect(),
+    );
+    assert!(validate_pack(&characters, &large_scene).is_err());
+
+    let mut proposal = extras;
+    let scene = &mut proposal.scenarios[0];
+    scene.chapters = None;
+    let proposal_line = SceneLine {
+        persona,
+        expression: "평온".into(),
+        text: "가".repeat(500),
+        widget: None,
+        motion: Default::default(),
+    };
+    scene.intro = vec![proposal_line.clone(); 24];
+    scene.accept = vec![proposal_line.clone(); 32];
+    scene.decline = vec![proposal_line.clone(); 32];
+    scene.ending = vec![proposal_line; 32];
+    assert!(serde_json::to_vec(scene).unwrap().len() > 128 * 1024);
+    validate_pack(&characters, &proposal).unwrap();
+}
+
+#[test]
+fn chapter_schema_rejects_additional_invalid_values() {
+    let (characters, extras) = scene_schema_fixture();
+    let original = serde_json::to_value(&extras).unwrap();
+    let cases = [
+        (
+            "/scenarios/0/chapters/0/steps/0/known",
+            serde_json::json!(""),
+        ),
+        (
+            "/scenarios/0/chapters/0/steps/0/prompt",
+            serde_json::json!("가".repeat(501)),
+        ),
+        (
+            "/scenarios/0/chapters/0/steps/2/text",
+            serde_json::json!("가".repeat(501)),
+        ),
+        (
+            "/scenarios/0/chapters/0/steps/2/motion",
+            serde_json::json!({"mode":"clip", "clipId":"missing", "repeat":true, "intervalMs":0}),
+        ),
+        (
+            "/scenarios/0/chapters/0/steps/4/timeoutSec",
+            serde_json::json!(901),
+        ),
+        (
+            "/scenarios/0/chapters/0/steps/5/options/0/label",
+            serde_json::json!("가".repeat(21)),
+        ),
+    ];
+    for (path, value) in cases {
+        let mut input = original.clone();
+        if path.ends_with("/motion") {
+            input["scenarios"][0]["chapters"][0]["steps"][2]["motion"] = value;
+        } else {
+            *input.pointer_mut(path).unwrap() = value;
+        }
+        let parsed: PackStoryDefinition = serde_json::from_value(input).unwrap();
+        assert!(validate_pack(&characters, &parsed).is_err(), "{path}");
+    }
+
+    let mut duplicate = extras.clone();
+    let chapters = duplicate.scenarios[0].chapters.as_mut().unwrap();
+    chapters.push(chapters[0].clone());
+    assert!(validate_pack(&characters, &duplicate).is_err());
+
+    let mut no_story = extras.clone();
+    no_story.scenarios[0].chapters = None;
+    assert!(validate_pack(&characters, &no_story).is_err());
+
+    let mut too_many = extras.clone();
+    let scenario = too_many.scenarios[0].clone();
+    too_many.scenarios = (0..33)
+        .map(|index| {
+            let mut scenario = scenario.clone();
+            scenario.id = format!("story-{index}");
+            scenario
+        })
+        .collect();
+    assert!(validate_pack(&characters, &too_many).is_err());
+}
+
+#[test]
+fn chapter_answers_expire_at_chapter_boundaries() {
+    let (characters, mut extras) = scene_schema_fixture();
+    let scenario = &mut extras.scenarios[0];
+    let chapters = scenario.chapters.as_mut().unwrap();
+    chapters.push(Chapter {
+        id: "next-chapter".into(),
+        title: "다음 장".into(),
+        next: None,
+        steps: vec![StoryStep::Line {
+            persona: scenario.center_id.clone(),
+            expression: "평온".into(),
+            text: "{answer.topic}".into(),
+            motion: Default::default(),
+        }],
+    });
+    assert!(validate_pack(&characters, &extras).is_err());
 }

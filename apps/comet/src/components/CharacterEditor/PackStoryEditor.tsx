@@ -472,7 +472,12 @@ export function PackStoryEditor({
         >
           등록 이야기 추가
         </Button>
-        {selectedScenario && (
+        {selectedScenario?.chapters != null ? (
+          <section aria-label="선택한 이야기">
+            <p>이 이야기는 아직 여기서 고칠 수 없어요.</p>
+            <p>아직 시험할 수 없어요.</p>
+          </section>
+        ) : selectedScenario && (
           <section aria-label="선택한 이야기">
             <FormField label="이야기 제목">
               <TextInput
@@ -565,7 +570,7 @@ export function PackStoryEditor({
               <StageLines
                 key={key}
                 label={label}
-                lines={selectedScenario[key]}
+                lines={selectedScenario[key] ?? []}
                 definitions={definitions.filter((value) =>
                   selectedScenario.participants.includes(value.sourceId),
                 )}
@@ -588,7 +593,7 @@ export function PackStoryEditor({
                     layout="flexible"
                     fill
                     rows={2}
-                    value={selectedScenario[key].join("\n")}
+                    value={(selectedScenario[key] ?? []).join("\n")}
                     onChange={(event) => updateScenario({ [key]: entries(event.target.value) })}
                   />
                 </FormField>

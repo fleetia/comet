@@ -100,6 +100,44 @@ beforeEach(() => {
   });
 });
 
+it("blocks trials of scene stories even when opened directly", () => {
+  const sceneDefinition: PackStoryDefinition = {
+    ...definition,
+    scenarios: [
+      {
+        id: "scene",
+        title: "첫 만남",
+        centerId: "source-0",
+        participants: ["source-0"],
+        keywords: [],
+        requiredFlags: [],
+        minAffinity: 0,
+        chapters: [
+          {
+            id: "start",
+            title: "시작",
+            steps: [{ kind: "line", persona: "source-0", expression: "평온", text: "안녕" }],
+          },
+        ],
+        allowIncompleteRepeat: true,
+        allowRepeat: false,
+        completion: { setFlags: [], memoryTemplate: null },
+      },
+    ],
+  };
+  render(
+    <AuthoringTrial
+      {...props}
+      title="등록 이야기 시험"
+      definition={sceneDefinition}
+      subject={{ kind: "scenario", scenarioId: "scene" }}
+    />,
+  );
+  expect(screen.getByText("아직 시험할 수 없어요.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "등록 이야기 시험" })).toBeNull();
+  expect(command).not.toHaveBeenCalled();
+});
+
 it.each(["window-close", "document-hide"])(
   "invalidates displayed and pending trials after %s without changing retained definitions",
   async (cause) => {

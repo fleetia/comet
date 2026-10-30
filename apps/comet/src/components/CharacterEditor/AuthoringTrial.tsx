@@ -79,6 +79,9 @@ export function AuthoringTrial({
   const generation = useRef(0);
   const pending = useRef(false);
   const definition = draftDefinition ?? snapshot?.definition ?? EMPTY;
+  const isSceneStory =
+    subject.kind === "scenario" &&
+    definition.scenarios.find((scenario) => scenario.id === subject.scenarioId)?.chapters != null;
   const key = JSON.stringify([
     scope,
     visible,
@@ -193,6 +196,7 @@ export function AuthoringTrial({
       !visible ||
       !expanded ||
       pending.current ||
+      isSceneStory ||
       !valid ||
       (packId && !draftDefinition && !snapshot)
     )
@@ -258,6 +262,14 @@ export function AuthoringTrial({
   const canPreview = Boolean(step && queue.length === step.lines.length && queue.length);
   function stateText(state: AuthoringState): string {
     return `${state.stage ? STAGES[state.stage] : "대기"} · ${state.ready ? "입력 대기" : "대사 전"} · 참가 ${state.presentIds.length}명 · 조건 ${state.flags.join(", ") || "없음"} · 입력 ${state.turn} / 대기 ${state.waitTurn}${state.pendingNextScenarioId ? ` · 다음 이야기 ${state.pendingNextScenarioId}` : ""}`;
+  }
+  if (isSceneStory) {
+    return (
+      <details>
+        <summary>{title}</summary>
+        <p>아직 시험할 수 없어요.</p>
+      </details>
+    );
   }
   return (
     <details open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
