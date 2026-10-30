@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
-import { IconButton } from "@comet/ui";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { errorText, isDesktop } from "../../hooks/useSnapshot";
 import cometIcon from "../../../src-tauri/icons/source.svg";
@@ -31,6 +30,7 @@ export function WindowHeader({
   const headerRef = useRef<HTMLElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
   const enabled = isDesktop() && !preview;
+  const isMac = /Mac/i.test(navigator.platform);
   useEffect(() => {
     if (!enabled) {
       return;
@@ -112,8 +112,10 @@ export function WindowHeader({
   return (
     <>
       <header ref={headerRef} className={className}>
-        <div className={s.header}>
-          {nativeControls && (
+        <div
+          className={`${s.header} ${!isMac && (title || children || actions) ? (nativeControls ? s.captionSpaceAll : s.captionSpaceClose) : ""}`}
+        >
+          {isMac && (
             <div className={s.trafficControls} aria-label="창 제어">
               <button
                 type="button"
@@ -122,31 +124,40 @@ export function WindowHeader({
                 disabled={!enabled}
                 onClick={() => void close()}
               />
-              <button
-                type="button"
-                className={s.trafficMinimize}
-                aria-label="최소화"
-                disabled={!enabled}
-                onClick={() =>
-                  void getCurrentWindow()
-                    .minimize()
-                    .catch((cause: unknown) => setError(errorText(cause)))
-                }
-              />
-              <button
-                type="button"
-                className={s.trafficMaximize}
-                aria-label="창 크기 전환"
-                disabled={!enabled}
-                onClick={() =>
-                  void getCurrentWindow()
-                    .toggleMaximize()
-                    .catch((cause: unknown) => setError(errorText(cause)))
-                }
-              />
+              {nativeControls ? (
+                <>
+                  <button
+                    type="button"
+                    className={s.trafficMinimize}
+                    aria-label="최소화"
+                    disabled={!enabled}
+                    onClick={() =>
+                      void getCurrentWindow()
+                        .minimize()
+                        .catch((cause: unknown) => setError(errorText(cause)))
+                    }
+                  />
+                  <button
+                    type="button"
+                    className={s.trafficMaximize}
+                    aria-label="창 크기 전환"
+                    disabled={!enabled}
+                    onClick={() =>
+                      void getCurrentWindow()
+                        .toggleMaximize()
+                        .catch((cause: unknown) => setError(errorText(cause)))
+                    }
+                  />
+                </>
+              ) : (
+                <>
+                  <span className={s.trafficInactive} aria-hidden="true" />
+                  <span className={s.trafficInactive} aria-hidden="true" />
+                </>
+              )}
             </div>
           )}
-          <div className={s.title}>
+          <div className={`${s.title} ${isMac && title ? s.macTitle : ""}`}>
             {title ? (
               <div className={s.brand} title={title}>
                 <img
@@ -166,19 +177,56 @@ export function WindowHeader({
           </div>
           <div ref={actionsRef} className={s.actions}>
             {actions}
-            {!nativeControls && (
-              <IconButton
-                className={s.close}
-                size="compact"
-                icon="close"
+          </div>
+          {!isMac && (
+            <div className={s.captionControls} aria-label="창 제어">
+              {nativeControls && (
+                <>
+                  <button
+                    type="button"
+                    className={s.captionButton}
+                    aria-label="최소화"
+                    disabled={!enabled}
+                    onClick={() =>
+                      void getCurrentWindow()
+                        .minimize()
+                        .catch((cause: unknown) => setError(errorText(cause)))
+                    }
+                  >
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                      <path d="M0 5h10" stroke="currentColor" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    className={s.captionButton}
+                    aria-label="창 크기 전환"
+                    disabled={!enabled}
+                    onClick={() =>
+                      void getCurrentWindow()
+                        .toggleMaximize()
+                        .catch((cause: unknown) => setError(errorText(cause)))
+                    }
+                  >
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                      <rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" />
+                    </svg>
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                className={`${s.captionButton} ${s.captionClose}`}
                 aria-label={label}
                 disabled={!enabled}
-                onMouseDown={(event) => event.stopPropagation()}
-                onPointerDown={(event) => event.stopPropagation()}
                 onClick={() => void close()}
-              />
-            )}
-          </div>
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                  <path d="M0.5 0.5l9 9m0-9l-9 9" stroke="currentColor" />
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
       </header>
       {error && (

@@ -4,7 +4,12 @@ import { WindowHeader } from "../components/WindowHeader/WindowHeader";
 import { isDesktop } from "../hooks/useSnapshot";
 import { grabTarget } from "../components/WindowHeader/windowHeader.css";
 
-const native = vi.hoisted(() => ({ close: vi.fn(), startDragging: vi.fn() }));
+const native = vi.hoisted(() => ({
+  close: vi.fn(),
+  minimize: vi.fn(),
+  toggleMaximize: vi.fn(),
+  startDragging: vi.fn(),
+}));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => native }));
 vi.mock("../hooks/useSnapshot", async (load) => ({
   ...(await load<typeof import("../hooks/useSnapshot")>()),
@@ -13,13 +18,80 @@ vi.mock("../hooks/useSnapshot", async (load) => ({
 beforeEach(() => {
   vi.mocked(isDesktop).mockReturnValue(true);
   native.close.mockReset().mockResolvedValue(undefined);
+  native.minimize.mockReset().mockResolvedValue(undefined);
+  native.toggleMaximize.mockReset().mockResolvedValue(undefined);
   native.startDragging.mockReset().mockResolvedValue(undefined);
   vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(760);
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
     new DOMRect(24, 24, 712, 76),
   );
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+it.each([
+  ["MacIntel", true],
+  ["Win32", false],
+  ["Linux x86_64", false],
+] as const)(
+  "places all window controls for %s and keeps them out of the drag area",
+  (platform, isMac) => {
+    vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
+    render(<WindowHeader label="설정 닫기" title="설정" nativeControls />);
+
+    const brand = screen.getByTitle("설정");
+    const close = screen.getByRole("button", { name: "설정 닫기" });
+    const minimize = screen.getByRole("button", { name: "최소화" });
+    const maximize = screen.getByRole("button", { name: "창 크기 전환" });
+    const relativePosition = brand.compareDocumentPosition(close);
+    expect(
+      relativePosition &
+        (isMac ? Node.DOCUMENT_POSITION_PRECEDING : Node.DOCUMENT_POSITION_FOLLOWING),
+    ).not.toBe(0);
+    expect(screen.getAllByRole("button")).toEqual(
+      isMac ? [close, minimize, maximize] : [minimize, maximize, close],
+    );
+
+    for (const button of [close, minimize, maximize]) {
+      fireEvent.mouseDown(button.querySelector("svg") ?? button, {
+        button: 0,
+        detail: 1,
+        clientX: 2,
+        clientY: 2,
+      });
+      fireEvent.click(button);
+    }
+    expect(native.startDragging).not.toHaveBeenCalled();
+    expect(native.close).toHaveBeenCalledTimes(1);
+    expect(native.minimize).toHaveBeenCalledTimes(1);
+    expect(native.toggleMaximize).toHaveBeenCalledTimes(1);
+  },
+);
+
+it.each([
+  ["MacIntel", true],
+  ["Win32", false],
+  ["Linux x86_64", false],
+] as const)("places the close-only window controls for %s", (platform, isMac) => {
+  vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
+  render(<WindowHeader label="안내서 닫기" title="안내서" />);
+
+  const brand = screen.getByTitle("안내서");
+  const close = screen.getByRole("button", { name: "안내서 닫기" });
+  const relativePosition = brand.compareDocumentPosition(close);
+  expect(
+    relativePosition &
+      (isMac ? Node.DOCUMENT_POSITION_PRECEDING : Node.DOCUMENT_POSITION_FOLLOWING),
+  ).not.toBe(0);
+  expect(screen.getAllByRole("button")).toEqual([close]);
+  expect(screen.queryByRole("button", { name: "최소화" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "창 크기 전환" })).toBeNull();
+  if (isMac) {
+    expect(close.parentElement?.querySelectorAll('[aria-hidden="true"]')).toHaveLength(2);
+  }
+});
 
 it("drags the title with a single left press and keeps actions separate", async () => {
   const action = vi.fn();

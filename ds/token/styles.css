@@ -454,6 +454,9 @@
   --comet-color-traffic-green: rgb(40 200 64);
   --comet-color-traffic-red: rgb(255 95 87);
   --comet-color-traffic-yellow: rgb(254 188 46);
+  --comet-color-window-close-hover: rgb(196 43 28);
+  --comet-color-window-close-ink: rgb(255 255 255);
+  --comet-color-window-close-pressed: rgb(165 36 24);
   --comet-color-window-highlight: rgb(255 255 255 / 0.1);
   --comet-color-window-shadow: rgb(0 0 0 / 0.45);
   --comet-text-error-helper-weight: 400;
@@ -733,6 +736,9 @@
   --comet-color-traffic-green: rgb(40 200 64);
   --comet-color-traffic-red: rgb(255 95 87);
   --comet-color-traffic-yellow: rgb(254 188 46);
+  --comet-color-window-close-hover: rgb(196 43 28);
+  --comet-color-window-close-ink: rgb(255 255 255);
+  --comet-color-window-close-pressed: rgb(165 36 24);
   --comet-color-window-highlight: rgb(255 255 255 / 0.8);
   --comet-color-window-shadow: rgb(36 45 79 / 0.32);
   --comet-text-error-helper-weight: 600;
@@ -1012,6 +1018,9 @@
   --comet-color-traffic-green: rgb(40 200 64);
   --comet-color-traffic-red: rgb(255 95 87);
   --comet-color-traffic-yellow: rgb(254 188 46);
+  --comet-color-window-close-hover: rgb(196 43 28);
+  --comet-color-window-close-ink: rgb(255 255 255);
+  --comet-color-window-close-pressed: rgb(165 36 24);
   --comet-color-window-highlight: rgb(251 247 238 / 0.8);
   --comet-color-window-shadow: rgb(80 58 24 / 0.32);
   --comet-text-error-helper-weight: 600;
@@ -1291,6 +1300,9 @@
   --comet-color-traffic-green: rgb(40 200 64);
   --comet-color-traffic-red: rgb(255 95 87);
   --comet-color-traffic-yellow: rgb(254 188 46);
+  --comet-color-window-close-hover: rgb(196 43 28);
+  --comet-color-window-close-ink: rgb(255 255 255);
+  --comet-color-window-close-pressed: rgb(165 36 24);
   --comet-color-window-highlight: rgb(255 255 255 / 0.8);
   --comet-color-window-shadow: rgb(42 35 64 / 0.32);
   --comet-text-error-helper-weight: 600;
