@@ -547,6 +547,7 @@ globalStyle(`${railHeader} > div`, {
   gap: 0,
 });
 globalStyle(`${railHeader} > div > div:empty`, { display: "none" });
+globalStyle(`.${railHeader} .${windowHeader.captionControls}`, { top: 0 });
 globalStyle(`.${railHeader} .${windowHeader.trafficControls}`, { gap: 6 });
 globalStyle(
   `.${railHeader} .${windowHeader.trafficControls} > button, .${railHeader} .${windowHeader.trafficControls} > .${windowHeader.trafficInactive}`,
