@@ -185,6 +185,25 @@ it("does not refresh the battery when its initial configuration fails", async ()
   });
 });
 
+it("refreshes denied notification permission after returning to the window", async () => {
+  vi.mocked(command).mockResolvedValueOnce("denied").mockResolvedValueOnce("granted");
+  render(
+    <BatteryTool
+      widget={widget("device", { configured: true, config: { criticalNotification: true } })}
+    />,
+  );
+
+  expect(await screen.findByText(/꺼짐 · .*설정/)).toBeTruthy();
+  fireEvent.focus(window);
+
+  await waitFor(() => expect(screen.queryByText(/꺼짐 · .*설정/)).toBeNull());
+  expect(command).toHaveBeenCalledTimes(2);
+  expect(command).toHaveBeenNthCalledWith(1, "get_planner_notification_permission");
+  expect(command).toHaveBeenNthCalledWith(2, "get_planner_notification_permission");
+  expect(command).not.toHaveBeenCalledWith("request_planner_notification_permission");
+  expect(command).not.toHaveBeenCalledWith("configure_connection_widget", expect.anything());
+});
+
 it("shows the lowest known battery reading and the power source", () => {
   render(
     <BatteryTool
