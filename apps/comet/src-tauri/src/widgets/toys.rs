@@ -302,337 +302,12 @@ pub fn act(
     entropy: u64,
 ) -> Result<WidgetEffect, String> {
     match kind {
-        "interaction" => {
-            let mut state: Interaction = decode(data)?;
-            if action == "refill" {
-                empty(input)?;
-                state.snacks = 6;
-                return effect(state, vec![]);
-            }
-            let args: CharacterInput = decode(input)?;
-            // Slots follow the roster order shown in the tool, up to the 8-character limit.
-            if !matches!(
-                args.character.as_str(),
-                "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H"
-            ) || args
-                .owner
-                .as_ref()
-                .is_some_and(|owner| owner.is_empty() || owner.len() > 128)
-            {
-                return Err("함께 지내는 캐릭터를 골라 주세요.".into());
-            }
-            let text = match action {
-                "stroke" => format!("{}를 쓰다듬었어요.", args.character),
-                "poke" => format!("{}를 콕 찔렀어요.", args.character),
-                "cheek-grab" => format!("{}의 볼을 살짝 잡았어요.", args.character),
-                "drink" => format!("{}에게 음료를 건넸어요.", args.character),
-                "gift" => format!("{}에게 선물을 건넸어요.", args.character),
-                "snack" => {
-                    if state.snacks == 0 {
-                        return Err("간식 봉지가 비었어요.".into());
-                    }
-                    state.snacks -= 1;
-                    format!(
-                        "{}에게 한 조각. {}조각 남았어요.",
-                        args.character, state.snacks
-                    )
-                }
-                _ => return Err("알 수 없는 교감 동작입니다.".into()),
-            };
-            if !matches!(action, "drink" | "gift") {
-                state.touches = state.touches.saturating_add(1);
-            }
-            let events = if state
-                .last_reaction_at
-                .is_none_or(|last| now.saturating_sub(last) >= 5000)
-            {
-                state.last_reaction_at = Some(now);
-                let mut payload = json!({"action":action,"character":args.character});
-                if let Some(owner) = args.owner {
-                    payload["owner"] = json!(owner);
-                }
-                vec![EventDraft {
-                    kind: "interaction.touch".into(),
-                    text,
-                    payload,
-                }]
-            } else {
-                vec![]
-            };
-            effect(state, events)
-        }
-        "ball" | "paper-plane" => {
-            let mut state: Motion = decode(data)?;
-            if action == "stop" && kind == "ball" {
-                empty(input)?;
-                state.moving = false;
-                state.vx = 0.0;
-                state.vy = 0.0;
-                return effect(state, vec![]);
-            }
-            if action != if kind == "ball" { "throw" } else { "launch" } {
-                return Err("알 수 없는 발사 동작입니다.".into());
-            }
-            let args: Launch = decode(input)?;
-            position(args.x, args.y)?;
-            if !args.vx.is_finite()
-                || !args.vy.is_finite()
-                || args.vx.abs() > 100.0
-                || args.vy.abs() > 100.0
-                || args.vx.hypot(args.vy) < 1.0
-            {
-                return Err("발사 속도를 1 이상, 축별 100 이하로 지정해 주세요.".into());
-            }
-            state.x = args.x;
-            state.y = args.y;
-            state.start_x = args.x;
-            state.start_y = args.y;
-            state.vx = args.vx;
-            state.vy = args.vy;
-            state.last_at = now;
-            state.moving = kind == "ball";
-            state.flying = kind == "paper-plane";
-            effect(state, vec![])
-        }
-        "bubbles" => {
-            let mut state: Bubbles = decode(data)?;
-            match action {
-                "make" => {
-                    empty(input)?;
-                    if state.bubbles.len() >= 30 {
-                        return Err("방울은 한 번에 30개까지 만들 수 있어요.".into());
-                    }
-                    let id = state.next_id;
-                    state.next_id = id.checked_add(1).ok_or("방울 번호가 가득 찼어요.")?;
-                    state.bubbles.push(Bubble {
-                        id,
-                        x: (entropy % 91 + 5) as f64,
-                        y: (entropy.rotate_left(21) % 81 + 10) as f64,
-                    });
-                }
-                "pop" => {
-                    let args: Id = decode(input)?;
-                    let index = state
-                        .bubbles
-                        .iter()
-                        .position(|bubble| bubble.id == args.id)
-                        .ok_or("이미 사라진 방울이에요.")?;
-                    state.bubbles.remove(index);
-                }
-                "reset" => {
-                    empty(input)?;
-                    state.bubbles.clear();
-                }
-                _ => return Err("알 수 없는 방울 동작입니다.".into()),
-            }
-            effect(state, vec![])
-        }
-        "small-match" => {
-            let mut state: Match = decode(data)?;
-            if action == "choose" {
-                // Opening a game from the character menu only picks it; nothing is played.
-                let game = input["game"].as_str().unwrap_or_default();
-                if !matches!(game, "dice" | "coin" | "rps") {
-                    return Err("주사위, 동전, 가위바위보 중에서 골라 주세요.".into());
-                }
-                state.game = game.into();
-                state.a.clear();
-                state.b.clear();
-                state.result.clear();
-                return effect(state, vec![]);
-            }
-            let target = play_target(input, matches!(action, "coin" | "rps"))?;
-            match action {
-                "dice" => {
-                    let a = entropy % 6 + 1;
-                    let b = entropy.rotate_left(32) % 6 + 1;
-                    state.a = a.to_string();
-                    state.b = b.to_string();
-                    state.result = match a.cmp(&b) {
-                        std::cmp::Ordering::Greater => "A 승리",
-                        std::cmp::Ordering::Less => "B 승리",
-                        std::cmp::Ordering::Equal => "무승부",
-                    }
-                    .into();
-                }
-                "coin" => {
-                    let args: Choice = decode(&json!({"choice":input["choice"]}))?;
-                    if !["heads", "tails"].contains(&args.choice.as_str()) {
-                        return Err("앞면 또는 뒷면을 선택해 주세요.".into());
-                    }
-                    state.a = args.choice;
-                    state.b = if entropy % 2 == 0 { "heads" } else { "tails" }.into();
-                    state.result = if state.a == state.b {
-                        "맞혔어요"
-                    } else {
-                        "다음 기회에"
-                    }
-                    .into();
-                }
-                "rps" => {
-                    let args: Choice = decode(&json!({"choice":input["choice"]}))?;
-                    let choices = ["rock", "paper", "scissors"];
-                    let player = choices
-                        .iter()
-                        .position(|choice| *choice == args.choice)
-                        .ok_or("가위, 바위, 보 중 선택해 주세요.")?;
-                    let opponent = (entropy % 3) as usize;
-                    state.a = args.choice;
-                    state.b = choices[opponent].into();
-                    state.result = if player == opponent {
-                        "무승부"
-                    } else if (player + 2) % 3 == opponent {
-                        "사용자 승리"
-                    } else {
-                        "캐릭터 승리"
-                    }
-                    .into();
-                }
-                _ => return Err("알 수 없는 승부입니다.".into()),
-            }
-            state.game = action.into();
-            state.rounds = state.rounds.saturating_add(1);
-            let text = match action {
-                "dice" => format!("주사위: A {}, B {} — {}", state.a, state.b, state.result),
-                "coin" => format!(
-                    "동전: 선택 {}, 결과 {} — {}",
-                    choice_label(&state.a),
-                    choice_label(&state.b),
-                    state.result
-                ),
-                _ => format!(
-                    "가위바위보: 사용자 {}, 캐릭터 {} — {}",
-                    choice_label(&state.a),
-                    choice_label(&state.b),
-                    state.result
-                ),
-            };
-            let outcome = match state.result.as_str() {
-                "A 승리" => "winner-a",
-                "B 승리" => "winner-b",
-                "무승부" => "draw",
-                "맞혔어요" => "correct",
-                "다음 기회에" => "miss",
-                "사용자 승리" => "winner-user",
-                _ => "winner-character",
-            };
-            let draft = EventDraft {
-                kind: "small-match.result".into(),
-                text,
-                payload: target_payload(json!({"mode":state.game,"outcome":outcome}), target),
-            };
-            effect(state, vec![draft])
-        }
-        "guessing" => {
-            let mut state: Guessing = decode(data)?;
-            match action {
-                "start" => {
-                    let args: Mode = decode(input)?;
-                    let range = match args.mode.as_str() {
-                        "cups" => 3,
-                        "number" => 100,
-                        _ => return Err("컵 찾기 또는 숫자 맞히기를 선택해 주세요.".into()),
-                    };
-                    state.mode = args.mode;
-                    state.answer = (entropy % range + 1) as u8;
-                    state.playing = true;
-                    state.attempts = 0;
-                    state.hint = if range == 3 {
-                        "구슬은 몇 번 컵에 있을까요?"
-                    } else {
-                        "1부터 100 사이 숫자 하나 골랐어요. 맞혀 볼래요?"
-                    }
-                    .into();
-                    effect(state, vec![])
-                }
-                "guess" => {
-                    let args: Guess = decode(input)?;
-                    if !state.playing {
-                        return Err("먼저 새 놀이를 시작해 주세요.".into());
-                    }
-                    if args.value == 0 || args.value > if state.mode == "cups" { 3 } else { 100 } {
-                        return Err("놀이 범위 안의 값을 골라 주세요.".into());
-                    }
-                    state.attempts = state.attempts.saturating_add(1);
-                    if args.value == state.answer {
-                        state.playing = false;
-                        state.hint = format!("정답! {}번 만에 맞혔어요.", state.attempts);
-                    } else if state.attempts >= 100 {
-                        state.playing = false;
-                        state.hint = format!("이번 정답은 {}였어요.", state.answer);
-                    } else {
-                        state.hint = if state.mode == "cups" {
-                            format!("{}번 컵은 비어 있어요.", args.value)
-                        } else if args.value < state.answer {
-                            format!("{}보다 더 커요", args.value)
-                        } else {
-                            format!("{}보다 더 작아요", args.value)
-                        };
-                    }
-                    let text = state.hint.clone();
-                    let outcome = if args.value == state.answer {
-                        "correct"
-                    } else if !state.playing {
-                        "exhausted"
-                    } else if state.mode == "cups" {
-                        "empty"
-                    } else if args.value < state.answer {
-                        "higher"
-                    } else {
-                        "lower"
-                    };
-                    let draft = EventDraft {
-                        kind: "guessing.attempt".into(),
-                        text,
-                        payload: json!({"mode":state.mode,"outcome":outcome}),
-                    };
-                    effect(state, vec![draft])
-                }
-                _ => Err("알 수 없는 맞히기 동작입니다.".into()),
-            }
-        }
-        "fishing" => {
-            let mut state: Fishing = decode(data)?;
-            empty(input)?;
-            match action {
-                "cast" => {
-                    if state.phase != "idle" {
-                        return Err("먼저 낚싯줄을 거둬 주세요.".into());
-                    }
-                    state.phase = "waiting".into();
-                    state.bite_at = now.saturating_add(2000 + (entropy % 4000) as i64);
-                    state.expires_at = state.bite_at.saturating_add(5000);
-                    effect(state, vec![])
-                }
-                "reel" => {
-                    if state.phase == "idle" {
-                        return Err("먼저 낚싯줄을 던져 주세요.".into());
-                    }
-                    state.phase = "idle".into();
-                    if now < state.bite_at || now > state.expires_at {
-                        return effect(
-                            state,
-                            vec![event("fishing.missed", "이번에는 빈 낚싯줄을 거뒀어요.")],
-                        );
-                    }
-                    let (id, name) =
-                        FISHING_CATCHES[(entropy % FISHING_CATCHES.len() as u64) as usize];
-                    state.last_catch = Some(name.into());
-                    state.catches = state.catches.saturating_add(1);
-                    let count = state.collected.entry(id.into()).or_default();
-                    *count = count.saturating_add(1);
-                    effect(
-                        state,
-                        vec![EventDraft {
-                            kind: "item-acquired".into(),
-                            text: format!("{name} 획득!"),
-                            payload: json!({"itemId":id,"name":name,"quantity":1}),
-                        }],
-                    )
-                }
-                _ => Err("알 수 없는 낚시 동작입니다.".into()),
-            }
-        }
+        "interaction" => interaction(data, action, input, now),
+        "ball" | "paper-plane" => motion(kind, data, action, input, now),
+        "bubbles" => bubbles(data, action, input, entropy),
+        "small-match" => small_match(data, action, input, entropy),
+        "guessing" => guessing(data, action, input, entropy),
+        "fishing" => fishing(data, action, input, now, entropy),
         "fortune" => {
             let mut state: Fortune = decode(data)?;
             let target = play_target(input, false)?;
@@ -679,57 +354,427 @@ pub fn act(
             state.last_at = now;
             effect(state, vec![])
         }
-        "collection" => {
-            let mut state: Collection = decode(data)?;
-            match action {
-                "decorate" => {
-                    let args: Decorate = decode(input)?;
-                    position(args.x, args.y)?;
-                    let owned = state
-                        .items
-                        .iter()
-                        .find(|item| item.item_id == args.item_id)
-                        .ok_or("획득하지 않은 소품이에요.")?;
-                    if state.decorations.len() >= 100
-                        || state
-                            .decorations
-                            .iter()
-                            .filter(|item| item.item_id == args.item_id)
-                            .count()
-                            >= owned.quantity as usize
-                    {
-                        return Err("꺼낼 수 있는 소품이 없어요.".into());
-                    }
-                    let id = state.next_id;
-                    state.next_id = id.checked_add(1).ok_or("소품 번호가 가득 찼어요.")?;
-                    state.decorations.push(Decoration {
-                        id,
-                        item_id: args.item_id,
-                        x: args.x,
-                        y: args.y,
-                    });
-                }
-                "move" => {
-                    let args: Move = decode(input)?;
-                    position(args.x, args.y)?;
-                    let decoration = state
-                        .decorations
-                        .iter_mut()
-                        .find(|item| item.id == args.id)
-                        .ok_or("꺼내 놓은 소품이 없어요.")?;
-                    decoration.x = args.x;
-                    decoration.y = args.y;
-                }
-                "clear" => {
-                    empty(input)?;
-                    state.decorations.clear();
-                }
-                _ => return Err("알 수 없는 소품 동작입니다.".into()),
-            };
-            effect(state, vec![])
-        }
+        "collection" => collection(data, action, input),
         _ => Err("알 수 없는 장난감입니다.".into()),
     }
+}
+
+fn fishing(
+    data: &Value,
+    action: &str,
+    input: &Value,
+    now: i64,
+    entropy: u64,
+) -> Result<WidgetEffect, String> {
+    let mut state: Fishing = decode(data)?;
+    empty(input)?;
+    match action {
+        "cast" => {
+            if state.phase != "idle" {
+                return Err("먼저 낚싯줄을 거둬 주세요.".into());
+            }
+            state.phase = "waiting".into();
+            state.bite_at = now.saturating_add(2000 + (entropy % 4000) as i64);
+            state.expires_at = state.bite_at.saturating_add(5000);
+            effect(state, vec![])
+        }
+        "reel" => {
+            if state.phase == "idle" {
+                return Err("먼저 낚싯줄을 던져 주세요.".into());
+            }
+            state.phase = "idle".into();
+            if now < state.bite_at || now > state.expires_at {
+                return effect(
+                    state,
+                    vec![event("fishing.missed", "이번에는 빈 낚싯줄을 거뒀어요.")],
+                );
+            }
+            let (id, name) = FISHING_CATCHES[(entropy % FISHING_CATCHES.len() as u64) as usize];
+            state.last_catch = Some(name.into());
+            state.catches = state.catches.saturating_add(1);
+            let count = state.collected.entry(id.into()).or_default();
+            *count = count.saturating_add(1);
+            effect(
+                state,
+                vec![EventDraft {
+                    kind: "item-acquired".into(),
+                    text: format!("{name} 획득!"),
+                    payload: json!({"itemId":id,"name":name,"quantity":1}),
+                }],
+            )
+        }
+        _ => Err("알 수 없는 낚시 동작입니다.".into()),
+    }
+}
+
+fn guessing(
+    data: &Value,
+    action: &str,
+    input: &Value,
+    entropy: u64,
+) -> Result<WidgetEffect, String> {
+    let mut state: Guessing = decode(data)?;
+    match action {
+        "start" => {
+            let args: Mode = decode(input)?;
+            let range = match args.mode.as_str() {
+                "cups" => 3,
+                "number" => 100,
+                _ => return Err("컵 찾기 또는 숫자 맞히기를 선택해 주세요.".into()),
+            };
+            state.mode = args.mode;
+            state.answer = (entropy % range + 1) as u8;
+            state.playing = true;
+            state.attempts = 0;
+            state.hint = if range == 3 {
+                "구슬은 몇 번 컵에 있을까요?"
+            } else {
+                "1부터 100 사이 숫자 하나 골랐어요. 맞혀 볼래요?"
+            }
+            .into();
+            effect(state, vec![])
+        }
+        "guess" => {
+            let args: Guess = decode(input)?;
+            if !state.playing {
+                return Err("먼저 새 놀이를 시작해 주세요.".into());
+            }
+            if args.value == 0 || args.value > if state.mode == "cups" { 3 } else { 100 } {
+                return Err("놀이 범위 안의 값을 골라 주세요.".into());
+            }
+            state.attempts = state.attempts.saturating_add(1);
+            if args.value == state.answer {
+                state.playing = false;
+                state.hint = format!("정답! {}번 만에 맞혔어요.", state.attempts);
+            } else if state.attempts >= 100 {
+                state.playing = false;
+                state.hint = format!("이번 정답은 {}였어요.", state.answer);
+            } else {
+                state.hint = if state.mode == "cups" {
+                    format!("{}번 컵은 비어 있어요.", args.value)
+                } else if args.value < state.answer {
+                    format!("{}보다 더 커요", args.value)
+                } else {
+                    format!("{}보다 더 작아요", args.value)
+                };
+            }
+            let text = state.hint.clone();
+            let outcome = if args.value == state.answer {
+                "correct"
+            } else if !state.playing {
+                "exhausted"
+            } else if state.mode == "cups" {
+                "empty"
+            } else if args.value < state.answer {
+                "higher"
+            } else {
+                "lower"
+            };
+            let draft = EventDraft {
+                kind: "guessing.attempt".into(),
+                text,
+                payload: json!({"mode":state.mode,"outcome":outcome}),
+            };
+            effect(state, vec![draft])
+        }
+        _ => Err("알 수 없는 맞히기 동작입니다.".into()),
+    }
+}
+
+fn motion(
+    kind: &str,
+    data: &Value,
+    action: &str,
+    input: &Value,
+    now: i64,
+) -> Result<WidgetEffect, String> {
+    let mut state: Motion = decode(data)?;
+    if action == "stop" && kind == "ball" {
+        empty(input)?;
+        state.moving = false;
+        state.vx = 0.0;
+        state.vy = 0.0;
+        return effect(state, vec![]);
+    }
+    if action != if kind == "ball" { "throw" } else { "launch" } {
+        return Err("알 수 없는 발사 동작입니다.".into());
+    }
+    let args: Launch = decode(input)?;
+    position(args.x, args.y)?;
+    if !args.vx.is_finite()
+        || !args.vy.is_finite()
+        || args.vx.abs() > 100.0
+        || args.vy.abs() > 100.0
+        || args.vx.hypot(args.vy) < 1.0
+    {
+        return Err("발사 속도를 1 이상, 축별 100 이하로 지정해 주세요.".into());
+    }
+    state.x = args.x;
+    state.y = args.y;
+    state.start_x = args.x;
+    state.start_y = args.y;
+    state.vx = args.vx;
+    state.vy = args.vy;
+    state.last_at = now;
+    state.moving = kind == "ball";
+    state.flying = kind == "paper-plane";
+    effect(state, vec![])
+}
+
+fn collection(data: &Value, action: &str, input: &Value) -> Result<WidgetEffect, String> {
+    let mut state: Collection = decode(data)?;
+    match action {
+        "decorate" => {
+            let args: Decorate = decode(input)?;
+            position(args.x, args.y)?;
+            let owned = state
+                .items
+                .iter()
+                .find(|item| item.item_id == args.item_id)
+                .ok_or("획득하지 않은 소품이에요.")?;
+            if state.decorations.len() >= 100
+                || state
+                    .decorations
+                    .iter()
+                    .filter(|item| item.item_id == args.item_id)
+                    .count()
+                    >= owned.quantity as usize
+            {
+                return Err("꺼낼 수 있는 소품이 없어요.".into());
+            }
+            let id = state.next_id;
+            state.next_id = id.checked_add(1).ok_or("소품 번호가 가득 찼어요.")?;
+            state.decorations.push(Decoration {
+                id,
+                item_id: args.item_id,
+                x: args.x,
+                y: args.y,
+            });
+        }
+        "move" => {
+            let args: Move = decode(input)?;
+            position(args.x, args.y)?;
+            let decoration = state
+                .decorations
+                .iter_mut()
+                .find(|item| item.id == args.id)
+                .ok_or("꺼내 놓은 소품이 없어요.")?;
+            decoration.x = args.x;
+            decoration.y = args.y;
+        }
+        "clear" => {
+            empty(input)?;
+            state.decorations.clear();
+        }
+        _ => return Err("알 수 없는 소품 동작입니다.".into()),
+    };
+    effect(state, vec![])
+}
+
+fn small_match(
+    data: &Value,
+    action: &str,
+    input: &Value,
+    entropy: u64,
+) -> Result<WidgetEffect, String> {
+    let mut state: Match = decode(data)?;
+    if action == "choose" {
+        // Opening a game from the character menu only picks it; nothing is played.
+        let game = input["game"].as_str().unwrap_or_default();
+        if !matches!(game, "dice" | "coin" | "rps") {
+            return Err("주사위, 동전, 가위바위보 중에서 골라 주세요.".into());
+        }
+        state.game = game.into();
+        state.a.clear();
+        state.b.clear();
+        state.result.clear();
+        return effect(state, vec![]);
+    }
+    let target = play_target(input, matches!(action, "coin" | "rps"))?;
+    match action {
+        "dice" => {
+            let a = entropy % 6 + 1;
+            let b = entropy.rotate_left(32) % 6 + 1;
+            state.a = a.to_string();
+            state.b = b.to_string();
+            state.result = match a.cmp(&b) {
+                std::cmp::Ordering::Greater => "A 승리",
+                std::cmp::Ordering::Less => "B 승리",
+                std::cmp::Ordering::Equal => "무승부",
+            }
+            .into();
+        }
+        "coin" => {
+            let args: Choice = decode(&json!({"choice":input["choice"]}))?;
+            if !["heads", "tails"].contains(&args.choice.as_str()) {
+                return Err("앞면 또는 뒷면을 선택해 주세요.".into());
+            }
+            state.a = args.choice;
+            state.b = if entropy % 2 == 0 { "heads" } else { "tails" }.into();
+            state.result = if state.a == state.b {
+                "맞혔어요"
+            } else {
+                "다음 기회에"
+            }
+            .into();
+        }
+        "rps" => {
+            let args: Choice = decode(&json!({"choice":input["choice"]}))?;
+            let choices = ["rock", "paper", "scissors"];
+            let player = choices
+                .iter()
+                .position(|choice| *choice == args.choice)
+                .ok_or("가위, 바위, 보 중 선택해 주세요.")?;
+            let opponent = (entropy % 3) as usize;
+            state.a = args.choice;
+            state.b = choices[opponent].into();
+            state.result = if player == opponent {
+                "무승부"
+            } else if (player + 2) % 3 == opponent {
+                "사용자 승리"
+            } else {
+                "캐릭터 승리"
+            }
+            .into();
+        }
+        _ => return Err("알 수 없는 승부입니다.".into()),
+    }
+    state.game = action.into();
+    state.rounds = state.rounds.saturating_add(1);
+    let text = match action {
+        "dice" => format!("주사위: A {}, B {} — {}", state.a, state.b, state.result),
+        "coin" => format!(
+            "동전: 선택 {}, 결과 {} — {}",
+            choice_label(&state.a),
+            choice_label(&state.b),
+            state.result
+        ),
+        _ => format!(
+            "가위바위보: 사용자 {}, 캐릭터 {} — {}",
+            choice_label(&state.a),
+            choice_label(&state.b),
+            state.result
+        ),
+    };
+    let outcome = match state.result.as_str() {
+        "A 승리" => "winner-a",
+        "B 승리" => "winner-b",
+        "무승부" => "draw",
+        "맞혔어요" => "correct",
+        "다음 기회에" => "miss",
+        "사용자 승리" => "winner-user",
+        _ => "winner-character",
+    };
+    let draft = EventDraft {
+        kind: "small-match.result".into(),
+        text,
+        payload: target_payload(json!({"mode":state.game,"outcome":outcome}), target),
+    };
+    effect(state, vec![draft])
+}
+
+fn bubbles(
+    data: &Value,
+    action: &str,
+    input: &Value,
+    entropy: u64,
+) -> Result<WidgetEffect, String> {
+    let mut state: Bubbles = decode(data)?;
+    match action {
+        "make" => {
+            empty(input)?;
+            if state.bubbles.len() >= 30 {
+                return Err("방울은 한 번에 30개까지 만들 수 있어요.".into());
+            }
+            let id = state.next_id;
+            state.next_id = id.checked_add(1).ok_or("방울 번호가 가득 찼어요.")?;
+            state.bubbles.push(Bubble {
+                id,
+                x: (entropy % 91 + 5) as f64,
+                y: (entropy.rotate_left(21) % 81 + 10) as f64,
+            });
+        }
+        "pop" => {
+            let args: Id = decode(input)?;
+            let index = state
+                .bubbles
+                .iter()
+                .position(|bubble| bubble.id == args.id)
+                .ok_or("이미 사라진 방울이에요.")?;
+            state.bubbles.remove(index);
+        }
+        "reset" => {
+            empty(input)?;
+            state.bubbles.clear();
+        }
+        _ => return Err("알 수 없는 방울 동작입니다.".into()),
+    }
+    effect(state, vec![])
+}
+
+fn interaction(
+    data: &Value,
+    action: &str,
+    input: &Value,
+    now: i64,
+) -> Result<WidgetEffect, String> {
+    let mut state: Interaction = decode(data)?;
+    if action == "refill" {
+        empty(input)?;
+        state.snacks = 6;
+        return effect(state, vec![]);
+    }
+    let args: CharacterInput = decode(input)?;
+    // Slots follow the roster order shown in the tool, up to the 8-character limit.
+    if !matches!(
+        args.character.as_str(),
+        "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H"
+    ) || args
+        .owner
+        .as_ref()
+        .is_some_and(|owner| owner.is_empty() || owner.len() > 128)
+    {
+        return Err("함께 지내는 캐릭터를 골라 주세요.".into());
+    }
+    let text = match action {
+        "stroke" => format!("{}를 쓰다듬었어요.", args.character),
+        "poke" => format!("{}를 콕 찔렀어요.", args.character),
+        "cheek-grab" => format!("{}의 볼을 살짝 잡았어요.", args.character),
+        "drink" => format!("{}에게 음료를 건넸어요.", args.character),
+        "gift" => format!("{}에게 선물을 건넸어요.", args.character),
+        "snack" => {
+            if state.snacks == 0 {
+                return Err("간식 봉지가 비었어요.".into());
+            }
+            state.snacks -= 1;
+            format!(
+                "{}에게 한 조각. {}조각 남았어요.",
+                args.character, state.snacks
+            )
+        }
+        _ => return Err("알 수 없는 교감 동작입니다.".into()),
+    };
+    if !matches!(action, "drink" | "gift") {
+        state.touches = state.touches.saturating_add(1);
+    }
+    let events = if state
+        .last_reaction_at
+        .is_none_or(|last| now.saturating_sub(last) >= 5000)
+    {
+        state.last_reaction_at = Some(now);
+        let mut payload = json!({"action":action,"character":args.character});
+        if let Some(owner) = args.owner {
+            payload["owner"] = json!(owner);
+        }
+        vec![EventDraft {
+            kind: "interaction.touch".into(),
+            text,
+            payload,
+        }]
+    } else {
+        vec![]
+    };
+    effect(state, events)
 }
 
 pub fn tick(kind: &str, data: &Value, now: i64) -> Result<Option<WidgetEffect>, String> {
