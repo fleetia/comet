@@ -301,7 +301,7 @@ pub(crate) fn begin_download(
     }
     let mut active = lock(&state.download_cancel)?;
     if active.is_some() {
-        return Err("이미 모델을 다운로드하고 있어요.".into());
+        return Err("이미 모델을 내려받고 있어요.".into());
     }
     let selected = models::model_statuses(&state.app_data)
         .into_iter()
@@ -453,7 +453,7 @@ pub(crate) fn begin_test(state: &AppState, local: bool) -> Result<(u64, Arc<Atom
         return Err("이미 모델을 테스트하고 있어요.".into());
     }
     if local && lock(&state.download_cancel)?.is_some() {
-        return Err("모델 다운로드가 끝난 뒤에 테스트할 수 있어요.".into());
+        return Err("모델 내려받기가 끝난 뒤에 테스트할 수 있어요.".into());
     }
     if !matches!(
         lock(&state.runtime)?.phase,

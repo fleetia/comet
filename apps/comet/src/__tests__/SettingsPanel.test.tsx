@@ -265,7 +265,7 @@ it("retains separate model and automatic drafts and only saves the chosen scope"
   );
   fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "12" } });
   fireEvent.click(screen.getByRole("tab", { name: "AI 연결" }));
-  expect(screen.getByLabelText("로컬 모델")).toBeTruthy();
+  expect(screen.getByLabelText("이 기기의 모델")).toBeTruthy();
   fireEvent.click(screen.getByRole("switch", { name: "로컬 추론 모드" }));
   fireEvent.change(screen.getByLabelText("대화에 쓸 AI"), { target: { value: "custom" } });
   fireEvent.change(screen.getByLabelText("API 주소"), {
@@ -366,8 +366,8 @@ it("shows how the chosen model fits this computer and offers the recommended one
   render(<SettingsPanel snapshot={snapshot} initialSection="model" />);
   expect(screen.getByText(/이 컴퓨터에 알맞아요/)).toBeTruthy();
   expect(screen.getByRole("option", { name: /^Qwen3\.5-9B · .* · 이 컴퓨터 추천$/ })).toBeTruthy();
-  fireEvent.change(screen.getByLabelText("로컬 모델"), { target: { value: "qwen3.5-9b" } });
-  expect(screen.getByLabelText("로컬 모델")).toHaveProperty("value", "qwen3.5-9b");
+  fireEvent.change(screen.getByLabelText("이 기기의 모델"), { target: { value: "qwen3.5-9b" } });
+  expect(screen.getByLabelText("이 기기의 모델")).toHaveProperty("value", "qwen3.5-9b");
 });
 
 it.each([
@@ -377,7 +377,7 @@ it.each([
   "keeps experimental Korean candidate %s selectable without recommending it",
   async (id, name, size) => {
     render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="model" />);
-    const select = screen.getByLabelText("로컬 모델");
+    const select = screen.getByLabelText("이 기기의 모델");
     expect(select).toHaveProperty("value", "qwen3.5-4b");
     const option = screen.getByRole("option", { name: new RegExp(`^${name} ·`) });
     expect(option.textContent).toContain("한국어");
@@ -411,7 +411,7 @@ it.each([
   "selects manual experimental model %s with its actual quantization",
   async (id, name, quantization, size) => {
     render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="model" />);
-    const select = screen.getByLabelText("로컬 모델");
+    const select = screen.getByLabelText("이 기기의 모델");
     expect(select).toHaveProperty("value", "qwen3.5-4b");
     const option = screen.getByRole("option", { name: new RegExp(`^${name} · ${quantization} ·`) });
     expect(option.textContent).toContain("수동 선택");

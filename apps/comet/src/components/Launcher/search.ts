@@ -174,7 +174,7 @@ function widgetResult(
         : toy
           ? `${entry.name}을 바탕화면에 꺼내요. 우클릭으로 정리할 수 있어요.`
           : entry.description
-      : `${entry.name} 사용 준비가 필요해요. 위젯 설정에서 연결과 설정을 확인해요.`,
+      : `${entry.name} 사용 준비가 필요해요. 설정 → 위젯 → ${entry.name}에서 연결을 확인해 주세요.`,
     kind: "widget",
     action: available && instance && entry.id === "image"
       ? { type: "image", expectedRevision: instance.revision }

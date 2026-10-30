@@ -28,11 +28,11 @@ pub(super) async fn install(service: &NlpService, kind: ModelKind) -> Result<(),
     }
     let manifest = models::manifest(kind);
     if manifest.files.is_empty() || manifest.files.iter().any(|file| file.url.is_none()) {
-        return Err("이 모델의 검증된 다운로드 파일이 아직 배포되지 않았어요.".into());
+        return Err("이 모델의 검증된 내려받기 파일이 아직 배포되지 않았어요.".into());
     }
     let _gate = shared.model_gates[kind as usize]
         .try_lock()
-        .map_err(|_| "이 모델의 다운로드나 제거가 진행 중이에요.")?;
+        .map_err(|_| "이 모델의 내려받기나 제거가 진행 중이에요.")?;
     let cancel = Arc::new(AtomicBool::new(false));
     locked(&shared.downloads).insert(kind, cancel.clone());
     {
@@ -46,18 +46,18 @@ pub(super) async fn install(service: &NlpService, kind: ModelKind) -> Result<(),
         .root
         .join(format!(".{}-{}", kind.name(), uuid::Uuid::new_v4()));
     let result = async {
-        tokio::fs::create_dir_all(&stage).await.map_err(|_| "다운로드 폴더를 만들지 못했어요.")?;
+        tokio::fs::create_dir_all(&stage).await.map_err(|_| "내려받기 폴더를 만들지 못했어요.")?;
         let client = reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(15))
-            .timeout(std::time::Duration::from_secs(1800)).build().map_err(|_| "다운로드를 준비하지 못했어요.")?;
+            .timeout(std::time::Duration::from_secs(1800)).build().map_err(|_| "내려받기를 준비하지 못했어요.")?;
         for descriptor in &manifest.files {
-            if cancel.load(Ordering::Acquire) { return Err("다운로드를 취소했어요.".to_owned()); }
+            if cancel.load(Ordering::Acquire) { return Err("내려받기를 취소했어요.".to_owned()); }
             if Path::new(&descriptor.name).components().count() != 1 || descriptor.sha256.len() != 64 { return Err("모델 배포 정보가 올바르지 않아요.".into()); }
             let url = descriptor.url.as_ref().ok_or("모델이 아직 배포되지 않았어요.")?;
-            if !url.starts_with("https://") { return Err("안전한 다운로드 주소가 아니에요.".into()); }
+            if !url.starts_with("https://") { return Err("안전한 내려받기 주소가 아니에요.".into()); }
             let response = tokio::select! {
-                response = client.get(url).send() => response.map_err(|_| "모델 다운로드에 연결하지 못했어요.")?,
-                _ = cancelled(&cancel) => return Err("다운로드를 취소했어요.".into()),
-            }.error_for_status().map_err(|_| "모델 다운로드 서버가 응답하지 않았어요.")?;
+                response = client.get(url).send() => response.map_err(|_| "검색 모델 내려받기 서버(GitHub)에 연결할 수 없어요.")?,
+                _ = cancelled(&cancel) => return Err("내려받기를 취소했어요.".into()),
+            }.error_for_status().map_err(|_| "검색 모델 내려받기 서버(GitHub)가 응답하지 않았어요.")?;
             if response.content_length().is_some_and(|size| size != descriptor.size) { return Err("모델 파일 크기가 배포 정보와 달라요.".into()); }
             let mut file = tokio::fs::OpenOptions::new().write(true).create_new(true).open(stage.join(&descriptor.name)).await
                 .map_err(|_| "모델 파일을 만들지 못했어요.")?;
@@ -68,15 +68,15 @@ pub(super) async fn install(service: &NlpService, kind: ModelKind) -> Result<(),
                 let next = tokio::select! {
                     data = stream.next() => data,
                     _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
-                        if cancel.load(Ordering::Acquire) { return Err("다운로드를 취소했어요.".into()); }
+                        if cancel.load(Ordering::Acquire) { return Err("내려받기를 취소했어요.".into()); }
                         continue;
                     }
                 };
                 let Some(chunk) = next else { break; };
-                let chunk = chunk.map_err(|_| "모델 다운로드가 중단됐어요.")?;
+                let chunk = chunk.map_err(|_| "모델 내려받기가 중단됐어요.")?;
                 downloaded += chunk.len() as u64;
                 if downloaded > descriptor.size { return Err("모델 파일 크기가 배포 정보와 달라요.".into()); }
-                if cancel.load(Ordering::Acquire) { return Err("다운로드를 취소했어요.".into()); }
+                if cancel.load(Ordering::Acquire) { return Err("내려받기를 취소했어요.".into()); }
                 hash.update(&chunk); file.write_all(&chunk).await.map_err(|_| "모델 파일을 저장하지 못했어요.")?;
                 model_mut(&mut locked(&shared.status),kind).downloaded_bytes += chunk.len() as u64;
             }
@@ -89,7 +89,7 @@ pub(super) async fn install(service: &NlpService, kind: ModelKind) -> Result<(),
         }
         model_mut(&mut locked(&shared.status),kind).state = "installing".into();
         service.stop_worker().await?;
-        if cancel.load(Ordering::Acquire) || shared.closed.load(Ordering::Acquire) || shared.suspended.load(Ordering::Acquire) { return Err("다운로드를 취소했어요.".into()); }
+        if cancel.load(Ordering::Acquire) || shared.closed.load(Ordering::Acquire) || shared.suspended.load(Ordering::Acquire) { return Err("내려받기를 취소했어요.".into()); }
         let profile = models::fingerprint(&manifest);
         tokio::fs::write(stage.join("verified-artifacts"),models::artifact_fingerprint(&manifest).as_bytes()).await.map_err(|_| "검증 결과를 저장하지 못했어요.")?;
         let destination = shared.root.join(kind.name());
@@ -99,7 +99,7 @@ pub(super) async fn install(service: &NlpService, kind: ModelKind) -> Result<(),
         if existed { tokio::fs::rename(&destination,&backup).await.map_err(|_| "기존 모델을 보존하지 못했어요.")?; }
         if cancel.load(Ordering::Acquire) || shared.closed.load(Ordering::Acquire) || shared.suspended.load(Ordering::Acquire) {
             if existed { let _ = tokio::fs::rename(&backup,&destination).await; }
-            return Err("다운로드를 취소했어요.".into());
+            return Err("내려받기를 취소했어요.".into());
         }
         if tokio::fs::rename(&stage,&destination).await.is_err() {
             if existed { let _ = tokio::fs::rename(&backup,&destination).await; }
@@ -143,7 +143,7 @@ fn unpack_kiwi(stage: &Path, cancel: &AtomicBool) -> Result<(), String> {
         .map_err(|_| "모델 압축 파일을 읽지 못했어요.")?
     {
         if cancel.load(Ordering::Acquire) {
-            return Err("다운로드를 취소했어요.".into());
+            return Err("내려받기를 취소했어요.".into());
         }
         let mut entry = entry.map_err(|_| "모델 압축 파일이 손상됐어요.")?;
         let kind = entry.header().entry_type();
@@ -167,7 +167,7 @@ fn unpack_kiwi(stage: &Path, cancel: &AtomicBool) -> Result<(), String> {
         return Err("Kiwi CoNg 모델 파일이 없어요.".into());
     }
     fs::remove_file(stage.join("kiwi.tgz"))
-        .map_err(|_| "임시 다운로드 파일을 정리하지 못했어요.")?;
+        .map_err(|_| "임시 내려받기 파일을 정리하지 못했어요.")?;
     Ok(())
 }
 #[cfg(test)]
@@ -241,7 +241,7 @@ pub(super) async fn recover_legacy(shared: &Arc<Shared>, kind: ModelKind) {
     model.profile = installed.then(|| models::fingerprint(&manifest));
     model.state = if installed { "idle" } else { "error" }.into();
     model.error = (!installed)
-        .then(|| "기존 검색 모델 파일을 확인하지 못했어요. 다시 다운로드할 수 있어요.".into());
+        .then(|| "기존 검색 모델 파일을 확인하지 못했어요. 다시 내려받을 수 있어요.".into());
 }
 fn verify_installed(
     directory: &Path,

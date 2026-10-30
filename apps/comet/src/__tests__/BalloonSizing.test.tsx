@@ -282,7 +282,7 @@ it.each([
       );
     });
     vi.mocked(command).mockImplementation(async (name) => {
-      if (name === "send_message") throw new Error("설정에서 로컬 모델을 먼저 다운로드해 주세요.");
+      if (name === "send_message") throw new Error("이 기기의 모델을 아직 내려받지 않았어요.");
     });
     render(
       <Balloon

@@ -363,14 +363,14 @@ impl Service {
                 })
             })
             .await
-            .map_err(|_| "ChatGPT 로그인 저장이 중단됐어요.".to_string())?;
+            .map_err(|_| "ChatGPT 연결 저장이 중단됐어요.".to_string())?;
             if result.is_err() {
                 let _ = auth::revoke(&cleanup_account).await;
             }
             result
         })
         .await
-        .map_err(|_| "ChatGPT 로그인 저장이 중단됐어요.".to_string())?
+        .map_err(|_| "ChatGPT 연결 저장이 중단됐어요.".to_string())?
     }
     fn commit_login_with(
         &self,
@@ -384,7 +384,7 @@ impl Service {
             let state = lock(&self.0.state)?;
             auth::check_attempt(self, attempt, cancel)?;
             if !state.pending.as_ref().is_some_and(|(id, _)| *id == attempt) {
-                return Err("ChatGPT 로그인 요청이 종료됐어요.".into());
+                return Err("ChatGPT 연결 요청이 종료됐어요.".into());
             }
             (
                 state.saved.clone(),
@@ -425,7 +425,7 @@ impl Service {
                 lock(&self.0.state)?.notice = Some(error.clone());
                 return Err(error);
             }
-            return Err("ChatGPT 로그인이 취소되었거나 계정이 변경됐어요.".into());
+            return Err("ChatGPT 연결이 취소되었거나 계정이 변경됐어요.".into());
         }
         Ok(())
     }
@@ -491,10 +491,10 @@ impl Service {
     fn begin_login(&self) -> Result<(u64, Arc<AtomicBool>)> {
         let mut state = lock(&self.0.state)?;
         if state.pending.is_some() {
-            return Err("진행 중인 ChatGPT 로그인을 마치거나 취소해 주세요.".into());
+            return Err("진행 중인 ChatGPT 연결을 마치거나 취소해 주세요.".into());
         }
         if state.signing_out.is_some() {
-            return Err("로그아웃을 마친 뒤 다시 연결해 주세요.".into());
+            return Err("연결 끊기를 마친 뒤 다시 연결해 주세요.".into());
         }
         let attempt = self.0.login_generation.fetch_add(1, Ordering::SeqCst) + 1;
         let cancel = Arc::new(AtomicBool::new(false));
@@ -505,7 +505,7 @@ impl Service {
     async fn initialize_login(&self, attempt: u64, cancel: Arc<AtomicBool>) -> Result<()> {
         tokio::select! {
             biased;
-            _ = crate::models::cancelled(cancel.clone()) => return Err("ChatGPT 로그인을 취소했어요.".into()),
+            _ = crate::models::cancelled(cancel.clone()) => return Err("연결을 취소했어요.".into()),
             result = self.initialize() => result?,
         }
         auth::check_attempt(self, attempt, &cancel)
@@ -514,7 +514,7 @@ impl Service {
         {
             let mut state = lock(&self.0.state)?;
             if state.signing_out.is_some() {
-                return Err("로그아웃을 마친 뒤 계정을 선택해 주세요.".into());
+                return Err("연결 끊기를 마친 뒤 계정을 선택해 주세요.".into());
             }
             if !state
                 .saved
@@ -522,7 +522,7 @@ impl Service {
                 .iter()
                 .any(|a| a.id == id && a.subject.is_some() && a.tokens.is_some())
             {
-                return Err("이 계정에 다시 로그인해 주세요.".into());
+                return Err("이 계정을 다시 연결해 주세요.".into());
             }
             let mut saved = state.saved.clone();
             saved.active = Some(id.into());
@@ -574,11 +574,11 @@ impl Service {
                         && state.signing_out.as_ref() != Some(&a.id)
                 })
                 .cloned()
-                .ok_or("ChatGPT 계정에 로그인해 주세요.")?;
+                .ok_or("ChatGPT 계정을 연결해 주세요.")?;
             let tokens = account
                 .tokens
                 .as_ref()
-                .ok_or("ChatGPT 계정에 다시 로그인해 주세요.")?;
+                .ok_or("ChatGPT 계정을 다시 연결해 주세요.")?;
             if !tokens.scopes.iter().any(|scope| scope == SHARING_SCOPE) {
                 return Err("ChatGPT 플랜 사용 권한을 허용해 주세요.".into());
             }
@@ -751,6 +751,14 @@ pub(crate) async fn login_chatgpt(
         .await
     }
     .await;
+    let result = result.map_err(|error: String| {
+        if let Some(detail) = auth::protocol_error_detail(&error) {
+            crate::analytics::report_chatgpt_login_detail(&app, detail);
+            "ChatGPT 연결을 마치지 못했어요.".to_string()
+        } else {
+            error
+        }
+    });
     if result.is_err() {
         cancel.store(true, Ordering::SeqCst);
     }
@@ -805,7 +813,7 @@ pub(crate) async fn logout_chatgpt(
     {
         let mut inner = lock(&service.0.state)?;
         if inner.signing_out.is_some() {
-            return Err("로그아웃 중이에요.".into());
+            return Err("연결을 끊고 있어요.".into());
         }
         if !inner.saved.accounts.iter().any(|a| a.id == account_id) {
             return Err("ChatGPT 계정을 찾지 못했어요.".into());
@@ -836,7 +844,7 @@ pub(crate) async fn logout_chatgpt(
         // Clear memory before the OS prompt; do not resume requests while persistence waits.
         inner.saved = saved;
         inner.signing_out = None;
-        inner.notice = Some(if revoked { "ChatGPT에서 로그아웃했어요." } else { "이 기기에서 로그아웃했지만 서버 연결 해제는 확인하지 못했어요. ChatGPT 사용량 설정에서 앱 연결을 해제할 수 있어요." }.into());
+        inner.notice = Some(if revoked { "ChatGPT 연결을 끊었어요." } else { "이 기기에서는 연결을 끊었지만 ChatGPT 쪽 해제는 확인하지 못했어요. ChatGPT 웹 설정에서 연결된 앱을 해제할 수 있어요." }.into());
     }
     let persisted = service.persist().await;
     if let Err(error) = &persisted {

@@ -2,6 +2,11 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Button, Select, Switch } from "@comet/ui";
 import { Icon } from "@comet/icon";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
+import {
+  canOpenNotificationSettings,
+  notificationSettingsText,
+  openSystemSettings,
+} from "../../systemSettings";
 import { record, rows, text, type DataRecord } from "../toolData";
 import { useConnectionCommand } from "../useConnectionCommand";
 import type { WidgetView } from "../types";
@@ -225,7 +230,21 @@ export function BatteryTool({ widget }: { widget: WidgetView }): ReactElement {
         </div>
       </fieldset>
       {config.criticalNotification && permission === "denied" && (
-        <p className={s.status}>OS 알림이 꺼져 있어요. 시스템 설정에서 허용해 주세요.</p>
+        <>
+          <p className={s.status}>{notificationSettingsText()}</p>
+          {isDesktop() && canOpenNotificationSettings() && (
+            <Button
+              variant="ghost"
+              onClick={() =>
+                void openSystemSettings("notifications").catch((cause: unknown) =>
+                  setPermissionError(errorText(cause)),
+                )
+              }
+            >
+              시스템 설정 열기
+            </Button>
+          )}
+        </>
       )}
       {config.criticalNotification && (permission === "prompt" || permission === "unknown") && (
         <Button

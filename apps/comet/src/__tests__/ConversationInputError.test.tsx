@@ -1,7 +1,8 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { Balloon } from "../components/Balloon/Balloon";
-import { inputErrorMessage } from "../components/Balloon/conversationSurface.css";
+import { inputError, inputErrorMessage } from "../components/Balloon/conversationSurface.css";
+import { conversationMeta } from "../components/companion.css";
 import { PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
 
 vi.mock("../hooks/useSnapshot", async (load) => ({
@@ -47,3 +48,27 @@ it.each([error, `${error} ${"긴오류".repeat(120)}`])(
     expect(screen.queryByRole("alert")).toBeNull();
   },
 );
+
+it("shows the available alternatives as a separate neutral caption for readiness errors", () => {
+  const snapshot = {
+    ...PREVIEW_SNAPSHOT,
+    panel: { persona: "builtin-a", mode: "input" as const },
+  };
+  const { rerender } = render(
+    <Balloon
+      snapshot={{
+        ...snapshot,
+        runtime: { ...snapshot.runtime, error: "이 기기의 모델을 아직 내려받지 않았어요." },
+      }}
+      surface="input"
+      preview
+    />,
+  );
+  const hint = screen.getByText("AI 없이도 인사·단어장·대화팩은 계속 쓸 수 있어요.");
+  expect(hint.className).toBe(conversationMeta);
+  expect(hint.closest('[role="alert"]')).toBeNull();
+  expect(hint.closest(`.${inputError}`)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "AI 연결 열기" }).nextElementSibling).toBe(hint);
+  rerender(<Balloon snapshot={snapshot} surface="input" preview />);
+  expect(screen.queryByText("AI 없이도 인사·단어장·대화팩은 계속 쓸 수 있어요.")).toBeNull();
+});

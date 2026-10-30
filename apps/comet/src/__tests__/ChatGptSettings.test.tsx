@@ -51,16 +51,16 @@ it("requires consent and lets cancellation finish before a late login result", a
       : disconnected,
   );
   render(<Settings />);
-  const login = await screen.findByRole("button", { name: "ChatGPT로 로그인" });
+  const login = await screen.findByRole("button", { name: "ChatGPT로 연결" });
   expect(login).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("checkbox", { name: /동의해요/ }));
   fireEvent.click(login);
   expect(command).toHaveBeenCalledWith("login_chatgpt", { consent: true });
-  fireEvent.click(await screen.findByRole("button", { name: "로그인 취소" }));
+  fireEvent.click(await screen.findByRole("button", { name: "연결 취소" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("cancel_chatgpt_login", undefined));
   await act(async () => finishLogin(connected));
   expect(screen.queryByText("연결됨")).toBeNull();
-  expect(screen.queryByRole("button", { name: "로그인 취소" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "연결 취소" })).toBeNull();
 });
 
 it("does not silently replace an unavailable saved model and preserves other provider drafts", async () => {

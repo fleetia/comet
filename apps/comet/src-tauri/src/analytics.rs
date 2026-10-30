@@ -542,6 +542,20 @@ pub(crate) fn report_backend_error(site: &'static str, detail: &str) {
     }
 }
 
+pub(crate) fn report_chatgpt_login_detail(app: &tauri::AppHandle, detail: &str) {
+    enqueue_leased(
+        app,
+        json!({
+            "event": "comet_error",
+            "error_source": "frontend_command",
+            "error_code": "command_failed",
+            "operation": "other",
+            "error_count": 1,
+            "error_detail": sanitize_error_detail(&format!("login_chatgpt: {detail}")),
+        }),
+    );
+}
+
 fn enqueue_backend_error(app: &tauri::AppHandle, site: &str, detail: String) {
     enqueue_leased(
         app,

@@ -47,7 +47,7 @@ fn status_for(reason: &str) -> AppleModelStatus {
         "unsupportedOs" => "Apple 온디바이스 AI는 macOS 26 이상에서 사용할 수 있어요.",
         "bridgeUnavailable" => "이 앱 빌드에는 Apple Foundation Models 연결이 포함되지 않았어요. 지원하는 앱 빌드가 필요해요.",
         "deviceNotEligible" => "이 기기는 Apple Intelligence 지원 대상이 아니에요.",
-        "appleIntelligenceNotEnabled" => "시스템 설정에서 이 Mac의 Apple Intelligence 사용 조건과 활성화 상태를 확인해 주세요.",
+        "appleIntelligenceNotEnabled" => "시스템 설정 → Apple Intelligence 및 Siri에서 Apple Intelligence를 켜 주세요.",
         "modelNotReady" => "Apple이 관리하는 모델이 아직 준비되지 않았어요. 준비가 끝난 뒤 다시 확인해 주세요.",
         "unsupportedLanguage" => "현재 Apple 모델은 Comet의 한국어 대화를 지원하지 않아요. 다른 AI를 직접 선택해 주세요.",
         _ => "Apple 온디바이스 AI의 준비 상태를 확인하지 못했어요. 다시 확인하거나 다른 AI를 직접 선택해 주세요.",

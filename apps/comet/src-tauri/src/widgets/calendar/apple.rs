@@ -223,7 +223,7 @@ mod native {
     ) -> Result<Refreshed, CalendarError> {
         autoreleasepool(|_| {
             if authorization() != EKAuthorizationStatus::FullAccess {
-                return Err(error("auth-error", "Apple 캘린더 읽기 권한이 필요합니다. 연결 설정에서 macOS 권한을 확인해 주세요."));
+                return Err(error("auth-error", "Apple 캘린더를 읽으려면 시스템 설정 → 개인정보 보호 및 보안 → 캘린더에서 comet을 허용해 주세요."));
             }
             let store = unsafe { EKEventStore::new() };
             let available = unsafe { store.calendarsForEntityType(EKEntityType::Event) };

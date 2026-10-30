@@ -9,7 +9,7 @@ it("reports selected local readiness without consulting another installed model"
   });
   expect(aiAvailability({ ...PREVIEW_SNAPSHOT, modelReady: true })).toEqual({
     ready: true,
-    label: "AI 자유 대화 · 로컬 모델 준비됨",
+    label: "AI 자유 대화 · 이 기기의 모델 준비됨",
   });
 });
 

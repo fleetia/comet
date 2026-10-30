@@ -223,7 +223,21 @@ export function Balloon({
     canRetry,
     latestUser,
   });
-  const visibleError = error || (mode === "input" || !mode ? snapshot.runtime.error : null);
+  const inputError = error || (mode === "input" || !mode ? snapshot.runtime.error : null);
+  const download = snapshot.runtime.download;
+  const visibleError =
+    inputError === "이 기기의 모델을 아직 내려받지 않았어요." &&
+    download?.model === snapshot.settings.localModel && download.error
+      ? download.error
+      : inputError;
+  const readinessError = Boolean(inputError && ([
+    "대화에 쓸 AI를 아직 고르지 않았어요.",
+    "API 키가 없어요.",
+    "ChatGPT 연결이 끊겼거나",
+    "모델 파일을 찾지 못했어요.",
+    "이 기기의 모델을 아직 내려받지 않았어요.",
+  ].some((message) => inputError.startsWith(message)) ||
+    (snapshot.settings.mode === "apple" && !snapshot.appleModel.available && inputError === snapshot.appleModel.message)));
   async function openPlaybackLink(playbackId: string): Promise<void> {
     const identity = currentView.current.identity;
     setLinkError(null);
@@ -773,6 +787,9 @@ export function Balloon({
                   >
                     AI 연결 열기
                   </Button>
+                  {readinessError && (
+                    <p className={s.conversationMeta}>AI 없이도 인사·단어장·대화팩은 계속 쓸 수 있어요.</p>
+                  )}
                 </div>
               )
             : notice}

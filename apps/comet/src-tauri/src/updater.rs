@@ -218,7 +218,7 @@ fn current_notice(state: &AppState, updates: &UpdateState, id: &str) -> Result<P
             return Ok(line);
         }
     }
-    Err("이 업데이트 알림은 이미 닫혔어요. 설정에서 다시 확인해 주세요.".into())
+    Err("이 업데이트 알림은 이미 닫혔어요. 설정 → 일반 → comet 업데이트에서 다시 볼 수 있어요.".into())
 }
 
 fn expand_notice(state: &AppState, updates: &UpdateState, id: &str) -> Result<(), String> {

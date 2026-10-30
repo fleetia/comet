@@ -577,7 +577,7 @@ fn accept_settings_execution(
     let _action = lock(&state.action)?;
     if let Some(kind) = widget_kind {
         if section != Some(windows::SettingsSection::Widgets) {
-            return Err("위젯 대상은 위젯 설정에서만 열 수 있어요.".into());
+            return Err("이 위젯은 설정 → 위젯에서 열 수 있어요.".into());
         }
         crate::widgets::planning::windows::validate_widget_settings_kind(kind)?;
     }

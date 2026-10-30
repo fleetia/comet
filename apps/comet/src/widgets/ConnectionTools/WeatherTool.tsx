@@ -20,7 +20,7 @@ export function WeatherTool({ widget }: { widget: WidgetView }): ReactElement {
   return (
     <section className={s.observation} aria-label="날씨">
       {!data.observation ? (
-        <p className={s.caption}>설정에서 지역을 고르면 날씨를 보여 드려요.</p>
+        <p className={s.caption}>설정 → 위젯 → 날씨에서 지역을 고르면 날씨를 보여 드려요.</p>
       ) : (
         <>
           <FreeformWidget widget={widget} now={now} />

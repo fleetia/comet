@@ -10,6 +10,15 @@ const AUTHORIZE: &str = "https://auth.openai.com/api/accounts/authorize";
 const TOKEN: &str = "https://auth.openai.com/api/accounts/oauth/token";
 const SCOPE: &str = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct";
 const CALLBACK: &str = "/auth/callback";
+const PROTOCOL_ERROR_PREFIX: &str = "chatgpt_protocol_error:";
+
+fn protocol_error(error: impl std::fmt::Display) -> String {
+    format!("{PROTOCOL_ERROR_PREFIX}{error}")
+}
+
+pub(super) fn protocol_error_detail(error: &str) -> Option<&str> {
+    error.strip_prefix(PROTOCOL_ERROR_PREFIX)
+}
 pub(super) struct TokenError {
     pub message: String,
     pub terminal_refresh: bool,
@@ -271,7 +280,7 @@ pub(super) fn check_attempt(service: &Service, attempt: u64, cancel: &AtomicBool
     if cancel.load(Ordering::Acquire)
         || service.0.login_generation.load(Ordering::SeqCst) != attempt
     {
-        Err("ChatGPT 로그인을 취소했어요.".into())
+        Err("연결을 취소했어요.".into())
     } else {
         Ok(())
     }
@@ -294,12 +303,12 @@ pub(super) async fn login(
             .find(|a| Some(a.id.as_str()) == account_id);
         let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
             .await
-            .map_err(|_| "로그인 응답을 받을 로컬 포트를 열지 못했어요.")?;
+            .map_err(|_| protocol_error("로그인 응답을 받을 로컬 포트를 열지 못했어요."))?;
         let redirect = format!(
             "http://127.0.0.1:{}{CALLBACK}",
             listener
                 .local_addr()
-                .map_err(|_| "로그인 포트 확인 실패")?
+                .map_err(|_| protocol_error("로그인 포트 확인 실패"))?
                 .port()
         );
         let state = random();
@@ -310,7 +319,9 @@ pub(super) async fn login(
         )?;
         check_attempt(service, attempt, &cancel)?;
         open_browser(&url)?;
-        let received = receive(listener, &state, account.map(|a| a.client_id.as_str())).await?;
+        let received = receive(listener, &state, account.map(|a| a.client_id.as_str()))
+            .await
+            .map_err(protocol_error)?;
         let id = account
             .map(|a| a.id.clone())
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -355,15 +366,19 @@ pub(super) async fn login(
         .map_err(|e| e.message)?;
         let id_token = result["id_token"]
             .as_str()
-            .ok_or("ChatGPT ID token이 없어요.")?;
-        let identity = verify_identity(id_token, &received.client_id, Some(&nonce)).await?;
+            .ok_or_else(|| protocol_error("ChatGPT ID token이 없어요."))?;
+        let identity = verify_identity(id_token, &received.client_id, Some(&nonce))
+            .await
+            .map_err(protocol_error)?;
         if account
             .and_then(|a| a.subject.as_ref())
             .is_some_and(|sub| sub != &identity.sub)
         {
-            return Err("선택한 ChatGPT 계정과 로그인한 계정이 달라요.".into());
+            return Err(protocol_error(
+                "선택한 ChatGPT 계정과 로그인한 계정이 달라요.",
+            ));
         }
-        let tokens = parse_tokens(&result, None)?;
+        let tokens = parse_tokens(&result, None).map_err(protocol_error)?;
         service
             .commit_login(
                 attempt,
@@ -380,12 +395,12 @@ pub(super) async fn login(
         Ok(())
     };
     tokio::select! {
-        _ = crate::models::cancelled(cancel.clone()) => Err("ChatGPT 로그인을 취소했어요.".into()),
+        _ = crate::models::cancelled(cancel.clone()) => Err("연결을 취소했어요.".into()),
         value = tokio::time::timeout(Duration::from_secs(600), operation) => match value {
             Ok(result) => result,
             Err(_) => {
                 cancel.store(true, Ordering::SeqCst);
-                Err("ChatGPT 로그인 대기 시간이 끝났어요. Comet에서 새로 로그인해 주세요. 이전 로그인 탭을 새로고침해도 연결되지 않아요.".into())
+                Err("연결 대기 시간이 끝났어요.".into())
             }
         },
     }
@@ -513,7 +528,7 @@ async fn token_request(form: &[(&str, &str)]) -> std::result::Result<Value, Toke
         return Err(TokenError {
             terminal_refresh: terminal,
             message: if terminal {
-                "ChatGPT 로그인을 다시 해 주세요.".into()
+                "ChatGPT를 다시 연결해 주세요.".into()
             } else if code == "invalid_client" {
                 "ChatGPT 앱 등록 정보를 확인할 수 없어요.".into()
             } else {
@@ -525,11 +540,11 @@ async fn token_request(form: &[(&str, &str)]) -> std::result::Result<Value, Toke
 }
 pub(super) async fn refresh(account: &Account) -> std::result::Result<Tokens, TokenError> {
     let previous = account.tokens.as_ref().ok_or(TokenError {
-        message: "ChatGPT에 다시 로그인해 주세요.".into(),
+        message: "ChatGPT를 다시 연결해 주세요.".into(),
         terminal_refresh: true,
     })?;
     let refresh = previous.refresh_token.as_deref().ok_or(TokenError {
-        message: "ChatGPT에 다시 로그인해 주세요.".into(),
+        message: "ChatGPT를 다시 연결해 주세요.".into(),
         terminal_refresh: true,
     })?;
     let value = token_request(&[

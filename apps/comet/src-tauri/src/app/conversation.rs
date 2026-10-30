@@ -475,7 +475,7 @@ fn ensure_model_ready(state: &AppState, db: &Connection) -> Result<(), String> {
         return crate::apple_models::status().require();
     }
     if !matches!(settings.mode.as_str(), "local" | "api" | "chatgpt") {
-        return Err("설정에서 사용할 AI를 직접 선택해 주세요.".into());
+        return Err("대화에 쓸 AI를 아직 고르지 않았어요. 설정 → AI 연결에서 골라 주세요.".into());
     }
     if settings.mode == "local" && !models::selected_ready(&state.app_data, &settings) {
         return Err(inference::not_ready_message(&settings));
@@ -483,12 +483,12 @@ fn ensure_model_ready(state: &AppState, db: &Connection) -> Result<(), String> {
     if settings.mode == "api"
         && (settings.api_model.trim().is_empty() || !inference::api_credentials_ready(&settings))
     {
-        return Err("설정에서 API 연결을 먼저 완료해 주세요.".into());
+        return Err("API 키가 없어요. 설정 → AI 연결에서 넣어 주세요.".into());
     }
     if settings.mode == "chatgpt"
         && (settings.chatgpt_model.trim().is_empty() || !state.inference.chatgpt.ready())
     {
-        return Err("설정에서 ChatGPT 계정과 플랜 사용 권한을 확인해 주세요.".into());
+        return Err("ChatGPT 연결이 끊겼거나 이 계정은 플랜을 쓸 수 없어요(Plus·Pro만 가능). 설정 → AI 연결에서 확인해 주세요.".into());
     }
     Ok(())
 }

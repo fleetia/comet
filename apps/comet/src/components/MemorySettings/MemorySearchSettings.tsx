@@ -49,7 +49,7 @@ const STATES: Record<string, string> = {
   verifying: "파일 확인 중",
   disabled: "사용 안 함",
   error: "일시적으로 기본 검색 사용",
-  cancelled: "다운로드 중단됨",
+  cancelled: "내려받기 중단됨",
   uncalibrated: "검색 품질 검증 대기",
 };
 const DOWNLOADING = ["downloading", "verifying", "installing"];
@@ -141,6 +141,8 @@ export function MemorySearchSettings({
       if (mounted.current) setError(errorText(cause));
     }
   }
+  const commandError =
+    error && error !== status?.nlp.kiwi.error && error !== status?.nlp.semantic.error ? error : null;
   if (compact)
     return (
       <section className={figma.section} aria-label="기억 검색 설정" hidden={hidden}>
@@ -152,14 +154,14 @@ export function MemorySearchSettings({
               const downloading = DOWNLOADING.includes(info.state);
               const requiredControl = requiredFailed(info) ? (
                 <Button
-                  aria-label={`${LABELS[model]} 다시 받기`}
+                  aria-label={`${LABELS[model]} 다시 시도`}
                   variant="ghost"
                   size="small"
                   disabled={!!pending || !isDesktop()}
                   onClick={() => void run("download_nlp_model", { model })}
                 >
                   <ImportIcon size={15} />
-                  다시 받기
+                  다시 시도
                 </Button>
               ) : (
                 <span className={figma.caption}>{requiredStatus(info)}</span>
@@ -199,20 +201,20 @@ export function MemorySearchSettings({
                         </div>
                       ) : downloading ? (
                         <Button variant="ghost" size="small" onClick={() => void cancel(model)}>
-                          다운로드 중단
+                          내려받기 중단
                         </Button>
                       ) : info.state === "unavailable" ? (
                         <span className={figma.caption}>준비 중</span>
                       ) : (
                         <Button
-                          aria-label={`${LABELS[model]} 내려받기`}
+                          aria-label={`${LABELS[model]} ${info.error ? "다시 시도" : "내려받기"}`}
                           variant="ghost"
                           size="small"
                           disabled={!!pending || !isDesktop()}
                           onClick={() => void run("download_nlp_model", { model })}
                         >
                           <ImportIcon size={15} />
-                          내려받기
+                          {info.error ? "다시 시도" : "내려받기"}
                         </Button>
                       )
                     }
@@ -220,7 +222,7 @@ export function MemorySearchSettings({
                   {downloading && (
                     <div className={styles.rowDetail}>
                       <progress
-                        aria-label={`${LABELS[model]} 다운로드 진행`}
+                        aria-label={`${LABELS[model]} 내려받기 진행`}
                         max={info.totalBytes || 1}
                         value={info.downloadedBytes}
                       />
@@ -250,6 +252,11 @@ export function MemorySearchSettings({
                   {info.error && (
                     <div className={styles.rowDetail}>
                       <p className={figma.caption}>{info.error}</p>
+                      {info.error === "검색 모델 내려받기 서버(GitHub)에 연결할 수 없어요." && (
+                        <p className={figma.caption}>
+                          네트워크나 회사 방화벽이 github.com을 막고 있을 수 있어요.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -259,9 +266,9 @@ export function MemorySearchSettings({
             <p role="status">검색 설정을 불러오고 있어요.</p>
           )}
         </div>
-        {(error || fetchError) && (
+        {(commandError || fetchError) && (
           <p role="alert" className={s.error}>
-            {error || fetchError}
+            {commandError || fetchError}
           </p>
         )}
         {notice && (
@@ -337,33 +344,33 @@ export function MemorySearchSettings({
                       {required && requiredFailed(info) && (
                         <Button
                           className={styles.action}
-                          aria-label={`${LABELS[model]} 다시 받기`}
+                          aria-label={`${LABELS[model]} 다시 시도`}
                           variant="ghost"
                           disabled={!!pending || !isDesktop()}
                           onClick={() => void run("download_nlp_model", { model })}
                         >
-                          다시 받기
+                          다시 시도
                         </Button>
                       )}
                       {!required && !info.installed && !downloading && (
                         <Button
                           className={styles.action}
-                          aria-label={`${LABELS[model]} 내려받기`}
+                          aria-label={`${LABELS[model]} ${info.error ? "다시 시도" : "내려받기"}`}
                           variant="ghost"
                           disabled={!!pending || info.state === "unavailable" || !isDesktop()}
                           onClick={() => void run("download_nlp_model", { model })}
                         >
-                          내려받기
+                          {info.error ? "다시 시도" : "내려받기"}
                         </Button>
                       )}
                       {!required && downloading && (
                         <Button
                           className={styles.action}
-                          aria-label={`${LABELS[model]} 다운로드 중단`}
+                          aria-label={`${LABELS[model]} 내려받기 중단`}
                           variant="ghost"
                           onClick={() => void cancel(model)}
                         >
-                          다운로드 중단
+                          내려받기 중단
                         </Button>
                       )}
                       {!required && info.installed && (
@@ -382,7 +389,7 @@ export function MemorySearchSettings({
                   {downloading && (
                     <progress
                       className={s.progress}
-                      aria-label={`${LABELS[model]} 다운로드 진행`}
+                      aria-label={`${LABELS[model]} 내려받기 진행`}
                       max={info.totalBytes || 1}
                       value={info.downloadedBytes}
                     />
@@ -411,6 +418,11 @@ export function MemorySearchSettings({
                     </div>
                   )}
                   {info.error && <p className={styles.caption}>{info.error}</p>}
+                  {info.error === "검색 모델 내려받기 서버(GitHub)에 연결할 수 없어요." && (
+                    <p className={styles.caption}>
+                      네트워크나 회사 방화벽이 github.com을 막고 있을 수 있어요.
+                    </p>
+                  )}
                   <div className={styles.boundary} />
                 </div>
               );
@@ -438,9 +450,9 @@ export function MemorySearchSettings({
         ) : (
           <p role="status">검색 설정을 불러오고 있어요.</p>
         )}
-        {(error || fetchError) && (
+        {(commandError || fetchError) && (
           <p role="alert" className={s.error}>
-            {error || fetchError}
+            {commandError || fetchError}
           </p>
         )}
         {notice && (

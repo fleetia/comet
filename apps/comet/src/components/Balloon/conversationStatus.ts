@@ -9,7 +9,7 @@ export function aiAvailability(snapshot: Snapshot): { ready: boolean; label: str
   }
   if (snapshot.settings.mode === "local") {
     return snapshot.modelReady
-      ? { ready: true, label: "AI 자유 대화 · 로컬 모델 준비됨" }
+      ? { ready: true, label: "AI 자유 대화 · 이 기기의 모델 준비됨" }
       : { ready: false, label: "AI 자유 대화 · 모델 준비 필요" };
   }
   if (snapshot.settings.mode === "chatgpt") {

@@ -1,7 +1,8 @@
 import { Button, Checkbox, FormField, TextInput } from "@comet/ui";
 import { listen } from "@tauri-apps/api/event";
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
+import { canOpenNotificationSettings, notificationSettingsText, openSystemSettings } from "../../systemSettings";
 import { record, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import * as c from "../../common.css";
@@ -70,6 +71,8 @@ export function PlannerAlerts({
   const [saved, setSaved] = useState(false);
   const [permission, setPermission] = useState("unknown");
   const [permissionBusy, setPermissionBusy] = useState(false);
+  const permissionRequest = useRef(0);
+  const permissionPending = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const deliveryError = useNotificationError();
   const [notice, setNotice] = useState("");
@@ -81,19 +84,27 @@ export function PlannerAlerts({
       return;
     }
     let active = true;
-    void command<string>("get_planner_notification_permission")
+    function refreshPermission(): void {
+      if (permissionPending.current) return;
+      const request = ++permissionRequest.current;
+      void command<string>("get_planner_notification_permission")
       .then((value) => {
-        if (active) {
+        if (active && request === permissionRequest.current) {
           setPermission(value);
         }
       })
       .catch(() => {
-        if (active) {
+        if (active && request === permissionRequest.current) {
           setPermission("unknown");
         }
       });
+    }
+    refreshPermission();
+    window.addEventListener("focus", refreshPermission);
     return () => {
       active = false;
+      permissionRequest.current += 1;
+      window.removeEventListener("focus", refreshPermission);
     };
   }, []);
   function change(patch: DataRecord): void {
@@ -106,11 +117,14 @@ export function PlannerAlerts({
       return;
     }
     setPermissionBusy(true);
+    permissionPending.current = true;
     setError(null);
     setNotice("");
     try {
       if (action === "permission") {
-        setPermission(await command<string>("request_planner_notification_permission"));
+        const request = ++permissionRequest.current;
+        const result = await command<string>("request_planner_notification_permission");
+        if (request === permissionRequest.current) setPermission(result);
       } else {
         await command("preview_planner_notification");
         setNotice("OS에 미리보기 알림을 보냈어요. 표시 방식은 시스템 알림 설정을 따릅니다.");
@@ -118,6 +132,7 @@ export function PlannerAlerts({
     } catch (cause: unknown) {
       setError(errorText(cause));
     } finally {
+      permissionPending.current = false;
       setPermissionBusy(false);
     }
   }
@@ -178,7 +193,7 @@ export function PlannerAlerts({
           </div>
           <div className={a.group}>
             <p className={c.quiet}>
-              조용한 시간은 설정 → 자동 대화에서 함께 정해요. 그동안 일상 인사는 쉬고, 타이머 종료와
+              조용한 시간은 설정 → 대화에서 함께 정해요. 그동안 일상 인사는 쉬고, 타이머 종료와
               일정·기한 알림은 계속 알려 드려요.
             </p>
           </div>
@@ -189,21 +204,26 @@ export function PlannerAlerts({
             {
               {
                 granted: "허용됨",
-                denied: "꺼짐 · 시스템 설정에서 변경",
+                denied: notificationSettingsText(),
                 prompt: "권한 요청 전",
                 system: "시스템 알림 설정을 따름",
                 unknown: "확인 필요",
               }[permission]
             }
           </span>
-          <Button
+          {isDesktop() && permission === "denied" && canOpenNotificationSettings() && (
+            <Button type="button" variant="ghost" onClick={() => void openSystemSettings("notifications").catch((cause: unknown) => setError(errorText(cause)))}>
+              시스템 설정 열기
+            </Button>
+          )}
+          {permission !== "denied" && <Button
             type="button"
             variant="ghost"
             disabled={permissionBusy}
             onClick={() => void notification("permission")}
           >
             OS 알림 권한 요청
-          </Button>
+          </Button>}
           <Button
             type="button"
             variant="ghost"

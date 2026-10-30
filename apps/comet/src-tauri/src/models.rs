@@ -334,7 +334,7 @@ async fn verify(path: &Path, expected: &str, cancel: Arc<AtomicBool>) -> Result<
         digest.update(&buffer[..count]);
     }
     if hex::encode(digest.finalize()) != expected {
-        return Err("모델 파일 검증에 실패했습니다. 다시 다운로드해 주세요.".into());
+        return Err("모델 파일 검증에 실패했습니다. 다시 내려받아 주세요.".into());
     }
     Ok(())
 }
@@ -424,14 +424,14 @@ async fn download(
             .connect_timeout(Duration::from_secs(20))
             .read_timeout(Duration::from_secs(60))
             .build()
-            .map_err(|_| "다운로드 클라이언트 초기화 실패")?;
+            .map_err(|_| "내려받기 클라이언트 초기화 실패")?;
         let mut request = client.get(url).header("Accept-Encoding", "identity");
         if received > 0 {
             request = request.header(reqwest::header::RANGE, format!("bytes={received}-"));
         }
         let response = tokio::select! {
             _ = cancelled(cancel.clone()) => return Err("취소됨".into()),
-            result = request.send() => result.map_err(|_| "모델 서버에 연결할 수 없습니다. 네트워크를 확인해 주세요.")?,
+            result = request.send() => result.map_err(|_| "모델 내려받기 서버(Hugging Face)에 연결할 수 없어요.")?,
         };
         if response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
             let range = response
@@ -446,7 +446,7 @@ async fn download(
             received = 0;
         } else {
             return Err(format!(
-                "모델 다운로드 실패 (HTTP {}).",
+                "모델 내려받기 실패 (HTTP {}).",
                 response.status().as_u16()
             ));
         }
@@ -454,7 +454,7 @@ async fn download(
             .content_length()
             .is_some_and(|len| len != total - received)
         {
-            return Err("모델 다운로드 크기가 예상과 다릅니다.".into());
+            return Err("모델 내려받기 크기가 예상과 다릅니다.".into());
         }
         let mut file = tokio::fs::OpenOptions::new()
             .create(true)
@@ -476,7 +476,7 @@ async fn download(
         while let Some(chunk) = tokio::select! { _ = cancelled(cancel.clone()) => return Err("취소됨".into()), item = stream.next() => item }
         {
             let chunk = chunk
-                .map_err(|_| "모델 다운로드가 중단되었습니다. 이어받기를 다시 시도해 주세요.")?;
+                .map_err(|_| "모델 내려받기가 중단됐어요.")?;
             if received + chunk.len() as u64 > total {
                 return Err("모델 응답이 예상 크기를 초과했습니다.".into());
             }
@@ -500,7 +500,7 @@ async fn download(
             .map_err(|_| "모델 저장을 완료할 수 없습니다.")?;
     }
     if received != total {
-        return Err("모델 다운로드가 완료되지 않았습니다. 다시 이어받아 주세요.".into());
+        return Err("모델 내려받기가 완료되지 않았습니다. 다시 이어받아 주세요.".into());
     }
     progress(DownloadProgress {
         model,

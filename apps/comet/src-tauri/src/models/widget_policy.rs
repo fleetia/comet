@@ -30,7 +30,7 @@ pub fn widget_generation_eligibility(settings: &Settings) -> WidgetGenerationEli
             reason: if settings.mode == "apple" {
                 crate::apple_models::WIDGET_UNSUPPORTED.into()
             } else {
-                "설정에서 지원하는 AI를 직접 선택해 주세요.".into()
+                "AI 위젯은 설정 → AI 연결에서 AI를 고른 뒤 만들 수 있어요.".into()
             },
             model: if settings.mode == "apple" {
                 "Apple Foundation Models"
