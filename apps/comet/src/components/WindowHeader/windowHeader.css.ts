@@ -9,6 +9,7 @@ export const header = style({
   minHeight: 32,
   height: "100%",
 });
+export const previewHeader = style({ position: "relative" });
 export const title = style({
   flex: 1,
   alignSelf: "stretch",
@@ -103,6 +104,9 @@ export const captionControls = style({
   right: 0,
   display: "flex",
   zIndex: 1,
+  selectors: {
+    [`${previewHeader} &`]: { position: "absolute" },
+  },
 });
 export const captionButton = style({
   display: "flex",

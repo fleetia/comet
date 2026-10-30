@@ -113,7 +113,7 @@ export function WindowHeader({
     <>
       <header ref={headerRef} className={className}>
         <div
-          className={`${s.header} ${!isMac && (title || children || actions) ? (nativeControls ? s.captionSpaceAll : s.captionSpaceClose) : ""}`}
+          className={`${s.header} ${preview ? s.previewHeader : ""} ${!isMac && (title || children || actions) ? (nativeControls ? s.captionSpaceAll : s.captionSpaceClose) : ""}`}
         >
           {isMac && (
             <div className={s.trafficControls} aria-label="창 제어">
