@@ -50,11 +50,6 @@ globalStyle(`${header} .${windowHeader.windowName}`, {
   fontSize: tokens["typography/sans/body/fontSize"],
   lineHeight: "1.462",
 });
-globalStyle(`${header} .${windowHeader.close}`, {
-  width: 30,
-  minHeight: 30,
-  fontSize: tokens["typography/sans/body/fontSize"],
-});
 export const layout = style({
   display: "grid",
   gridTemplateColumns: "204px minmax(0, 1fr)",

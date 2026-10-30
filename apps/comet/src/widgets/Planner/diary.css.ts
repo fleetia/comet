@@ -1,6 +1,7 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 import settingsNight from "../../assets/figma/settings-night.svg";
+import * as windowHeader from "../../components/WindowHeader/windowHeader.css";
 
 export const window = style({
   height: "100dvh",
@@ -249,7 +250,10 @@ export const miniHead = style({
   gap: 4,
   marginBottom: 10,
 });
-export const miniTitle = style({ fontSize: tokens["typography/display/title-sm/fontSize"], fontWeight: 500 });
+export const miniTitle = style({
+  fontSize: tokens["typography/display/title-sm/fontSize"],
+  fontWeight: 500,
+});
 export const miniActions = style({ display: "flex", gap: 0 });
 export const miniGrid = style({
   display: "grid",
@@ -542,13 +546,13 @@ globalStyle(`${railHeader} > div`, {
   justifyContent: "center",
   gap: 0,
 });
-globalStyle(`${railHeader} [aria-label="창 제어"]`, { gap: 6 });
-globalStyle(`${railHeader} [aria-label="창 제어"] > button`, {
-  width: 10,
-  minWidth: 10,
-  height: 10,
-});
 globalStyle(`${railHeader} > div > div:empty`, { display: "none" });
+globalStyle(`.${railHeader} .${windowHeader.captionControls}`, { top: 0 });
+globalStyle(`.${railHeader} .${windowHeader.trafficControls}`, { gap: 6 });
+globalStyle(
+  `.${railHeader} .${windowHeader.trafficControls} > button, .${railHeader} .${windowHeader.trafficControls} > .${windowHeader.trafficInactive}`,
+  { width: 10, minWidth: 10, height: 10 },
+);
 export const railDivider = style({ height: 12, flexShrink: 0 });
 export const pageNavigation = style({
   minWidth: 0,
@@ -567,6 +571,17 @@ export const pageNavigation = style({
     },
   },
 });
+globalStyle(`${layout}:has(.${windowHeader.captionControls}) .${page}`, { paddingTop: 34 });
+globalStyle(`${layout}:has(.${windowHeader.captionControls}) .${notes}`, { paddingTop: 34 });
+globalStyle(`${layout}[data-collection="true"]:has(.${windowHeader.captionControls})`, {
+  gridTemplateRows: "70px minmax(0,1fr)",
+});
+globalStyle(
+  `${layout}[data-collection="true"]:has(.${windowHeader.captionControls}) .${pageNavigation}`,
+  {
+    marginTop: 34,
+  },
+);
 export const todayLayout = style({
   display: "grid",
   gridTemplateColumns: "minmax(0, 1fr) 340px",
