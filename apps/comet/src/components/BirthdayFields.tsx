@@ -37,6 +37,21 @@ export function BirthdayFields({
   return (
     <div className={styles.fields} role="group" aria-label="생일 선택">
       <Select
+        label="연도 (선택)"
+        value={value.year}
+        disabled={disabled}
+        onChange={(event) => onChange({ ...value, year: event.target.value })}
+      >
+        <option value="">선택 안 함</option>
+        {Array.from({ length: currentYear - 1899 }, (_, index) => currentYear - index).map(
+          (year) => (
+            <option key={year} value={year}>
+              {year}년
+            </option>
+          ),
+        )}
+      </Select>
+      <Select
         label="월"
         value={value.month}
         disabled={disabled}
@@ -61,21 +76,6 @@ export function BirthdayFields({
             {day}일
           </option>
         ))}
-      </Select>
-      <Select
-        label="연도 (선택)"
-        value={value.year}
-        disabled={disabled}
-        onChange={(event) => onChange({ ...value, year: event.target.value })}
-      >
-        <option value="">선택 안 함</option>
-        {Array.from({ length: currentYear - 1899 }, (_, index) => currentYear - index).map(
-          (year) => (
-            <option key={year} value={year}>
-              {year}년
-            </option>
-          ),
-        )}
       </Select>
     </div>
   );

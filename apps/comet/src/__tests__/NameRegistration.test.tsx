@@ -50,6 +50,14 @@ it("prevents duplicate registrations while the save is pending", async () => {
   expect(screen.getByRole("textbox")).toHaveProperty("disabled", true);
 });
 
+it("orders birthday fields as year, month, day", () => {
+  render(<NameRegistration greeting="안녕!" dispatch={vi.fn()} />);
+  const [year, month, day] = screen.getAllByRole("combobox");
+  expect(year).toBe(screen.getByRole("combobox", { name: "연도 (선택)" }));
+  expect(month).toBe(screen.getByRole("combobox", { name: "월" }));
+  expect(day).toBe(screen.getByRole("combobox", { name: "일" }));
+});
+
 it("registers a selected birthday with the name", async () => {
   const dispatch: Dispatch = vi.fn().mockResolvedValue(undefined);
   render(<NameRegistration greeting="안녕!" dispatch={dispatch} />);
