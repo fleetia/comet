@@ -1,4 +1,5 @@
 use super::*;
+use actions::{Capability, Effect};
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 
@@ -39,7 +40,7 @@ struct Plan {
 struct Operation {
     proposal: Proposal,
     owner_id: String,
-    effect: String,
+    effect: Effect,
     #[serde(default)]
     result: Option<Value>,
 }
@@ -85,11 +86,8 @@ impl Turn {
     }
 }
 
-fn selection_schema(available: &[Value], can_continue: bool) -> Value {
-    let ids: Vec<_> = available
-        .iter()
-        .filter_map(|spec| spec["id"].as_str())
-        .collect();
+fn selection_schema(available: &[Capability], can_continue: bool) -> Value {
+    let ids: Vec<_> = available.iter().map(|spec| spec.id.as_str()).collect();
     let continuation = if can_continue {
         vec![false, true]
     } else {
@@ -135,15 +133,15 @@ struct LocalPlan {
 }
 
 impl LocalPlan {
-    fn into_plan(self, catalog: &[Value]) -> Plan {
+    fn into_plan(self, catalog: &[Capability]) -> Plan {
         let operations = self
             .operations
             .into_iter()
             .map(|proposal| {
                 let mut input = proposal.input;
                 // For a new item an omitted optional field and null mean the same.
-                let creates = capability(catalog, &proposal.kind)
-                    .is_ok_and(|spec| spec["requiresTarget"] == false);
+                let creates =
+                    capability(catalog, &proposal.kind).is_ok_and(|spec| !spec.requires_target());
                 if let Some(fields) = input.as_object_mut().filter(|_| creates) {
                     fields.retain(|_, value| !value.is_null());
                 }
@@ -167,12 +165,10 @@ impl LocalPlan {
 /// A grammar for a local model that only admits values the host already knows: the selected
 /// kinds, their context revision, visible targets, the request's own values and evidence that
 /// passes the same guards [`prepare_plan`] applies.
-fn local_plan_schema(turn: &Turn, selected: &[Value], contexts: &Value) -> Value {
+fn local_plan_schema(turn: &Turn, selected: &[Capability], contexts: &Value) -> Value {
     let mut variants = vec![];
     for spec in selected {
-        let Some(kind) = spec["id"].as_str() else {
-            continue;
-        };
+        let kind = spec.id.as_str();
         let context = &contexts[kind];
         let Some(revision) = context["revision"].as_i64() else {
             continue;
@@ -182,7 +178,7 @@ fn local_plan_schema(turn: &Turn, selected: &[Value], contexts: &Value) -> Value
             .as_ref()
             .and_then(|analysis| analysis.intent(kind))
             .map(|intent| &intent.slots);
-        let target = if spec["requiresTarget"] == false {
+        let target = if !spec.requires_target() {
             json!({"type":"string","enum":[""]})
         } else if let Some(rows) = actions::context_targets(kind, context) {
             let named: Vec<&String> = slots
@@ -241,7 +237,7 @@ fn local_plan_schema(turn: &Turn, selected: &[Value], contexts: &Value) -> Value
         analysis.route == utterance::Route::Tools
             && selected.iter().all(|spec| {
                 analysis
-                    .intent(spec["id"].as_str().unwrap_or_default())
+                    .intent(&spec.id)
                     .is_some_and(|intent| answers_itself(&intent.kind, &intent.slots))
             })
     });
@@ -279,20 +275,20 @@ fn query_range<'a>(kind: &str, slots: &'a utterance::Slots) -> Option<(&'a str, 
 /// The kind's input schema for a local model: the request's own values fixed, and optional fields
 /// the request does not mention removed so that a small model cannot fill them with guesses.
 fn input_schema(
-    spec: &Value,
+    spec: &Capability,
     slots: Option<&utterance::Slots>,
     context: &Value,
     request: &str,
 ) -> Value {
-    let mut schema = spec["inputSchema"].clone();
+    let mut schema = spec.input_schema.clone();
     let Some(slots) = slots else {
         return schema;
     };
-    let kind = spec["id"].as_str().unwrap_or_default();
+    let kind = spec.id.as_str();
     let mut fixed: Vec<(&str, Value)> = vec![];
     let mut absent: Vec<&str> = vec![];
     let mut choices: Vec<(&str, Vec<Value>)> = vec![];
-    if spec["requiresTarget"] == false {
+    if !spec.requires_target() {
         if let Some(title) = &slots.title {
             fixed.push(("title", json!(title)));
         }
@@ -421,8 +417,8 @@ fn input_schema(
 }
 
 /// Evidence the guards accept for each mode, from the rule reading and the user's sentences.
-fn evidence_options(turn: &Turn, spec: &Value) -> Vec<(&'static str, Vec<String>)> {
-    let kind = spec["id"].as_str().unwrap_or_default();
+fn evidence_options(turn: &Turn, spec: &Capability) -> Vec<(&'static str, Vec<String>)> {
+    let kind = spec.id.as_str();
     let mut candidates: Vec<String> = turn
         .analysis
         .as_ref()
@@ -441,7 +437,7 @@ fn evidence_options(turn: &Turn, spec: &Value) -> Vec<(&'static str, Vec<String>
             candidates.push(sentence.to_owned());
         }
     }
-    let modes: &[&'static str] = if spec["effect"] == "read" {
+    let modes: &[&'static str] = if spec.is_read() {
         &["explicit"]
     } else {
         &["explicit", "statement"]
@@ -464,7 +460,7 @@ fn evidence_options(turn: &Turn, spec: &Value) -> Vec<(&'static str, Vec<String>
 /// A plan the host builds without a planner call: one explicit request whose every required
 /// value came from the user's own words, or lookups only. It still goes through [`prepare_plan`]
 /// and the guards.
-fn host_plan(turn: &Turn, selected: &[Value], contexts: &Value) -> Option<Plan> {
+fn host_plan(turn: &Turn, selected: &[Capability], contexts: &Value) -> Option<Plan> {
     let analysis = turn
         .analysis
         .as_ref()
@@ -486,14 +482,10 @@ fn host_plan(turn: &Turn, selected: &[Value], contexts: &Value) -> Option<Plan> 
 
 fn host_operation(
     intent: &utterance::Intent,
-    selected: &[Value],
+    selected: &[Capability],
     contexts: &Value,
 ) -> Option<Proposal> {
-    if intent.mode != "explicit"
-        || !selected
-            .iter()
-            .any(|spec| spec["id"] == intent.kind.as_str())
-    {
+    if intent.mode != "explicit" || !selected.iter().any(|spec| spec.id == intent.kind) {
         return None;
     }
     let slots = &intent.slots;
@@ -651,11 +643,8 @@ const PLAN_RULES_FOR: &[(&str, &[&str])] = &[
 
 /// PLAN_INSTRUCTION without rules for kinds that were not selected. A local model writes the
 /// input as an object.
-fn plan_instruction(selected: &[Value], local: bool) -> String {
-    let kinds: Vec<&str> = selected
-        .iter()
-        .filter_map(|spec| spec["id"].as_str())
-        .collect();
+fn plan_instruction(selected: &[Capability], local: bool) -> String {
+    let kinds: Vec<&str> = selected.iter().map(|spec| spec.id.as_str()).collect();
     let instruction: String = PLAN_INSTRUCTION
         .split_inclusive(". ")
         .filter(|sentence| {
@@ -796,14 +785,12 @@ fn new_turn(message: &Message) -> Result<Turn, String> {
     })
 }
 
-fn capability<'a>(catalog: &'a [Value], id: &str) -> Result<&'a Value, String> {
-    catalog
-        .iter()
-        .find(|entry| entry["id"] == id)
+fn capability<'a>(catalog: &'a [Capability], id: &str) -> Result<&'a Capability, String> {
+    actions::capability(catalog, id)
         .ok_or_else(|| "현재 사용할 수 없는 기능이에요. 위젯 상태를 확인해 주세요.".into())
 }
 
-fn select(selection: &Selection, catalog: &[Value]) -> Result<(), String> {
+fn select(selection: &Selection, catalog: &[Capability]) -> Result<(), String> {
     if !matches!(selection.route.as_str(), "none" | "tools" | "records")
         || selection.action_ids.len() > MAX_OPERATIONS
     {
@@ -818,12 +805,12 @@ fn select(selection: &Selection, catalog: &[Value]) -> Result<(), String> {
     Ok(())
 }
 
-fn authorize_selection(turn: &mut Turn, catalog: &[Value]) -> Result<(), String> {
+fn authorize_selection(turn: &mut Turn, catalog: &[Capability]) -> Result<(), String> {
     let explicit = turn.explicit() || !actions::permissions(&turn.request).is_empty();
     let mut allowed = Vec::new();
     for kind in &turn.selected {
         let spec = capability(catalog, kind)?;
-        if explicit || spec["effect"] == "read" || spec["automatic"] == true {
+        if explicit || spec.is_read() || spec.automatic {
             allowed.push(kind.clone());
         }
     }
@@ -846,7 +833,7 @@ fn authorize_selection(turn: &mut Turn, catalog: &[Value]) -> Result<(), String>
 fn planned(
     plan: Result<Plan, String>,
     turn: &mut Turn,
-    catalog: &[Value],
+    catalog: &[Capability],
     contexts: &Value,
 ) -> Result<(), String> {
     turn.rejected_input = None;
@@ -856,7 +843,7 @@ fn planned(
 fn prepare_plan(
     plan: Plan,
     turn: &mut Turn,
-    catalog: &[Value],
+    catalog: &[Capability],
     contexts: &Value,
 ) -> Result<(), String> {
     turn.rejected_input = None;
@@ -911,7 +898,7 @@ fn prepare_plan(
         if !input.is_object() || proposal.input_json.len() > 32_000 {
             return Err("작업 입력의 형식 또는 크기를 확인해 주세요.".into());
         }
-        if spec["requiresTarget"] == false && !proposal.target_id.is_empty() {
+        if !spec.requires_target() && !proposal.target_id.is_empty() {
             let context = &contexts[proposal.kind.as_str()];
             creation_container(&mut proposal, &mut input, context)?;
         }
@@ -929,13 +916,13 @@ fn prepare_plan(
             .or(contexts[&proposal.kind]["id"].as_str())
             .ok_or("작업의 저장 위치를 확인하지 못했어요.")?
             .to_string();
-        if spec["effect"] != "read"
+        if !spec.is_read()
             && !proposal.target_id.is_empty()
             && operations.iter().any(|operation: &Operation| {
                 operation.owner_id == owner_id
                     && operation.proposal.target_id == proposal.target_id
                     && capability(catalog, &operation.proposal.kind)
-                        .is_ok_and(|spec| spec["effect"] != "read")
+                        .is_ok_and(|spec| !spec.is_read())
             })
         {
             return Err("같은 항목의 변경은 하나로 합쳐 요청해 주세요.".into());
@@ -943,7 +930,7 @@ fn prepare_plan(
         operations.push(Operation {
             proposal,
             owner_id,
-            effect: spec["effect"].as_str().unwrap_or("write").into(),
+            effect: spec.effect,
             result: None,
         });
     }
@@ -974,7 +961,7 @@ fn prepare_plan(
     }
     turn.requires_effect = operations.iter().any(|operation| {
         capability(catalog, &operation.proposal.kind)
-            .is_ok_and(|spec| spec["effect"] != "read" && spec["receipt"] != false)
+            .is_ok_and(|spec| !spec.is_read() && spec.receipt())
     });
     turn.operations = operations;
     turn.state = "planned".into();
@@ -1027,7 +1014,7 @@ fn creation_container(
 /// `explicit` is [`Turn::explicit`] for the turn that owns the proposal.
 fn authorize(
     request: &str,
-    spec: &Value,
+    spec: &Capability,
     proposal: &Proposal,
     explicit: bool,
 ) -> Result<(), String> {
@@ -1044,7 +1031,7 @@ fn authorize(
 /// The checks that depend only on the request, mode and evidence, not on the proposed input.
 fn authorize_request(
     request: &str,
-    spec: &Value,
+    spec: &Capability,
     mode: &str,
     evidence: &str,
     explicit: bool,
@@ -1052,31 +1039,31 @@ fn authorize_request(
     if evidence.trim().is_empty() || !request.contains(evidence) {
         return Err("사용자가 말한 내용에서 이 작업의 근거를 확인하지 못했어요.".into());
     }
-    if spec["effect"] == "read" {
+    if spec.is_read() {
         return Ok(());
     }
-    if mode == "statement" && spec["automatic"] != true {
+    if mode == "statement" && !spec.automatic {
         return Err("이 기능은 실행할 동작을 직접 요청해 주세요.".into());
     }
     if !matches!(mode, "explicit" | "statement") {
         return Err("작업 요청의 종류를 확인하지 못했어요.".into());
     }
-    let kind = spec["id"].as_str().unwrap_or_default();
+    let kind = spec.id.as_str();
     if kind.starts_with("generated:") {
-        actions::authorize_evidence(request, mode, evidence, spec["automatic"] == true, explicit)
+        actions::authorize_evidence(request, mode, evidence, spec.automatic, explicit)
     } else {
         actions::authorize_registry(request, kind, mode, evidence, explicit)
     }
 }
 
-fn catalog(db: &Connection) -> Result<Vec<Value>, String> {
+fn catalog(db: &Connection) -> Result<Vec<Capability>, String> {
     let mut entries = actions::catalog(db)?;
     entries.extend(crate::widgets::generated::actions::catalog(db)?);
     Ok(entries)
 }
 
-fn selection_catalog(catalog: &[Value]) -> Vec<Value> {
-    catalog.iter().map(|spec| json!({"id":spec["id"],"title":spec["title"],"description":spec["description"],"effect":spec["effect"],"automatic":spec["automatic"]})).collect()
+fn selection_catalog(catalog: &[Capability]) -> Vec<Value> {
+    catalog.iter().map(Capability::selection_json).collect()
 }
 
 fn entities(db: &Connection, kind: &str, query: &str) -> Result<Value, String> {
@@ -1326,7 +1313,7 @@ async fn plan(
 
 fn accept_result(turn: &mut Turn, index: usize, result: Value) {
     let expected_revision = turn.operations[index].proposal.expected_revision;
-    if let Some(revision) = (turn.operations[index].effect != "read")
+    if let Some(revision) = (turn.operations[index].effect != Effect::Read)
         .then(|| {
             result["revision"]
                 .as_i64()
@@ -1508,7 +1495,7 @@ fn registry_operation(
     index: usize,
     request: &str,
     proposal: &Proposal,
-    spec: &Value,
+    spec: &Capability,
     input: Value,
     epoch: u64,
     cancel: &AtomicBool,
@@ -1524,7 +1511,7 @@ fn registry_operation(
         if action.kind == "habit_record" && proposal.mode == "statement" {
             validate_habit_statement(db, &action)?;
         }
-        if spec["effect"] == "read" {
+        if spec.is_read() {
             actions::query_registry(db, &action.kind, &action.input)
         } else {
             let present =
@@ -1574,7 +1561,7 @@ pub(crate) fn replay(
         let spec = capability(&available, &operation.proposal.kind).ok();
         let result = if operation.result.is_none() {
             None
-        } else if operation.effect == "read" {
+        } else if operation.effect == Effect::Read {
             if spec.is_none() {
                 None
             } else if operation.proposal.kind.starts_with("generated:") {
@@ -1604,7 +1591,7 @@ pub(crate) fn replay(
                 None
             } else if receipt.kind.starts_with("generated:") {
                 crate::widgets::generated::actions::visible_result(db, user, &receipt.id)?
-            } else if operation.effect == "control" {
+            } else if operation.effect == Effect::Control {
                 receipt
                     .result
                     .as_ref()
@@ -1619,7 +1606,7 @@ pub(crate) fn replay(
             Some(
                 json!({"id":receipt.id,"title":if spec.is_some(){receipt.title.as_str()}else{"저장된 작업"},"undone":receipt.undone,"saved":true,"outcome":outcome}),
             )
-        } else if spec.is_some_and(|spec| spec["receipt"] == false) {
+        } else if spec.is_some_and(|spec| !spec.receipt()) {
             operation.result.clone()
         } else {
             None

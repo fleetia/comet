@@ -51,9 +51,22 @@ fn plan_requires_discovered_action_bound_revision_and_user_evidence() {
 
 #[test]
 fn selection_catalog_distinguishes_named_widgets_with_the_same_action_description() {
+    let widget = |id: &str, title: &str| Capability {
+        id: format!("generated:{id}:add"),
+        description: "기록 추가".into(),
+        effect: Effect::Write,
+        automatic: true,
+        undo_supported: true,
+        input_schema: json!({}),
+        source: actions::Source::Generated {
+            title: title.into(),
+            widget_id: id.into(),
+            revision: 1,
+        },
+    };
     let available = vec![
-        json!({"id":"generated:reading:add","title":"독서 기록","description":"기록 추가","effect":"write","automatic":true}),
-        json!({"id":"generated:walking:add","title":"걷기 기록","description":"기록 추가","effect":"write","automatic":true}),
+        widget("reading", "독서 기록"),
+        widget("walking", "걷기 기록"),
     ];
     let selected = selection_catalog(&available);
     assert_eq!(selected[0]["title"], "독서 기록");
@@ -82,7 +95,7 @@ fn selector_schema_tracks_current_catalog_ids_without_weakening_unknown_id_valid
     );
 
     assert_eq!(ids.len(), available.len());
-    assert!(available.iter().all(|spec| ids.contains(&spec["id"])));
+    assert!(available.iter().all(|spec| ids.contains(&json!(spec.id))));
     let unknown = Selection {
         action_ids: vec!["not-installed".into()],
         ..task
@@ -730,7 +743,7 @@ fn ordinary_preference_retry_drops_manual_writes_but_preserves_read_only_queries
         assert!(restored
             .operations
             .iter()
-            .all(|operation| operation.effect == "read"));
+            .all(|operation| operation.effect == Effect::Read));
         assert!(restored.error.is_none());
         assert_eq!(crate::diary::read(&db).unwrap(), before);
         assert!(actions::receipts(&db, &user, Some(id)).unwrap().is_empty());
@@ -1013,7 +1026,7 @@ fn a_task_is_created_and_rescheduled_from_the_users_words_without_a_planner_call
         ),
     ] {
         let mut turn = read_turn(&db, id, request);
-        let selected: Vec<Value> = turn
+        let selected: Vec<Capability> = turn
             .selected
             .iter()
             .map(|kind| capability(&catalog, kind).unwrap().clone())
@@ -1171,7 +1184,7 @@ fn run_host_turn(db: &Connection, id: &str, request: &str) -> Turn {
     let user = store::active_user_id(db).unwrap();
     let catalog = catalog(db).unwrap();
     let mut turn = read_turn(db, id, request);
-    let selected: Vec<Value> = turn
+    let selected: Vec<Capability> = turn
         .selected
         .iter()
         .map(|kind| capability(&catalog, kind).unwrap().clone())
@@ -1182,7 +1195,7 @@ fn run_host_turn(db: &Connection, id: &str, request: &str) -> Turn {
     prepare_plan(plan, &mut turn, &catalog, &contexts).unwrap();
     let planned = turn.operations[0].proposal.clone();
     let input: Value = serde_json::from_str(&planned.input_json).unwrap();
-    let result = if turn.operations[0].effect == "read" {
+    let result = if turn.operations[0].effect == Effect::Read {
         actions::query_registry(db, &planned.kind, &input).unwrap()
     } else {
         let action = actions::Action {
@@ -1360,4 +1373,53 @@ fn a_planner_question_that_only_repeats_the_request_is_not_asked() {
     };
     prepare_plan(asked, &mut turn, &[], &json!({})).unwrap();
     assert_eq!(turn.state, "awaiting_input");
+}
+
+/// The combined catalog and its selection view are model-facing. Bless with `COMET_BLESS=1`.
+#[test]
+fn generated_and_selection_catalog_json_matches_the_golden_file() {
+    use crate::widgets::generated;
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let mut ids = vec![];
+    for operation in ["create", "update", "read", "control"] {
+        let widget = generated::create(
+            &db,
+            generated::Definition {
+                name: format!("{operation} 위젯"),
+                description: String::new(),
+                source: "function render(s){return []} function reduce(s,a){return s}".into(),
+                initial_state: json!({}),
+                actions: vec![generated::actions::ActionDefinition {
+                    id: "act".into(),
+                    description: format!("{operation} 동작"),
+                    operation: operation.into(),
+                    input_schema: json!({"type":"object","properties":{"title":{"type":"string","maxLength":100}},"required":["title"],"additionalProperties":false}),
+                }],
+            },
+            generated::InstallationOrigin::Import,
+            None,
+        )
+        .unwrap();
+        ids.push(
+            generated::mark_ready(&db, &widget.id, widget.revision)
+                .unwrap()
+                .id,
+        );
+    }
+    let all = catalog(&db).unwrap();
+    let mut text = serde_json::to_string_pretty(&json!({
+        "generated": all.iter().filter(|spec| spec.id.starts_with("generated:")).collect::<Vec<_>>(),
+        "selection": selection_catalog(&all),
+    }))
+    .unwrap()
+        + "\n";
+    for (index, id) in ids.iter().enumerate() {
+        text = text.replace(id, &format!("widget-{index}"));
+    }
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/organizer/runtime/conversation_tools/catalog.golden.json");
+    if std::env::var_os("COMET_BLESS").is_some() {
+        std::fs::write(&path, &text).unwrap();
+    }
+    assert_eq!(text, std::fs::read_to_string(path).unwrap());
 }

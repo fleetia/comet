@@ -1,4 +1,5 @@
 use super::{err, get, list, safe_key, validate_state, Definition, GeneratedWidget, Result};
+use crate::organizer::actions::{Capability, Effect, Source};
 use crate::store;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -301,15 +302,34 @@ pub fn validate_input(action: &ActionDefinition, input: &Value) -> Result<()> {
     validate_value(&action.input_schema, input)
 }
 
-pub fn catalog(db: &Connection) -> Result<Vec<Value>> {
-    Ok(list(db)?.into_iter().filter(|w| w.installed && w.status == "ready")
-        .flat_map(|w| w.definition.actions.iter().map(|a| json!({
-            "id":format!("generated:{}:{}",w.id,a.id),"title":w.definition.name,
-            "description":a.description,"inputSchema":a.input_schema,
-            "effect":if a.operation=="read" {"read"} else if a.operation=="control" {"control"} else {"write"},
-            "automatic":a.operation=="create","undoSupported":a.operation!="read",
-            "widgetId":w.id,"revision":w.revision
-        })).collect::<Vec<_>>()).collect())
+pub(crate) fn catalog(db: &Connection) -> Result<Vec<Capability>> {
+    Ok(list(db)?
+        .into_iter()
+        .filter(|w| w.installed && w.status == "ready")
+        .flat_map(|w| {
+            w.definition
+                .actions
+                .iter()
+                .map(|a| Capability {
+                    id: format!("generated:{}:{}", w.id, a.id),
+                    description: a.description.clone(),
+                    effect: match a.operation.as_str() {
+                        "read" => Effect::Read,
+                        "control" => Effect::Control,
+                        _ => Effect::Write,
+                    },
+                    automatic: a.operation == "create",
+                    undo_supported: a.operation != "read",
+                    input_schema: a.input_schema.clone(),
+                    source: Source::Generated {
+                        title: w.definition.name.clone(),
+                        widget_id: w.id.clone(),
+                        revision: w.revision,
+                    },
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect())
 }
 
 pub fn context(db: &Connection, id: &str) -> Result<Value> {
@@ -630,8 +650,8 @@ mod tests {
         super::super::validate_generated_definition(&widget.definition).unwrap();
         let tools = catalog(&db).unwrap();
         assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0]["id"], format!("generated:{}:add", widget.id));
-        assert_eq!(tools[0]["automatic"], true);
+        assert_eq!(tools[0].id, format!("generated:{}:add", widget.id));
+        assert!(tools[0].automatic);
         assert!(context(&db, &widget.id).unwrap().get("source").is_none());
         crate::widgets::storage::set_reaction(&db, &widget.id, false).unwrap();
         assert_eq!(catalog(&db).unwrap().len(), 1);
@@ -704,7 +724,7 @@ mod tests {
             let widget =
                 super::super::replace(&db, &widget.id, widget.revision, definition).unwrap();
             let widget = super::super::mark_ready(&db, &widget.id, widget.revision).unwrap();
-            assert_eq!(catalog(&db).unwrap()[0]["description"], description);
+            assert_eq!(catalog(&db).unwrap()[0].description, description);
             let request = request(&widget);
             let state = match operation {
                 "create" => added(),

@@ -8,8 +8,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+mod capability;
 mod catalog;
 mod registry;
+pub(crate) use capability::{find as capability, Capability, Effect, Source};
 pub(crate) use catalog::catalog;
 pub(crate) use registry::{
     authorize_evidence, authorize_registry, context_targets, entities_for,

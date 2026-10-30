@@ -216,7 +216,7 @@ fn registry_exposes_official_actions_and_keeps_connection_secrets_out() {
     assert!(catalog(&db)
         .unwrap()
         .iter()
-        .any(|item| item["id"] == "music_query"));
+        .any(|item| item.id == "music_query"));
     let widget = storage::instances(&db)
         .unwrap()
         .into_iter()
@@ -239,8 +239,8 @@ fn registry_exposes_official_actions_and_keeps_connection_secrets_out() {
     assert!(catalog(&db)
         .unwrap()
         .iter()
-        .filter(|item| item["owner"] == "music")
-        .all(|item| item["effect"] == "read"));
+        .filter(|item| matches!(item.source, Source::Registry { owner: "music", .. }))
+        .all(Capability::is_read));
 }
 
 #[test]
@@ -1190,4 +1190,16 @@ fn structured_callers_pass_values_without_a_request_but_keep_the_other_checks() 
     assert!(submit(&db, "travel_query", "", json!({}), None)
         .unwrap_err()
         .contains("query_registry"));
+}
+
+/// The catalog is model-facing: its JSON must not drift unnoticed. Bless with `COMET_BLESS=1`.
+#[test]
+fn catalog_json_matches_the_golden_file() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/organizer/actions/catalog.golden.json");
+    let actual = serde_json::to_string_pretty(&catalog(&database()).unwrap()).unwrap() + "\n";
+    if std::env::var_os("COMET_BLESS").is_some() {
+        std::fs::write(&path, &actual).unwrap();
+    }
+    assert_eq!(actual, std::fs::read_to_string(path).unwrap());
 }
