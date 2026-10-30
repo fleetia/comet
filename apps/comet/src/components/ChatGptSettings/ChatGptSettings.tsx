@@ -181,7 +181,7 @@ export function ChatGptSettings({
                 {status.accounts.map((value) => (
                   <option key={value.id} value={value.id}>
                     {value.label}
-                    {value.connected ? "" : " · 다시 연결 필요"}
+                    {value.connected ? "" : " · 연결이 끊겼어요"}
                   </option>
                 ))}
               </Select>
@@ -411,7 +411,7 @@ export function ChatGptSettings({
               {status.accounts.map((value) => (
                 <option key={value.id} value={value.id}>
                   {value.label}
-                  {value.connected ? "" : " · 다시 연결 필요"}
+                  {value.connected ? "" : " · 연결이 끊겼어요"}
                 </option>
               ))}
             </Select>

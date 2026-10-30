@@ -162,7 +162,7 @@ pub(crate) fn actor(
         .cloned()
         .ok_or("이 인물은 지금 참가하지 않고 있어요.")?;
     if !guest_current(state, db, &guest)? {
-        return Err("이전 NPC 참가가 끝났어요. 다시 초대해 주세요.".into());
+        return Err("이전에 찾아온 친구의 참가가 끝났어요. 다시 초대해 주세요.".into());
     }
     characters::get(db, persona)
 }
@@ -316,7 +316,7 @@ pub(crate) fn admit_locked(
         || lock(&state.runtime)?.hidden
         || crate::widgets::storage::focus_active(db, chrono::Utc::now().timestamp_millis())?
     {
-        return Err("지금은 이전 NPC 입장을 받아들일 수 없어요.".into());
+        return Err("지금은 이전에 찾아온 친구의 입장을 받아들일 수 없어요.".into());
     }
     let residents = characters::active_ids(db)?;
     let center = characters::get(db, &request.center_id)?;
@@ -330,7 +330,7 @@ pub(crate) fn admit_locked(
     }
     let ids = request.guest_ids.iter().collect::<BTreeSet<_>>();
     if ids.len() != request.guest_ids.len() {
-        return Err("같은 NPC를 한 입장에 중복할 수 없어요.".into());
+        return Err("찾아오는 친구 한 명을 같은 입장에 두 번 포함할 수 없어요.".into());
     }
     let center_baseline = characters::character_definition_baseline(db, &request.center_id)?;
     let user_id = crate::store::active_user_id(db)?;
@@ -346,7 +346,7 @@ pub(crate) fn admit_locked(
             || actor.definition.presence_role != PresenceRole::Npc
             || actor.pack_id.as_deref() != Some(request.pack_id.as_str())
         {
-            return Err("이 팩에서 입장할 NPC를 확인해 주세요.".into());
+            return Err("이 팩에서 입장할 찾아오는 친구를 확인해 주세요.".into());
         }
         prepared.push((
             id.clone(),
@@ -360,14 +360,14 @@ pub(crate) fn admit_locked(
         .filter(|(id, _)| !runtime.entries.contains_key(id))
         .count();
     if residents.len() + runtime.entries.len() + new_count > characters::MAX_ROSTER {
-        return Err("함께 표시할 수 있는 인물은 8명까지예요. 상주 인물의 자리는 유지해요.".into());
+        return Err("함께 표시할 수 있는 인물은 8명까지예요. 함께 지내는 친구의 자리는 유지해요.".into());
     }
     if prepared.iter().any(|(id, _)| {
         runtime.entries.get(id).is_some_and(|entry| {
             entry.run_id != request.run_id || entry.center_id != request.center_id
         })
     }) {
-        return Err("이 NPC는 다른 현재 장면에 참가하고 있어요.".into());
+        return Err("이 찾아오는 친구는 현재 다른 장면에 참가하고 있어요.".into());
     }
     let mut admitted = Vec::new();
     for (id, definition_baseline) in prepared {
@@ -632,7 +632,7 @@ pub(crate) fn hear_locked(
 ) -> Result<()> {
     validate(state, db, ticket)?;
     let (role, seq): (String, i64) = db.query_row("SELECT m.role,m.seq FROM messages m JOIN message_users u ON u.message_id=m.id WHERE m.id=?1 AND u.user_id=?2",
-        rusqlite::params![message_id, crate::store::active_user_id(db)?], |row| Ok((row.get(0)?,row.get(1)?))).map_err(|_| "실제로 전달된 현재 사용자의 말만 NPC가 들을 수 있어요.".to_string())?;
+        rusqlite::params![message_id, crate::store::active_user_id(db)?], |row| Ok((row.get(0)?,row.get(1)?))).map_err(|_| "실제로 전달된 현재 사용자의 말만 찾아오는 친구가 들을 수 있어요.".to_string())?;
     if role != "user" {
         let at = db
             .query_row(
@@ -765,7 +765,7 @@ pub(crate) fn create_admitted(
             let label = format!("body-{}", entry.id);
             let window = app
                 .get_webview_window(&label)
-                .ok_or("NPC 창을 만들지 못했어요. 같은 입력을 다시 시도해 주세요.")?;
+                .ok_or("찾아오는 친구의 창을 만들지 못했어요. 같은 입력을 다시 시도해 주세요.")?;
             windows.push((
                 label,
                 crate::characters::reaction_host::window_identity(&window),
@@ -778,7 +778,7 @@ pub(crate) fn create_admitted(
                 || generation(state, &entry.id)? != Some(entry.generation)
                 || window_authority(state, &label, identity)? != Some(Some(entry.generation))
             {
-                return Err("NPC 창을 준비하는 동안 참가자가 바뀌었어요.".into());
+                return Err("찾아오는 친구의 창을 준비하는 동안 참가자가 바뀌었어요.".into());
             }
         }
         Ok(())
@@ -841,14 +841,14 @@ pub(crate) async fn leave_character_guest(
     let id = window
         .label()
         .strip_prefix("body-")
-        .ok_or("현재 NPC 본체에서 퇴장해 주세요.")?;
+        .ok_or("현재 찾아오는 친구의 본체에서 퇴장해 주세요.")?;
     let generation = window_authority(
         &state,
         window.label(),
         crate::characters::reaction_host::window_identity(&window),
     )?
     .flatten()
-    .ok_or("현재 NPC 창만 닫을 수 있어요.")?;
+    .ok_or("현재 찾아오는 친구의 창만 닫을 수 있어요.")?;
     close(window.app_handle(), state.inner(), id, generation)
 }
 

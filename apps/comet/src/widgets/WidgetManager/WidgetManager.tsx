@@ -708,7 +708,7 @@ export function WidgetManager({
             event.preventDefault();
           }
         }}
-        title={`${removedGenerated?.definition.name ?? "위젯"} 제거`}
+        title={`${removedGenerated?.definition.name ?? "위젯"} 삭제`}
         closeLabel="닫기"
         variant="confirm"
         footer={
@@ -724,7 +724,7 @@ export function WidgetManager({
                   });
               }}
             >
-              제거 확인
+              삭제 확인
             </Button>
             <Button variant="ghost" disabled={busy} onClick={() => setConfirmation(null)}>
               취소

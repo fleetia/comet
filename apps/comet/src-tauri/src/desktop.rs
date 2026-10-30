@@ -659,7 +659,7 @@ fn create_body(app: &AppHandle, state: &AppState, spec: BodySpec) -> Result<(), 
         None
     };
     if guest && guest_generation.is_none() {
-        return Err("NPC 창을 준비하기 전에 입장이 끝났어요.".into());
+        return Err("찾아오는 친구의 본체를 준비하기 전에 입장이 끝났어요.".into());
     }
     let label = body_label(id);
     let window = tauri::WebviewWindowBuilder::new(
@@ -881,7 +881,7 @@ fn create_face(app: &AppHandle, id: &str, title: &str, _body_created: bool) -> R
     let label = face_label(id);
     let body = app
         .get_webview_window(&body_label(id))
-        .ok_or("캐릭터 창이 없습니다.")?;
+        .ok_or("본체가 없습니다.")?;
     let window = tauri::WebviewWindowBuilder::new(
         app,
         &label,
@@ -1369,7 +1369,7 @@ fn get_conversation_surface(app: &AppHandle, input: bool) -> Result<WebviewWindo
 fn balloon_owner_geometry(app: &AppHandle, id: &str) -> Result<(Rect, Rect, f64), String> {
     let body = app
         .get_webview_window(&body_label(id))
-        .ok_or("캐릭터 창이 없습니다.")?;
+        .ok_or("본체가 없습니다.")?;
     let monitor = body
         .current_monitor()
         .map_err(|e| e.to_string())?

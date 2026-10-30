@@ -289,7 +289,7 @@ pub fn validate_character(definition: &CharacterDefinition) -> Result<()> {
     };
     if let Some(npc) = &definition.npc {
         if !keywords(&npc.invite_keywords) || !keywords(&npc.appearance_keywords) {
-            return Err("NPC 등장 키워드를 확인해 주세요.".into());
+            return Err("찾아오는 친구의 등장 키워드를 확인해 주세요.".into());
         }
         check(&npc.entry_lines)?;
     }

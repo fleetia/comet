@@ -649,12 +649,12 @@ pub(crate) fn begin_character_drag(
         let character_id = window
             .label()
             .strip_prefix("body-")
-            .ok_or("캐릭터 본체에서만 옮길 수 있어요.")?
+            .ok_or("본체에서만 옮길 수 있어요.")?
             .to_string();
         stage = BeginStage::NativeHandle;
         let native_handle = native_handle(&window).ok_or(
             if cfg!(any(target_os = "macos", target_os = "windows")) {
-                "캐릭터 창을 확인하지 못했어요."
+                "본체를 확인하지 못했어요."
             } else {
                 "이 운영체제에서는 캐릭터 잡기 반응을 지원하지 않아요."
             },
@@ -671,7 +671,7 @@ pub(crate) fn begin_character_drag(
             let _action = lock(&state.action)?;
             stage = BeginStage::WindowAuthority;
             if !crate::characters::guests::window_current(&state, window.label(), native_handle)? {
-                return Err("이전 캐릭터 창에서는 옮길 수 없어요.".into());
+                return Err("이전 본체에서는 옮길 수 없어요.".into());
             }
             stage = BeginStage::Available;
             if crate::unavailable(&state) || lock(&state.runtime)?.hidden {
@@ -918,7 +918,7 @@ pub(crate) fn trigger_character_interaction(
     let character_id = window
         .label()
         .strip_prefix("body-")
-        .ok_or("캐릭터 본체에서 교감해 주세요.")?;
+        .ok_or("본체에서 교감해 주세요.")?;
     let app = window.app_handle();
     let runtime = window.state::<Runtime>();
     let identity = crate::characters::reaction_host::window_identity(&window);
@@ -1112,7 +1112,7 @@ pub(crate) fn arm_character_move(
     };
     let window = app
         .get_webview_window(&format!("body-{id}"))
-        .ok_or("캐릭터 창을 찾지 못했어요.")?;
+        .ok_or("본체를 찾지 못했어요.")?;
     if !window.is_visible().map_err(|error| error.to_string())? {
         return Err("숨긴 캐릭터는 옮길 수 없어요.".into());
     }
@@ -1170,7 +1170,7 @@ fn menu_interaction(
     crate::characters::life::wandering::cancel(app, state, &character_id)?;
     let window = app
         .get_webview_window(&format!("body-{character_id}"))
-        .ok_or("캐릭터 창을 찾지 못했어요.")?;
+        .ok_or("본체를 찾지 못했어요.")?;
     if !window.is_visible().map_err(|error| error.to_string())? {
         return Err(hidden.into());
     }

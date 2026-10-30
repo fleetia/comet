@@ -228,7 +228,7 @@ fn validate_generation(
     if let Some(id) = target {
         let widget = generated::get(db, id)?;
         if !widget.installed {
-            return Err("위젯이 제거됐어요.".into());
+            return Err("위젯이 삭제됐어요.".into());
         }
     }
     Ok(())
@@ -546,7 +546,7 @@ fn replace_current_definition(
 ) -> Result<generated::GeneratedWidget> {
     let current = generated::get(db, &previous.id)?;
     if !current.installed || current.definition != previous.definition {
-        return Err("위젯 코드가 변경되거나 제거됐어요. 최신 상태에서 다시 요청해 주세요.".into());
+        return Err("위젯 코드가 변경되거나 삭제됐어요. 최신 상태에서 다시 요청해 주세요.".into());
     }
     generated::replace(db, &current.id, current.revision, definition)
 }

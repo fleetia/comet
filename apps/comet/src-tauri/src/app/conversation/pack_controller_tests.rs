@@ -752,7 +752,7 @@ fn cancelled_guest_plan_errors_without_implicit_admission_or_ai_fallback() {
         super::super::tasks::reserve_conversation(&state, None, &intro.input_id).unwrap();
     assert!(prepare_pack_retry_locked(&state, &db, &plan, epoch)
         .unwrap_err()
-        .contains("NPC"));
+        .contains("찾아오는 친구"));
     assert!(characters::guests::guest_ids(&state, &db)
         .unwrap()
         .is_empty());

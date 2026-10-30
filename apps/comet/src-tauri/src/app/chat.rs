@@ -175,7 +175,7 @@ fn begin_reply(state: &AppState, playback_id: &str) -> Result<u64, String> {
     if actor.definition.presence_role == crate::pack_stories::PresenceRole::Npc
         && waiting_pack.is_none()
     {
-        return Err("이야기 대사가 끝난 뒤 NPC에게 말 걸어 주세요.".into());
+        return Err("이야기 대사가 끝난 뒤 찾아오는 친구에게 말 걸어 주세요.".into());
     }
     let registered = store::current_user(&db)?.is_some();
     if registered {
