@@ -410,7 +410,7 @@ export function CharacterSharing({
         {pack && (full || action === "import") && (
           <section className={s.section} aria-label="가져오기 미리보기">
             {packWarnings.map((warning, index) => (
-              <p key={index} className={ui.error} role="status">
+              <p key={index} className={ui.quiet} role="status">
                 {warning}
               </p>
             ))}
