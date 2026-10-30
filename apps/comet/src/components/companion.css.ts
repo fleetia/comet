@@ -102,7 +102,7 @@ export const balloon = style({
   boxSizing: "border-box",
   width: "max-content",
   minWidth: 48,
-  maxWidth: 320,
+  maxWidth: 400,
   height: "auto",
   minHeight: 32,
   maxHeight: 520,
@@ -116,7 +116,7 @@ export const balloon = style({
   flexDirection: "column",
   overflow: "hidden",
 });
-export const balloonPanel = style({ width: 320, minHeight: 110 });
+export const balloonPanel = style({ width: "min(400px, 100vw)", minHeight: 110 });
 export const balloonOrbit = style({
   width: "max-content",
   maxWidth: 640,
@@ -176,7 +176,7 @@ export const updateNoticeHost = style({
   position: "relative",
   boxSizing: "border-box",
   width: "max-content",
-  maxWidth: 320,
+  maxWidth: 400,
   padding: "3px 3px 13px",
 });
 export const updateNoticeBalloon = style({
@@ -185,7 +185,7 @@ export const updateNoticeBalloon = style({
 });
 export const updateNoticeAction = style({ display: "flex", marginLeft: "auto" });
 export const balloonPreview = style({
-  maxWidth: "min(320px, 100%)",
+  maxWidth: "min(400px, 100%)",
   selectors: { [`&${balloonOrbit}`]: { maxWidth: "min(640px, 100%)" } },
 });
 export const balloonHeader = style({

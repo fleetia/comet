@@ -46,6 +46,7 @@ const CONVERSATION_TAIL_CENTER_X: f64 = 47.0;
 const SPRITE_PADDING: f64 = 8.0;
 const FACE_SIZE: (f64, f64) = (120.0, 36.0);
 const ORBIT_MAX_SIZE: (f64, f64) = (640.0, 600.0);
+const BALLOON_MAX_SIZE: (f64, f64) = (420.0, 520.0);
 const BODY_PREFIX: &str = "body-";
 const FACE_PREFIX: &str = "face-";
 
@@ -351,8 +352,8 @@ fn clamp_position(x: f64, y: f64, width: f64, height: f64, area: Rect) -> (f64, 
 }
 
 fn balloon_rect(body: Rect, area: Rect, scale: f64, size: (f64, f64)) -> Rect {
-    let width = (size.0.clamp(48.0, 340.0) * scale).min(area.width);
-    let height = (size.1.clamp(32.0, 520.0) * scale).min(area.height);
+    let width = (size.0.clamp(48.0, BALLOON_MAX_SIZE.0) * scale).min(area.width);
+    let height = (size.1.clamp(32.0, BALLOON_MAX_SIZE.1) * scale).min(area.height);
     let gap = 8.0 * scale;
     let above = body.y - height - gap;
     let y = if above >= area.y {
@@ -370,8 +371,8 @@ fn balloon_rect(body: Rect, area: Rect, scale: f64, size: (f64, f64)) -> Rect {
 }
 
 fn story_rect(body: Rect, area: Rect, scale: f64, size: (f64, f64)) -> Option<Rect> {
-    let width = (size.0.clamp(48.0, 340.0) * scale).min(area.width);
-    let height = (size.1.clamp(32.0, 520.0) * scale).min(area.height);
+    let width = (size.0.clamp(48.0, BALLOON_MAX_SIZE.0) * scale).min(area.width);
+    let height = (size.1.clamp(32.0, BALLOON_MAX_SIZE.1) * scale).min(area.height);
     let gap = 18.0 * scale;
     let above = body.y - height - gap;
     let below = body.y + body.height + gap;
@@ -1302,7 +1303,7 @@ fn measured_balloon_size(width: f64, height: f64, orbit: bool) -> Result<(f64, f
     let maximum = if orbit {
         ORBIT_MAX_SIZE
     } else {
-        (340.0, 520.0)
+        BALLOON_MAX_SIZE
     };
     Ok((width.clamp(48.0, maximum.0), height.clamp(32.0, maximum.1)))
 }
@@ -2892,7 +2893,7 @@ mod tests {
         );
         assert_eq!(
             measured_balloon_size(1000.0, 1000.0, false).unwrap(),
-            (340.0, 520.0)
+            (420.0, 520.0)
         );
         assert_eq!(
             measured_balloon_size(82.5, 39.5, false).unwrap(),
@@ -2905,7 +2906,7 @@ mod tests {
         let expanded = measured_balloon_size(900.0, 900.0, true).unwrap();
         let normal = measured_balloon_size(900.0, 900.0, false).unwrap();
         assert_eq!(expanded, (640.0, 600.0));
-        assert_eq!(normal, (340.0, 520.0));
+        assert_eq!(normal, (420.0, 520.0));
         let anchor = Some(OrbitAnchor { x: 500.0, y: 550.0 });
         assert!(validate_orbit_anchor(anchor, expanded, true).is_ok());
         assert!(validate_orbit_anchor(anchor, expanded, false).is_err());
