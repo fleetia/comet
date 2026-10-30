@@ -128,7 +128,7 @@ pub(super) fn validate_profile(
         && definition.presence_role == crate::pack_stories::PresenceRole::Npc
     {
         return Err(
-            "상주 목록에서 뺀 뒤 NPC 역할로 바꿔 주세요. 최소 한 명의 상주 인물이 필요해요.".into(),
+            "함께 지내는 친구 목록에서 뺀 뒤 찾아오는 친구 역할로 바꿔 주세요. 함께 지내는 친구가 최소 한 명 필요해요.".into(),
         );
     }
     let old = get(db, id)?;

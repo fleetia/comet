@@ -257,7 +257,7 @@ export function CharacterSharing({
                     함께 지내는 친구들의 조합
                   </option>
                   <option value="pack" disabled={!packMembers.length}>
-                    팩 전체 내보내기 · NPC 포함
+                    팩 전체 내보내기 · 찾아오는 친구 포함
                   </option>
                 </Select>
               </label>
@@ -274,7 +274,7 @@ export function CharacterSharing({
             </p>
             {(exportScope ?? scope) === "pack" && (
               <p className={ui.quiet}>
-                같은 팩의 상주 친구와 NPC를 모두 포함해요. 함께 지내는 구성은 바뀌지 않아요.
+                같은 팩의 함께 지내는 친구와 찾아오는 친구를 모두 포함해요. 함께 지내는 구성은 바뀌지 않아요.
               </p>
             )}
             <div className={ui.row} role="group" aria-label="내보내기 구성">

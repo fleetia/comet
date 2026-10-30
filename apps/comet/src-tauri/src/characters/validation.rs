@@ -161,7 +161,7 @@ pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
                         .any(|relation| !relation.reply_lines.is_empty())
             }))
     {
-        return Err("NPC·이야기 작성 정보는 캐릭터팩 버전 8 이상이 필요해요.".into());
+        return Err("찾아오는 친구·이야기 작성 정보는 캐릭터팩 버전 8 이상이 필요해요.".into());
     }
     if (pack.archive.is_some() && pack.format_version < 4)
         || (pack.format_version == 4 && pack.archive.is_none())

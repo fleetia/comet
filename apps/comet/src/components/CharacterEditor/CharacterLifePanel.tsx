@@ -50,12 +50,12 @@ export function CharacterLifePanel({
             >
               <option value="resident">함께 지내는 친구</option>
               <option value="npc" disabled={isTogether}>
-                잠깐 찾아오는 친구 (NPC)
+                찾아오는 친구
               </option>
             </Select>
           </FormField>
           <p className={s.small}>
-            NPC는 초대나 등록한 이야기에서만 등장해요. 함께 지내는 목록에서 뺀 뒤 역할을 바꿀 수
+            찾아오는 친구는 초대나 등록한 이야기에서만 등장해요. 함께 지내는 목록에서 뺀 뒤 역할을 바꿀 수
             있어요. 이름 언급만으로 초대하지 않아요.
           </p>
           {(definition.presenceRole === "npc" || definition.npc) && (
@@ -65,7 +65,7 @@ export function CharacterLifePanel({
                   layout="flexible"
                   fill
                   rows={2}
-                  aria-label="NPC 초대 표현"
+                  aria-label="찾아오는 친구 초대 표현"
                   value={definition.npc?.inviteKeywords.join("\n") ?? ""}
                   onChange={(event) => changeNpc({ inviteKeywords: entries(event.target.value) })}
                 />
@@ -75,7 +75,7 @@ export function CharacterLifePanel({
                   layout="flexible"
                   fill
                   rows={2}
-                  aria-label="NPC 등장 키워드"
+                  aria-label="찾아오는 친구 등장 키워드"
                   value={definition.npc?.appearanceKeywords.join("\n") ?? ""}
                   onChange={(event) =>
                     changeNpc({ appearanceKeywords: entries(event.target.value) })
@@ -87,7 +87,7 @@ export function CharacterLifePanel({
                   layout="flexible"
                   fill
                   rows={2}
-                  aria-label="NPC 등장 조건"
+                  aria-label="찾아오는 친구 등장 조건"
                   value={definition.npc?.requiredFlags.join("\n") ?? ""}
                   onChange={(event) => changeNpc({ requiredFlags: entries(event.target.value) })}
                 />
@@ -95,7 +95,7 @@ export function CharacterLifePanel({
               <FormField label="머무는 동안">
                 <Select
                   fill
-                  aria-label="NPC 퇴장 정책"
+                  aria-label="찾아오는 친구 퇴장 정책"
                   value={definition.npc?.exitPolicy ?? "topicChange"}
                   onChange={(event) =>
                     changeNpc({
@@ -108,7 +108,7 @@ export function CharacterLifePanel({
                 </Select>
               </FormField>
               <Lines
-                title="NPC 입장"
+                title="찾아오는 친구 입장"
                 lines={definition.npc?.entryLines ?? []}
                 limit={8}
                 expressions={expressionKeys}
@@ -126,7 +126,7 @@ export function CharacterLifePanel({
               />
               {character && (
                 <AuthoringTrial
-                  title="NPC 등장 시험"
+                  title="찾아오는 친구 등장 시험"
                   actors={trialActors}
                   subject={{ kind: "npc", actorId: character.id }}
                   packId={character.packId}

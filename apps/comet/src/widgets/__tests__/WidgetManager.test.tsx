@@ -591,14 +591,14 @@ it("runs generated lifecycle actions with fresh revisions and preserves data on 
     }),
   );
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "위젯 제거" })).toHaveProperty("disabled", false),
+    expect(screen.getByRole("button", { name: "위젯 삭제" })).toHaveProperty("disabled", false),
   );
   widget = { ...widget, revision: 10, reaction: false };
   generatedSnapshot([widget]);
   view.rerender(<WidgetManager embedded />);
   expect(screen.getByRole("checkbox", { name: "캐릭터 반응" })).toHaveProperty("checked", false);
   expect(screen.getByRole("button", { name: "위젯 실행 ↗" })).toHaveProperty("disabled", false);
-  fireEvent.click(screen.getByRole("button", { name: "위젯 제거" }));
+  fireEvent.click(screen.getByRole("button", { name: "위젯 삭제" }));
   expect(screen.queryByLabelText("이 위젯의 작성 데이터도 삭제")).toBeNull();
   expect(
     within(screen.getByRole("dialog")).getByText(
@@ -608,7 +608,7 @@ it("runs generated lifecycle actions with fresh revisions and preserves data on 
   expect(command).not.toHaveBeenCalledWith("remove_generated_widget", expect.anything());
   generatedSnapshot([{ ...widget, revision: 11 }]);
   view.rerender(<WidgetManager embedded />);
-  fireEvent.click(screen.getByRole("button", { name: "제거 확인" }));
+  fireEvent.click(screen.getByRole("button", { name: "삭제 확인" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("remove_generated_widget", {
       id: widget.id,

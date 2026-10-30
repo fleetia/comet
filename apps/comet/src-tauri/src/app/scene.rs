@@ -252,7 +252,7 @@ pub(crate) fn present_line(
             return Ok(false);
         }
         if !resident {
-            return Err("등록 대사의 NPC가 지금 참가하지 않고 있어요.".into());
+            return Err("등록 대사에 등장하는 찾아오는 친구가 지금 참가하지 않고 있어요.".into());
         }
         presence::summon_locked(state, &line.persona)?;
     }

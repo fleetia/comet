@@ -241,7 +241,7 @@ async function addDraftAsset(): Promise<void> {
 
 it.each([
   ["relation", "관계 1 시험"],
-  ["npc", "NPC 등장 시험"],
+  ["npc", "찾아오는 친구 등장 시험"],
   ["scenario", "등록 이야기 시험"],
 ])(
   "replays %s trials with each speaker's unsaved bytes even when asset IDs match",

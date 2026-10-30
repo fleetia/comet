@@ -257,14 +257,14 @@ export function GeneratedWidgetSettings({
         </details>
         <div className={styles.remove}>
           <Heading level={4} variant="label">
-            제거
+            삭제
           </Heading>
           <Button variant="danger" disabled={!canAct} onClick={onRemove}>
-            위젯 제거
+            위젯 삭제
           </Button>
         </div>
         <Text as="p" variant="caption" tone="muted">
-          제거해도 위젯 정의·작성 데이터·설치 정보는 이 기기에 보존합니다.
+          삭제해도 위젯 정의·작성 데이터·설치 정보는 이 기기에 보존합니다.
         </Text>
       </section>
     </div>

@@ -113,7 +113,7 @@ pub(crate) fn for_turn(
         .as_ref()
         .is_some_and(|heard| !heard.contains(input_id))
     {
-        return Err("NPC가 아직 이 입력을 듣지 못했어요.".into());
+        return Err("찾아오는 친구가 아직 이 입력을 듣지 못했어요.".into());
     }
     let mut context = TurnContext {
         allow_memories: history_allowlist.is_none(),
@@ -144,7 +144,9 @@ pub(crate) fn for_turn(
                     .as_ref()
                     .is_some_and(|center| *center != scope.center_id)
             {
-                return Err("서로 다른 NPC 장면의 정보를 합칠 수 없어요.".into());
+                return Err(
+                    "찾아오는 친구가 등장하는 서로 다른 장면의 정보를 합칠 수 없어요.".into(),
+                );
             }
             guest_center = Some(scope.center_id);
         }

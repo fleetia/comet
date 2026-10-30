@@ -166,7 +166,7 @@ fn validate(request: &AuthoringTrialRequest) -> Result<()> {
     }
     let center = actor(request, &context.center_id)?;
     if center.definition.presence_role != PresenceRole::Resident {
-        return Err("시험의 중심에는 상주 인물을 선택해 주세요.".into());
+        return Err("시험의 중심에는 함께 지내는 친구를 선택해 주세요.".into());
     }
     let pack_id = subject_pack(request)?;
     let definitions = request
@@ -207,7 +207,7 @@ fn validate(request: &AuthoringTrialRequest) -> Result<()> {
             let guest = actor(request, actor_id)?;
             if guest.definition.presence_role != PresenceRole::Npc || guest.definition.npc.is_none()
             {
-                return Err("등장 설정이 있는 NPC를 선택해 주세요.".into());
+                return Err("등장 설정이 있는 찾아오는 친구를 선택해 주세요.".into());
             }
         }
         AuthoringSubject::Relation {
@@ -344,7 +344,7 @@ fn npc_step(
         .definition
         .npc
         .as_ref()
-        .ok_or("NPC 등장 설정이 없어요.")?;
+        .ok_or("찾아오는 친구의 등장 설정이 없어요.")?;
     if state.stage == Some(Stage::Entry) {
         if ["그만", "다른 이야기", "화제 바꾸자"]
             .iter()
@@ -370,7 +370,7 @@ fn npc_step(
     condition(
         output,
         "center",
-        "참가 중인 같은 팩의 상주 중심 또는 NPC 전용 팩",
+        "중심 친구 참가와 팩 조건 (같은 팩 또는 찾아오는 친구만 있는 팩)",
         state.present_ids.contains(&center.id)
             && pack_id.is_some()
             && (center.pack_id.as_deref() == pack_id || npc_only),
@@ -385,7 +385,7 @@ fn npc_step(
     condition(
         output,
         "flags",
-        "NPC의 필요한 조건",
+        "찾아오는 친구에게 필요한 조건",
         flags_match(&npc.required_flags, &state.flags.iter().cloned().collect()),
     );
     condition(
@@ -397,13 +397,13 @@ fn npc_step(
     condition(
         output,
         "notPresent",
-        "이번 시험에 아직 참가하지 않은 NPC",
+        "이번 시험에 아직 참가하지 않은 찾아오는 친구",
         !state.present_ids.contains(&guest.id),
     );
     condition(
         output,
         "capacity",
-        "상주 자리를 유지한 최대 8명",
+        "함께 지내는 친구의 자리를 유지한 최대 8명",
         state.present_ids.len() < characters::MAX_ROSTER,
     );
     if !output.blocked_reasons.is_empty() {
@@ -500,7 +500,7 @@ fn scenario_conditions(
     condition(
         output,
         "center",
-        "이야기의 참가 중인 상주 중심",
+        "이야기에 참가 중인 함께 지내는 중심 친구",
         scene.center_id == center.definition.source_id && state.present_ids.contains(&center.id),
     );
     condition(
@@ -518,7 +518,7 @@ fn scenario_conditions(
     condition(
         output,
         "npcFlags",
-        "참가 NPC의 등장 조건",
+        "참가하는 찾아오는 친구의 등장 조건",
         participants
             .iter()
             .filter_map(|item| item.definition.npc.as_ref())
@@ -557,7 +557,7 @@ fn scenario_conditions(
     condition(
         output,
         "residentParticipants",
-        "상주 참가자가 모두 현재 참가함",
+        "함께 지내는 친구가 모두 현재 참가함",
         participants
             .iter()
             .filter(|item| item.definition.presence_role == PresenceRole::Resident)
@@ -573,7 +573,7 @@ fn scenario_conditions(
     condition(
         output,
         "capacity",
-        "상주 자리를 유지한 최대 8명",
+        "함께 지내는 친구의 자리를 유지한 최대 8명",
         state.present_ids.len() + new_guests <= characters::MAX_ROSTER,
     );
     Ok(output.blocked_reasons.is_empty())

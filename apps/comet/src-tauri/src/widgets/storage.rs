@@ -286,13 +286,13 @@ fn package_path(directory: &Path, kind: &str) -> Result<std::path::PathBuf> {
     let root = directory.join("widgets");
     if let Ok(metadata) = root.symlink_metadata() {
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
-            return Err("위젯 설치 공간에 연결 파일을 사용할 수 없어요.".into());
+            return Err("위젯 저장 폴더에 연결 파일을 사용할 수 없어요.".into());
         }
     }
     let path = root.join(kind);
     if let Ok(metadata) = path.symlink_metadata() {
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
-            return Err("위젯 설치 폴더에 연결 파일이나 일반 파일을 사용할 수 없어요.".into());
+            return Err("위젯 저장 폴더에 연결 파일이나 일반 파일을 사용할 수 없어요.".into());
         }
     }
     Ok(path)
@@ -306,7 +306,7 @@ fn write_package(path: &Path, kind: &str) -> Result<()> {
         .file_type()
         .is_symlink()
     {
-        return Err("위젯 설치 폴더에 연결 파일을 사용할 수 없어요.".into());
+        return Err("위젯 저장 폴더에 연결 파일을 사용할 수 없어요.".into());
     }
     let content = serde_json::to_vec(&super::manifest(kind)?).map_err(err)?;
     let temporary = path.join(format!("{}.tmp", uuid::Uuid::new_v4()));

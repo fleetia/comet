@@ -347,7 +347,7 @@ fn prepare_pack_retry_locked(
             .any(|id| !residents.contains(id))
     {
         return Err(
-            "이 NPC는 현재 이야기에 참가하지 않고 있어요. 저장한 원문은 기록에 남아 있어요.".into(),
+            "이 찾아오는 친구는 현재 이야기에 참가하지 않고 있어요. 저장한 원문은 기록에 남아 있어요.".into(),
         );
     }
     lock(&state.tasks)?.participants = Some(capture_participants_locked(
@@ -654,7 +654,7 @@ pub(crate) async fn send_message_inner(
         let resident_target = match characters::guests::actor(&state, &db, &target) {
             Ok(actor) if actor.definition.presence_role == pack_stories::PresenceRole::Npc => {
                 characters::guests::center_id(&state, &actor.id)?
-                    .ok_or("이 NPC의 대화가 끝났어요.")?
+                    .ok_or("이 찾아오는 친구의 대화가 끝났어요.")?
             }
             _ => target.clone(),
         };

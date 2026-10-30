@@ -403,7 +403,7 @@ fn change(
     let tx = db.unchecked_transaction().map_err(err)?;
     let mut widget = get(&tx, id)?;
     if !widget.installed || widget.revision != expected_revision {
-        return Err("위젯이 변경되거나 제거됐어요. 최신 상태를 확인해 주세요.".into());
+        return Err("위젯이 변경되거나 삭제됐어요. 최신 상태를 확인해 주세요.".into());
     }
     let before = widget.clone();
     update(&mut widget)?;

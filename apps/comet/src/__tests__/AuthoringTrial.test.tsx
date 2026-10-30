@@ -72,7 +72,7 @@ function trace(): AuthoringTrialTrace {
   };
 }
 const props = {
-  title: "NPC 등장 시험",
+  title: "찾아오는 친구 등장 시험",
   actors,
   definition,
   packId: "trial-pack",
@@ -82,12 +82,12 @@ const props = {
   presentIds: [actors[0].id],
 };
 function expand(open = true): void {
-  const details = screen.getByText("NPC 등장 시험", { selector: "summary" }).closest("details")!;
+  const details = screen.getByText("찾아오는 친구 등장 시험", { selector: "summary" }).closest("details")!;
   details.open = open;
   fireEvent(details, new Event("toggle"));
 }
 function run(): void {
-  fireEvent.click(screen.getByRole("button", { name: "NPC 등장 시험" }));
+  fireEvent.click(screen.getByRole("button", { name: "찾아오는 친구 등장 시험" }));
 }
 beforeEach(() => {
   vi.mocked(command).mockReset();
@@ -138,7 +138,7 @@ it.each(["window-close", "document-hide"])(
     );
     close();
     reopen();
-    expect(screen.queryByLabelText("NPC 등장 시험 결과")).toBeNull();
+    expect(screen.queryByLabelText("찾아오는 친구 등장 시험 결과")).toBeNull();
     expect(screen.queryByLabelText("선택한 대사 미리보기")).toBeNull();
     let finish!: (value: AuthoringTrialTrace) => void;
     vi.mocked(command).mockReturnValueOnce(
@@ -150,9 +150,9 @@ it.each(["window-close", "document-hide"])(
     close();
     reopen();
     await act(async () => finish(trace()));
-    expect(screen.queryByLabelText("NPC 등장 시험 결과")).toBeNull();
+    expect(screen.queryByLabelText("찾아오는 친구 등장 시험 결과")).toBeNull();
     run();
-    await screen.findByLabelText("NPC 등장 시험 결과");
+    await screen.findByLabelText("찾아오는 친구 등장 시험 결과");
     expect(command).toHaveBeenCalledTimes(3);
     expect({ actors, definition }).toEqual(original);
   },
@@ -166,13 +166,13 @@ it("trials edited actor IDs with explicit conditions, state changes and raw regi
   const source = structuredClone(actors);
   render(<AuthoringTrial {...props} />);
   expand();
-  fireEvent.change(screen.getByLabelText("NPC 등장 시험 입력 · 한 줄에 한 번"), {
+  fireEvent.change(screen.getByLabelText("찾아오는 친구 등장 시험 입력 · 한 줄에 한 번"), {
     target: { value: "  초대  \n계속" },
   });
   fireEvent.click(screen.getByLabelText("invited · 시험 조건"));
-  fireEvent.change(screen.getByLabelText("NPC 등장 시험 친밀도"), { target: { value: "37" } });
+  fireEvent.change(screen.getByLabelText("찾아오는 친구 등장 시험 친밀도"), { target: { value: "37" } });
   run();
-  const result = await screen.findByLabelText("NPC 등장 시험 결과");
+  const result = await screen.findByLabelText("찾아오는 친구 등장 시험 결과");
   expect(command).toHaveBeenCalledExactlyOnceWith("trial_pack_authoring", {
     request: {
       actors: actors.map((actor) => ({
@@ -223,7 +223,7 @@ it("labels a registered relationship response without a story stage", async () =
   );
   expand();
   run();
-  const result = await screen.findByLabelText("NPC 등장 시험 결과");
+  const result = await screen.findByLabelText("찾아오는 친구 등장 시험 결과");
   expect(within(result).getByRole("button", { name: "1. 등록 응답" })).toBeTruthy();
   expect(result.textContent).toContain("출처: 등록 대사");
 });
@@ -294,7 +294,7 @@ it.each(["collapse", "hide", "draft", "actorDraft", "assets", "baseline", "unmou
     await act(async () => {
       finish(trace());
     });
-    expect(screen.queryByLabelText("NPC 등장 시험 결과")).toBeNull();
+    expect(screen.queryByLabelText("찾아오는 친구 등장 시험 결과")).toBeNull();
   },
 );
 
@@ -331,7 +331,7 @@ it("replays the ordered local speakers with their durations and stops on conditi
   expect(preview.getByRole("button", { name: "정지" })).toHaveProperty("disabled", true);
   fireEvent.click(preview.getByRole("button", { name: "미리보기" }));
   view.rerender(<AuthoringTrial {...props} visible={false} />);
-  expect(screen.queryByLabelText("NPC 등장 시험 결과")).toBeNull();
+  expect(screen.queryByLabelText("찾아오는 친구 등장 시험 결과")).toBeNull();
   await act(async () => {
     vi.runOnlyPendingTimers();
   });
@@ -396,7 +396,7 @@ it("reloads a pending pack definition for a new baseline and rejects the older r
     });
   });
   expect(screen.getByLabelText("new · 시험 조건")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "NPC 등장 시험" })).toHaveProperty("disabled", false);
+  expect(screen.getByRole("button", { name: "찾아오는 친구 등장 시험" })).toHaveProperty("disabled", false);
 });
 
 it("wires relationship and NPC trials to the edited definition through their existing editor tabs", async () => {
