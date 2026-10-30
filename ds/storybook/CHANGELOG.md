@@ -1,5 +1,14 @@
 # @comet/storybook
 
+## 0.1.12
+
+### Patch Changes
+
+- 63b0a1d: 입력창의 보내기 버튼에 마우스를 올리거나 누르면 바탕색이 바뀌고, 누르는 동안 살짝 작아집니다.
+- Updated dependencies [63b0a1d]
+  - @comet/token@0.3.1
+  - @comet/ui@0.9.1
+
 ## 0.1.11
 
 ### Patch Changes
