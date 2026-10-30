@@ -10,7 +10,8 @@ const PENDING: &str = "accounts-v1-pending";
 const FORMAT: &str = "comet-chatgpt-chunks-v1";
 const CHUNK_BYTES: usize = 2048;
 const MAX_BYTES: usize = 1024 * 1024;
-const ERROR: &str = "ChatGPT 자격 증명 저장소를 읽거나 저장하지 못했어요. 기존 정보는 보존했어요.";
+pub(super) const ERROR: &str =
+    "ChatGPT 자격 증명 저장소를 읽거나 저장하지 못했어요. 기존 정보는 보존했어요.";
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

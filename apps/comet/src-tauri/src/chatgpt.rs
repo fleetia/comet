@@ -26,6 +26,7 @@ const ISSUER: &str = "https://auth.openai.com";
 const RESOURCE: &str = "https://api.openai.com/v1";
 const USAGE_URL: &str = "https://chatgpt.com/settings/usage";
 const SHARING_SCOPE: &str = "chatgpt.tokens.use.direct";
+const SAVE_ERROR: &str = "ChatGPT 연결을 시스템 자격 증명 저장소에 저장하지 못했어요.";
 type Result<T> = std::result::Result<T, String>;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,11 +60,39 @@ impl Default for Saved {
         }
     }
 }
+fn remove_inactive_without_tokens(saved: &mut Saved) {
+    let active = &saved.active;
+    saved
+        .accounts
+        .retain(|account| account.tokens.is_some() || active.as_ref() == Some(&account.id));
+}
+fn select_account(state: &mut State, id: &str) -> Result<()> {
+    if state.signing_out.is_some() {
+        return Err("연결 끊기를 마친 뒤 계정을 선택해 주세요.".into());
+    }
+    if !state
+        .saved
+        .accounts
+        .iter()
+        .any(|a| a.id == id && a.subject.is_some() && a.tokens.is_some())
+    {
+        return Err("이 계정을 다시 연결해 주세요.".into());
+    }
+    state.saved.active = Some(id.into());
+    if state.pending.is_none() {
+        remove_inactive_without_tokens(&mut state.saved);
+    }
+    state.usage_blocked = false;
+    state.notice = None;
+    state.disconnect_reason = None;
+    Ok(())
+}
 #[derive(Default)]
 struct State {
     saved: Saved,
     loaded: bool,
     notice: Option<String>,
+    disconnect_reason: Option<&'static str>,
     pending: Option<(u64, Arc<AtomicBool>)>,
     signing_out: Option<String>,
     usage_blocked: bool,
@@ -127,6 +156,7 @@ pub(crate) struct Status {
     login_pending: bool,
     usage_url: &'static str,
     notice: Option<String>,
+    disconnect_reason: Option<&'static str>,
     request_blocked: bool,
 }
 #[derive(Serialize)]
@@ -265,7 +295,7 @@ impl Service {
                 state.saved.clone(),
             )
         };
-        let saved = match self.read_saved()? {
+        let mut saved = match self.read_saved()? {
             Some(raw) => {
                 if raw.len() > 1024 * 1024 {
                     return Err("ChatGPT 저장소 크기를 확인해 주세요.".into());
@@ -275,6 +305,7 @@ impl Service {
             }
             None => empty,
         };
+        remove_inactive_without_tokens(&mut saved);
         if saved.accounts.len() > 32
             || saved.host_id.is_empty()
             || saved
@@ -306,6 +337,7 @@ impl Service {
             inner.saved = Saved::default();
             inner.usage_blocked = false;
             inner.notice = None;
+            inner.disconnect_reason = None;
             self.0.generation.fetch_add(1, Ordering::SeqCst);
             accounts
         };
@@ -343,7 +375,7 @@ impl Service {
         {
             self.entry()?.set_password(&raw).map_err(|error| {
                 self.report_store_error("write", "accounts", &error);
-                "ChatGPT 연결을 시스템 자격 증명 저장소에 저장하지 못했어요.".into()
+                SAVE_ERROR.into()
             })
         }
     }
@@ -364,10 +396,20 @@ impl Service {
             })
             .await
             .map_err(|_| "ChatGPT 연결 저장이 중단됐어요.".to_string())?;
-            if result.is_err() {
-                let _ = auth::revoke(&cleanup_account).await;
+            match result {
+                Ok(replaced) => {
+                    if let Some(replaced) = replaced {
+                        tokio::spawn(async move {
+                            let _ = auth::revoke(&replaced).await;
+                        });
+                    }
+                    Ok(())
+                }
+                Err(error) => {
+                    let _ = auth::revoke(&cleanup_account).await;
+                    Err(error)
+                }
             }
-            result
         })
         .await
         .map_err(|_| "ChatGPT 연결 저장이 중단됐어요.".to_string())?
@@ -376,9 +418,9 @@ impl Service {
         &self,
         attempt: u64,
         cancel: &AtomicBool,
-        account: Account,
+        mut account: Account,
         mut write: impl FnMut(&Saved) -> Result<()>,
-    ) -> Result<()> {
+    ) -> Result<Option<Account>> {
         let _io = lock(&self.0.credential_io)?;
         let (prior, generation) = {
             let state = lock(&self.0.state)?;
@@ -394,11 +436,34 @@ impl Service {
         let mut next = prior.clone();
         let target = next
             .accounts
-            .iter_mut()
+            .iter()
             .find(|a| a.id == account.id && a.client_id == account.client_id)
             .ok_or("ChatGPT 등록이 변경됐어요.")?;
+        let is_placeholder = target.subject.is_none();
+        let matching = next
+            .accounts
+            .iter()
+            .find(|a| a.subject.is_some() && a.subject == account.subject)
+            .cloned();
+        let replaced = matching
+            .as_ref()
+            .filter(|old| old.client_id != account.client_id && old.tokens.is_some())
+            .cloned();
+        if is_placeholder {
+            next.accounts.retain(|a| a.id != account.id);
+        }
+        if let Some(existing) = matching {
+            account.id = existing.id;
+            next.accounts.retain(|a| a.id != account.id);
+        } else if !is_placeholder {
+            account.id = uuid::Uuid::new_v4().to_string();
+        }
         next.active = Some(account.id.clone());
-        *target = account;
+        remove_inactive_without_tokens(&mut next);
+        if next.accounts.len() >= 32 {
+            return Err("저장된 ChatGPT 계정 수가 한도에 도달했어요.".into());
+        }
+        next.accounts.push(account);
         write(&next)?;
         let committed = {
             let mut state = lock(&self.0.state)?;
@@ -411,6 +476,7 @@ impl Service {
                 state.pending = None;
                 state.usage_blocked = false;
                 state.notice = None;
+                state.disconnect_reason = None;
                 self.0.generation.fetch_add(1, Ordering::SeqCst);
                 true
             } else {
@@ -427,7 +493,7 @@ impl Service {
             }
             return Err("ChatGPT 연결이 취소되었거나 계정이 변경됐어요.".into());
         }
-        Ok(())
+        Ok(replaced)
     }
     pub(crate) fn status(&self) -> Result<Status> {
         let state = lock(&self.0.state)?;
@@ -464,6 +530,7 @@ impl Service {
             login_pending: state.pending.is_some(),
             usage_url: USAGE_URL,
             notice,
+            disconnect_reason: state.disconnect_reason,
             request_blocked: state.usage_blocked,
         })
     }
@@ -482,11 +549,14 @@ impl Service {
     }
     fn cancel_login(&self) -> Result<()> {
         let mut state = lock(&self.0.state)?;
+        self.cancel_login_locked(&mut state);
+        Ok(())
+    }
+    fn cancel_login_locked(&self, state: &mut State) {
         if let Some((_, cancel)) = state.pending.take() {
             cancel.store(true, Ordering::SeqCst);
         }
         self.0.login_generation.fetch_add(1, Ordering::SeqCst);
-        Ok(())
     }
     fn begin_login(&self) -> Result<(u64, Arc<AtomicBool>)> {
         let mut state = lock(&self.0.state)?;
@@ -513,23 +583,8 @@ impl Service {
     async fn select(&self, id: &str) -> Result<()> {
         {
             let mut state = lock(&self.0.state)?;
-            if state.signing_out.is_some() {
-                return Err("연결 끊기를 마친 뒤 계정을 선택해 주세요.".into());
-            }
-            if !state
-                .saved
-                .accounts
-                .iter()
-                .any(|a| a.id == id && a.subject.is_some() && a.tokens.is_some())
-            {
-                return Err("이 계정을 다시 연결해 주세요.".into());
-            }
-            let mut saved = state.saved.clone();
-            saved.active = Some(id.into());
+            select_account(&mut state, id)?;
             self.0.generation.fetch_add(1, Ordering::SeqCst);
-            state.saved = saved;
-            state.usage_blocked = false;
-            state.notice = None;
         }
         self.persist().await
     }
@@ -627,6 +682,11 @@ impl Service {
                     if error.terminal_refresh {
                         target.tokens = None;
                         state.saved = saved;
+                        if state.saved.active.as_ref() == Some(&account.id)
+                            && self.0.generation.load(Ordering::SeqCst) == generation
+                        {
+                            state.disconnect_reason = Some("expired");
+                        }
                     }
                     if self.0.generation.load(Ordering::SeqCst) == generation {
                         state.notice = Some(error.message.clone());
@@ -660,6 +720,40 @@ impl Service {
             }
         }
     }
+}
+
+fn activate_failed_account(state: &mut State, prior_account_ids: &[String]) -> bool {
+    if state
+        .saved
+        .accounts
+        .iter()
+        .any(|account| state.saved.active.as_ref() == Some(&account.id) && account.tokens.is_some())
+    {
+        return false;
+    }
+    let failed_account = state.saved.accounts.iter().rev().find(|account| {
+        account.subject.is_none()
+            && account.tokens.is_none()
+            && !prior_account_ids.contains(&account.id)
+    });
+    if let Some(account) = failed_account {
+        state.saved.active = Some(account.id.clone());
+        state.usage_blocked = false;
+        state.disconnect_reason = Some("save_failed");
+        return true;
+    }
+    false
+}
+
+fn is_save_error(error: &str) -> bool {
+    if error == SAVE_ERROR {
+        return true;
+    }
+    #[cfg(any(target_os = "windows", test))]
+    if error == credentials::ERROR {
+        return true;
+    }
+    false
 }
 
 pub(crate) async fn generate(
@@ -708,6 +802,29 @@ fn interrupt_requests(state: &AppState) -> Result<()> {
     }
     Ok(())
 }
+fn begin_logout(state: &AppState, account_id: &str) -> Result<()> {
+    let service = &state.inference.chatgpt;
+    let is_active = {
+        let mut inner = lock(&service.0.state)?;
+        service.cancel_login_locked(&mut inner);
+        if inner.signing_out.is_some() {
+            return Err("연결을 끊고 있어요.".into());
+        }
+        if !inner.saved.accounts.iter().any(|a| a.id == account_id) {
+            return Err("ChatGPT 계정을 찾지 못했어요.".into());
+        }
+        inner.signing_out = Some(account_id.into());
+        inner.saved.active.as_deref() == Some(account_id)
+    };
+    if is_active {
+        if let Err(error) = interrupt_requests(state) {
+            lock(&service.0.state)?.signing_out = None;
+            return Err(error);
+        }
+        service.0.generation.fetch_add(1, Ordering::SeqCst);
+    }
+    Ok(())
+}
 #[tauri::command]
 pub(crate) async fn get_chatgpt_status(state: tauri::State<'_, Arc<AppState>>) -> Result<Status> {
     // Polling UI state must never start or wait for an OS credential prompt.
@@ -723,6 +840,7 @@ pub(crate) async fn login_chatgpt(
     let service = &state.inference.chatgpt;
     let (attempt, cancel) = service.begin_login()?;
     publish(&app, &state);
+    let mut prior_account_ids = Vec::new();
     let result = async {
         service.initialize_login(attempt, cancel.clone()).await?;
         let saved = {
@@ -737,6 +855,12 @@ pub(crate) async fn login_chatgpt(
             {
                 return Err("저장된 ChatGPT 계정을 찾지 못했어요.".into());
             }
+            prior_account_ids = inner
+                .saved
+                .accounts
+                .iter()
+                .map(|account| account.id.clone())
+                .collect();
             inner.saved.clone()
         };
         interrupt_requests(&state)?;
@@ -770,6 +894,9 @@ pub(crate) async fn login_chatgpt(
         if let Err(error) = &result {
             crate::report_error!("chatgpt_login", "{error}");
             if service.0.login_generation.load(Ordering::SeqCst) == attempt {
+                if is_save_error(error) && activate_failed_account(&mut inner, &prior_account_ids) {
+                    service.0.generation.fetch_add(1, Ordering::SeqCst);
+                }
                 inner.notice = Some(error.clone());
             }
         }
@@ -808,19 +935,7 @@ pub(crate) async fn logout_chatgpt(
 ) -> Result<Status> {
     let service = &state.inference.chatgpt;
     service.initialize().await?;
-    service.cancel_login()?;
-    interrupt_requests(&state)?;
-    {
-        let mut inner = lock(&service.0.state)?;
-        if inner.signing_out.is_some() {
-            return Err("연결을 끊고 있어요.".into());
-        }
-        if !inner.saved.accounts.iter().any(|a| a.id == account_id) {
-            return Err("ChatGPT 계정을 찾지 못했어요.".into());
-        }
-        inner.signing_out = Some(account_id.clone());
-        service.0.generation.fetch_add(1, Ordering::SeqCst);
-    }
+    begin_logout(&state, &account_id)?;
     publish(&app, &state);
     let _refresh = service.0.refresh.lock().await;
     let account = lock(&service.0.state)?
@@ -834,12 +949,11 @@ pub(crate) async fn logout_chatgpt(
     {
         let mut inner = lock(&service.0.state)?;
         let mut saved = inner.saved.clone();
-        if let Some(target) = saved.accounts.iter_mut().find(|a| a.id == account_id) {
-            target.tokens = None;
-        }
+        saved.accounts.retain(|account| account.id != account_id);
         if saved.active.as_ref() == Some(&account_id) {
             saved.active = None;
             inner.usage_blocked = false;
+            inner.disconnect_reason = None;
         }
         // Clear memory before the OS prompt; do not resume requests while persistence waits.
         inner.saved = saved;
@@ -897,6 +1011,192 @@ mod tests {
             });
         }
         service
+    }
+    fn logout_request_fixture() -> (AppState, u64, Arc<AtomicBool>, u64) {
+        let mut state = crate::app::tests::state();
+        state.inference.chatgpt = connected();
+        {
+            let service = &state.inference.chatgpt;
+            let mut inner = lock(&service.0.state).unwrap();
+            let mut other = inner.saved.accounts[0].clone();
+            other.id = "other-account".into();
+            inner.saved.accounts.push(other);
+        }
+        {
+            let db = app::lock(&state.db).unwrap();
+            let mut settings = crate::store::settings(&db).unwrap();
+            settings.mode = "chatgpt".into();
+            crate::store::save_settings(&db, &settings).unwrap();
+        }
+        let (epoch, cancel) = {
+            let _action = app::lock(&state.action).unwrap();
+            app::interrupt(&state, false).unwrap()
+        };
+        {
+            let mut runtime = app::lock(&state.runtime).unwrap();
+            runtime.phase = crate::types::RuntimePhase::Generating;
+            runtime.persona = Some("a".into());
+            runtime.error = Some("existing".into());
+        }
+        let generation = state.inference.chatgpt.0.generation.load(Ordering::SeqCst);
+        (state, epoch, cancel, generation)
+    }
+    #[test]
+    fn beginning_inactive_logout_preserves_active_request() {
+        let (state, epoch, cancel, generation) = logout_request_fixture();
+        let service = &state.inference.chatgpt;
+        let (_, login_cancel) = service.begin_login().unwrap();
+
+        begin_logout(&state, "other-account").unwrap();
+
+        assert!(login_cancel.load(Ordering::SeqCst));
+        assert!(app::is_current(&state, epoch, &cancel));
+        assert!(service.current(generation, &cancel).is_ok());
+        assert_eq!(service.0.generation.load(Ordering::SeqCst), generation);
+        assert!(service.ready());
+        assert!(service
+            .status()
+            .unwrap()
+            .accounts
+            .iter()
+            .any(|account| account.id == "test-account" && account.connected));
+        assert!(Arc::ptr_eq(
+            app::lock(&state.cancellation).unwrap().as_ref().unwrap(),
+            &cancel
+        ));
+        let runtime = app::lock(&state.runtime).unwrap();
+        assert_eq!(runtime.phase, crate::types::RuntimePhase::Generating);
+        assert_eq!(runtime.persona.as_deref(), Some("a"));
+        assert_eq!(runtime.error.as_deref(), Some("existing"));
+        drop(runtime);
+        let mut inner = lock(&service.0.state).unwrap();
+        assert_eq!(inner.signing_out.as_deref(), Some("other-account"));
+        assert!(select_account(&mut inner, "other-account").is_err());
+        drop(inner);
+        assert!(service.begin_login().is_err());
+    }
+    #[test]
+    fn beginning_active_logout_interrupts_and_invalidates_request() {
+        let (state, epoch, cancel, generation) = logout_request_fixture();
+        let service = &state.inference.chatgpt;
+
+        begin_logout(&state, "test-account").unwrap();
+
+        assert!(cancel.load(Ordering::SeqCst));
+        assert!(!app::is_current(&state, epoch, &cancel));
+        assert_eq!(state.epoch.load(Ordering::SeqCst), epoch + 1);
+        assert_eq!(service.0.generation.load(Ordering::SeqCst), generation + 1);
+        assert!(service
+            .current(generation, &AtomicBool::new(false))
+            .is_err());
+        assert_eq!(
+            lock(&service.0.state).unwrap().signing_out.as_deref(),
+            Some("test-account")
+        );
+        let runtime = app::lock(&state.runtime).unwrap();
+        assert_eq!(runtime.phase, crate::types::RuntimePhase::Idle);
+        assert!(runtime.persona.is_none());
+        assert!(runtime.error.is_none());
+    }
+    #[test]
+    fn cleanup_keeps_connected_and_active_disconnected_accounts() {
+        let service = connected();
+        let mut saved = lock(&service.0.state).unwrap().saved.clone();
+        let mut disconnected = saved.accounts[0].clone();
+        disconnected.id = "disconnected".into();
+        disconnected.tokens = None;
+        saved.accounts.push(disconnected.clone());
+        disconnected.id = "stale".into();
+        saved.accounts.push(disconnected);
+        saved.active = Some("disconnected".into());
+        remove_inactive_without_tokens(&mut saved);
+        assert_eq!(saved.accounts.len(), 2);
+        assert!(saved.accounts.iter().any(|a| a.id == "test-account"));
+        assert!(saved.accounts.iter().any(|a| a.id == "disconnected"));
+    }
+    #[test]
+    fn selecting_account_cleans_disconnected_entries_unless_login_is_pending() {
+        let service = connected();
+        let mut state = lock(&service.0.state).unwrap();
+        let mut placeholder = state.saved.accounts[0].clone();
+        placeholder.id = "placeholder".into();
+        placeholder.subject = None;
+        placeholder.tokens = None;
+        state.saved.accounts.push(placeholder);
+        state.saved.active = Some("placeholder".into());
+        state.disconnect_reason = Some("expired");
+        state.pending = Some((1, Arc::new(AtomicBool::new(false))));
+        select_account(&mut state, "test-account").unwrap();
+        assert_eq!(state.saved.accounts.len(), 2);
+        assert_eq!(state.disconnect_reason, None);
+        state.pending = None;
+        select_account(&mut state, "test-account").unwrap();
+        assert_eq!(state.saved.accounts.len(), 1);
+    }
+    #[test]
+    fn login_write_removes_previously_active_disconnected_account() {
+        let service = connected();
+        let account = {
+            let mut state = lock(&service.0.state).unwrap();
+            let mut new_account = state.saved.accounts[0].clone();
+            state.saved.accounts[0].tokens = None;
+            new_account.id = "new".into();
+            new_account.subject = Some("new-subject".into());
+            let mut placeholder = new_account.clone();
+            placeholder.subject = None;
+            placeholder.tokens = None;
+            state.saved.accounts.push(placeholder);
+            new_account
+        };
+        let (attempt, cancel) = service.begin_login().unwrap();
+        service
+            .commit_login_with(attempt, &cancel, account, |saved| {
+                assert_eq!(saved.accounts.len(), 1);
+                assert_eq!(saved.active.as_deref(), Some("new"));
+                assert!(saved.accounts[0].tokens.is_some());
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(service.status().unwrap().accounts.len(), 1);
+    }
+    #[test]
+    fn failed_storage_only_activates_placeholder_without_a_connected_active_account() {
+        let service = connected();
+        let mut state = lock(&service.0.state).unwrap();
+        let mut placeholder = state.saved.accounts[0].clone();
+        placeholder.id = "new".into();
+        placeholder.subject = None;
+        placeholder.tokens = None;
+        state.saved.accounts.push(placeholder);
+        let prior = vec!["test-account".into()];
+        assert!(!activate_failed_account(&mut state, &prior));
+        assert_eq!(state.saved.active.as_deref(), Some("test-account"));
+        assert_eq!(state.disconnect_reason, None);
+        state.saved.accounts[0].tokens = None;
+        assert!(activate_failed_account(&mut state, &prior));
+        assert_eq!(state.saved.active.as_deref(), Some("new"));
+        assert_eq!(state.disconnect_reason, Some("save_failed"));
+        state.saved.active = None;
+        state.disconnect_reason = None;
+        assert!(activate_failed_account(&mut state, &prior));
+        assert_eq!(state.disconnect_reason, Some("save_failed"));
+        assert!(is_save_error(SAVE_ERROR));
+        assert!(is_save_error(credentials::ERROR));
+        assert!(!is_save_error("자격 증명을 저장하지 못했어요"));
+    }
+    #[test]
+    fn disconnect_reason_is_public_but_not_persisted() {
+        let service = connected();
+        let saved = {
+            let mut state = lock(&service.0.state).unwrap();
+            state.disconnect_reason = Some("expired");
+            serde_json::to_string(&state.saved).unwrap()
+        };
+        let status = serde_json::to_value(service.status().unwrap()).unwrap();
+        assert_eq!(status["disconnectReason"], "expired");
+        assert!(!saved.contains("disconnectReason"));
+        assert!(!saved.contains("expired"));
+        assert_eq!(State::default().disconnect_reason, None);
     }
     #[test]
     fn readiness_never_waits_for_a_held_state_mutex() {
@@ -979,6 +1279,39 @@ mod tests {
             .unwrap();
         assert!(service.ready());
         assert!(!service.status().unwrap().login_pending);
+    }
+    #[test]
+    fn login_merges_the_same_subject_and_keeps_a_different_subject() {
+        let service = connected();
+        let new_account = {
+            let mut state = lock(&service.0.state).unwrap();
+            let mut account = state.saved.accounts[0].clone();
+            account.id = "new-registration".into();
+            account.client_id = "oaiapp_new".into();
+            let mut placeholder = account.clone();
+            placeholder.subject = None;
+            placeholder.tokens = None;
+            state.saved.accounts.push(placeholder);
+            account
+        };
+        let (attempt, cancel) = service.begin_login().unwrap();
+        let replaced = service
+            .commit_login_with(attempt, &cancel, new_account, |_| Ok(()))
+            .unwrap();
+        assert_eq!(replaced.unwrap().client_id, "oaiapp_test");
+        let status = service.status().unwrap();
+        assert_eq!(status.accounts.len(), 1);
+        assert_eq!(status.active_account_id.as_deref(), Some("test-account"));
+
+        let mut different = lock(&service.0.state).unwrap().saved.accounts[0].clone();
+        different.subject = Some("another-subject".into());
+        let (attempt, cancel) = service.begin_login().unwrap();
+        service
+            .commit_login_with(attempt, &cancel, different, |_| Ok(()))
+            .unwrap();
+        let status = service.status().unwrap();
+        assert_eq!(status.accounts.len(), 2);
+        assert_ne!(status.active_account_id.as_deref(), Some("test-account"));
     }
     #[test]
     fn cancelled_keychain_write_restores_the_newest_account_state() {
