@@ -117,7 +117,7 @@ export function UpdatePanel({
             <>
               <p>업데이트를 내려받고 있어요. {(status.downloaded / 1024 / 1024).toFixed(1)} MB</p>
               <progress
-                aria-label="업데이트 다운로드"
+                aria-label="업데이트 내려받기"
                 value={status.total ? status.downloaded : undefined}
                 max={status.total || undefined}
               />

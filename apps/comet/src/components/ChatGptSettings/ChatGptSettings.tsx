@@ -129,11 +129,14 @@ export function ChatGptSettings({
     Boolean(draft.settings.chatgptModel) &&
     !models.some((model) => model.slug === draft.settings.chatgptModel);
   const missingModel = modelsLoaded && selectedModelAbsent;
+  const connectionFailure = ["ChatGPT 연결을 마치지 못했어요.", "연결 대기 시간이 끝났어요."].includes(
+    error || status?.notice || "",
+  );
   let requestState = "플랜 권한 있음 · 모델 확인 필요";
   if (!account?.connected) {
-    requestState = "로그인 필요";
+    requestState = "ChatGPT 연결 필요";
   } else if (!account.sharing) {
-    requestState = "로그인됨 · 플랜 사용 권한 없음";
+    requestState = "연결됨 · 이 계정은 플랜을 쓸 수 없어요";
   } else if (status?.requestBlocked) {
     requestState = "요청 중단 · 사용량 또는 권한 확인 필요";
   } else if (missingModel) {
@@ -155,10 +158,12 @@ export function ChatGptSettings({
                 <strong className={ai.accountLabel}>{account?.label || "내 ChatGPT 계정"}</strong>
                 <span className={figma.caption}>
                   {loginPending
-                    ? "브라우저에서 로그인 중"
+                    ? "브라우저에서 연결 중"
                     : account?.connected
-                      ? `로그인됨 · 계정 ${status?.accounts.length || 0}개`
-                      : "연결 필요"}
+                      ? account.sharing
+                        ? `연결됨 · 계정 ${status?.accounts.length || 0}개`
+                        : "연결됨 · 이 계정은 플랜을 쓸 수 없어요"
+                      : "ChatGPT 연결 필요"}
                 </span>
               </div>
             </div>
@@ -203,7 +208,7 @@ export function ChatGptSettings({
                 })
               }
             >
-              {account ? "다시 연결" : "ChatGPT로 로그인"}
+              {account || connectionFailure ? "다시 연결" : "ChatGPT로 연결"}
             </Button>
             {account && (
               <Button
@@ -212,7 +217,7 @@ export function ChatGptSettings({
                 disabled={busy}
                 onClick={() => void run("logout_chatgpt", { accountId: account.id })}
               >
-                로그아웃
+                연결 끊기
               </Button>
             )}
             {!!status?.accounts.length && (
@@ -232,22 +237,22 @@ export function ChatGptSettings({
                 disabled={pending === "cancel_chatgpt_login"}
                 onClick={() => void run("cancel_chatgpt_login")}
               >
-                로그인 취소
+                연결 취소
               </Button>
             )}
           </div>
           <p className={figma.caption}>
-            로그인 정보는 운영체제 보안 저장소에만 두고 화면이나 기억에 남기지 않아요.
+            연결 정보는 운영체제 보안 저장소에만 두고 화면이나 기억에 남기지 않아요.
           </p>
           <p className={figma.caption}>
-            로그인만으로 사용하는 AI가 바뀌지는 않아요. 모델을 선택하고 AI 연결을 저장해 주세요.
+            연결만으로 사용하는 AI가 바뀌지는 않아요. 모델을 선택하고 AI 연결을 저장해 주세요.
           </p>
           {error && (
             <p role="alert" className={s.error}>
               {error}
             </p>
           )}
-          {status?.notice && (
+          {status?.notice && status.notice !== error && pending !== "login_chatgpt" && (
             <p role="status" className={figma.caption}>
               {status.notice}
             </p>
@@ -327,7 +332,7 @@ export function ChatGptSettings({
             </div>
             {account?.connected && !account.sharing && (
               <p role="alert" className={s.error}>
-                로그인은 완료됐지만 Comet에서 ChatGPT 플랜을 사용할 권한이 없어요. 전송 안내에
+                연결은 완료됐지만 Comet에서 ChatGPT 플랜을 사용할 권한이 없어요. 전송 안내에
                 동의한 뒤 다시 연결하거나 다른 AI를 선택해 주세요.
               </p>
             )}
@@ -353,7 +358,7 @@ export function ChatGptSettings({
                 <SettingControlRow
                   className={figma.row}
                   title="ChatGPT로 새 잡담 만들기"
-                  description="플랜 사용량을 써요 · 대화 설정에서도 바꿀 수 있어요"
+                  description="플랜 사용량을 써요 · 설정 → 대화에서도 바꿀 수 있어요"
                   control={
                     <Switch
                       aria-label="ChatGPT로 새 잡담 만들기"
@@ -380,7 +385,7 @@ export function ChatGptSettings({
         <div className={styles.heading}>
           <h2 className={styles.title}>ChatGPT로 대화하기</h2>
           <span className={styles.caption}>
-            {loginPending ? "브라우저에서 로그인 중" : requestState}
+            {loginPending ? "브라우저에서 연결 중" : requestState}
           </span>
         </div>
         <p className={styles.caption}>
@@ -388,7 +393,7 @@ export function ChatGptSettings({
         </p>
         {account?.connected && !account.sharing && (
           <p role="alert" className={s.error}>
-            로그인은 완료됐지만 Comet에서 ChatGPT 플랜을 사용할 권한이 없어요. 전송 안내에 동의한 뒤
+            연결은 완료됐지만 Comet에서 ChatGPT 플랜을 사용할 권한이 없어요. 전송 안내에 동의한 뒤
             다시 연결하거나 다른 AI를 선택해 주세요.
           </p>
         )}
@@ -424,7 +429,7 @@ export function ChatGptSettings({
             disabled={busy || !consent}
             onClick={() => void run("login_chatgpt", { consent: true })}
           >
-            ChatGPT로 로그인
+            {connectionFailure ? "다시 연결" : "ChatGPT로 연결"}
           </Button>
           {account && (!account.connected || !account.sharing) && (
             <Button
@@ -441,7 +446,7 @@ export function ChatGptSettings({
               disabled={pending === "cancel_chatgpt_login"}
               onClick={() => void run("cancel_chatgpt_login")}
             >
-              로그인 취소
+              연결 취소
             </Button>
           )}
           {account && (
@@ -450,7 +455,7 @@ export function ChatGptSettings({
               disabled={busy}
               onClick={() => void run("logout_chatgpt", { accountId: account.id })}
             >
-              선택한 계정 로그아웃
+              선택한 계정 연결 끊기
             </Button>
           )}
         </div>
@@ -512,7 +517,7 @@ export function ChatGptSettings({
           계정 연결은 즉시 적용돼요. 대화 방식과 모델 선택은 아래 AI 연결 저장으로 적용해요. 자동
           잡담은 자동 대화에서 별도로 허용할 수 있어요.
         </p>
-        {status?.notice && (
+        {status?.notice && status.notice !== error && pending !== "login_chatgpt" && (
           <p role="status" className={styles.caption}>
             {status.notice}
           </p>

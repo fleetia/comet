@@ -136,7 +136,7 @@ fn generation_prompt(
     let user = data.to_string();
     let bytes = system.len() + user.len() + schema_bytes;
     if bytes > limit {
-        return Err(if local{"현재 로컬 모델의 입력 한도를 넘었어요. 요청을 줄이거나 더 큰 위젯 수정에는 API를 선택해 주세요. 원래 코드는 보존했어요."}else{"위젯 수정 입력이 너무 커요. 요청과 코드를 더 작은 범위로 나눠 주세요. 원래 코드는 보존했어요."}.into());
+        return Err(if local{"현재 이 기기의 모델의 입력 한도를 넘었어요. 요청을 줄이거나 더 큰 위젯 수정에는 API를 선택해 주세요. 원래 코드는 보존했어요."}else{"위젯 수정 입력이 너무 커요. 요청과 코드를 더 작은 범위로 나눠 주세요. 원래 코드는 보존했어요."}.into());
     }
     // The widget inference profile reserves reasoning tokens separately from this final answer budget.
     let max_tokens = if local {
@@ -382,7 +382,7 @@ pub(crate) async fn generate_widget(
         let settings = store::settings(&db)?;
         models::widget_generation_eligibility(&settings).require()?;
         if !model_ready(&state, &settings) {
-            return Err("설정에서 로컬 모델이나 OpenAI 호환 API를 먼저 준비해 주세요.".into());
+            return Err("AI 위젯을 만들려면 설정 → AI 연결에서 이 기기의 모델이나 사용자 지정 API를 준비해 주세요.".into());
         }
         let previous = if let Some(id) = &id {
             let current = generated::get(&db, id)?;
@@ -461,7 +461,7 @@ async fn generate_definition(
                 path.file_name()
                     .map(|name| name.to_string_lossy().into_owned())
             })
-            .unwrap_or_else(|| "로컬 모델".into())
+            .unwrap_or_else(|| "이 기기의 모델".into())
     };
     let context = if settings.mode == "local" {
         exbrain::widget_context_compact(&state.app_data, id, request)?

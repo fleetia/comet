@@ -241,7 +241,7 @@ fn save_user_name(
     let at = effective_memory_time(&tx, at)?;
     if let Some(current) = current_user(&tx)? {
         if analytics_consent.is_some() {
-            return Err("이미 이름을 등록했어요. 이름 변경은 설정에서 할 수 있어요.".into());
+            return Err("이미 이름을 등록했어요. 설정 → 일반 → 사용자에서 바꿀 수 있어요.".into());
         }
         if current.name == name {
             return Ok(false);

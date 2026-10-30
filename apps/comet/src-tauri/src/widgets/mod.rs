@@ -226,7 +226,7 @@ pub fn act(
         "external-notice" if request.action == "configure" => {
             crate::external_notice::configure(&instance.data, &request.input)
         }
-        "external-notice" => Err("바깥 알림 설정에서 바꿔 주세요.".into()),
+        "external-notice" => Err("설정 → 위젯 → 바깥 알림에서 바꿔 주세요.".into()),
         "travel" => Err("여행은 여행 창에서 바꿔 주세요.".into()),
         "image" => Err("이미지는 창에서 바꿔 주세요.".into()),
         "calendar" if request.action == "configure" => {

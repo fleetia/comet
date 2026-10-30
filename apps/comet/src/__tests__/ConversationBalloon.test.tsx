@@ -669,7 +669,7 @@ it("pauses only after idle time with no draft, open log, or active reply", async
 it.each(["one failing test. one small fix.", "same hero new line. surprise me with a scene."])(
   "surfaces a failed follow-up before the retained reply: %s",
   async (previousReply) => {
-    const failure = "설정에서 로컬 모델을 먼저 다운로드해 주세요.";
+    const failure = "이 기기의 모델을 아직 내려받지 않았어요.";
     const scrollIntoView = vi.fn();
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
@@ -794,7 +794,7 @@ it.each([null, "답변 생성 실패"])(
 
 it("keeps the expanded log, retained reply and editor in a scrolling input body below the header", async () => {
   vi.mocked(command).mockImplementation(async (name) => {
-    if (name === "send_message") throw new Error("설정에서 로컬 모델을 먼저 다운로드해 주세요.");
+    if (name === "send_message") throw new Error("이 기기의 모델을 아직 내려받지 않았어요.");
   });
   render(<Balloon snapshot={conversationSnapshot()} />);
   const viewport = screen.getByRole("region", { name: "대화 내용과 입력" });
@@ -831,7 +831,7 @@ it("keeps the expanded log, retained reply and editor in a scrolling input body 
 });
 
 it("reveals identical runtime errors again for sends and retries, without resetting manual scrolling on snapshot churn", async () => {
-  const failure = "설정에서 로컬 모델을 먼저 다운로드해 주세요.";
+  const failure = "이 기기의 모델을 아직 내려받지 않았어요.";
   const scrollIntoView = vi.fn();
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
     configurable: true,
@@ -1012,7 +1012,7 @@ it("keeps an authored reply's recorded origin after model readiness changes", ()
   expect(screen.getByText("등록 대사 · 단어장")).toBeTruthy();
   rerender(<Balloon snapshot={{ ...view, modelReady: true }} />);
   expect(screen.getByText("등록 대사 · 단어장")).toBeTruthy();
-  expect(screen.getByText("AI 자유 대화 · 로컬 모델 준비됨")).toBeTruthy();
+  expect(screen.getByText("AI 자유 대화 · 이 기기의 모델 준비됨")).toBeTruthy();
   expect(screen.queryByText("AI 생성")).toBeNull();
   rerender(<Balloon snapshot={{ ...snapshot, modelReady: true }} />);
   expect(screen.getByText("출처 미확인")).toBeTruthy();

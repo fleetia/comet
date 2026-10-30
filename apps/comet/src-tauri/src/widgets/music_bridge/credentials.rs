@@ -36,7 +36,7 @@ pub(super) fn load(owner: &str, pairing_id: &str) -> Result<Option<Credential>, 
         }
     };
     let credential: Credential = serde_json::from_str(&value)
-        .map_err(|_| "저장된 음악 연결을 읽지 못했어요. 다시 페어링해 주세요.")?;
+        .map_err(|_| "저장된 음악 연결을 읽지 못했어요. 다시 연결해 주세요.")?;
     if credential.owner != owner || !super::is_hex(&credential.secret, 64) {
         return Err("저장된 음악 연결의 소유 정보가 일치하지 않아요.".into());
     }

@@ -790,7 +790,7 @@ pub fn save_summary(
             return Err("되돌린 작업은 다시 적용하지 않아요.".into());
         }
         if state == "conflict" {
-            return Err("정리 파일에 충돌이 있어 저장하지 않았어요. 기존 파일을 확인한 뒤 정리 설정에서 다시 시도해 주세요.".into());
+            return Err("정리 파일이 충돌해 저장하지 않았어요. 파일을 확인한 뒤 설정 → 일반 → Ex-brain에서 다시 시도해 주세요.".into());
         }
     }
     if work.state != "running" && previous.is_none() {

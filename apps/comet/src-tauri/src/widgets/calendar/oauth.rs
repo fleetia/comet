@@ -38,7 +38,7 @@ pub async fn begin_google(input: GoogleConnectInput) -> Result<GooglePending, Ca
     validate_calendar_ids(&input.calendar_ids)?;
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .await
-        .map_err(|_| error("offline", "로그인 응답을 받을 로컬 포트를 열 수 없습니다."))?;
+        .map_err(|_| error("offline", "Google 연결 응답을 받을 로컬 포트를 열 수 없습니다."))?;
     let port = listener
         .local_addr()
         .map_err(|_| error("offline", "로컬 포트 오류"))?
@@ -92,12 +92,12 @@ fn callback_code(request: &str, expected_state: &str) -> Result<String, Calendar
     let query: Vec<_> = url.query_pairs().collect();
     let states: Vec<_> = query.iter().filter(|(k, _)| k == "state").collect();
     if states.len() != 1 || states[0].1 != expected_state {
-        return Err(error("auth-error", "로그인 요청 상태가 일치하지 않습니다."));
+        return Err(error("auth-error", "Google 연결 요청 상태가 일치하지 않습니다."));
     }
     if query.iter().any(|(k, _)| k == "error") {
         return Err(error(
             "auth-error",
-            "Google 로그인이 취소되었거나 거절되었습니다.",
+            "Google 연결이 취소되었거나 거절되었습니다.",
         ));
     }
     let codes: Vec<_> = query.iter().filter(|(k, _)| k == "code").collect();
@@ -112,10 +112,10 @@ pub async fn finish_google(pending: GooglePending) -> Result<Connected, Calendar
         .map_err(|_| {
             error(
                 "auth-error",
-                "로그인 대기 시간이 끝났습니다. 다시 연결해 주세요.",
+                "Google 연결 대기 시간이 끝났습니다. 다시 연결해 주세요.",
             )
         })?
-        .map_err(|_| error("offline", "로그인 응답 연결 오류"))?;
+        .map_err(|_| error("offline", "Google 연결 응답 오류"))?;
     let (mut socket, address) = accepted;
     if !address.ip().is_loopback() {
         return Err(error("auth-error", "로컬 인증 응답이 아닙니다."));

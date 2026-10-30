@@ -49,7 +49,7 @@ async function modelBackend(page: Page, tauri: FakeTauri) {
 }
 
 const panel = (page: Page) => page.getByRole("tabpanel", { name: "AI 연결" });
-const ring = (page: Page) => page.getByRole("progressbar", { name: "모델 다운로드 진행률" });
+const ring = (page: Page) => page.getByRole("progressbar", { name: "모델 내려받기 진행률" });
 
 test("downloading from the catalog moves through progress and verification to ready", async ({
   page,
@@ -72,7 +72,7 @@ test("downloading from the catalog moves through progress and verification to re
   await expect(ring(page)).toHaveAttribute("aria-valuenow", "100");
   await expect(ring(page)).toContainText("준비됨");
   await expect(ring(page)).toContainText("대화할 수 있어요");
-  await expect(panel(page).getByRole("button", { name: /멈추기|내려받기|이어받기/ })).toHaveCount(
+  await expect(panel(page).getByRole("button", { name: /멈추기|내려받기|이어 받기/ })).toHaveCount(
     0,
   );
   await expect(panel(page).getByRole("button", { name: "확인하기" })).toBeEnabled();
@@ -96,7 +96,7 @@ test("cancelling mid-download returns the controls and keeps only resumable prog
   await panel(page).getByRole("button", { name: "멈추기" }).click();
   expect(tauri.called("cancel_download")).toHaveLength(1);
   await expect(panel(page).getByRole("button", { name: "멈추기" })).toBeHidden();
-  const resume = panel(page).getByRole("button", { name: "이어받기" });
+  const resume = panel(page).getByRole("button", { name: "이어 받기" });
   await expect(resume).toBeEnabled();
   await expect(ring(page)).toContainText("모델 준비 필요");
   await expect(ring(page)).not.toContainText("준비됨");

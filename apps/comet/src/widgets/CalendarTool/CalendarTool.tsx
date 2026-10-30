@@ -14,6 +14,7 @@ import {
 } from "@comet/ui";
 import { localDay, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
+import { openSystemSettings } from "../../systemSettings";
 import { CalendarColors } from "../Planner/CalendarColors";
 import { connectionsOutdated, freeTimeCoverage, freeTimes } from "../Planner/plannerData";
 import { PlannerAlerts } from "../PlannerAlerts/PlannerAlerts";
@@ -707,10 +708,23 @@ export function CalendarTool({
                     )}
                     {appleCalendars?.supported &&
                       appleCalendars.authorization !== "full-access" && (
-                        <p role="status" className={c.error}>
-                          캘린더 읽기 권한이 없습니다. macOS 시스템 설정 → 개인정보 보호 및 보안 →
-                          캘린더에서 comet의 전체 접근을 허용한 뒤 목록을 다시 읽어 주세요.
-                        </p>
+                        <>
+                          <p role="status" className={c.error}>
+                            Apple 캘린더를 읽으려면 시스템 설정 → 개인정보 보호 및 보안 → 캘린더에서
+                            comet을 허용해 주세요.
+                          </p>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() =>
+                              void openSystemSettings("calendar").catch((cause: unknown) =>
+                                setAppleError(errorText(cause)),
+                              )
+                            }
+                          >
+                            시스템 설정 열기
+                          </Button>
+                        </>
                       )}
                     {appleCalendars?.authorization === "full-access" && (
                       <fieldset className={s.section}>

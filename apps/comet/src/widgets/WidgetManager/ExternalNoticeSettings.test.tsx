@@ -42,7 +42,7 @@ it("leaves delivery disabled when permission is denied", async () => {
   render(<ExternalNoticeSettings widget={widget} act={act} onDirtyChange={vi.fn()} onBusyChange={vi.fn()} />);
   await screen.findByText(/권한 요청 전/);
   fireEvent.click(screen.getByRole("button", { name: "OS 알림 권한 요청" }));
-  await screen.findByText(/시스템 설정에서 변경/);
+  await screen.findByText(/OS 알림 권한: 꺼짐 · (?:Windows 설정 → 시스템 → 알림|시스템 설정(?: → 알림)?)에서 켜요/);
   expect((screen.getByLabelText("OS 알림 병행") as HTMLInputElement).disabled).toBe(true);
   expect(act).not.toHaveBeenCalled();
 });

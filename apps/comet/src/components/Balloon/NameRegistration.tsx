@@ -79,7 +79,7 @@ export function NameRegistration({
         }}
       />
       <p id="first-user-name-hint" className={s.conversationMeta}>
-        1~40자로 알려 줘. 나중에 설정에서 바꿀 수 있어.
+        1~40자로 알려 줘. 나중에 설정 → 일반 → 사용자에서 바꿀 수 있어.
       </p>
       <span>생일 (선택)</span>
       <BirthdayFields value={birthday} onChange={setBirthday} disabled={pending} />

@@ -66,7 +66,7 @@ fn search_trial(
     }
     let context = search_context(db)?;
     if context != expected_context {
-        return Err("사용자나 검색 연결이 바뀌었어요. 현재 설정에서 다시 검색해 주세요.".into());
+        return Err("사용자나 검색 연결이 바뀌었어요. 다시 검색해 주세요.".into());
     }
     runtime::collect_comet(db, &context.user_id)?;
     let hits = records::search(db, &context.user_id, query, 50)?;

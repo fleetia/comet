@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Button, SettingControlRow, Surface, Switch, TextInput } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
+import { canOpenNotificationSettings, notificationSettingsText, openSystemSettings } from "../../systemSettings";
 import { record, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import * as s from "../PreparationTool/preparationSettings.css";
@@ -166,11 +167,17 @@ export function ExternalNoticeSettings({
           }
         />
         <SettingControlRow
-          title={`OS 알림 권한: ${({ granted: "허용됨", denied: "꺼짐 · 시스템 설정에서 변경", prompt: "권한 요청 전", system: "시스템 설정을 따름", unknown: "확인 필요" } as Record<string, string>)[permission] || "확인 필요"}`}
+          title={`OS 알림 권한: ${({ granted: "허용됨", denied: notificationSettingsText(), prompt: "권한 요청 전", system: "시스템 설정을 따름", unknown: "확인 필요" } as Record<string, string>)[permission] || "확인 필요"}`}
           description={permission === "prompt" ? "허용 후 OS 알림 병행을 켤 수 있어요" : undefined}
           control={isDesktop() && permission !== "granted" && permission !== "system" ? (
-            <Button type="button" variant="ghost" disabled={busy || permissionBusy} onClick={() => void requestPermission()}>
-              OS 알림 권한 요청
+            <Button type="button" variant="ghost" disabled={busy || permissionBusy} onClick={() => {
+              if (permission === "denied" && canOpenNotificationSettings()) {
+                void openSystemSettings("notifications").catch((cause: unknown) => setError(errorText(cause)));
+              } else {
+                void requestPermission();
+              }
+            }}>
+              {permission === "denied" && canOpenNotificationSettings() ? "시스템 설정 열기" : "OS 알림 권한 요청"}
             </Button>
           ) : undefined}
         />

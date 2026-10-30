@@ -4,6 +4,7 @@ import { Button, SettingControlRow, Switch } from "@comet/ui";
 import type { AppleModelStatus } from "../../types";
 import type { SettingsDraft } from "../../hooks/useSettingsDraft";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
+import { openSystemSettings } from "../../systemSettings";
 import * as common from "../../common.css";
 import * as figma from "../SettingsPanel/figmaSettings.css";
 import * as styles from "./aiSettings.css";
@@ -90,14 +91,19 @@ export function AppleModelSettings({
           <p className={figma.caption} role="status">
             {error ? "사용 가능 상태를 다시 확인해 주세요." : status.message}
           </p>
-          <Button
+          {!error && status.reason === "appleIntelligenceNotEnabled" && isDesktop() && (
+            <Button variant="ghost" size="small" onClick={() => void openSystemSettings("appleIntelligence").catch((cause: unknown) => setError(errorText(cause)))}>
+              시스템 설정 열기
+            </Button>
+          )}
+          {(error || status.reason !== "appleIntelligenceNotEnabled" || !isDesktop()) && <Button
             variant="ghost"
             size="small"
             disabled={busy || !isDesktop()}
             onClick={() => void refresh()}
           >
             다시 확인
-          </Button>
+          </Button>}
         </div>
         <div className={figma.note}>
           <ShieldIcon size={16} />
@@ -159,7 +165,7 @@ export function AppleModelSettings({
               <SettingControlRow
                 className={figma.row}
                 title="Apple AI로 새 잡담 만들기"
-                description="처음에는 꺼져 있어요 · 대화 설정에서도 바꿀 수 있어요"
+                description="처음에는 꺼져 있어요 · 설정 → 대화에서도 바꿀 수 있어요"
                 control={
                   <Switch
                     aria-label="Apple AI로 새 잡담 만들기"

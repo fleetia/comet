@@ -41,6 +41,54 @@ impl SettingsSection {
     }
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum SystemSettingsPage {
+    Notifications,
+    AppleIntelligence,
+    Calendar,
+}
+
+#[tauri::command]
+pub(crate) fn open_system_settings(page: SystemSettingsPage) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let (program, args): (&str, &[&str]) = (
+        "open",
+        &[match page {
+            SystemSettingsPage::Notifications => {
+                "x-apple.systempreferences:com.apple.Notifications-Settings.extension"
+            }
+            SystemSettingsPage::AppleIntelligence => {
+                "x-apple.systempreferences:com.apple.Siri-Settings.extension"
+            }
+            SystemSettingsPage::Calendar => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars"
+            }
+        }],
+    );
+    #[cfg(target_os = "windows")]
+    let (program, args): (&str, &[&str]) = match page {
+        SystemSettingsPage::Notifications => ("explorer.exe", &["ms-settings:notifications"]),
+        _ => return Err("이 시스템 설정은 이 기기에서 열 수 없어요.".into()),
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = page;
+        return Err("이 시스템 설정은 이 기기에서 열 수 없어요.".into());
+    }
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        let mut child = std::process::Command::new(program)
+            .args(args)
+            .spawn()
+            .map_err(|_| "시스템 설정을 열지 못했어요.".to_string())?;
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+        Ok(())
+    }
+}
+
 #[tauri::command]
 pub(crate) fn cancel_generation(
     app: tauri::AppHandle,

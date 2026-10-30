@@ -10,6 +10,7 @@ import {
   TextInput,
 } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
+import { canOpenNotificationSettings, notificationSettingsText, openSystemSettings } from "../../systemSettings";
 import { number, record, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import * as s from "./FocusTimer.css";
@@ -200,8 +201,9 @@ export function FocusTimerSettings({
   useEffect(() => {
     mounted.current = true;
     const version = generation.current;
-    const request = ++permissionRequest.current;
-    if (isDesktop()) {
+    function refreshPermission(): void {
+      if (!isDesktop() || permissionLock.current) return;
+      const request = ++permissionRequest.current;
       void command<string>("get_planner_notification_permission")
         .then((value) => {
           if (
@@ -213,7 +215,10 @@ export function FocusTimerSettings({
         })
         .catch(() => {});
     }
+    refreshPermission();
+    window.addEventListener("focus", refreshPermission);
     return () => {
+      window.removeEventListener("focus", refreshPermission);
       mounted.current = false;
       generation.current += 1;
       report.current.onDirtyChange?.(false);
@@ -556,21 +561,26 @@ export function FocusTimerSettings({
                   {(
                     {
                       granted: "허용됨",
-                      denied: "꺼짐 · 시스템 설정에서 변경",
+                      denied: notificationSettingsText(),
                       prompt: "권한 요청 전",
                       system: "시스템 설정을 따름",
                       unknown: "확인 필요",
                     } as Record<string, string>
                   )[permission] || permission}
                 </span>
-                <Button
+                {isDesktop() && permission === "denied" && canOpenNotificationSettings() && (
+                  <Button type="button" variant="ghost" onClick={() => void openSystemSettings("notifications").catch((cause: unknown) => setError(errorText(cause)))}>
+                    시스템 설정 열기
+                  </Button>
+                )}
+                {permission !== "denied" && <Button
                   type="button"
                   variant="ghost"
                   disabled={busy || permissionBusy}
                   onClick={() => void requestPermission()}
                 >
                   OS 알림 권한 요청
-                </Button>
+                </Button>}
                 <Button type="button" variant="ghost" onClick={() => void previewAlarm()}>
                   알림 미리보기
                 </Button>

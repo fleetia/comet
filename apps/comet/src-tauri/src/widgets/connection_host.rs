@@ -377,13 +377,13 @@ pub(crate) async fn connect_calendar_google(
     };
     if job.cancel.load(Ordering::SeqCst) {
         abandon(&state, &job);
-        return Err("로그인을 취소했습니다.".into());
+        return Err("Google 연결을 취소했습니다.".into());
     }
     if let Err(error) = open_browser(&pending.authorization_url) {
         abandon(&state, &job);
         return Err(error);
     }
-    let result = tokio::select! {_ = models::cancelled(job.cancel.clone())=>Err("로그인을 취소했습니다.".into()),result=calendar::finish_google(pending)=>result.map_err(|x|x.message)};
+    let result = tokio::select! {_ = models::cancelled(job.cancel.clone())=>Err("Google 연결을 취소했습니다.".into()),result=calendar::finish_google(pending)=>result.map_err(|x|x.message)};
     match result {
         Ok(mut connected) => {
             if let Err(error) = reuse_connection(&job, &mut connected, connection_id.as_deref()) {

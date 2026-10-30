@@ -39,7 +39,7 @@ fn save_profile(
     let db = lock(&state.db)?;
     let first = store::current_user(&db)?.is_none();
     if first_only && !first {
-        return Err("이미 이름을 등록했어요. 이름 변경은 설정에서 할 수 있어요.".into());
+        return Err("이미 이름을 등록했어요. 설정 → 일반 → 사용자에서 바꿀 수 있어요.".into());
     }
     let at = chrono::Utc::now().timestamp_millis();
     let changed = if first_only {

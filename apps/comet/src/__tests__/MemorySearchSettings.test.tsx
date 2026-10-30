@@ -90,10 +90,10 @@ it("keeps the required Korean analyzer on and only offers a retry after its down
   expect(screen.queryByRole("button", { name: "한국어 분석 내려받기" })).toBeNull();
   view.unmount();
 
-  kiwi = { ...kiwi, state: "error", error: "모델 다운로드에 연결하지 못했어요." };
+  kiwi = { ...kiwi, state: "error", error: "모델 내려받기에 연결하지 못했어요." };
   render(<MemorySearchSettings compact />);
-  expect(await screen.findByText("모델 다운로드에 연결하지 못했어요.")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "한국어 분석 다시 받기" }));
+  expect(await screen.findByText("모델 내려받기에 연결하지 못했어요.")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "한국어 분석 다시 시도" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("download_nlp_model", { model: "kiwi" }),
   );
@@ -127,7 +127,7 @@ it("allows cancelling an active model download while its request is still pendin
   render(<MemorySearchSettings />);
   fireEvent.click(await screen.findByRole("button", { name: "의미 검색 내려받기" }));
   fireEvent.click(
-    await screen.findByRole("button", { name: "의미 검색 다운로드 중단" }, { timeout: 3500 }),
+    await screen.findByRole("button", { name: "의미 검색 내려받기 중단" }, { timeout: 3500 }),
   );
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("cancel_nlp_download", { model: "semantic" }),

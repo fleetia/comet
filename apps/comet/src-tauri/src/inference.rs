@@ -448,7 +448,7 @@ fn api_key_for_request(
     }
     .filter(|key| !key.trim().is_empty());
     if key.is_none() && !local {
-        return Err("설정에서 API 키를 입력해 주세요.".into());
+        return Err("API 키가 없어요. 설정 → AI 연결에서 넣어 주세요.".into());
     }
     Ok(key)
 }
@@ -516,9 +516,9 @@ fn client(url: &str) -> Result<reqwest::Client, String> {
 
 pub fn not_ready_message(settings: &Settings) -> String {
     if settings.local_model == LocalModel::Custom {
-        "GGUF 모델 파일을 찾을 수 없어요. 설정에서 절대 경로를 확인해 주세요.".into()
+        "모델 파일을 찾지 못했어요. 설정 → AI 연결에서 파일 위치를 확인해 주세요.".into()
     } else {
-        "설정에서 로컬 모델을 먼저 다운로드해 주세요.".into()
+        "이 기기의 모델을 아직 내려받지 않았어요.".into()
     }
 }
 
@@ -608,7 +608,7 @@ async fn local_endpoint(
         let http = client(&url)?;
         if !wait_ready(&mut child, &http, &url, &key, &cancel).await? {
             let _ = child.kill().await;
-            return Err("로컬 모델 준비 시간이 초과되었습니다.".into());
+            return Err("이 기기의 모델 준비 시간이 초과되었습니다.".into());
         }
         if gpu && garbled(&http, &url, &key).await {
             let _ = child.kill().await;
@@ -858,7 +858,7 @@ async fn local_completion_without_reasoning(
                 .get("prompt")
                 .and_then(Value::as_str)
                 .filter(|prompt| !prompt.trim().is_empty())
-                .ok_or("로컬 모델이 대화 입력을 만들지 못했습니다.")?;
+                .ok_or("이 기기의 모델이 대화 입력을 만들지 못했습니다.")?;
             payload = json!({
                 "prompt":prompt,
                 "json_schema":payload["response_format"]["json_schema"]["schema"],
@@ -885,7 +885,7 @@ async fn local_completion_without_reasoning(
                 Some("eos" | "word")
             )
         {
-            return Err("로컬 모델의 응답이 정상적으로 끝나지 않았습니다.".into());
+            return Err("이 기기 모델의 응답이 정상적으로 끝나지 않았습니다.".into());
         }
         let content = body
             .get("content")
@@ -1238,7 +1238,7 @@ async fn generate_observed(
         .await;
     }
     if !matches!(settings.mode.as_str(), "local" | "api") {
-        return Err("지원하지 않는 AI 선택이에요. 설정에서 사용할 AI를 직접 선택해 주세요.".into());
+        return Err("대화에 쓸 AI를 아직 고르지 않았어요. 설정 → AI 연결에서 골라 주세요.".into());
     }
     let local = settings.mode == "local";
     let (url, key, configured) = if local {
@@ -1304,7 +1304,7 @@ pub async fn test_local(
     cancel: Arc<AtomicBool>,
 ) -> Result<LocalModelTest, String> {
     if settings.mode != "local" {
-        return Err("로컬 모델 테스트는 '이 기기에서' 방식에서만 사용할 수 있어요.".into());
+        return Err("이 기기의 모델 테스트는 '이 기기에서' 방식에서만 사용할 수 있어요.".into());
     }
     let started = Instant::now();
     let messages = vec![
@@ -2743,7 +2743,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(result.unwrap_err().contains("다운로드"));
+        assert!(result.unwrap_err().contains("내려받지"));
         assert!(runtime.local.lock().await.is_none());
         let custom_file = directory.path().join("mine.gguf");
         std::fs::write(&custom_file, b"stub").unwrap();
@@ -2778,7 +2778,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(result.unwrap_err().contains("GGUF"));
+        assert!(result.unwrap_err().contains("모델 파일을 찾지 못했어요"));
         assert!(runtime.local.lock().await.is_none());
         let result = test_local(
             &runtime,

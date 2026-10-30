@@ -364,6 +364,9 @@ export function trackCommandFailure(name: string, cause?: unknown): void {
   }
   const known = allowed(name, ERROR_OPERATIONS);
   const message = cause instanceof Error ? cause.message : String(cause ?? "");
+  if (name === "login_chatgpt" && message === "ChatGPT 연결을 마치지 못했어요.") {
+    return;
+  }
   // Unknown commands collapse to "other", so keep their name in the detail.
   const detail = known ? message : message ? `${name}: ${message}` : name;
   trackError("frontend_command", "command_failed", known ? name : "other", sanitizeErrorDetail(detail));

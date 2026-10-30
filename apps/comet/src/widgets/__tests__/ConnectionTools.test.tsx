@@ -176,7 +176,7 @@ it("keeps an Apple permission denial recoverable without connecting or clearing 
   fireEvent.click(screen.getByLabelText("기존 연결 메뉴"));
   fireEvent.click(screen.getByRole("button", { name: "다시 연결·캘린더 선택" }));
   fireEvent.click(screen.getByRole("button", { name: "macOS 권한 확인하고 캘린더 목록 읽기" }));
-  await screen.findByText(/캘린더 읽기 권한이 없습니다/);
+  await screen.findByText(/Apple 캘린더를 읽으려면 시스템 설정 → 개인정보 보호 및 보안 → 캘린더에서 comet을 허용해 주세요\./);
   expect(screen.getByRole("button", { name: "선택한 Apple 캘린더 연결" })).toHaveProperty(
     "disabled",
     true,

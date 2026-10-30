@@ -76,7 +76,10 @@ export function ModelSettings({
   const activeDownload = snapshot.runtime.download;
   const downloading =
     activeDownload !== null && ["downloading", "verifying"].includes(activeDownload.status);
-  const download = activeDownload?.model === settings.localModel ? activeDownload : null;
+  const download =
+    settings.mode === "local" && activeDownload?.model === settings.localModel
+      ? activeDownload
+      : null;
   const received = download?.received ?? selectedModel?.downloadedBytes ?? 0;
   const total = download?.total || selectedModel?.size || 0;
   const percent = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
@@ -194,7 +197,7 @@ export function ModelSettings({
                     <div
                       className={styles.ring}
                       role="progressbar"
-                      aria-label="모델 다운로드 진행률"
+                      aria-label="모델 내려받기 진행률"
                       aria-valuemin={0}
                       aria-valuemax={100}
                       aria-valuenow={ready ? 100 : percent}
@@ -252,7 +255,9 @@ export function ModelSettings({
                         }
                       >
                         <ImportIcon size={15} />
-                        {received ? "이어받기" : "내려받기"}
+                        {download?.error && download.status !== "cancelled" && download.error !== "모델 내려받기가 중단됐어요."
+                          ? "다시 시도"
+                          : received ? "이어 받기" : "내려받기"}
                       </Button>
                     ) : null}
                   </div>
@@ -295,15 +300,27 @@ export function ModelSettings({
                 </>
               )}
               {download?.error && (
-                <p className={common.error} role="alert">
-                  {download.error}
-                </p>
+                <>
+                  <p className={common.error} role="alert">
+                    {download.error}
+                  </p>
+                  {download.error === "모델 내려받기 서버(Hugging Face)에 연결할 수 없어요." && (
+                    <p className={figma.caption}>
+                      네트워크나 회사 방화벽이 huggingface.co를 막고 있을 수 있어요.
+                    </p>
+                  )}
+                  <p className={figma.caption}>
+                    AI 없이도 인사·단어장·대화팩은 계속 쓸 수 있어요.
+                  </p>
+                </>
               )}
-              {snapshot.runtime.error && (
-                <p className={common.error} role="alert">
-                  {snapshot.runtime.error}
-                </p>
-              )}
+              {snapshot.runtime.error &&
+                !(download?.error &&
+                  snapshot.runtime.error === "이 기기의 모델을 아직 내려받지 않았어요.") && (
+                  <p className={common.error} role="alert">
+                    {snapshot.runtime.error}
+                  </p>
+                )}
             </aside>
             <div className={figma.right}>
               <fieldset className={figma.form} disabled={!!pending} aria-label="대화 모델 설정">
@@ -322,7 +339,7 @@ export function ModelSettings({
                         control={
                           <Select
                             className={styles.modelSelect}
-                            aria-label="로컬 모델"
+                            aria-label="이 기기의 모델"
                             value={settings.localModel}
                             disabled={downloading}
                             onChange={(event) =>
@@ -521,7 +538,7 @@ export function ModelSettings({
                           <SettingControlRow
                             className={figma.row}
                             title="API로 새 잡담 만들기"
-                            description="자동 요청에 제공자 요금이 붙을 수 있어요 · 대화 설정에서도 바꿀 수 있어요"
+                            description="자동 요청에 제공자 요금이 붙을 수 있어요 · 설정 → 대화에서도 바꿀 수 있어요"
                             control={
                               <Switch
                                 aria-label="API로 새 잡담 만들기"
@@ -558,7 +575,7 @@ export function ModelSettings({
         isOpen={confirmDownload}
         onOpenChange={setConfirmDownload}
         title="그래도 내려받을까요?"
-        closeLabel="모델 다운로드 확인 닫기"
+        closeLabel="모델 내려받기 확인 닫기"
         variant="confirm"
         footer={
           <>
