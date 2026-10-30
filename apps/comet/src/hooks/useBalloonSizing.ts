@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { balloonOrbit, balloonPanel } from "../components/companion.css";
 import { command, errorText, isDesktop } from "./useSnapshot";
 
 type OrbitAnchor = { x: number; y: number };
@@ -63,10 +64,14 @@ export function useBalloonSizing(
       const rect = element!.getBoundingClientRect();
       const story = contentKey.startsWith("story:");
       const anchor = element!.querySelector<HTMLElement>("[data-character-orbit-anchor]");
-      const width = Math.min(
-        anchor ? 640 : surface === "input" ? 520 : 420,
-        Math.max(48, Math.ceil(story ? Math.max(rect.width, element!.scrollWidth) : rect.width)),
-      );
+      const fixedPanel =
+        element!.classList.contains(balloonPanel) && !element!.classList.contains(balloonOrbit);
+      const width = fixedPanel
+        ? 400
+        : Math.min(
+            anchor ? 640 : surface === "input" ? 520 : 420,
+            Math.max(48, Math.ceil(story ? Math.max(rect.width, element!.scrollWidth) : rect.width)),
+          );
       const height = Math.min(
         anchor ? 600 : 520,
         Math.max(32, Math.ceil(story ? Math.max(rect.height, element!.scrollHeight) : rect.height)),

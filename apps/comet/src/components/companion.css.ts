@@ -116,7 +116,7 @@ export const balloon = style({
   flexDirection: "column",
   overflow: "hidden",
 });
-export const balloonPanel = style({ width: 400, minHeight: 110 });
+export const balloonPanel = style({ width: "min(400px, 100vw)", minHeight: 110 });
 export const balloonOrbit = style({
   width: "max-content",
   maxWidth: 640,

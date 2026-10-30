@@ -75,7 +75,7 @@ it("sends final width and height with the current content key, deduplicates and 
   );
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("resize_balloon", {
-      width: 320,
+      width: 400,
       height: 218,
       contentKey: "panel:a:input",
     }),
@@ -87,8 +87,18 @@ it("sends final width and height with the current content key, deduplicates and 
   act(() => resized());
   await waitFor(() =>
     expect(command).toHaveBeenLastCalledWith("resize_balloon", {
-      width: 160,
+      width: 400,
       height: 520,
+      contentKey: "panel:a:input",
+    }),
+  );
+  width = 400;
+  height = 300;
+  act(() => resized());
+  await waitFor(() =>
+    expect(command).toHaveBeenLastCalledWith("resize_balloon", {
+      width: 400,
+      height: 300,
       contentKey: "panel:a:input",
     }),
   );
@@ -96,7 +106,7 @@ it("sends final width and height with the current content key, deduplicates and 
   expect(disconnect).toHaveBeenCalledTimes(1);
 });
 
-it("caps ordinary balloon panels at 420px so the birthday fields fit on one row", async () => {
+it("requests a 400px width for ordinary balloon panels even when measured wider", async () => {
   window.history.replaceState(null, "", "/?view=balloon");
   vi.stubGlobal(
     "ResizeObserver",
@@ -112,7 +122,7 @@ it("caps ordinary balloon panels at 420px so the birthday fields fit on one row"
   );
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("resize_balloon", {
-      width: 420,
+      width: 400,
       height: 300,
       contentKey: "panel:a:name",
     }),
@@ -342,7 +352,7 @@ it.each([
     );
     await waitFor(() =>
       expect(command).toHaveBeenCalledWith("resize_balloon", {
-        width: 320,
+        width: 400,
         height: previousHeight,
         contentKey: "panel:builtin-a:input",
       }),
@@ -352,7 +362,7 @@ it.each([
     act(() => resized());
     await waitFor(() =>
       expect(command).toHaveBeenCalledWith("resize_balloon", {
-        width: 320,
+        width: 400,
         height: failedHeight,
         contentKey: "panel:builtin-a:input",
       }),
@@ -430,7 +440,7 @@ it("preserves wide anchored branches and clears the anchor for an ordinary panel
   rerender(<Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "input" } }} />);
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("resize_balloon", {
-      width: 420,
+      width: 400,
       height: 500,
       contentKey: "panel:a:input",
     }),
