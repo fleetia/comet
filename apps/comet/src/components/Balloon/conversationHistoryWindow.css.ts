@@ -8,7 +8,7 @@ export const window = style([
     width: "100%",
     height: "100dvh",
     minHeight: 0,
-    borderRadius: 22,
+    borderRadius: 9,
     backgroundColor: tokens["color/glass-window"],
   },
 ]);
@@ -89,7 +89,7 @@ export const session = style({
   padding: "10px 12px",
   margin: 0,
   flexShrink: 0,
-  borderRadius: 14,
+  borderRadius: 9,
   textAlign: "left",
   whiteSpace: "normal",
 });
@@ -179,7 +179,7 @@ export const context = style({
   margin: 0,
   padding: "4px 12px",
   border: `1px solid ${tokens["color/chip-border"]}`,
-  borderRadius: 12,
+  borderRadius: 9,
   background: tokens["color/chip"],
   color: tokens["color/ink-2"],
   fontSize: 12,
@@ -229,7 +229,7 @@ export const bubble = style({
   margin: 0,
   padding: "8px 14px",
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: "16px 16px 16px 6px",
+  borderRadius: "9px 9px 9px 6px",
   background: tokens["color/card"],
   color: tokens["color/ink"],
   fontSize: 14,
@@ -238,7 +238,7 @@ export const bubble = style({
   overflowWrap: "anywhere",
 });
 export const userBubble = style({
-  borderRadius: "16px 16px 6px 16px",
+  borderRadius: "9px 9px 6px 9px",
   borderColor: "rgb(255 204 51 / 0.35)",
   background: tokens["color/component/primary-alpha-160"],
 });

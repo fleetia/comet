@@ -535,37 +535,44 @@ it("opens window widgets straight from the capsule bar and bubbles above bottom 
   );
 });
 
-it("applies each widget's stack style through theme tokens without touching other rows", async () => {
-  state.stackStyles = {
-    weather: {
-      followTheme: false,
-      backgroundColor: "#223344",
-      textColor: "#FFFFFF",
-      opacity: 40,
-      radius: 8,
-    },
-    clock: {
-      followTheme: true,
-      backgroundColor: "#000000",
-      textColor: "#000000",
-      opacity: 0,
-      radius: 0,
-    },
-  };
-  render(<WidgetStack />);
-  await screen.findByText("21°C");
-  const weather = document.querySelector<HTMLElement>('[data-desktop-widget="weather"]')!;
-  const clock = document.querySelector<HTMLElement>('[data-desktop-widget="clock"]')!;
-  expect(weather.style.getPropertyValue("--comet-color-glass-panel")).toBe(
-    "color-mix(in srgb, #223344 40%, transparent)",
-  );
-  expect(weather.style.getPropertyValue("--comet-color-ink")).toBe("#FFFFFF");
-  expect(weather.style.getPropertyValue("--comet-stack-radius")).toBe("8px");
-  expect(clock.style.getPropertyValue("--comet-color-glass-panel")).toBe(
-    "color-mix(in srgb, var(--comet-stack-theme-fill) 0%, transparent)",
-  );
-  expect(clock.style.getPropertyValue("--comet-color-ink")).toBe("");
-});
+it.each([
+  { radius: 8, expectedRadius: "8px" },
+  { radius: 20, expectedRadius: "9px" },
+])(
+  "applies stack radius $radius through theme tokens without changing saved values",
+  async ({ radius, expectedRadius }) => {
+    state.stackStyles = {
+      weather: {
+        followTheme: false,
+        backgroundColor: "#223344",
+        textColor: "#FFFFFF",
+        opacity: 40,
+        radius,
+      },
+      clock: {
+        followTheme: true,
+        backgroundColor: "#000000",
+        textColor: "#000000",
+        opacity: 0,
+        radius: 0,
+      },
+    };
+    render(<WidgetStack />);
+    await screen.findByText("21°C");
+    const weather = document.querySelector<HTMLElement>('[data-desktop-widget="weather"]')!;
+    const clock = document.querySelector<HTMLElement>('[data-desktop-widget="clock"]')!;
+    expect(weather.style.getPropertyValue("--comet-color-glass-panel")).toBe(
+      "color-mix(in srgb, #223344 40%, transparent)",
+    );
+    expect(weather.style.getPropertyValue("--comet-color-ink")).toBe("#FFFFFF");
+    expect(weather.style.getPropertyValue("--comet-stack-radius")).toBe(expectedRadius);
+    expect(state.stackStyles.weather.radius).toBe(radius);
+    expect(clock.style.getPropertyValue("--comet-color-glass-panel")).toBe(
+      "color-mix(in srgb, var(--comet-stack-theme-fill) 0%, transparent)",
+    );
+    expect(clock.style.getPropertyValue("--comet-color-ink")).toBe("");
+  },
+);
 
 it("enters desktop editing from the stack toolbar", async () => {
   render(<WidgetStack />);

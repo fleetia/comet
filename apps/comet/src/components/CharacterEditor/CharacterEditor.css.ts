@@ -113,7 +113,7 @@ export const balloonSpecimen = style({
   background: tokens["color/glass-panel"],
   color: tokens["color/ink"],
   padding: 20,
-  borderRadius: tokens["radius/radius-12"],
+  borderRadius: tokens["radius/radius-9"],
 });
 export const dialogueTypes = style({
   display: "flex",

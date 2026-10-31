@@ -9,7 +9,7 @@ export const panel = style({
   flexDirection: "column",
   gap: 14,
   padding: "18px 20px 20px",
-  borderRadius: 24,
+  borderRadius: 9,
   background: `radial-gradient(ellipse at 50% 0, ${tokens["color/inspector-glow"]}, transparent 70%), ${tokens["color/card-2"]}`,
   borderColor: tokens["color/chip-border"],
   boxShadow: `inset 0 1px 0 ${tokens["color/window-highlight"]}, 0 1px 2px ${tokens["color/card-shadow"]}`,
@@ -44,7 +44,7 @@ export const caption = style({
 });
 export const update = style({
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 16,
+  borderRadius: 9,
   padding: 14,
   background: tokens["color/card"],
   display: "flex",

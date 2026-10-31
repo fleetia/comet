@@ -43,7 +43,7 @@ export const settingsGroup = style({
   border: 0,
   outline: `1px solid ${tokens["color/card-border"]}`,
   outlineOffset: -1,
-  borderRadius: tokens["radius/radius-18"],
+  borderRadius: tokens["radius/radius-9"],
 });
 export const settingRow = style({
   minHeight: 0,
@@ -259,7 +259,7 @@ export const currentFocus = style({
   padding: "10px 14px",
   minWidth: 0,
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-14"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card"],
   color: tokens["color/ink-2"],
   fontSize: 13,
@@ -342,7 +342,7 @@ export const form = style({
   gap: tokens["spacing/space-12"],
   padding: tokens["spacing/space-12"],
   background: tokens["color/card-2"],
-  borderRadius: tokens["radius/radius-12"],
+  borderRadius: tokens["radius/radius-9"],
 });
 export const fields = style({
   display: "grid",
@@ -387,7 +387,7 @@ export const empty = style([quiet, { padding: `${tokens["spacing/space-16"]} 0` 
 export const error = style({ color: tokens["color/danger"], fontSize: tokens["typography/sans/caption/fontSize"] });
 export const notice = style({
   background: tokens["color/primary"],
-  borderRadius: tokens["radius/radius-12"],
+  borderRadius: tokens["radius/radius-9"],
   padding: tokens["spacing/space-12"],
   fontSize: tokens["typography/sans/caption/fontSize"],
 });
@@ -414,7 +414,7 @@ export const recordsPanel = style({
   border: 0,
   outline: `1px solid ${tokens["color/glass-border"]}`,
   outlineOffset: -1,
-  borderRadius: 24,
+  borderRadius: 9,
   color: tokens["color/ink"],
   background: tokens["color/glass-panel"],
   boxShadow: `0 4px 12px -2px ${tokens["color/surface-shadow"]}, inset 0 1px rgba(255,255,255,.1)`,
@@ -450,7 +450,7 @@ export const timerCard = style({
   border: 0,
   outline: `1px solid ${tokens["color/glass-border"]}`,
   outlineOffset: -1,
-  borderRadius: 26,
+  borderRadius: 9,
   background: tokens["color/glass-panel"],
   backdropFilter: "blur(12px)",
   boxShadow: `0 4px 12px -2px ${tokens["color/surface-shadow"]}, inset 0 1px rgba(255,255,255,.1)`,
@@ -462,7 +462,7 @@ export const compactTimer = style({
   minHeight: 56,
   padding: "0 16px",
   gap: 12,
-  borderRadius: 20,
+  borderRadius: 9,
 });
 export const cardHeader = style({
   display: "flex",
@@ -622,7 +622,7 @@ export const completionTitle = style({
 });
 export const todoCompletion = style({
   padding: "10px 12px",
-  borderRadius: 14,
+  borderRadius: 9,
   border: `1px solid ${tokens["color/card-border"]}`,
   background: tokens["color/card"],
   fontSize: 13,
@@ -644,7 +644,7 @@ export const todaySummary = style({
   justifyContent: "space-between",
   alignItems: "center",
   padding: "12px 14px",
-  borderRadius: 14,
+  borderRadius: 9,
   border: `1px solid ${tokens["color/card-border"]}`,
   background: tokens["color/card"],
   fontSize: 12.5,
@@ -710,7 +710,7 @@ export const settingsPreview = style({
   border: 0,
   outline: `1px solid ${tokens["color/chip-border"]}`,
   outlineOffset: -1,
-  borderRadius: 24,
+  borderRadius: 9,
   background: `radial-gradient(ellipse at 50% 0%, ${tokens["color/preview-glow"]}, ${tokens["color/preview-glow-transparent"]} 70%), ${tokens["color/preview-panel"]}`,
 });
 export const previewHeader = style({
@@ -818,7 +818,7 @@ export const recordsList = style({
   border: 0,
   outline: `1px solid ${tokens["color/card-border"]}`,
   outlineOffset: -1,
-  borderRadius: 16,
+  borderRadius: 9,
   background: tokens["color/card"],
 });
 export const focusRecordRow = style({
@@ -861,7 +861,7 @@ export const usageCard = style({
   boxSizing: "border-box",
   padding: "10px 12px",
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 14,
+  borderRadius: 9,
   background: tokens["color/card"],
 });
 export const usageHeading = style({

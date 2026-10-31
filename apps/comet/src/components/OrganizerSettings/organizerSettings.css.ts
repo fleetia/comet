@@ -21,7 +21,7 @@ export const progressCard = style({
   alignItems: "center",
   gap: 16,
   padding: 16,
-  borderRadius: 18,
+  borderRadius: 9,
   border: `1px dashed ${tokens["color/card-border"]}`,
   background: tokens["color/input"],
 });
@@ -55,7 +55,7 @@ export const searchEmpty = style({ display: "grid", gap: 6 });
 export const hits = style({ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 });
 globalStyle(`${hits} li`, {
   padding: 12,
-  borderRadius: 14,
+  borderRadius: 9,
   border: `1px solid ${tokens["color/card-border"]}`,
   background: tokens["color/card"],
   fontSize: 12,
@@ -85,7 +85,7 @@ export const fieldset = style({
 });
 export const folderPreview = style({
   padding: "16px 18px",
-  borderRadius: 18,
+  borderRadius: 9,
   border: `1px dashed ${tokens["color/card-border"]}`,
   background: tokens["color/input"],
   fontSize: 14,
@@ -105,7 +105,7 @@ export const folderPath = style({
   alignItems: "center",
   gap: 10,
   padding: "12px 16px",
-  borderRadius: 18,
+  borderRadius: 9,
   border: `1px solid ${tokens["color/card-border"]}`,
   background: tokens["color/card"],
 });
@@ -115,7 +115,7 @@ export const folderFields = style({
   gridTemplateColumns: "repeat(2,minmax(0,1fr))",
   gap: 28,
   padding: 16,
-  borderRadius: 18,
+  borderRadius: 9,
   border: `1px solid ${tokens["color/card-border"]}`,
   background: tokens["color/card"],
 });

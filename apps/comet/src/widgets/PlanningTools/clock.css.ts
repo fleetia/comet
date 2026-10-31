@@ -20,7 +20,7 @@ globalStyle(`${heading} h2, ${settings} h2`, {
 export const list = style({
   outline: `1px solid ${tokens["color/card-border"]}`,
   outlineOffset: -1,
-  borderRadius: 18,
+  borderRadius: 9,
   background: tokens["color/card"],
   overflow: "hidden",
   selectors: { "&:empty": { display: "none" } },
@@ -87,7 +87,7 @@ export const form = style({
   flexDirection: "column",
   gap: 10,
   padding: "14px 16px",
-  borderRadius: 16,
+  borderRadius: 9,
   background: `linear-gradient(${tokens["color/card-2"]}, ${tokens["color/card-2"]}), ${tokens["color/document-accent-soft-10"]}`,
   outline: `1px solid ${tokens["color/card-border"]}`,
   outlineOffset: -1,

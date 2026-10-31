@@ -37,7 +37,7 @@ function createCatalogTheme(theme: "dark" | "light"): ThemeVars {
     appPreviewBg: canvas,
     appHoverBg: resolveColor(palette["color/hover"], rail),
     appBorderColor: resolveColor(palette["color/line"]),
-    appBorderRadius: palette["radius/radius-12"],
+    appBorderRadius: palette["radius/radius-9"],
     colorPrimary: resolveColor(palette["color/ink-2"]),
     colorSecondary: resolveColor(palette["color/ink-3"]),
     textColor: resolveColor(palette["color/ink"]),

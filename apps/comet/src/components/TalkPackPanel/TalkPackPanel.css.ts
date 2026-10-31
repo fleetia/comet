@@ -5,7 +5,7 @@ export const scene = style({
   flexDirection: "column",
   gap: 14,
   padding: "16px 14px 12px",
-  borderRadius: 18,
+  borderRadius: 9,
   background: tokens["color/input"],
   border: `1px dashed ${tokens["color/card-border"]}`,
 });
@@ -41,7 +41,7 @@ export const installedCard = style({
   padding: "12px 14px 12px 16px",
   background: tokens["color/card"],
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 18,
+  borderRadius: 9,
 });
 export const packCopy = style({
   display: "flex",

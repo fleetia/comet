@@ -8,7 +8,7 @@ export const header = style({
   gap: 14,
   padding: "18px 20px 20px",
   minWidth: 0,
-  borderRadius: 24,
+  borderRadius: 9,
   border: 0,
   outline: `1px solid ${tokens["color/chip-border"]}`,
   outlineOffset: -1,

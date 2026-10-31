@@ -37,7 +37,7 @@ export const card = style([
     gap: 4,
     padding: "10px 12px",
     border: `1px solid ${tokens["color/card-border"]}`,
-    borderRadius: tokens["radius/radius-14"],
+    borderRadius: tokens["radius/radius-9"],
     background: tokens["color/card"],
     maxWidth: "100%",
   },
@@ -76,7 +76,7 @@ export const noWrap = style({ whiteSpace: "nowrap", flexShrink: 0 });
 export const note = style({ width: 320, gap: 4 });
 export const notePreview = styleVariants({
   tagged: { width: 296 },
-  plain: { width: 410, gap: 3, padding: "12px 14px", borderRadius: tokens["radius/radius-16"] },
+  plain: { width: 410, gap: 3, padding: "12px 14px", borderRadius: tokens["radius/radius-9"] },
 });
 export const tag = style({
   display: "inline-flex",
@@ -129,14 +129,14 @@ export const tagVariants = styleVariants({
     color: tokens["color/cat-life"],
   },
 });
-export const envelope = style({ width: 280, padding: "12px 14px 4px", gap: 6, borderRadius: 16 });
+export const envelope = style({ width: 280, padding: "12px 14px 4px", gap: 6, borderRadius: 9 });
 export const envelopePreview = style({
   width: 276,
   minHeight: 77,
   padding: "10px 12px 5px",
   gap: 4,
   border: 0,
-  borderRadius: 14,
+  borderRadius: 9,
   background: "transparent",
 });
 export const envelopeProgress = style({
@@ -230,10 +230,10 @@ export const addCard = style([
     padding: 0,
     background: "transparent",
     border: `1.5px dashed ${tokens["color/card-border"]}`,
-    borderRadius: 22,
+    borderRadius: 9,
   },
 ]);
-export const customizeCard = style({ width: 366, minHeight: 160, borderRadius: 18 });
+export const customizeCard = style({ width: 366, minHeight: 160, borderRadius: 9 });
 export const addIcon = style({
   boxSizing: "border-box",
   display: "flex",
@@ -282,7 +282,7 @@ export const settingsLink = style([
     maxWidth: "100%",
     padding: "14px 16px",
     border: `1px solid ${tokens["color/card-border"]}`,
-    borderRadius: 18,
+    borderRadius: 9,
     background: tokens["color/card"],
   },
 ]);
@@ -364,7 +364,7 @@ export const timeline = style([
 ]);
 export const timelineSelected = style({
   background: tokens["color/selected"],
-  borderRadius: 12,
+  borderRadius: 9,
   paddingBottom: 12,
 });
 export const timelineMemo = style({ minHeight: 37, borderTop: 0 });
@@ -500,7 +500,7 @@ export const task = style([
 ]);
 export const taskSelected = style({
   background: tokens["color/component/selected-icon-alpha-140"],
-  borderRadius: 12,
+  borderRadius: 9,
 });
 // Diary rows fill their list so the divider runs edge to edge at any window width.
 export const taskDiary = style({ width: "100%", minHeight: 40, padding: "6px 12px" });
@@ -655,13 +655,13 @@ export const contentChoice = style([
     minHeight: 57,
     padding: "10px 12px",
     border: `1px solid ${tokens["color/card-border"]}`,
-    borderRadius: 14,
+    borderRadius: 9,
     background: tokens["color/card"],
   },
 ]);
 export const choiceLayouts = styleVariants({
   character: {},
-  memory: { borderRadius: 16, paddingRight: 14 },
+  memory: { borderRadius: 9, paddingRight: 14 },
   scene: {},
   story: { width: 208, minHeight: 55, padding: "9px 12px" },
   location: {
@@ -670,14 +670,14 @@ export const choiceLayouts = styleVariants({
     alignItems: "flex-start",
     gap: 10,
     padding: "12px 14px",
-    borderRadius: 16,
+    borderRadius: 9,
   },
   reference: {
     width: 268,
     minHeight: 40,
     gap: 10,
     padding: "4px 10px",
-    borderRadius: 11,
+    borderRadius: 9,
     background: "transparent",
     borderColor: "transparent",
   },
@@ -743,15 +743,15 @@ export const contentRow = style([
     minHeight: 56,
     padding: "10px 14px",
     border: `1px solid ${tokens["color/card-border"]}`,
-    borderRadius: 14,
+    borderRadius: 9,
     background: tokens["color/card"],
   },
 ]);
 export const contentRowLayouts = styleVariants({
   memory: {},
-  story: { padding: "12px 16px", borderRadius: 18 },
-  character: { width: 744, minHeight: 74, padding: "14px 16px", borderRadius: 18, gap: 14 },
-  visitor: { width: 560, minHeight: 72, padding: "12px 16px", borderRadius: 18, gap: 14 },
+  story: { padding: "12px 16px", borderRadius: 9 },
+  character: { width: 744, minHeight: 74, padding: "14px 16px", borderRadius: 9, gap: 14 },
+  visitor: { width: 560, minHeight: 72, padding: "12px 16px", borderRadius: 9, gap: 14 },
   resource: {
     width: 410,
     minHeight: 40,
@@ -779,7 +779,7 @@ export const summary = style([
     minHeight: 74,
     padding: "12px 16px",
     border: `1px solid ${tokens["color/card-border"]}`,
-    borderRadius: 18,
+    borderRadius: 9,
     background: tokens["color/card"],
   },
 ]);
@@ -794,7 +794,7 @@ export const summaryLayouts = styleVariants({
     background: "transparent",
     border: 0,
   },
-  choice: { width: 332, minHeight: 61, gap: 12, padding: "12px 14px", borderRadius: 14 },
+  choice: { width: 332, minHeight: 61, gap: 12, padding: "12px 14px", borderRadius: 9 },
   status: {},
   compactIcon: {
     width: 332,

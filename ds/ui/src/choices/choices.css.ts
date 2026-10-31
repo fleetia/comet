@@ -11,7 +11,7 @@ export const choice = style({
   flexShrink: 0,
   maxWidth: "100%",
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 14,
+  borderRadius: 9,
   background: tokens["color/card"],
   color: tokens["color/ink"],
   fontFamily: tokens["typography/sans/body/fontFamily"],
@@ -31,7 +31,7 @@ export const kinds = styleVariants({
   character: {
     width: 230.667,
     padding: "12px 8px",
-    borderRadius: 16,
+    borderRadius: 9,
     selectors: { '&[aria-pressed="false"]:not(:disabled)': { opacity: 0.5 } },
   },
   element: { width: 34, height: 34, padding: 0, borderRadius: 11 },
@@ -40,7 +40,7 @@ export const kinds = styleVariants({
     width: 70,
     height: 84,
     padding: "6px 0 4px",
-    borderRadius: 12,
+    borderRadius: 9,
     gap: 2,
     fontSize: 11.5,
   },
@@ -61,7 +61,7 @@ export const kinds = styleVariants({
     width: 161,
     alignItems: "stretch",
     padding: "8px 8px 12px",
-    borderRadius: 18,
+    borderRadius: 9,
     textAlign: "left",
   },
   anchor: {
@@ -93,7 +93,7 @@ export const kinds = styleVariants({
     padding: "10px 8px 8px",
     gap: 8,
     border: "none",
-    borderRadius: 14,
+    borderRadius: 9,
     background: "transparent",
     fontSize: 12.5,
   },
@@ -102,7 +102,7 @@ export const kinds = styleVariants({
     alignItems: "stretch",
     gap: 10,
     padding: "10px 10px 12px",
-    borderRadius: 18,
+    borderRadius: 9,
     textAlign: "left",
     boxShadow: `0 1px 2px ${tokens["color/card-shadow"]}`,
     selectors: {
@@ -119,7 +119,7 @@ export const kinds = styleVariants({
     minHeight: 172,
     gap: 4,
     padding: 16,
-    borderRadius: 18,
+    borderRadius: 9,
     borderWidth: 1.5,
     borderStyle: "dashed",
     background: "transparent",
@@ -165,7 +165,7 @@ export const badge = style({
 export const themeGraphic = style({
   height: 112,
   width: "100%",
-  borderRadius: 14,
+  borderRadius: 9,
   overflow: "hidden",
 });
 export const swatch = style({

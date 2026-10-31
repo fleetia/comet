@@ -45,7 +45,7 @@ export const card = style({
   minWidth: 0,
   padding: "14px 18px",
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-20"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card-2"],
 });
 export const heading = style({ margin: 0, fontSize: 13.5, fontWeight: 600, lineHeight: "18px" });
@@ -56,7 +56,7 @@ export const amount = style({
 });
 export const rows = style({
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-18"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card"],
   overflow: "hidden",
 });

@@ -163,7 +163,7 @@ export const composer = style({
   gap: 12,
   minWidth: 0,
   padding: 16,
-  borderRadius: tokens["radius/radius-14"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/component/cat-rest-alpha-80"],
   border: `1px solid ${tokens["color/card-border"]}`,
 });

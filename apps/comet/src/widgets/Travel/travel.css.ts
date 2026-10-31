@@ -123,7 +123,7 @@ export const mapFrame = style({
   width: "100%",
   aspectRatio: "840 / 360",
   overflow: "hidden",
-  borderRadius: 14,
+  borderRadius: 9,
   selectors: {
     '&[data-tiles="true"]': {
       border: `1px solid ${tokens["color/card-border"]}`,
@@ -177,7 +177,7 @@ export const mapEmpty = style({
   flexDirection: "column",
   gap: 6,
   padding: 24,
-  borderRadius: 14,
+  borderRadius: 9,
   border: `1px dashed ${tokens["color/card-border"]}`,
 });
 export const settings = style({
@@ -238,7 +238,7 @@ export const emptyCard = style({
   minHeight: 260,
   padding: 24,
   textAlign: "center",
-  borderRadius: 14,
+  borderRadius: 9,
   border: `1px solid ${tokens["color/card-border"]}`,
   background: tokens["color/card"],
 });

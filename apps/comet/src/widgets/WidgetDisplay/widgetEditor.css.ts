@@ -17,7 +17,7 @@ export const panel = style({
   height: "100%",
   minHeight: 0,
   overflow: "hidden",
-  borderRadius: 22,
+  borderRadius: 9,
   background: tokens["color/glass-window"],
   boxShadow: `inset 0 0 0 1px ${tokens["color/glass-border"]}, 0 4px 12px -2px ${tokens["color/surface-shadow"]}`,
   backdropFilter: tokens["backdrop/backdrop-panel"],

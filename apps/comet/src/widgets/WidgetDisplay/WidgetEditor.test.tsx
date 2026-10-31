@@ -225,6 +225,15 @@ it("sets the stack width in pixels and clamps typed values on blur", async () =>
 });
 
 it("edits a stack-only look per widget with theme following, opacity and corners", async () => {
+  state.stackStyles = {
+    focus: {
+      followTheme: true,
+      backgroundColor: "#FFFFFF",
+      textColor: "#1F2340",
+      opacity: 100,
+      radius: 20,
+    },
+  };
   render(<WidgetEditor />);
   await waitFor(() => expect(command).toHaveBeenCalledWith("get_widget_desktop"));
   await select("focus");
@@ -233,6 +242,9 @@ it("edits a stack-only look per widget with theme following, opacity and corners
   const theme = look.getByRole("switch", { name: "테마에 따르기" });
   expect(theme).toHaveProperty("checked", true);
   expect(look.getByLabelText("배경 색상")).toHaveProperty("disabled", true);
+  expect(look.getByRole("slider", { name: "모서리" })).toHaveProperty("max", "9");
+  expect(look.getByRole("slider", { name: "모서리" })).toHaveProperty("value", "9");
+  expect(state.stackStyles.focus.radius).toBe(20);
   fireEvent.change(look.getByRole("slider", { name: "배경 투명도" }), { target: { value: "35" } });
   fireEvent.change(look.getByRole("slider", { name: "모서리" }), { target: { value: "6" } });
   await waitFor(() =>

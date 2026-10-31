@@ -38,6 +38,7 @@ import {
 } from "./DesktopWidget";
 import {
   DEFAULT_LAYOUT,
+  STACK_RADIUS,
   useDesktopState,
   type DesktopLayout,
   type StackStyle,
@@ -64,7 +65,7 @@ export function stackStyleVars(style: StackStyle | undefined): CSSProperties | u
   const fill = style.followTheme ? "var(--comet-stack-theme-fill)" : style.backgroundColor;
   const vars: Record<string, string> = {
     [tokenNames["color/glass-panel"]]: `color-mix(in srgb, ${fill} ${style.opacity}%, transparent)`,
-    "--comet-stack-radius": `${style.radius}px`,
+    "--comet-stack-radius": `${Math.min(style.radius, STACK_RADIUS.max)}px`,
   };
   if (!style.followTheme) {
     vars[tokenNames["color/ink"]] = style.textColor;

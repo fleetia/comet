@@ -70,7 +70,7 @@ export const friendCard = style({
   minWidth: 0,
   padding: "16px 18px",
   border: `1px solid ${tokens["color/chip-border"]}`,
-  borderRadius: 22,
+  borderRadius: 9,
   background: `radial-gradient(ellipse at top, ${tokens["color/icon-tile"]}, transparent 70%), ${tokens["color/card-2"]}`,
 });
 export const cardIdentity = style({
@@ -81,7 +81,7 @@ export const cardIdentity = style({
     "&:focus-visible": {
       outline: `2px solid ${tokens["color/focus-ring"]}`,
       outlineOffset: 4,
-      borderRadius: 16,
+      borderRadius: 9,
     },
   },
 });
@@ -151,7 +151,7 @@ export const restingRow = style({
   boxSizing: "border-box",
   background: tokens["color/card"],
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 18,
+  borderRadius: 9,
 });
 export const restingIdentity = style({
   display: "flex",
@@ -213,7 +213,7 @@ export const addIntro = style({
   gap: 18,
   padding: 20,
   border: `1px solid ${tokens["color/chip-border"]}`,
-  borderRadius: 24,
+  borderRadius: 9,
   background: tokens["color/card-2"],
   alignSelf: "start",
 });
@@ -251,7 +251,7 @@ export const picked = style({
   gap: 10,
   padding: 16,
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 18,
+  borderRadius: 9,
   background: tokens["color/card"],
 });
 export const pickedIdentity = style({
