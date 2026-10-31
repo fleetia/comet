@@ -89,9 +89,11 @@ export const addRow = style({
   position: "relative",
   display: "flex",
   alignItems: "center",
-  minHeight: 18,
+  height: tokens["spacing/space-8"],
 });
 export const add = style({
+  position: "absolute",
+  top: -7,
   border: 0,
   borderRadius: "50%",
   width: 22,
@@ -101,6 +103,9 @@ export const add = style({
   cursor: "pointer",
 });
 export const stepRow = style({});
+globalStyle(`.${stepRow} + .${stepRow}`, {
+  marginTop: `calc(-1 * ${tokens["spacing/space-12"]})`,
+});
 globalStyle(`.${add}, .${expand}`, { opacity: 0 });
 globalStyle(
   `.${stepRow}:hover .${add}, .${stepRow}:focus-within .${add}, .${stepRow}:hover .${expand}, .${stepRow}:focus-within .${expand}, .${addRow}:hover .${add}, .${addRow}:focus-within .${add}, .${add}[aria-expanded="true"]`,

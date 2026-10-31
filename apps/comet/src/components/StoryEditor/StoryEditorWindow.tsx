@@ -450,7 +450,7 @@ function StoryCanvas({
         <Button variant="ghost" disabled={trialActive} onClick={tidy}>
           정돈
         </Button>
-        <Button variant="ghost" onClick={() => void fitView({ duration: 0 })}>
+        <Button variant="ghost" onClick={() => void fitView({ duration: 0, padding: 0.02 })}>
           맞춤 보기
         </Button>
       </div>

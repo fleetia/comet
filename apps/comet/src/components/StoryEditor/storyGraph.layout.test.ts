@@ -30,7 +30,7 @@ describe("layoutStoryGraph의 깊이와 순서", () => {
 
     expect(positions.finish.x).toBeGreaterThan(positions.start.x);
     expect(positions.finish.x).toBeGreaterThan(positions.connect.x);
-    expect(positions.finish.x).toBe(640);
+    expect(positions.finish.x).toBe(560);
   });
 
   it("같은 깊이에서 다음 장을 선택지와 시간 초과 분기보다 위에 둔다", () => {
@@ -63,7 +63,7 @@ describe("layoutStoryGraph의 깊이와 순서", () => {
       ),
     );
 
-    expect(positions).toEqual({ a: { x: 0, y: 0 }, b: { x: 320, y: 0 }, c: { x: 640, y: 0 } });
+    expect(positions).toEqual({ a: { x: 0, y: 0 }, b: { x: 280, y: 0 }, c: { x: 560, y: 0 } });
   });
 
   it("99장에 지름길이 많아도 가장 긴 경로로 배치한다", () => {
@@ -79,6 +79,6 @@ describe("layoutStoryGraph의 깊이와 순서", () => {
     const positions = layoutStoryGraph(graph(ids, edges));
 
     expect(Object.keys(positions)).toHaveLength(99);
-    expect(positions["98"].x).toBe(98 * 320);
+    expect(positions["98"].x).toBe(98 * 280);
   });
 });

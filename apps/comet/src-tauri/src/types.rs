@@ -603,6 +603,8 @@ pub struct Snapshot {
     pub story: Option<crate::story::Request>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scene_ask_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) scene_wait_appearance: Option<crate::app::scene_events::WaitAppearance>,
     #[serde(default, skip_deserializing)]
     pub follow_ups: Option<FollowUpRequest>,
 }

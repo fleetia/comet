@@ -37,3 +37,20 @@ it.each([false, true])(
     expect(onChange.mock.calls[0][0]).not.toHaveProperty("saved");
   },
 );
+
+it("edits and retains an optional wait appearance when the event changes", () => {
+  const actor = PREVIEW_SNAPSHOT.characters.installed[0].definition;
+  const step: ScenarioStep = {
+    kind: "wait", event: "body.clicked", timeoutSec: 60,
+    appearance: { persona: actor.sourceId, expression: "평온", motion: { mode: "static" } },
+    onTimeout: { steps: [], then: "next" },
+  };
+  const onChange = vi.fn();
+  render(<SceneStepFields step={step} label="단계 1" definitions={[actor]} chapters={[]} onChange={onChange} />);
+  expect((screen.getByLabelText("단계 1 표정") as HTMLSelectElement).value).toBe("평온");
+  expect((screen.getByLabelText("단계 1 동작") as HTMLSelectElement).value).toBe("static");
+  fireEvent.change(screen.getByLabelText("단계 1 기다릴 이벤트"), { target: { value: "body.moved" } });
+  expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ event: "body.moved", appearance: step.appearance }));
+  fireEvent.change(screen.getByLabelText("단계 1 대기 표정 화자"), { target: { value: "" } });
+  expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ appearance: undefined }));
+});

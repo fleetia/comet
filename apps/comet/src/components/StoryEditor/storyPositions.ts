@@ -36,9 +36,12 @@ export function writeStoryPositions(
   packId: string,
   scenarioId: string,
   positions: StoryPositions,
+  columnWidth?: number,
 ): void {
   try {
-    localStorage.setItem(storageKey(packId, scenarioId), JSON.stringify(positions));
+    localStorage.setItem(storageKey(packId, scenarioId), JSON.stringify(
+      columnWidth == null ? positions : { ...positions, $layoutWidth: columnWidth },
+    ));
   } catch {
     return;
   }
@@ -61,8 +64,8 @@ function positionKey(graph: StoryGraph, node: StoryGraphNode): string {
     : `end:${JSON.stringify([edge.source, edge.kind, edge.label])}`;
 }
 
-function keyedLayout(graph: StoryGraph): StoryPositions {
-  const layout = layoutStoryGraph(graph);
+function keyedLayout(graph: StoryGraph, columnWidth = 280): StoryPositions {
+  const layout = layoutStoryGraph(graph, columnWidth);
   return Object.fromEntries(graph.nodes.map((node) => [positionKey(graph, node), layout[node.id]]));
 }
 export function useStoryPositions(
@@ -77,8 +80,20 @@ export function useStoryPositions(
   const [storedPositions, setStoredPositions] = useState(() =>
     readStoryPositions(packId, scenarioId),
   );
+  const [columnWidth, setColumnWidth] = useState(() => {
+    try {
+      const raw = localStorage.getItem(storageKey(packId, scenarioId));
+      const value: unknown = raw ? JSON.parse(raw) : null;
+      const savedWidth = value && typeof value === "object" && "$layoutWidth" in value
+        ? value.$layoutWidth
+        : undefined;
+      return savedWidth === 280 || Object.keys(storedPositions).length === 0 ? 280 : 320;
+    } catch {
+      return Object.keys(storedPositions).length === 0 ? 280 : 320;
+    }
+  });
   const [rememberedPositions, setRememberedPositions] = useState<StoryPositions>(() => ({
-    ...keyedLayout(graph),
+    ...keyedLayout(graph, columnWidth),
     ...storedPositions,
   }));
   const positions = useMemo(() => {
@@ -110,12 +125,13 @@ export function useStoryPositions(
     const node = graph.nodes.find((item) => item.id === id);
     const key = node ? positionKey(graph, node) : id;
     setRememberedPositions((current) => ({ ...current, [key]: position }));
-    writeStoryPositions(packId, scenarioId, next);
+    writeStoryPositions(packId, scenarioId, next, columnWidth);
   }
 
   function tidy(): void {
     clearStoryPositions(packId, scenarioId);
     setStoredPositions({});
+    setColumnWidth(280);
     setRememberedPositions((current) => ({ ...current, ...keyedLayout(graph) }));
   }
 

@@ -936,13 +936,25 @@ async fn execute(
                 timeout_sec,
                 cancel_on,
                 on_timeout,
+                appearance,
             } => {
                 if !scene_events::begin_wait(state, &run, &event, &cancel_on)? {
                     return Ok(());
                 }
+                if let Some(mut appearance) = appearance {
+                    appearance.persona =
+                        local_persona(&*lock(&state.db)?, &run, &appearance.persona)?;
+                    if !scene_events::set_wait_appearance(state, &run, appearance)? {
+                        return Ok(());
+                    }
+                    publish(app, state);
+                }
                 let deadline =
                     tokio::time::Instant::now() + Duration::from_secs(u64::from(timeout_sec));
-                let outcome = wait_for_event(state, &run, cancel.clone(), deadline).await?;
+                let outcome = wait_for_event(state, &run, cancel.clone(), deadline).await;
+                scene_events::end_wait(state, &run)?;
+                publish(app, state);
+                let outcome = outcome?;
                 let saved = AtomicBool::new(chapter_saved);
                 let next = follow_wait(outcome, on_timeout, |timeout_step| {
                     let run = &run;

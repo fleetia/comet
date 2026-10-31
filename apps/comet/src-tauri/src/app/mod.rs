@@ -183,6 +183,7 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
             .map(|session| store::conversation_view(&db, &session.id))
             .transpose()?,
         story: lock(&state.story)?.clone(),
+        scene_wait_appearance: scene_events::wait_appearance(state)?,
         scene_ask_id: lock(&state.pack_stories)?
             .interaction
             .as_ref()

@@ -27,6 +27,7 @@ const windowMock = vi.hoisted(() => ({
 }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => windowMock }));
 const flowMock = vi.hoisted(() => ({
+  fitView: vi.fn(),
   drag: undefined as undefined | ((id: string, position: { x: number; y: number }) => void),
   selectEdge: undefined as undefined | ((id: string) => void),
   connect: undefined as undefined | ((id: string, target: Element) => void),
@@ -104,7 +105,7 @@ vi.mock("@xyflow/react", () => ({
     return [current, setCurrent, vi.fn()];
   },
   useReactFlow: () => ({
-    fitView: vi.fn(),
+    fitView: flowMock.fitView,
     zoomIn: vi.fn(),
     zoomOut: vi.fn(),
     flowToScreenPosition: (position: unknown) => position,
@@ -148,6 +149,7 @@ function pack(id: string): PackStorySnapshot {
 }
 beforeEach(() => {
   vi.mocked(command).mockReset();
+  flowMock.fitView.mockClear();
   localStorage.clear();
   windowMock.destroy.mockClear();
   eventMock.listener = undefined;
@@ -157,6 +159,13 @@ beforeEach(() => {
     if (name === "get_pack_story_definition") return pack((args as { packId: string }).packId);
     return null;
   });
+});
+
+it("맞춤 보기에서 노드 위치를 바꾸지 않고 여백을 줄인다", async () => {
+  render(<StoryEditorWindow initialPackId="a" initialScenarioId="one" />);
+  fireEvent.click(await screen.findByRole("button", { name: "맞춤 보기" }));
+  expect(flowMock.fitView).toHaveBeenCalledWith({ duration: 0, padding: 0.02 });
+  expect(localStorage.length).toBe(0);
 });
 
 it("새 이야기 이벤트는 첫 대사에 초점을 둔 초안을 한 번만 만들고 저장 전에는 서버에 쓰지 않는다", async () => {

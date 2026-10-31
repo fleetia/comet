@@ -94,6 +94,7 @@ export const caption = style({
   fontSize: 12,
   lineHeight: "17px",
   color: tokens["color/ink-3"],
+  wordBreak: "keep-all",
   overflowWrap: "anywhere",
 });
 export const copy = style({

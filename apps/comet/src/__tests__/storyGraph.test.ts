@@ -297,7 +297,7 @@ describe("layoutStoryGraph", () => {
         ],
       ),
     );
-    expect(positions).toEqual({ a: { x: 0, y: 0 }, b: { x: 320, y: 0 }, c: { x: 640, y: 0 } });
+    expect(positions).toEqual({ a: { x: 0, y: 0 }, b: { x: 280, y: 0 }, c: { x: 560, y: 0 } });
   });
   it("분기와 합류를 배치하며 같은 깊이는 세로로 놓는다", () => {
     const positions = layoutStoryGraph(
@@ -367,7 +367,7 @@ describe("layoutStoryGraph", () => {
       ),
     );
     expect(Object.keys(positions)).toHaveLength(99);
-    expect(positions["98"].x).toBe(98 * 320);
+    expect(positions["98"].x).toBe(98 * 280);
   });
 });
 

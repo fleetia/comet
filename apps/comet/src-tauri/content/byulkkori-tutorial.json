@@ -135,6 +135,10 @@
               }
             ],
             "then": "move"
+          },
+          "appearance": {
+            "persona": "character-1",
+            "expression": "호기심"
           }
         },
         {
@@ -184,6 +188,10 @@
               }
             ],
             "then": "memo"
+          },
+          "appearance": {
+            "persona": "character-1",
+            "expression": "장난"
           }
         },
         {
@@ -237,7 +245,11 @@
               "event": "window.closed",
               "window": "memo"
             }
-          ]
+          ],
+          "appearance": {
+            "persona": "character-1",
+            "expression": "생각중"
+          }
         },
         {
           "kind": "line",
@@ -294,7 +306,11 @@
               "event": "window.closed",
               "window": "focus-timer"
             }
-          ]
+          ],
+          "appearance": {
+            "persona": "character-1",
+            "expression": "호기심"
+          }
         },
         {
           "kind": "line",
@@ -338,6 +354,16 @@
               }
             ],
             "then": "next"
+          },
+          "appearance": {
+            "persona": "character-1",
+            "expression": "평온",
+            "motion": {
+              "mode": "clip",
+              "clipId": "focus",
+              "repeat": false,
+              "intervalMs": 0
+            }
           }
         },
         {
@@ -410,7 +436,11 @@
             "steps": [],
             "then": "finish"
           },
-          "window": "settings"
+          "window": "settings",
+          "appearance": {
+            "persona": "character-1",
+            "expression": "생각중"
+          }
         },
         {
           "kind": "line",

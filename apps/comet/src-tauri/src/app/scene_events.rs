@@ -1,6 +1,6 @@
 use super::{is_current, lock, AppState};
 use crate::pack_stories::{
-    RunTicket, StoryAction, StoryEvent, StoryStep, StoryWidget, StoryWindow,
+    RunTicket, StoryAction, StoryAppearance, StoryEvent, StoryStep, StoryWidget, StoryWindow,
 };
 use rusqlite::Connection;
 use std::{
@@ -23,6 +23,16 @@ struct Wait {
     cancel_on: Vec<StoryEvent>,
     result: Option<WaitResult>,
     matched: bool,
+    appearance: Option<WaitAppearance>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WaitAppearance {
+    id: String,
+    persona: String,
+    expression: String,
+    motion: crate::characters::reactions::MotionOverride,
 }
 
 struct PendingWait {
@@ -137,8 +147,71 @@ pub(crate) fn begin_wait(
         cancel_on: cancel_on.to_vec(),
         result,
         matched: result == Some(WaitResult::Matched),
+        appearance: None,
     });
     Ok(true)
+}
+
+pub(crate) fn set_wait_appearance(
+    state: &AppState,
+    run: &RunTicket,
+    appearance: StoryAppearance,
+) -> Result<bool, String> {
+    let _action = lock(&state.action)?;
+    if !current(state, run)? || !available_locked(state, &*lock(&state.db)?, run)? {
+        return Ok(false);
+    }
+    let mut events = lock(&state.scene_events)?;
+    let Some(wait) = events.wait.as_mut().filter(|wait| {
+        wait.run_id == run.run_id
+            && wait.epoch == run.epoch
+            && wait.generation == run.phase_generation
+    }) else {
+        return Ok(false);
+    };
+    wait.appearance = Some(WaitAppearance {
+        id: format!("{}:{}", run.run_id, run.phase_generation),
+        persona: appearance.persona,
+        expression: appearance.expression,
+        motion: appearance.motion,
+    });
+    Ok(true)
+}
+
+pub(crate) fn end_wait(state: &AppState, run: &RunTicket) -> Result<(), String> {
+    let _action = lock(&state.action)?;
+    let mut events = lock(&state.scene_events)?;
+    if let Some(wait) = events.wait.as_mut().filter(|wait| {
+        wait.run_id == run.run_id
+            && wait.epoch == run.epoch
+            && wait.generation == run.phase_generation
+    }) {
+        wait.appearance = None;
+    }
+    Ok(())
+}
+
+pub(crate) fn wait_appearance(state: &AppState) -> Result<Option<WaitAppearance>, String> {
+    let (run_id, epoch, generation, appearance) = {
+        let events = lock(&state.scene_events)?;
+        let Some(wait) = events.wait.as_ref() else {
+            return Ok(None);
+        };
+        (
+            wait.run_id.clone(),
+            wait.epoch,
+            wait.generation,
+            wait.appearance.clone(),
+        )
+    };
+    if state.epoch.load(std::sync::atomic::Ordering::SeqCst) != epoch
+        || !lock(&state.pack_stories)?.run.as_ref().is_some_and(|run| {
+            run.run_id == run_id && run.epoch == epoch && run.phase_generation == generation
+        })
+    {
+        return Ok(None);
+    }
+    Ok(appearance)
 }
 
 fn upcoming_wait(

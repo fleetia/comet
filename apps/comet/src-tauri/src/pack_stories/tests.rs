@@ -1111,6 +1111,31 @@ fn chapter_schema_validates_and_round_trips_all_step_types() {
 }
 
 #[test]
+fn wait_appearance_round_trips_and_validates_actor_expression_and_motion() {
+    let (characters, extras) = scene_schema_fixture();
+    let mut input = serde_json::to_value(&extras).unwrap();
+    let persona = extras.scenarios[0].center_id.clone();
+    input["scenarios"][0]["chapters"][0]["steps"][4]["appearance"] =
+        serde_json::json!({"persona":persona, "expression":"평온", "motion":{"mode":"static"}});
+    let parsed: PackStoryDefinition = serde_json::from_value(input.clone()).unwrap();
+    validate_pack(&characters, &parsed).unwrap();
+    assert_eq!(serde_json::to_value(&parsed).unwrap(), input);
+    for (field, value) in [
+        ("persona", serde_json::json!("missing")),
+        ("expression", serde_json::json!("없는 표정")),
+        (
+            "motion",
+            serde_json::json!({"mode":"clip", "clipId":"missing", "repeat":false, "intervalMs":0}),
+        ),
+    ] {
+        let mut invalid = input.clone();
+        invalid["scenarios"][0]["chapters"][0]["steps"][4]["appearance"][field] = value;
+        let parsed: PackStoryDefinition = serde_json::from_value(invalid).unwrap();
+        assert!(validate_pack(&characters, &parsed).is_err(), "{field}");
+    }
+}
+
+#[test]
 fn name_ask_saved_line_validates_and_round_trips() {
     let (characters, extras) = scene_schema_fixture();
     let mut input = serde_json::to_value(&extras).unwrap();

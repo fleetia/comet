@@ -687,3 +687,17 @@ it("does not consume a one-shot before frames load and resets on hidden or chang
   rerender({ state: changed, expression: "평온" });
   expect(result.current.frameIndex).toBe(0);
 });
+
+it("uses the wait motion for its character and releases it when the wait ends", () => {
+  const waiting: Snapshot = {
+    ...snapshot,
+    sceneWaitAppearance: {
+      id: "run:1", persona: character.id, expression: "생각중",
+      motion: { mode: "clip", clipId: "happy", repeat: true, intervalMs: 0 },
+    },
+  };
+  const { result, rerender } = setup(waiting, "생각중");
+  expect(result.current.frames).toBe(frameSets.get("happy"));
+  rerender({ state: { ...waiting, sceneWaitAppearance: undefined }, expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("idle"));
+});

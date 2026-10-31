@@ -421,7 +421,7 @@ export function buildStoryGraph(
   return { nodes, edges, startId: "proposal:intro" };
 }
 
-export function layoutStoryGraph(graph: StoryGraph): Record<string, { x: number; y: number }> {
+export function layoutStoryGraph(graph: StoryGraph, columnWidth = 280): Record<string, { x: number; y: number }> {
   const positions: Record<string, { x: number; y: number }> = {};
   const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
   const exits = new Map<string, StoryGraphEdge[]>();
@@ -481,7 +481,7 @@ export function layoutStoryGraph(graph: StoryGraph): Record<string, { x: number;
     for (const id of order) {
       const depth = depths.get(id) ?? 0;
       const y = rows.get(depth) ?? 0;
-      positions[id] = { x: depth * 320, y };
+      positions[id] = { x: depth * columnWidth, y };
       const node = nodes.get(id);
       const height =
         node?.kind === "end"

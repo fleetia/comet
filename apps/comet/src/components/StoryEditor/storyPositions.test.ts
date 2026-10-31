@@ -69,6 +69,26 @@ describe("열린 이야기의 위치", () => {
     ],
   };
 
+  it("자동 배치 간격이 바뀌어도 저장한 위치를 그대로 불러온다", () => {
+    const saved = { b: { x: 320, y: 42 } };
+    writeStoryPositions("pack", "story", saved);
+    const { result } = renderHook(() => useStoryPositions(connected, "pack", "story"));
+
+    expect(result.current.positions.b).toEqual(saved.b);
+    expect(result.current.positions.c).toEqual({ x: 640, y: 0 });
+    expect(readStoryPositions("pack", "story")).toEqual(saved);
+  });
+
+  it("새 자동 배치에서 위치를 저장해도 다시 열 때 나머지 간격을 유지한다", () => {
+    const first = renderHook(() => useStoryPositions(connected, "pack", "story"));
+    act(() => first.result.current.savePosition("b", { x: 290, y: 42 }));
+    first.unmount();
+
+    const reopened = renderHook(() => useStoryPositions(connected, "pack", "story"));
+    expect(reopened.result.current.positions.b).toEqual({ x: 290, y: 42 });
+    expect(reopened.result.current.positions.c).toEqual({ x: 560, y: 0 });
+  });
+
   it("연결 끊기와 장 삭제 후에도 위치를 유지하고 되돌린 장은 원래 자리에 놓는다", () => {
     const { result, rerender } = renderHook(
       ({ graph }) => useStoryPositions(graph, "pack", "story"),

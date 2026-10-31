@@ -1305,7 +1305,14 @@ fn strip_chapter_step_images(step: &mut crate::pack_stories::StoryStep) {
                 saved.motion = saved.motion.without_images();
             }
         }
-        StoryStep::Wait { on_timeout, .. } => {
+        StoryStep::Wait {
+            on_timeout,
+            appearance,
+            ..
+        } => {
+            if let Some(appearance) = appearance {
+                appearance.motion = appearance.motion.without_images();
+            }
             for step in &mut on_timeout.steps {
                 strip_chapter_step_images(step);
             }

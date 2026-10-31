@@ -1529,6 +1529,7 @@ fn non_display_first_step_saves_resumable_checkpoint_only_for_current_execution(
                 _ => StoryStep::Wait {
                     event: StoryEvent::BodyClicked {},
                     timeout_sec: 90,
+                    appearance: None,
                     cancel_on: vec![],
                     on_timeout: StoryTimeout {
                         steps: vec![],

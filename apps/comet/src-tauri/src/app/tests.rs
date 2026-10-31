@@ -3986,6 +3986,26 @@ mod scene_events_tests {
     }
 
     #[test]
+    fn wait_appearance_is_scoped_to_the_current_phase_and_cleared_on_end() {
+        let state = crate::app::tests::state();
+        let run = run(&state);
+        let appearance = crate::pack_stories::StoryAppearance {
+            persona: "center".into(),
+            expression: "생각중".into(),
+            motion: Default::default(),
+        };
+        assert!(begin_wait(&state, &run, &StoryEvent::BodyClicked {}, &[]).unwrap());
+        assert!(set_wait_appearance(&state, &run, appearance.clone()).unwrap());
+        assert!(wait_appearance(&state).unwrap().is_some());
+        end_wait(&state, &run).unwrap();
+        assert!(wait_appearance(&state).unwrap().is_none());
+        assert!(set_wait_appearance(&state, &run, appearance.clone()).unwrap());
+        state.epoch.store(run.epoch + 1, Ordering::SeqCst);
+        assert!(wait_appearance(&state).unwrap().is_none());
+        assert!(!set_wait_appearance(&state, &run, appearance).unwrap());
+    }
+
+    #[test]
     fn waits_only_accept_later_events_from_the_center_and_current_phase() {
         let state = crate::app::tests::state();
         let mut run = run(&state);
