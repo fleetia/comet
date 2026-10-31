@@ -283,7 +283,7 @@ export function CharacterManager({
     }
   }
   function select(id: string): void {
-    discardEdits();
+    if (id !== selectedIdRef.current) discardEdits();
     selectedIdRef.current = id;
     setSelectedId(id);
     setLibraryOpen(false);
@@ -291,12 +291,14 @@ export function CharacterManager({
     setNotice(null);
     setRemoveId(null);
   }
-  function discardEdits(): void {
-    editGeneration.current += 1;
-    animationPickerGeneration.current += 1;
-    setDrafts({});
+  function discardEdits(preserveCharacter = false): void {
+    if (!preserveCharacter) {
+      editGeneration.current += 1;
+      animationPickerGeneration.current += 1;
+      setDrafts({});
+    }
     setStoryDrafts({});
-    setAnimationAssets({});
+    if (!preserveCharacter) setAnimationAssets({});
     setMemoryDirty({});
     setDialogueDirty({});
     setSharingDirty(false);
@@ -493,6 +495,7 @@ export function CharacterManager({
               selectedCharacterId={picked?.id ?? null}
               onSelectCharacter={setPickedId}
               onCreate={() => {
+                if (selectedIdRef.current === NEW_ID) discardEdits();
                 setNewCharacter(newDefinition());
                 select(NEW_ID);
                 setPackOpen(false);
@@ -564,8 +567,8 @@ export function CharacterManager({
                 {(packSummary) => (
                   <div className={friends.detail} hidden={libraryOpen || subpageOpen}>
                     <CharacterEditor
-                      key={selected?.id ?? newCharacter.sourceId}
-                      onNavigate={discardEdits}
+                      key={`${selected?.id ?? newCharacter.sourceId}:${editGeneration.current}`}
+                      onNavigate={() => discardEdits(true)}
                       lifeContent={(visible) => (
                         <PackStoryEditor
                           packId={selected?.packId ?? null}

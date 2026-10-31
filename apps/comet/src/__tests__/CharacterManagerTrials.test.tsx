@@ -1,6 +1,6 @@
 import { openCharacterPage, selectFriend } from "./characterNavigation";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { CharacterManager } from "../components/CharacterManager/CharacterManager";
 import { command, PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
 import type { AnimationAsset, AuthoringTrialTrace, PackStorySnapshot, Snapshot } from "../types";
@@ -259,7 +259,7 @@ it.each([
   ["npc", "찾아오는 친구 등장 시험"],
   ["scenario", "등록 이야기 시험"],
 ])(
-  "replays %s trials with each speaker's saved bytes after discarding edits on navigation",
+  "replays %s trials with the current friend's draft bytes and other friends' saved bytes",
   async (kind, title) => {
     const original = structuredClone(snapshot);
     render(<CharacterManager embedded snapshot={snapshot} />);
@@ -287,8 +287,15 @@ it.each([
     fireEvent.click(within(preview).getByRole("button", { name: "미리보기" }));
     await waitFor(() => expect(preview.textContent).toContain(lines[1].text));
     expect(within(preview).getByText(actors[1].definition.name)).toBeTruthy();
-    await waitFor(() => expect(urls).toContain("data:image/png;base64,guest-saved-bytes"));
-    expect(urls.some((url) => url.includes("draft-bytes"))).toBe(false);
+    await waitFor(() =>
+      expect(urls).toContain(
+        `data:image/png;base64,guest-${kind === "npc" ? "draft" : "saved"}-bytes`,
+      ),
+    );
+    expect(urls).not.toContain("data:image/png;base64,resident-draft-bytes");
+    if (kind !== "npc") {
+      expect(urls).not.toContain("data:image/png;base64,guest-draft-bytes");
+    }
     expect(urls.filter(Boolean).every((url) => url.startsWith("data:image/png;base64,"))).toBe(
       true,
     );
@@ -337,3 +344,35 @@ it.each([
   },
   15000,
 );
+
+it("completes a pending character save after navigating within the same edit session", async () => {
+  let resolveSave: () => void = () => {};
+  const previousCommand = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation((name, args) =>
+    name === "save_character"
+      ? new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        })
+      : previousCommand(name, args),
+  );
+
+  render(<CharacterManager embedded snapshot={snapshot} />);
+  await addDraftAsset();
+  openCharacterPage("프로필");
+  fireEvent.change(screen.getByLabelText("이름"), { target: { value: "저장할 친구" } });
+  fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
+  expect(command).toHaveBeenCalledWith("save_character", {
+    id: actors[0].id,
+    definition: expect.objectContaining({ name: "저장할 친구" }),
+    animationAssets: [assets[0]],
+  });
+
+  openCharacterPage("말풍선");
+  await act(async () => resolveSave());
+  expect(await screen.findByText("저장할 친구 캐릭터를 저장했어요.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "캐릭터 수정 취소" })).toBeNull();
+  openCharacterPage("모습·표정");
+  fireEvent.click(screen.getByRole("button", { name: "시험 동작 동작 선택" }));
+  expect(screen.getByLabelText("1번 프레임 선택")).toBeTruthy();
+  expect(screen.queryByLabelText("2번 프레임 선택")).toBeNull();
+});

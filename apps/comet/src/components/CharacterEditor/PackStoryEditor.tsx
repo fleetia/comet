@@ -433,7 +433,6 @@ export function PackStoryEditor({
             value={selectedScenario?.id ?? ""}
             onChange={(event) => {
               if (event.target.value === selectedScenario?.id) return;
-              setEditor({ ...editor, definition: editor.saved.definition });
               setSelected(event.target.value);
               setError(null);
               setNotice(null);
@@ -454,9 +453,9 @@ export function PackStoryEditor({
             const id = crypto.randomUUID();
             const line = { persona: first.sourceId, expression: "평온", text: "" };
             update({
-              ...editor.saved.definition,
+              ...editor.definition,
               scenarios: [
-                ...editor.saved.definition.scenarios,
+                ...editor.definition.scenarios,
                 {
                   id,
                   title: "",

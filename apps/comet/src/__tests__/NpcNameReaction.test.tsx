@@ -1,6 +1,6 @@
 import { selectFriend } from "./characterNavigation";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { CharacterManager } from "../components/CharacterManager/CharacterManager";
 import { command, PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
 import type { Snapshot } from "../types";
@@ -54,8 +54,9 @@ const snapshot: Snapshot = {
   },
 };
 
-it("lists each resident's reaction to a visiting friend's name and opens the missing one", () => {
-  render(<CharacterManager snapshot={snapshot} embedded />);
+it("prepares a missing name reaction without a draft, then saves the edited relationship", async () => {
+  const onDirtyChange = vi.fn();
+  render(<CharacterManager snapshot={snapshot} embedded onDirtyChange={onDirtyChange} />);
   selectFriend(/달토끼/);
   const reactions = within(screen.getByRole("region", { name: "이름을 들었을 때" }));
   expect(reactions.getByText(`${first.definition.name}에게 ‘달토끼’를 말하면`)).toBeTruthy();
@@ -69,5 +70,29 @@ it("lists each resident's reaction to a visiting friend's name and opens the mis
   const panel = within(screen.getByRole("tabpanel", { name: "다른 친구와의 관계" }));
   expect(panel.getByLabelText("관계 1 대상")).toHaveProperty("value", "moon-rabbit");
   expect(panel.getByText("이름을 언급했을 때의 등록 반응").closest("details")?.open).toBe(true);
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  expect(panel.getByRole("button", { name: "캐릭터 저장" })).toHaveProperty("disabled", true);
   expect(command).not.toHaveBeenCalledWith("save_character", expect.anything());
+  fireEvent.change(panel.getByLabelText("관계 1 설명"), { target: { value: "  달빛 친구  " } });
+  fireEvent.click(panel.getByRole("button", { name: "관계 1 반응 대사 추가" }));
+  fireEvent.change(panel.getByLabelText("관계 1 반응 1 대사"), {
+    target: { value: "  달토끼가 왔구나!\n반가워  " },
+  });
+  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  expect(panel.getByRole("button", { name: "캐릭터 저장" })).toHaveProperty("disabled", false);
+  fireEvent.click(panel.getByRole("button", { name: "캐릭터 저장" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("save_character", {
+      id: second.id,
+      definition: expect.objectContaining({
+        relationships: [
+          expect.objectContaining({
+            targetId: "moon-rabbit",
+            description: "  달빛 친구  ",
+            replyLines: [expect.objectContaining({ text: "  달토끼가 왔구나!\n반가워  " })],
+          }),
+        ],
+      }),
+    }),
+  );
 });

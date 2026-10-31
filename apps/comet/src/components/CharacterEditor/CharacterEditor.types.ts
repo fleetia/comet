@@ -34,7 +34,7 @@ export type CharacterEditorProps = {
   memoryTabRequest?: number;
   /**
    * Opens this friend on a tab once per revision, e.g. the balloon tab from theme settings.
-   * `relationshipTarget` opens that relationship's name reaction when it exists.
+   * `relationshipTarget` opens that relationship's name reaction for editing.
    */
   tabRequest?: {
     id: string;

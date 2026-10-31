@@ -42,6 +42,24 @@ export function CharacterDialogueEditor({
   const [revision, setRevision] = useState(0);
   const lock = useRef(false);
   const key = ids.join(":");
+  const scope = useRef({ key, generation: 0, mounted: false });
+  if (scope.current.key !== key) {
+    scope.current = { key, generation: scope.current.generation + 1, mounted: false };
+  }
+  function current(generation: number): boolean {
+    return scope.current.mounted && scope.current.generation === generation;
+  }
+  useEffect(() => {
+    scope.current.mounted = true;
+    lock.current = false;
+    setPending(false);
+    return () => {
+      scope.current.mounted = false;
+      scope.current.generation += 1;
+      if (lock.current) onPendingChange?.(false);
+      lock.current = false;
+    };
+  }, [key]);
   useEffect(() => {
     let active = true;
     setError(null);
@@ -70,18 +88,23 @@ export function CharacterDialogueEditor({
   useEffect(() => {
     onDirtyChange(hasStructureChanges || hasSceneChanges || wordbookDirty || pending);
   }, [hasStructureChanges, hasSceneChanges, wordbookDirty, pending, onDirtyChange]);
-  async function save(next: CharacterDialogue): Promise<void> {
+  async function save(next: CharacterDialogue): Promise<boolean> {
     if (lock.current) throw new Error("다른 대사를 저장하고 있어요. 잠시 후 다시 시도해 주세요.");
+    const generation = scope.current.generation;
     lock.current = true;
     setPending(true);
     onPendingChange?.(true);
     try {
       await command("save_character_dialogue", { ids, dialogue: next });
+      if (!current(generation)) return false;
       setDialogue(next);
+      return true;
     } finally {
-      lock.current = false;
-      setPending(false);
-      onPendingChange?.(false);
+      if (current(generation)) {
+        lock.current = false;
+        setPending(false);
+        onPendingChange?.(false);
+      }
     }
   }
   async function saveEntry(entry: WordbookEntry): Promise<void> {
@@ -126,14 +149,11 @@ export function CharacterDialogueEditor({
       id: crypto.randomUUID(),
       lines: [{ persona: "a", expression: "평온", text: "" }],
     };
-    setScenes([...baselineOrder.map((id) => ({ id, lines: baselineLines[id] })), scene]);
-    setRemovedDrafts({});
+    setScenes((values) => [...values, scene]);
     setSelectedId(scene.id);
   }
   function selectScene(id: string): void {
     if (id === selected?.id) return;
-    setScenes(baselineOrder.map((sceneId) => ({ id: sceneId, lines: baselineLines[sceneId] })));
-    setRemovedDrafts({});
     setSelectedId(id);
     setError(null);
   }
@@ -151,29 +171,31 @@ export function CharacterDialogueEditor({
   }
   async function saveSelected(): Promise<void> {
     if (!dialogue || !selected || !validLines(selected.lines)) return;
+    const generation = scope.current.generation;
     setError(null);
     const nextOrder = baselineOrder.includes(selected.id)
       ? baselineOrder
       : [...baselineOrder, selected.id];
     const nextLines = { ...baselineLines, [selected.id]: selected.lines };
     try {
-      await save({ ...dialogue, pairScenes: nextOrder.map((id) => nextLines[id]) });
+      if (!(await save({ ...dialogue, pairScenes: nextOrder.map((id) => nextLines[id]) }))) return;
       setBaselineOrder(nextOrder);
       setBaselineLines(nextLines);
     } catch (cause) {
-      setError(errorText(cause));
+      if (current(generation)) setError(errorText(cause));
     }
   }
   async function saveAll(): Promise<void> {
     if (!dialogue || !scenes.every((scene) => validLines(scene.lines))) return;
+    const generation = scope.current.generation;
     setError(null);
     try {
-      await save({ ...dialogue, pairScenes: scenes.map((scene) => scene.lines) });
+      if (!(await save({ ...dialogue, pairScenes: scenes.map((scene) => scene.lines) }))) return;
       setRemovedDrafts({});
       setBaselineOrder(scenes.map((scene) => scene.id));
       setBaselineLines(Object.fromEntries(scenes.map((scene) => [scene.id, scene.lines])));
     } catch (cause) {
-      setError(errorText(cause));
+      if (current(generation)) setError(errorText(cause));
     }
   }
   function cancelStructure(): void {

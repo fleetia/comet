@@ -97,7 +97,6 @@ export function useCharacterEditor({
   function navigate(next: string): void {
     if (next === tab) return;
     onNavigate?.();
-    setAssetSelections({});
     setReactionTarget(null);
     setTab(next);
   }
