@@ -206,22 +206,36 @@ pub fn resolve(
     }))
 }
 
-pub fn finish(db: &Connection, run: &RunTicket, kind: &str) -> Result<()> {
+pub fn finish(db: &Connection, run: &RunTicket, kind: &str, now: i64) -> Result<()> {
     if !matches!(kind, "completed" | "declined") {
         return Err("이야기 결과를 확인해 주세요.".into());
     }
     let (id, _) = scenario(run)?;
     transaction(db, |tx| {
-        tx.execute(
-            "INSERT OR IGNORE INTO pack_story_outcomes VALUES(?1,?2,?3,?4,?5,'[]')",
-            params![run.run_id, kind, scope_key(&run.scope)?, id, run.input_id],
-        )
-        .map_err(|error| error.to_string())?;
-        tx.execute(
-            "DELETE FROM pack_story_resume WHERE scope=?1 AND scenario_id=?2",
-            params![scope_key(&run.scope)?, id],
-        )
-        .map_err(|error| error.to_string())?;
+        if crate::store::current_user(tx)?
+            .as_ref()
+            .map(|user| user.id.as_str())
+            != Some(run.scope.user_id.as_str())
+            || !super::current(tx, run)?
+        {
+            return Err("이야기 실행이 바뀌었어요.".into());
+        }
+        let inserted = tx
+            .execute(
+                "INSERT OR IGNORE INTO pack_story_outcomes VALUES(?1,?2,?3,?4,?5,'[]')",
+                params![run.run_id, kind, scope_key(&run.scope)?, id, run.input_id],
+            )
+            .map_err(|error| error.to_string())?;
+        if inserted > 0 && kind == "completed" {
+            super::apply_completion_effects(tx, run, now)?;
+        }
+        if inserted > 0 {
+            tx.execute(
+                "DELETE FROM pack_story_resume WHERE scope=?1 AND scenario_id=?2",
+                params![scope_key(&run.scope)?, id],
+            )
+            .map_err(|error| error.to_string())?;
+        }
         Ok(())
     })
 }

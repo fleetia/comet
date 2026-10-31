@@ -141,23 +141,23 @@ fn send_locked(
     event: StoryEvent,
     window: Option<(&str, &str)>,
     center: Option<&str>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let active = lock(&state.pack_stories)?.run.clone();
     let Some(run) = active else {
-        return Ok(());
+        return Ok(false);
     };
     if state.epoch.load(std::sync::atomic::Ordering::SeqCst) != run.epoch
         || center.is_some_and(|id| id != run.scope.center_id)
     {
-        return Ok(());
+        return Ok(false);
     }
     let mut runtime = lock(&state.scene_events)?;
     if runtime.run_id.as_deref() != Some(&run.run_id) {
-        return Ok(());
+        return Ok(false);
     }
     if let Some((kind, id)) = window {
         if runtime.windows.get(kind).map(String::as_str) != Some(id) {
-            return Ok(());
+            return Ok(false);
         }
     }
     let Some(wait) = runtime.wait.as_mut().filter(|wait| {
@@ -166,7 +166,7 @@ fn send_locked(
             && wait.generation == run.phase_generation
             && wait.result.is_none()
     }) else {
-        return Ok(());
+        return Ok(false);
     };
     wait.result = if wait.event == event {
         Some(WaitResult::Matched)
@@ -175,7 +175,7 @@ fn send_locked(
     } else {
         None
     };
-    Ok(())
+    Ok(wait.result.is_some())
 }
 
 pub(crate) fn body_event(state: &AppState, center: &str, moved: bool) -> Result<(), String> {
@@ -194,24 +194,28 @@ pub(crate) fn body_event_locked(state: &AppState, center: &str, moved: bool) -> 
         None,
         Some(center),
     )
+    .map(|_| ())
 }
 
 pub(crate) fn memo_saved_locked(state: &AppState, id: &str, note: &str) -> Result<(), String> {
     let key = format!("{id}:{note}");
     {
-        let mut events = lock(&state.scene_events)?;
-        if events.windows.get("memo") != Some(&key) || !events.saved_memos.insert(key.clone()) {
+        let events = lock(&state.scene_events)?;
+        if events.windows.get("memo") != Some(&key) || events.saved_memos.contains(&key) {
             return Ok(());
         }
     }
-    send_locked(
+    if send_locked(
         state,
         StoryEvent::WidgetSaved {
             widget: crate::pack_stories::SavedWidget::Memo,
         },
         Some(("memo", &key)),
         None,
-    )
+    )? {
+        lock(&state.scene_events)?.saved_memos.insert(key);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

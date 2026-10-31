@@ -93,7 +93,9 @@ fn advance(
 ) -> Result<Option<RunTicket>, String> {
     let _action = lock(&state.action)?;
     let db = lock(&state.db)?;
-    if !scene_events::available_locked(state, &db, expected)? {
+    if !scene_events::current(state, expected)?
+        || !scene_events::available_locked(state, &db, expected)?
+    {
         return Ok(None);
     }
     let mut runtime = lock(&state.pack_stories)?;
@@ -107,18 +109,34 @@ fn advance(
     if !pack_stories::current(&db, run)? {
         return Ok(None);
     }
-    let continuing = transition(run, target)?;
-    run.phase_generation += 1;
-    let next = run.clone();
-    runtime.interaction = None;
+    let mut next = run.clone();
+    let continuing = transition(&mut next, target)?;
+    next.phase_generation += 1;
     if !continuing {
-        pack_stories::resume::finish(&db, &next, "completed")?;
+        pack_stories::resume::finish(
+            &db,
+            &next,
+            "completed",
+            chrono::Utc::now().timestamp_millis(),
+        )?;
+    }
+    if runtime
+        .interaction
+        .as_ref()
+        .is_some_and(|item| item.choices.is_none())
+    {
+        *lock(&state.playback)? = None;
+    }
+    if !continuing {
+        runtime.interaction = None;
         runtime.run = None;
         drop(runtime);
         scene_events::clear_run(state, &db, &next.run_id)?;
         characters::guests::leave_run_locked(state, &next.run_id)?;
         return Ok(None);
     }
+    runtime.interaction = None;
+    runtime.run = Some(next.clone());
     Ok(Some(next))
 }
 
@@ -162,6 +180,43 @@ pub(super) fn next_target(run: &RunTicket) -> Result<String, String> {
     }))
 }
 
+pub(super) fn checkpoint_before_step(
+    state: &AppState,
+    run: &RunTicket,
+    cancel: &AtomicBool,
+    step: &StoryStep,
+    chapter_saved: &mut bool,
+) -> Result<bool, String> {
+    if *chapter_saved
+        || matches!(
+            step,
+            StoryStep::Line { .. } | StoryStep::Choice { .. } | StoryStep::Ask { .. }
+        )
+    {
+        return Ok(true);
+    }
+    let _action = lock(&state.action)?;
+    let db = lock(&state.db)?;
+    if !is_current(state, run.epoch, cancel)
+        || !scene_events::available_locked(state, &db, run)?
+        || !lock(&state.pack_stories)?
+            .run
+            .as_ref()
+            .is_some_and(|active| matches_run(active, run))
+        || !pack_stories::current(&db, run)?
+    {
+        return Ok(false);
+    }
+    pack_stories::resume::save_chapter(
+        &db,
+        run,
+        run.chapter_id.as_deref().ok_or("이야기의 장이 없어요.")?,
+        chrono::Utc::now().timestamp_millis(),
+    )?;
+    *chapter_saved = true;
+    Ok(true)
+}
+
 async fn show_line(
     app: &tauri::AppHandle,
     state: &AppState,
@@ -169,7 +224,7 @@ async fn show_line(
     cancel: Arc<AtomicBool>,
     (line, recorded_text): (SceneLine, Option<String>),
     source: &str,
-    save_chapter: bool,
+    (save_chapter, keep_playback): (bool, bool),
 ) -> Result<bool, String> {
     let revision = store::revision(&*lock(&state.db)?)?;
     let id = format!(
@@ -220,8 +275,33 @@ async fn show_line(
     let Some(_) = scene::wait_for_completed_line(state, run.epoch, cancel.clone()).await? else {
         return Ok(false);
     };
-    scene::clear_line_if_current(state, run.epoch, &cancel)?;
-    publish(app, state);
+    if !finish_line(state, run, &cancel, keep_playback)? {
+        return Ok(false);
+    }
+    if !keep_playback {
+        publish(app, state);
+    }
+    Ok(true)
+}
+
+pub(super) fn finish_line(
+    state: &AppState,
+    run: &RunTicket,
+    cancel: &AtomicBool,
+    keep_playback: bool,
+) -> Result<bool, String> {
+    let _action = lock(&state.action)?;
+    let db = lock(&state.db)?;
+    if !is_current(state, run.epoch, cancel)
+        || !scene_events::current(state, run)?
+        || !scene_events::available_locked(state, &db, run)?
+        || !pack_stories::current(&db, run)?
+    {
+        return Ok(false);
+    }
+    if !keep_playback {
+        *lock(&state.playback)? = None;
+    }
     Ok(true)
 }
 
@@ -413,6 +493,7 @@ pub(crate) fn answer_text(
     }
     interaction.answer = Some(content.into());
     *lock(&state.panel)? = None;
+    *lock(&state.playback)? = None;
     Ok(true)
 }
 
@@ -458,7 +539,7 @@ async fn execute(
             cancel.clone(),
             (line, None),
             "tutorial",
-            false,
+            (false, false),
         )
         .await?
         {
@@ -470,6 +551,9 @@ async fn execute(
             return Ok(());
         }
         let (step, title) = chapter_step(&run)?;
+        if !checkpoint_before_step(state, &run, &cancel, &step, &mut chapter_saved)? {
+            return Ok(());
+        }
         let source = if run
             .definition
             .as_ref()
@@ -502,7 +586,7 @@ async fn execute(
                     cancel.clone(),
                     (line, render_record(&text, &name, &answers)),
                     source,
-                    !chapter_saved,
+                    (!chapter_saved, false),
                 )
                 .await?
                 {
@@ -554,7 +638,7 @@ async fn execute(
                     cancel.clone(),
                     (line, render_record(&text, &name, &answers)),
                     source,
-                    !chapter_saved,
+                    (!chapter_saved, input == StoryInput::Text),
                 )
                 .await?
                 {
@@ -565,7 +649,10 @@ async fn execute(
                     {
                         let _action = lock(&state.action)?;
                         let db = lock(&state.db)?;
-                        if !scene_events::available_locked(state, &db, &run)? {
+                        if !is_current(state, run.epoch, &cancel)
+                            || !scene_events::available_locked(state, &db, &run)?
+                            || !pack_stories::current(&db, &run)?
+                        {
                             return Ok(());
                         }
                         let mut runtime = lock(&state.pack_stories)?;
@@ -760,7 +847,7 @@ async fn execute(
                                         render_record(&text, name, answers),
                                     ),
                                     source,
-                                    !saved.load(std::sync::atomic::Ordering::Relaxed),
+                                    (!saved.load(std::sync::atomic::Ordering::Relaxed), false),
                                 )
                                 .await?
                                 {
@@ -818,6 +905,13 @@ pub(super) fn cleanup(state: &AppState, run: &RunTicket) -> bool {
                         pack_stories::cancel_deferred(&mut runtime);
                     }
                     runtime.interaction = None;
+                    if let Ok(mut playback) = lock(&state.playback) {
+                        if playback.as_ref().is_some_and(|line| {
+                            line.id.starts_with(&format!("scene-story:{}:", run.run_id))
+                        }) {
+                            *playback = None;
+                        }
+                    }
                     let _ = characters::guests::leave_run_locked(state, &run.run_id);
                 }
             }
