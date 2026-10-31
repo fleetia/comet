@@ -204,8 +204,9 @@ fn fresh_idle_interval_is_five_minutes_and_saved_two_minutes_survives_reopen() {
 }
 
 #[test]
-fn analytics_consent_is_forced_on_for_legacy_settings_without_rewriting_them() {
+fn analytics_consent_defaults_on_for_legacy_settings_without_rewriting_them() {
     let db = open(Path::new(":memory:")).unwrap();
+    assert!(settings(&db).unwrap().analytics_consent);
     let mut legacy = serde_json::to_value(Settings::default()).unwrap();
     legacy.as_object_mut().unwrap().remove("analyticsConsent");
     let original = legacy.to_string();
@@ -218,16 +219,21 @@ fn analytics_consent_is_forced_on_for_legacy_settings_without_rewriting_them() {
         })
         .unwrap();
     assert_eq!(raw, original);
+
+    let mut saved = settings(&db).unwrap();
+    saved.analytics_consent = false;
+    save_settings(&db, &saved).unwrap();
+    assert!(!settings(&db).unwrap().analytics_consent);
 }
 
 #[test]
-fn initial_name_commits_atomically_and_analytics_consent_stays_on() {
+fn initial_name_preserves_analytics_consent_and_rejects_repeat_registration() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("consent.sqlite");
     let db = open(&path).unwrap();
-    register_user_name(&db, "친구", 1, true).unwrap();
+    register_user_name(&db, "친구", 1, None).unwrap();
     assert!(settings(&db).unwrap().analytics_consent);
-    assert!(register_user_name(&db, "다른 이름", 2, false).is_err());
+    assert!(register_user_name(&db, "다른 이름", 2, None).is_err());
     assert!(settings(&db).unwrap().analytics_consent);
     assert_eq!(current_user(&db).unwrap().unwrap().name, "친구");
     set_user_name(&db, "새 이름", 3).unwrap();
@@ -239,15 +245,18 @@ fn initial_name_commits_atomically_and_analytics_consent_stays_on() {
     let db = open(Path::new(":memory:")).unwrap();
     let before = revision(&db).unwrap();
     db.execute_batch("CREATE TRIGGER fail_consent BEFORE INSERT ON kv WHEN NEW.key='settings' BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END;").unwrap();
-    assert!(register_user_name(&db, "등록 실패", 1, true).is_err());
+    assert!(register_user_name(&db, "등록 실패", 1, Some(true)).is_err());
     assert!(current_user(&db).unwrap().is_none());
     assert!(settings(&db).unwrap().analytics_consent);
     assert_eq!(revision(&db).unwrap(), before);
 
     let db = open(Path::new(":memory:")).unwrap();
-    register_user_name(&db, "선택 안 함", 1, false).unwrap();
+    let mut saved = settings(&db).unwrap();
+    saved.analytics_consent = false;
+    save_settings(&db, &saved).unwrap();
+    register_user_name(&db, "친구", 1, None).unwrap();
     assert!(current_user(&db).unwrap().is_some());
-    assert!(settings(&db).unwrap().analytics_consent);
+    assert!(!settings(&db).unwrap().analytics_consent);
 }
 
 #[test]

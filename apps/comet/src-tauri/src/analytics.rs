@@ -565,10 +565,14 @@ fn enqueue_backend_error(app: &tauri::AppHandle, site: &str, detail: String) {
 
 // Reporters may hold the DB lock that the consent lease reads, so take the lease off-thread.
 fn enqueue_leased(app: &tauri::AppHandle, value: Value) {
+    let Some(runtime) = app.try_state::<Runtime>() else {
+        return;
+    };
+    let emitted_revision = runtime.consent_revision.load(Ordering::Acquire);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        if let Some(revision) = request_lease(&app) {
-            enqueue(&app, value, revision);
+        if request_lease(&app) == Some(emitted_revision) {
+            enqueue(&app, value, emitted_revision);
         }
     });
 }
@@ -616,7 +620,8 @@ impl Runtime {
     }
 
     fn claim_start(&self, analytics_consent: bool) -> bool {
-        analytics_consent && !self.started.swap(true, Ordering::Relaxed)
+        let first = !self.started.swap(true, Ordering::Relaxed);
+        analytics_consent && first
     }
 
     fn prepare_event(
@@ -733,13 +738,46 @@ fn analytics_consent(state: &AppState) -> Result<bool, String> {
     Ok(store::settings(&db)?.analytics_consent)
 }
 
+fn save_consent(state: &AppState, enabled: bool) -> Result<(), String> {
+    let _action = crate::lock(&state.action)?;
+    let db = crate::lock(&state.db)?;
+    let tx = db
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    let mut settings = store::settings(&tx)?;
+    if settings.analytics_consent == enabled {
+        return Ok(());
+    }
+    settings.analytics_consent = enabled;
+    store::save_settings(&tx, &settings)?;
+    store::bump_revision(&tx)?;
+    tx.commit().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub(crate) async fn set_analytics_consent(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    enabled: bool,
+) -> Result<(), String> {
+    commit_consent_change(&app, &state, || save_consent(&state, enabled)).await?;
+    crate::app::publish(&app, &state);
+    Ok(())
+}
+
 pub(crate) async fn commit_consent_change<T>(
     app: &tauri::AppHandle,
     state: &AppState,
     change: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
-    app.state::<Runtime>()
-        .commit_consent_change(change, || crash::sync_consent(app, state))
+    let runtime = app.state::<Runtime>();
+    runtime
+        .commit_consent_change(change, || {
+            if !analytics_consent(state).unwrap_or(false) {
+                runtime.claim_start(false);
+            }
+            crash::sync_consent(app, state);
+        })
         .await
 }
 
@@ -837,13 +875,26 @@ pub(crate) fn attach_request_observer(
     app: &tauri::AppHandle,
     inference: &crate::inference::Inference,
 ) {
+    if let (Some(runtime), Some(state)) =
+        (app.try_state::<Runtime>(), app.try_state::<Arc<AppState>>())
+    {
+        if !analytics_consent(&state).unwrap_or(false) {
+            runtime.claim_start(false);
+        }
+    }
     if ERROR_APP.set(app.clone()).is_ok() {
         let early = EARLY_ERRORS
             .lock()
             .map(|mut early| std::mem::take(&mut *early))
             .unwrap_or_default();
-        for (site, detail) in early {
-            enqueue_backend_error(app, site, detail);
+        if let Some(revision) = request_lease(app) {
+            for (site, detail) in early {
+                enqueue(
+                    app,
+                    json!({ "event": "comet_backend_error", "error_site": site, "error_detail": detail }),
+                    revision,
+                );
+            }
         }
     }
     let store_app = app.clone();
@@ -1031,6 +1082,10 @@ mod tests {
             json!({"event":"comet_ai_request_completed","ai_provider":"local","ai_model_family":"qwen","ai_model_source":"catalog","request_outcome":"success","duration_ms":250}),
             json!({"event":"comet_settings_view","section":"model"}),
             json!({"event":"comet_error","error_source":"frontend_runtime","error_code":"unexpected_error"}),
+            json!({"event":"comet_backend_error","error_site":"talk_init","error_detail":"failed"}),
+            json!({"event":"comet_credential_error","credential_operation":"read","credential_slot":"root","credential_failure":"no_entry"}),
+            json!({"event":"comet_abnormal_exit","termination_kind":"unclean_exit","crash_app_version":"0.13.2"}),
+            json!({"event":"comet_app_started"}),
         ] {
             let event: Event = serde_json::from_value(payload).unwrap();
             assert!(runtime
@@ -1100,6 +1155,9 @@ mod tests {
         );
         assert!(!runtime.claim_start(true));
         assert!(Runtime::default().claim_start(true));
+        let disabled = Runtime::default();
+        assert!(!disabled.claim_start(false));
+        assert!(!disabled.claim_start(true));
     }
 
     fn test_context(environment: &'static str) -> Context {
@@ -1291,13 +1349,39 @@ mod tests {
     }
 
     #[test]
-    fn analytics_consent_stays_on_even_when_saved_settings_withdraw_it() {
+    fn analytics_consent_controls_start_and_events_and_preserves_identity() {
         let state = crate::app::tests::state();
-        let saved = crate::types::Settings {
-            analytics_consent: false,
-            ..crate::types::Settings::default()
-        };
-        store::save_settings(&crate::lock(&state.db).unwrap(), &saved).unwrap();
+        let runtime = Runtime::default();
+        let directory = tempfile::tempdir().unwrap();
+        let event: Event = serde_json::from_value(json!({"event":"comet_app_started"})).unwrap();
+        let mut context = test_context("qa");
         assert!(analytics_consent(&state).unwrap());
+        assert!(runtime.claim_start(true));
+        assert!(runtime
+            .prepare_event(&context, &event, directory.path(), None)
+            .unwrap()
+            .is_some());
+        let identity = fs::read(directory.path().join(CLIENT_ID_FILE)).unwrap();
+
+        save_consent(&state, false).unwrap();
+        context.analytics_consent = analytics_consent(&state).unwrap();
+        assert!(!context.analytics_consent);
+        assert!(!runtime.claim_start(context.analytics_consent));
+        assert!(runtime
+            .prepare_event(&context, &event, directory.path(), None)
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            fs::read(directory.path().join(CLIENT_ID_FILE)).unwrap(),
+            identity
+        );
+
+        save_consent(&state, true).unwrap();
+        context.analytics_consent = analytics_consent(&state).unwrap();
+        assert!(context.analytics_consent);
+        assert!(runtime
+            .prepare_event(&context, &event, directory.path(), None)
+            .unwrap()
+            .is_some());
     }
 }

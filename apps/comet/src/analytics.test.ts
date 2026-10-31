@@ -28,6 +28,7 @@ beforeEach(async () => {
   currentContext = { ...context };
   document.getElementById("comet-google-tag-manager")?.remove();
   delete target["ga-disable-G-4Z0X58WFVB"];
+  delete target.dataLayer;
   core.isTauri.mockReset().mockReturnValue(true);
   core.invoke.mockReset().mockImplementation(async (name: string) => {
     if (name === "get_analytics_context") {
@@ -40,7 +41,6 @@ beforeEach(async () => {
     }
     return { saved: true };
   });
-  delete target.dataLayer;
   analytics = await import("./analytics");
   ({ command } = await import("./hooks/useSnapshot"));
 });
@@ -291,6 +291,31 @@ describe("desktop analytics", () => {
     expect(events().every((event) => !("consentRevision" in event))).toBe(true);
   });
 
+  it("drops queued events across withdrawal and only reports events after re-enabling", async () => {
+    let resolveContext: (value: typeof context) => void = () => {};
+    core.invoke.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveContext = resolve;
+        }),
+    );
+    analytics.trackSettingsView("model");
+    analytics.trackSuccessfulCommand("open_launcher");
+    analytics.updateAnalyticsConsent(false);
+    analytics.trackSettingsView("characters");
+    analytics.trackSuccessfulCommand("open_widget");
+    analytics.updateAnalyticsConsent(true);
+    resolveContext(context);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(events()).toEqual([]);
+    expect(core.invoke.mock.calls.filter(([name]) => name === "send_analytics_event")).toEqual([]);
+
+    analytics.trackSettingsView("general");
+    await vi.waitFor(() => expect(events()).toHaveLength(1));
+    expect(events()[0]).toMatchObject({ event: "comet_settings_view", section: "general" });
+  });
+
   it("makes no GTM request or event delivery before consent", async () => {
     currentContext.analyticsConsent = false;
     await expect(analytics.initializeAnalytics()).resolves.toBeNull();
@@ -304,20 +329,18 @@ describe("desktop analytics", () => {
     expect(core.invoke.mock.calls.filter(([name]) => name === "send_analytics_event")).toEqual([]);
   });
 
-  it("loads GTM and reports startup after consent without exporting the registered name", async () => {
+  it("reports only later events after re-enabling without exporting the registered name", async () => {
     currentContext.analyticsConsent = false;
     await analytics.initializeAnalytics();
     currentContext.analyticsConsent = true;
-    currentContext.appStarted = true;
 
-    await command("register_user_name", { name: "민수", analyticsConsent: true });
-    await vi.waitFor(() => expect(events()).toHaveLength(2));
+    analytics.updateAnalyticsConsent(true);
+    await command("register_user_name", { name: "민수" });
+    await command("open_launcher");
+    await vi.waitFor(() => expect(events()).toHaveLength(1));
+    expect(events()[0]).toMatchObject({ event: "comet_ui_action", feature: "launcher" });
+    expect(JSON.stringify(events())).not.toContain("민수");
     await analytics.initializeAnalytics();
-
-    expect(events().map((event) => event.event)).toEqual([
-      "comet_app_started",
-      "comet_ai_configured",
-    ]);
     expect(document.querySelectorAll("#comet-google-tag-manager")).toHaveLength(1);
     expect(document.getElementById("comet-google-tag-manager")).toHaveProperty(
       "src",
@@ -325,6 +348,43 @@ describe("desktop analytics", () => {
     );
     expect(target["ga-disable-G-4Z0X58WFVB"]).toBe(false);
     expect(JSON.stringify(target.dataLayer)).not.toContain("민수");
+  });
+
+  it("reports startup configuration after consent is granted", async () => {
+    currentContext.analyticsConsent = false;
+    await analytics.initializeAnalytics();
+    currentContext.analyticsConsent = true;
+    currentContext.appStarted = true;
+    analytics.updateAnalyticsConsent(true);
+
+    await analytics.initializeAnalytics();
+    expect(events().map((event) => event.event)).toEqual([
+      "comet_app_started",
+      "comet_ai_configured",
+    ]);
+  });
+
+  it("stops adding events to the data layer after consent is withdrawn", async () => {
+    await analytics.initializeAnalytics();
+    analytics.trackSettingsView("model");
+    await vi.waitFor(() => expect(events()).toHaveLength(1));
+    const beforeWithdrawal = [...(target.dataLayer ?? [])];
+    const nativeDeliveries = core.invoke.mock.calls.filter(
+      ([name]) => name === "send_analytics_event",
+    );
+
+    analytics.updateAnalyticsConsent(false);
+    analytics.trackSettingsView("characters");
+    analytics.trackSuccessfulCommand("open_widget");
+    analytics.trackCommandFailure("save_settings");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(target["ga-disable-G-4Z0X58WFVB"]).toBe(true);
+    expect(target.dataLayer).toEqual(beforeWithdrawal);
+    expect(core.invoke.mock.calls.filter(([name]) => name === "send_analytics_event")).toEqual(
+      nativeDeliveries,
+    );
   });
 
   it("ignores an older context response after consent was withdrawn", async () => {
@@ -466,5 +526,15 @@ describe("desktop analytics", () => {
     analytics.updateAnalyticsConsent(true);
     await analytics.initializeAnalytics();
     expect(events()).toEqual([]);
+  });
+
+  it("reports the same error again when it occurs after re-enabling", async () => {
+    await analytics.initializeAnalytics();
+    analytics.trackCommandFailure("save_settings", "failed");
+    await vi.waitFor(() => expect(events()).toHaveLength(1));
+    analytics.updateAnalyticsConsent(false);
+    analytics.updateAnalyticsConsent(true);
+    analytics.trackCommandFailure("save_settings", "failed");
+    await vi.waitFor(() => expect(events()).toHaveLength(2));
   });
 });

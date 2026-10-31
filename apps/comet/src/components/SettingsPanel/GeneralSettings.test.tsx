@@ -49,13 +49,62 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-it("offers no way to withdraw analytics consent", () => {
-  render(<GeneralSettings {...props(true)} />);
-  expect(screen.queryByRole("checkbox")).toBeNull();
-  expect(command).not.toHaveBeenCalledWith(
-    "set_analytics_consent",
-    expect.anything(),
+it("saves analytics consent independently for withdrawal and regrant", async () => {
+  const view = render(<GeneralSettings {...props()} />);
+  const toggle = screen.getByRole("switch", { name: "사용 통계 보내기" });
+  expect(toggle).toHaveProperty("checked", true);
+
+  fireEvent.click(toggle);
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledExactlyOnceWith("set_analytics_consent", {
+      enabled: false,
+    }),
   );
+  view.rerender(<GeneralSettings {...props(false)} />);
+  expect(toggle).toHaveProperty("checked", false);
+
+  await waitFor(() => expect(toggle).toHaveProperty("disabled", false));
+  fireEvent.click(toggle);
+  await waitFor(() =>
+    expect(command).toHaveBeenLastCalledWith("set_analytics_consent", {
+      enabled: true,
+    }),
+  );
+  view.rerender(<GeneralSettings {...props(true)} />);
+  expect(toggle).toHaveProperty("checked", true);
+  expect(command).toHaveBeenCalledTimes(2);
+});
+
+it("keeps the saved consent when withdrawal fails and permits a retry", async () => {
+  vi.mocked(command).mockRejectedValueOnce(new Error("동의 저장 실패"));
+  render(<GeneralSettings {...props()} />);
+  const toggle = screen.getByRole("switch", { name: "사용 통계 보내기" });
+  fireEvent.click(toggle);
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    "동의 저장 실패",
+  );
+  expect(toggle).toHaveProperty("checked", true);
+  expect(toggle).toHaveProperty("disabled", false);
+
+  fireEvent.click(toggle);
+  await waitFor(() => expect(command).toHaveBeenCalledTimes(2));
+  expect(command).toHaveBeenLastCalledWith("set_analytics_consent", {
+    enabled: false,
+  });
+});
+
+it("blocks duplicate consent saves while the command is pending", () => {
+  vi.mocked(command).mockImplementation(() => new Promise<void>(() => {}));
+  render(<GeneralSettings {...props()} />);
+  const toggle = screen.getByRole("switch", { name: "사용 통계 보내기" });
+  fireEvent.click(toggle);
+  fireEvent.click(toggle);
+  expect(command).toHaveBeenCalledExactlyOnceWith("set_analytics_consent", {
+    enabled: false,
+  });
+  expect(toggle).toHaveProperty("disabled", true);
+  expect(toggle.getAttribute("aria-busy")).toBe("true");
 });
 
 it("opens the data folder in the system file manager and shows a failure in place", async () => {

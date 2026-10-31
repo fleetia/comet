@@ -5,6 +5,7 @@ import {
   Dialog,
   SettingControlRow,
   SettingsSummary,
+  Switch,
 } from "@comet/ui";
 import type { Snapshot } from "../../types";
 import { command, errorText } from "../../hooks/useSnapshot";
@@ -61,6 +62,23 @@ export function GeneralSettings({
 }: Props): JSX.Element {
   const name = snapshot.user?.name || "여행자";
   const { appearance } = useAppearance();
+  const [consentPending, setConsentPending] = useState(false);
+  const [consentError, setConsentError] = useState<string | null>(null);
+  const consentSaving = useRef(false);
+  async function saveConsent(enabled: boolean): Promise<void> {
+    if (consentSaving.current) return;
+    consentSaving.current = true;
+    setConsentPending(true);
+    setConsentError(null);
+    try {
+      await command("set_analytics_consent", { enabled });
+    } catch (cause) {
+      setConsentError(errorText(cause));
+    } finally {
+      consentSaving.current = false;
+      setConsentPending(false);
+    }
+  }
   const [folderError, setFolderError] = useState<string | null>(null);
   async function revealDataFolder(): Promise<void> {
     setFolderError(null);
@@ -206,6 +224,27 @@ export function GeneralSettings({
           {folderError && (
             <p role="alert" className={errorStyle}>
               {folderError}
+            </p>
+          )}
+          <div className={styles.group}>
+            <SettingControlRow
+              className={styles.row}
+              title="사용 통계 보내기"
+              description="기능 사용·오류·AI 요청 성공 여부를 Google Analytics로 보내요"
+              control={
+                <Switch
+                  aria-label="사용 통계 보내기"
+                  aria-busy={consentPending}
+                  checked={snapshot.settings.analyticsConsent}
+                  disabled={consentPending}
+                  onChange={(event) => void saveConsent(event.target.checked)}
+                />
+              }
+            />
+          </div>
+          {consentError && (
+            <p role="alert" className={errorStyle}>
+              {consentError}
             </p>
           )}
           <div className={styles.group}>
