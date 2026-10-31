@@ -66,6 +66,8 @@ export const results = style({
   maxHeight: 380,
   minHeight: 48,
   overflowY: "auto",
+  // Chromium makes scrollers keyboard-focusable; keep that ring inside the window.
+  outlineOffset: -1,
 });
 export const result = style({
   display: "flex",

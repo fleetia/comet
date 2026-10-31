@@ -14,6 +14,8 @@ export const split = style({
   margin: -6,
   padding: "6px 8px 6px 6px",
   overflowY: "auto",
+  // Chromium makes scrollers keyboard-focusable; keep that ring inside the clipped page.
+  outlineOffset: -1,
   "@media": {
     "(max-width: 1150px)": { gridTemplateColumns: "300px minmax(0, 1fr)", gap: 24 },
     "(max-width: 850px)": { gridTemplateColumns: "minmax(0, 1fr)" },
