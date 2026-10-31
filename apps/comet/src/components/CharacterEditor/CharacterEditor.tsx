@@ -1,7 +1,11 @@
-import type { JSX } from "react";
+import { useEffect, useState, type JSX } from "react";
 import { Button, Tabs } from "@comet/ui";
 import { ChevLeftIcon, Icon } from "@comet/icon";
-import { TabPanel, externalTabPanels } from "../../primitives";
+import {
+  TabPanel as PersistentTabPanel,
+  externalTabPanels,
+  type TabPanelProps,
+} from "../../primitives";
 import { FriendOverview } from "./FriendOverview";
 import { AppearanceEditor } from "./AppearanceEditor";
 import { BalloonAppearance } from "./BalloonAppearance";
@@ -30,6 +34,14 @@ const EDITOR_TABS = [
   { value: "settings", label: "관리", content: null },
 ];
 
+function TabPanel({ children, ...props }: TabPanelProps): JSX.Element {
+  return (
+    <PersistentTabPanel {...props}>
+      {props.value === props.selected ? children : null}
+    </PersistentTabPanel>
+  );
+}
+
 export function CharacterEditor(props: CharacterEditorProps): JSX.Element {
   const editor = useCharacterEditor(props);
   const {
@@ -40,7 +52,7 @@ export function CharacterEditor(props: CharacterEditorProps): JSX.Element {
     pending,
     isTogether,
     tab,
-    setTab,
+    navigate,
     tabsId,
     definitionActions,
     animationAssets,
@@ -49,6 +61,11 @@ export function CharacterEditor(props: CharacterEditorProps): JSX.Element {
     setAssetSelections,
     change,
   } = editor;
+  const [visitedAppearance, setVisitedAppearance] = useState(tab === "appearance");
+  useEffect(() => {
+    if (tab === "appearance") setVisitedAppearance(true);
+  }, [tab]);
+  const appearanceSelectionKey = `${character?.id ?? "new"}:${animationVersion}`;
   const {
     onChange,
     onSprite,
@@ -79,7 +96,7 @@ export function CharacterEditor(props: CharacterEditorProps): JSX.Element {
             size="small"
             aria-label="친구들로 돌아가기"
             onClick={() => {
-              setTab("overview");
+              navigate("overview");
               onBack?.();
             }}
           >
@@ -91,7 +108,7 @@ export function CharacterEditor(props: CharacterEditorProps): JSX.Element {
             variant="ghost"
             size="small"
             aria-label="친구 정보로 돌아가기"
-            onClick={() => setTab("overview")}
+            onClick={() => navigate("overview")}
           >
             {definition.name || "새 친구"}
           </Button>
@@ -117,7 +134,7 @@ export function CharacterEditor(props: CharacterEditorProps): JSX.Element {
           label="캐릭터 편집"
           items={EDITOR_TABS}
           value={tab}
-          onValueChange={setTab}
+          onValueChange={navigate}
           externalPanels={externalTabPanels(
             tabsId,
             EDITOR_TABS.map((item) => item.value),
@@ -141,7 +158,7 @@ export function CharacterEditor(props: CharacterEditorProps): JSX.Element {
             onRemove={onRemove}
             onOpen={(page) => {
               if (page === "history") onHistory?.();
-              else setTab(page);
+              else navigate(page);
             }}
             headerActions={headerActions}
             presentIds={presentIds}
@@ -155,26 +172,30 @@ export function CharacterEditor(props: CharacterEditorProps): JSX.Element {
       <TabPanel tabs={tabsId} value="relationships" selected={tab} className={s.editorPanel}>
         <CharacterRelationshipsPanel editor={editor} />
       </TabPanel>
-      <TabPanel tabs={tabsId} value="appearance" selected={tab} className={s.editorPanel}>
-        <fieldset className={`${s.fieldset} ${e.fullHeight}`} disabled={pending}>
-          <AppearanceEditor
-            key={`${character?.id ?? "new"}:${animationVersion}`}
-            footer={definitionActions}
-            definition={definition}
-            character={character}
-            selection={assetSelections[character?.id ?? "new"]}
-            onSelectionChange={(value) =>
-              setAssetSelections((previous) => ({ ...previous, [character?.id ?? "new"]: value }))
-            }
-            onSprite={onSprite}
-            assets={animationAssets}
-            visible={tab === "appearance"}
-            onChange={onChange}
-            onAnimationChange={onAnimationChange ?? ((animation) => change("animation", animation))}
-            onChooseAssets={onChooseAnimationAssets}
-          />
-        </fieldset>
-      </TabPanel>
+      <PersistentTabPanel tabs={tabsId} value="appearance" selected={tab} className={s.editorPanel}>
+        {(visitedAppearance || tab === "appearance") && (
+          <fieldset className={`${s.fieldset} ${e.fullHeight}`} disabled={pending}>
+            <AppearanceEditor
+              key={appearanceSelectionKey}
+              footer={definitionActions}
+              definition={definition}
+              character={character}
+              selection={assetSelections[appearanceSelectionKey]}
+              onSelectionChange={(value) =>
+                setAssetSelections((previous) => ({ ...previous, [appearanceSelectionKey]: value }))
+              }
+              onSprite={onSprite}
+              assets={animationAssets}
+              visible={tab === "appearance"}
+              onChange={onChange}
+              onAnimationChange={
+                onAnimationChange ?? ((animation) => change("animation", animation))
+              }
+              onChooseAssets={onChooseAnimationAssets}
+            />
+          </fieldset>
+        )}
+      </PersistentTabPanel>
       <TabPanel tabs={tabsId} value="balloon" selected={tab} className={s.editorPanel}>
         <fieldset className={`${s.fieldset} ${e.fullHeight}`} disabled={pending}>
           <BalloonAppearance
@@ -198,7 +219,7 @@ export function CharacterEditor(props: CharacterEditorProps): JSX.Element {
       </TabPanel>
       <TabPanel tabs={tabsId} value="memory" selected={tab} className={s.editorPanel}>
         {(typeof memoryContent === "function"
-          ? memoryContent(() => setTab("settings"))
+          ? memoryContent(() => navigate("settings"))
           : memoryContent) ?? (
           <p className={s.small}>캐릭터를 저장하면 함께 나눈 기억을 볼 수 있어요.</p>
         )}

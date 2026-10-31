@@ -9,8 +9,15 @@ import * as e from "./CharacterEditor.css";
 import * as s from "../characters.css";
 
 export function CharacterProfilePanel({ editor }: { editor: CharacterEditorState }): JSX.Element {
-  const { definition, character, pending, definitionActions, change, setTab, chooseDialogueType } =
-    editor;
+  const {
+    definition,
+    character,
+    pending,
+    definitionActions,
+    change,
+    navigate,
+    chooseDialogueType,
+  } = editor;
   return (
     <fieldset className={`${s.fieldset} ${e.fullHeight}`} disabled={pending}>
       <div className={e.profileLayout}>
@@ -90,7 +97,7 @@ export function CharacterProfilePanel({ editor }: { editor: CharacterEditorState
                   `돌아올 때 ${definition.returnLines.length}줄`,
                 ]}
                 onClick={() => {
-                  setTab("dialogue");
+                  navigate("dialogue");
                   chooseDialogueType("lines");
                 }}
               />

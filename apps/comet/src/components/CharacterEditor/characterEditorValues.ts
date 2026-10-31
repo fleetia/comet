@@ -25,9 +25,11 @@ export function getCharacterEditorValues({
   installed,
   presentIds,
   animationAssets,
+  reactionTarget,
 }: Pick<CharacterEditorProps, "definition" | "character" | "presentIds"> & {
   installed: InstalledCharacter[];
   animationAssets: AnimationAsset[];
+  reactionTarget?: string | null;
 }): CharacterEditorValues {
   const expressionKeys = Object.keys(definition.expressions);
   const relationshipTargets = installed.filter((candidate) => candidate.id !== character?.id);
@@ -50,9 +52,11 @@ export function getCharacterEditorValues({
     trialMembers.some((member) => member.definition.presenceRole !== "npc") || !trialCenter
       ? trialMembers
       : [...trialMembers, trialCenter];
-  const nextTarget = relationshipTargets.find(
+  const availableTargets = relationshipTargets.filter(
     (candidate) => !definition.relationships.some(({ targetId }) => targetId === candidate.id),
   );
+  const nextTarget =
+    availableTargets.find((candidate) => candidate.id === reactionTarget) ?? availableTargets[0];
   const validRelationships =
     definition.relationships.length <= MAX_RELATIONSHIPS &&
     new Set(definition.relationships.map(({ targetId }) => targetId)).size ===

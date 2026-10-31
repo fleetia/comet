@@ -17,7 +17,7 @@ export function UserSettings({
   onDirtyChange?: (dirty: boolean) => void;
 }): JSX.Element {
   const [name, setName] = useState(snapshot.user?.name ?? "");
-  const [savedName, setSavedName] = useState(snapshot.user?.name ?? "");
+  const [savedName, setSavedName] = useState(snapshot.user?.name.trim() ?? "");
   const [birthday, setBirthday] = useState(() => birthdayDraft(snapshot.userBirthday));
   const [savedBirthday, setSavedBirthday] = useState(snapshot.userBirthday ?? null);
   const [birthdayUserId, setBirthdayUserId] = useState(snapshot.user?.id);
@@ -35,18 +35,32 @@ export function UserSettings({
   const trimmed = name.trim();
   const dirty = trimmed !== savedName;
   const selectedBirthday = birthdayValue(birthday);
-  const birthdayDirty = JSON.stringify(birthday) !== JSON.stringify(birthdayDraft(savedBirthday));
+  const savedBirthdayDraft = birthdayDraft(savedBirthday);
+  const birthdayDirty =
+    birthday.month !== savedBirthdayDraft.month ||
+    birthday.day !== savedBirthdayDraft.day ||
+    birthday.year !== savedBirthdayDraft.year;
   const valid = Array.from(trimmed).length >= 1 && Array.from(trimmed).length <= 40;
   useEffect(() => {
     onDirtyChange?.(dirty || birthdayDirty);
   }, [dirty, birthdayDirty, onDirtyChange]);
   useEffect(() => {
-    const next = snapshot.user?.name ?? "";
+    const next = snapshot.user?.name.trim() ?? "";
     setName((previous) => (previous.trim() === savedName ? next : previous));
     setSavedName(next);
-  }, [snapshot.user?.id]);
+  }, [snapshot.user?.id, snapshot.user?.name]);
   useEffect(() => {
     if (birthdayDirty) {
+      const next = birthdayDraft(snapshot.userBirthday);
+      if (
+        birthdayUserId === snapshot.user?.id &&
+        birthday.month === next.month &&
+        birthday.day === next.day &&
+        birthday.year === next.year
+      ) {
+        setSavedBirthday(snapshot.userBirthday ?? null);
+        return;
+      }
       const rename = pendingRename.current;
       if (
         rename &&
@@ -94,7 +108,12 @@ export function UserSettings({
     }
   }
   async function saveBirthday(): Promise<void> {
-    if (!birthdayUserId || selectedBirthday === undefined || !birthdayDirty || birthdayBusy.current) {
+    if (
+      !birthdayUserId ||
+      selectedBirthday === undefined ||
+      !birthdayDirty ||
+      birthdayBusy.current
+    ) {
       return;
     }
     birthdayBusy.current = true;

@@ -129,17 +129,28 @@ export function CalendarTool({
   const appleRequest = useRef(0);
   const [disconnect, setDisconnect] = useState<DataRecord | null>(null);
   const [alertsDirty, setAlertsDirty] = useState(false);
-  const connectionDirty = Boolean(
-    name ||
-    url ||
-    clientId ||
-    clientSecret ||
-    provider !== "ics" ||
-    calendarIds !== "primary" ||
-    editingConnectionId ||
-    appleIds.length > 0 ||
-    (connectionOpen && connectionColor !== (text(calendarSettings.connectionColor) || DEFAULT_CONNECTION_COLOR)),
-  );
+  const [connectionBaseline, setConnectionBaseline] = useState({
+    provider,
+    name,
+    url,
+    clientId,
+    clientSecret,
+    calendarIds,
+    appleIds,
+    connectionColor,
+  });
+  const connectionDirty =
+    connectionOpen &&
+    JSON.stringify({
+      provider,
+      name,
+      url,
+      clientId,
+      clientSecret,
+      calendarIds,
+      appleIds,
+      connectionColor,
+    }) !== JSON.stringify(connectionBaseline);
   useEffect(() => {
     onDirtyChange?.(mode === "settings" && (alertsDirty || connectionDirty));
   }, [mode, alertsDirty, connectionDirty, onDirtyChange]);
@@ -178,6 +189,7 @@ export function CalendarTool({
   }
   function resetConnection(): void {
     clearError();
+    setAlertsDirty(false);
     appleRequest.current += 1;
     setAppleCalendars(null);
     setAppleIds([]);
@@ -191,6 +203,16 @@ export function CalendarTool({
     setProvider("ics");
     setCalendarIds("primary");
     setConnectionColor(text(calendarSettings.connectionColor) || DEFAULT_CONNECTION_COLOR);
+    setConnectionBaseline({
+      provider: "ics",
+      name: "",
+      url: "",
+      clientId: "",
+      clientSecret: "",
+      calendarIds: "primary",
+      appleIds: [],
+      connectionColor: text(calendarSettings.connectionColor) || DEFAULT_CONNECTION_COLOR,
+    });
   }
   function editConnection(connection: DataRecord): void {
     resetConnection();
@@ -206,6 +228,16 @@ export function CalendarTool({
     } else if (connection.provider === "google") {
       setCalendarIds(selected.join("\n"));
     }
+    setConnectionBaseline({
+      provider: text(connection.provider),
+      name: text(connection.name),
+      url: "",
+      clientId: "",
+      clientSecret: "",
+      calendarIds: connection.provider === "google" ? selected.join("\n") : "primary",
+      appleIds: connection.provider === "apple" ? selected : [],
+      connectionColor: text(calendarSettings.connectionColor) || DEFAULT_CONNECTION_COLOR,
+    });
   }
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 60000);
@@ -312,14 +344,16 @@ export function CalendarTool({
     </fieldset>
   );
   function connectionColors(connection: DataRecord): ReactElement {
-    return <CalendarColors
-      connections={connections}
-      events={rows(d.events)}
-      colors={record(d.calendarColors)}
-      connectionId={text(connection.id)}
-      disabled={disabled || busy || appleBusy}
-      onChange={(input) => void act("set-calendar-color", input)}
-    />;
+    return (
+      <CalendarColors
+        connections={connections}
+        events={rows(d.events)}
+        colors={record(d.calendarColors)}
+        connectionId={text(connection.id)}
+        disabled={disabled || busy || appleBusy}
+        onChange={(input) => void act("set-calendar-color", input)}
+      />
+    );
   }
   const fetchControls = (
     <section className={settings.connectionSection} aria-label="캘린더 가져오기">
@@ -463,24 +497,43 @@ export function CalendarTool({
             <div className={settings.connectionHeading} hidden={connectionOpen}>
               <h2 className={settings.heading}>연결한 캘린더</h2>
               <div className={settings.headingActions}>
-                <details className={settings.alerts} onKeyDown={(event) => {
-                  if (event.key === "Escape") {
-                    event.currentTarget.open = false;
-                    event.currentTarget.querySelector("summary")?.focus();
-                  }
-                }}>
+                <details
+                  className={settings.alerts}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.currentTarget.open = false;
+                      event.currentTarget.querySelector("summary")?.focus();
+                    }
+                  }}
+                >
                   <summary className={settings.alertsSummary} title="일정과 생활 알림">
                     <Icon name="more" size={20} />
                     일정과 생활 알림
-                    {alertsDirty && <span className={settings.accessibleLabel}> · 변경사항 있음</span>}
+                    {alertsDirty && (
+                      <span className={settings.accessibleLabel}> · 변경사항 있음</span>
+                    )}
                     {alertsDirty && <span aria-hidden className={settings.dirtyDot} />}
                   </summary>
                   <div className={settings.alertsBody}>
                     <h3 className={settings.heading}>일정과 생활 알림</h3>
-                    <PlannerAlerts data={record(d.reminders)} act={act} onDirtyChange={setAlertsDirty} />
+                    {!connectionOpen && (
+                      <PlannerAlerts
+                        data={record(d.reminders)}
+                        act={act}
+                        onDirtyChange={setAlertsDirty}
+                      />
+                    )}
                   </div>
                 </details>
-                <Button className={settings.connectButton} variant="ghost" size="small" onClick={() => setConnectionOpen(true)}>
+                <Button
+                  className={settings.connectButton}
+                  variant="ghost"
+                  size="small"
+                  onClick={() => {
+                    resetConnection();
+                    setConnectionOpen(true);
+                  }}
+                >
                   + 캘린더 연결…
                 </Button>
               </div>
@@ -582,7 +635,9 @@ export function CalendarTool({
                   </div>
                   {text(connection.error) && <p className={c.error}>{text(connection.error)}</p>}
                   {connection.provider !== "ics" && (
-                    <div className={settings.connectionCalendars}>{connectionColors(connection)}</div>
+                    <div className={settings.connectionCalendars}>
+                      {connectionColors(connection)}
+                    </div>
                   )}
                 </section>
               ))}
@@ -688,11 +743,7 @@ export function CalendarTool({
                     <p className={c.quiet}>
                       Google에도 연결한 캘린더가 있다면 한쪽에서만 선택해 중복 일정을 피하세요.
                     </p>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => void loadAppleCalendars()}
-                    >
+                    <Button type="button" variant="ghost" onClick={() => void loadAppleCalendars()}>
                       macOS 권한 확인하고 캘린더 목록 읽기
                     </Button>
                     {appleError && (
@@ -742,7 +793,13 @@ export function CalendarTool({
                                   ? [...current, calendar.id]
                                   : current.filter((id) => id !== calendar.id),
                               )
-                            } label={<>{calendar.name} · {calendar.sourceName}</>} />
+                            }
+                            label={
+                              <>
+                                {calendar.name} · {calendar.sourceName}
+                              </>
+                            }
+                          />
                         ))}
                         {appleIds.some(
                           (id) => !appleCalendars.calendars.some((calendar) => calendar.id === id),
@@ -799,7 +856,9 @@ export function CalendarTool({
                 <div className={settings.settingRow}>
                   <span className={settings.connectionText}>
                     색
-                    <span className={settings.caption}>다이어리와 캘린더 위젯에서 이 색으로 보여요</span>
+                    <span className={settings.caption}>
+                      다이어리와 캘린더 위젯에서 이 색으로 보여요
+                    </span>
                   </span>
                   <div className={settings.swatches} role="group" aria-label="연결할 캘린더 색">
                     {CONNECTION_COLORS.map(([color, label]) => (
@@ -831,7 +890,9 @@ export function CalendarTool({
                         aria-label="사용자 색 추가"
                         value={connectionColor}
                         disabled={disabled || busy || appleBusy}
-                        onChange={(event) => setConnectionColor(event.currentTarget.value.toLowerCase())}
+                        onChange={(event) =>
+                          setConnectionColor(event.currentTarget.value.toLowerCase())
+                        }
                       />
                     </label>
                   </div>
@@ -839,14 +900,20 @@ export function CalendarTool({
               </div>
               <p className={settings.readOnlyNotice}>
                 <Icon name="shield" size={16} className={settings.noticeIcon} />
-                <span>{provider === "ics"
-                  ? "구독 주소는 읽기만 해요. 남에게 보이지 않는 주소라면 비밀번호처럼 다뤄 주세요."
-                  : "연결한 캘린더는 읽기만 해요. 구독 주소와 인증 정보는 비밀번호처럼 다뤄 주세요."}</span>
+                <span>
+                  {provider === "ics"
+                    ? "구독 주소는 읽기만 해요. 남에게 보이지 않는 주소라면 비밀번호처럼 다뤄 주세요."
+                    : "연결한 캘린더는 읽기만 해요. 구독 주소와 인증 정보는 비밀번호처럼 다뤄 주세요."}
+                </span>
               </p>
               <section className={settings.localSection} aria-label="캘린더 연결 미리보기">
                 <h3 className={settings.heading}>이렇게 보여요</h3>
                 <div className={settings.localRow}>
-                  <span className={settings.previewDot} style={{ backgroundColor: connectionColor }} aria-hidden />
+                  <span
+                    className={settings.previewDot}
+                    style={{ backgroundColor: connectionColor }}
+                    aria-hidden
+                  />
                   <span className={settings.connectionText}>
                     {name || "연결 이름"}
                     <span className={settings.caption}>
@@ -858,7 +925,9 @@ export function CalendarTool({
                       · {interval}분마다 확인 · 읽기만 해요
                     </span>
                   </span>
-                  <Badge className={settings.connectionStatus}>{editingConnectionId ? "다시 연결" : "새로 연결"}</Badge>
+                  <Badge className={settings.connectionStatus}>
+                    {editingConnectionId ? "다시 연결" : "새로 연결"}
+                  </Badge>
                 </div>
               </section>
               <div className={settings.formActions}>

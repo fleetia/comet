@@ -82,7 +82,6 @@ export function WidgetManager({
   const [inspectorSlot, setInspectorSlot] = useState<HTMLDivElement | null>(null);
   const [connectingCalendarId, setConnectingCalendarId] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
-  const [visitedSettings, setVisitedSettings] = useState<string[]>([]);
   const targetRevision = useRef(0);
   const officialView = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -95,7 +94,6 @@ export function WidgetManager({
       targetRevision.current += 1;
       setDetailOpen(true);
       setFocused(kind);
-      setVisitedSettings((before) => [...new Set([...before, kind])]);
     }
     void listen<string>("planner-settings-target", (event) => choose(event.payload))
       .then(async (cleanup) => {
@@ -137,9 +135,6 @@ export function WidgetManager({
     targetRevision.current += 1;
     setDetailOpen(true);
     setFocused(kind);
-    setVisitedSettings((previous) => [
-      ...new Set([...previous, ...(selectedId ? [selectedId] : []), kind]),
-    ]);
   }
   const [confirmation, setConfirmation] = useState<{ generatedId: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -170,10 +165,7 @@ export function WidgetManager({
       return true;
     } catch (cause: unknown) {
       setFailure(errorText(cause));
-      if (
-        name === "generate_widget" ||
-        name === "remove_generated_widget"
-      ) {
+      if (name === "generate_widget" || name === "remove_generated_widget") {
         reloadGenerated();
       }
       return false;
@@ -219,9 +211,7 @@ export function WidgetManager({
         }) as const,
     ),
   ];
-  const entry =
-    catalog.find((item) => item.id === focused) ??
-    catalog[0];
+  const entry = catalog.find((item) => item.id === focused) ?? catalog[0];
   const widget = entry ? findView(entry.id) : undefined;
   const selectedId = generated?.id ?? entry?.id;
   useLayoutEffect(() => {
@@ -231,12 +221,6 @@ export function WidgetManager({
     }
   }, [selectedId, detailOpen]);
   const placed = (id: string): boolean => Boolean(desktop.state?.order.includes(id));
-  useEffect(() => {
-    if (!selectedId) return;
-    setVisitedSettings((previous) =>
-      previous.includes(selectedId) ? previous : [...previous, selectedId],
-    );
-  }, [selectedId]);
   const running = runtime.snapshot?.widgets.find((item) => item.id === widget?.id);
   const runtimeError = running?.queryError ?? runtime.error;
   const hasLastConfirmation = !!running && (!running.queryError || !!running.lastConfirmed);
@@ -257,7 +241,15 @@ export function WidgetManager({
   };
   function openCanonical(target: WidgetView): void {
     if (DESKTOP_TOYS.includes(target.kind)) void act("desktop-open", {}, target);
-    else void run(target.kind === "memo" ? "create_memo_note" : target.kind === "image" ? "add_widget_image" : "open_widget", { id: target.id });
+    else
+      void run(
+        target.kind === "memo"
+          ? "create_memo_note"
+          : target.kind === "image"
+            ? "add_widget_image"
+            : "open_widget",
+        { id: target.id },
+      );
   }
   function contextActions(id: string): ContextMenuAction[] {
     const target = findView(id);
@@ -285,10 +277,10 @@ export function WidgetManager({
           target.kind === "image"
             ? "이미지 띄우기"
             : target.kind === "memo"
-            ? "새 메모 꺼내기"
-            : DESKTOP_TOYS.includes(target.kind)
-              ? "바탕화면에 꺼내기"
-              : "위젯 열기",
+              ? "새 메모 꺼내기"
+              : DESKTOP_TOYS.includes(target.kind)
+                ? "바탕화면에 꺼내기"
+                : "위젯 열기",
         icon: "arrowright",
         disabled: !canAct,
       });
@@ -307,9 +299,19 @@ export function WidgetManager({
       actions.push({ id: "clear", label: "장난감 정리하기", disabled: !canAct });
     if (target.kind === "image") {
       const images = rows(record(target.data).images);
-      const closed = images.filter((image) => image.isOpen === false && typeof image.id === "string");
-      actions.push({ id: "close-images", label: "띄운 이미지 정리", disabled: !canAct || !images.some((image) => image.isOpen === true) });
-      actions.push({ id: "closed-images", label: `닫아 둔 이미지 ${closed.length}장 ›`, disabled: !canAct || closed.length === 0 });
+      const closed = images.filter(
+        (image) => image.isOpen === false && typeof image.id === "string",
+      );
+      actions.push({
+        id: "close-images",
+        label: "띄운 이미지 정리",
+        disabled: !canAct || !images.some((image) => image.isOpen === true),
+      });
+      actions.push({
+        id: "closed-images",
+        label: `닫아 둔 이미지 ${closed.length}장 ›`,
+        disabled: !canAct || closed.length === 0,
+      });
     }
     if (confirmed && current?.toys)
       actions.push({
@@ -333,18 +335,18 @@ export function WidgetManager({
     if (current?.actionError)
       actions.push({ id: "action-error", label: current.actionError.message, disabled: true });
     if (target.kind !== "image") {
-    actions.push({
-      id: "toggle",
-      label: target.reaction ? "캐릭터 반응 끄기" : "캐릭터 반응 켜기",
-      disabled: !canAct,
-      separatorBefore: true,
-    });
-    actions.push({
-      id: "state-rules",
-      label: "상태별 캐릭터 대사 편집",
-      icon: "balloon",
-      disabled: !canAct,
-    });
+      actions.push({
+        id: "toggle",
+        label: target.reaction ? "캐릭터 반응 끄기" : "캐릭터 반응 켜기",
+        disabled: !canAct,
+        separatorBefore: true,
+      });
+      actions.push({
+        id: "state-rules",
+        label: "상태별 캐릭터 대사 편집",
+        icon: "balloon",
+        disabled: !canAct,
+      });
     }
     return actions;
   }
@@ -375,7 +377,8 @@ export function WidgetManager({
     else if (action === "state-rules") void run("open_widget_state_rules", { id: target.id });
     else if (action === "clear") void act("desktop-clear", {}, target);
     else if (action === "close-images") void run("close_all_widget_images", { id: target.id });
-    else if (action.startsWith("open-image:")) void run("open_widget_image", { id: target.id, imageId: action.slice("open-image:".length) });
+    else if (action.startsWith("open-image:"))
+      void run("open_widget_image", { id: target.id, imageId: action.slice("open-image:".length) });
     else if (action === "desktop-add") void run("add_widget_desktop_item", { id: target.id });
     else if (action === "desktop-remove") void run("remove_widget_desktop_item", { id: target.id });
     else if (action === "refresh-runtime") runtime.reload();
@@ -492,14 +495,14 @@ export function WidgetManager({
               {catalogFooter}
             </WidgetCatalog>
           </div>
-          {(entry || generated) && (
+          {detailOpen && (entry || generated) && (
             <section
               className={styles.detail}
               hidden={!detailOpen}
               aria-label={`${generated?.definition.name ?? entry?.name} 설정`}
             >
               {generatedWidgets
-                .filter((item) => visitedSettings.includes(item.id) || item.id === generated?.id)
+                .filter((item) => item.id === generated?.id)
                 .map((item) => (
                   <div
                     className={styles.generatedView}
@@ -609,9 +612,7 @@ export function WidgetManager({
                     )}
                   </aside>
                   <div className={styles.detailBody}>
-                    {(widget?.error ||
-                      (runtimeError && widget) ||
-                      running?.actionError) && (
+                    {(widget?.error || (runtimeError && widget) || running?.actionError) && (
                       <Surface variant="panel" className={styles.runtimeMessages}>
                         {widget?.error && (
                           <Text as="p" role="alert" className={common.error}>
@@ -658,7 +659,8 @@ export function WidgetManager({
                       .filter(
                         (item) =>
                           CONFIGURABLE_WIDGETS.includes(item.kind) &&
-                          (visitedSettings.includes(item.kind) || item.id === widget?.id),
+                          !generated &&
+                          item.id === widget?.id,
                       )
                       .map((item) => (
                         <div

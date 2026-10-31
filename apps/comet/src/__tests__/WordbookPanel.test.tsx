@@ -53,21 +53,45 @@ it("saves reordered lines verbatim and parses ordinary keyword separators", asyn
     }),
   );
 });
-it("retains each dirty draft across selection, snapshot updates and save failure", async () => {
-  const { rerender } = render(<WordbookPanel entries={[FIRST, SECOND]} />);
+it("discards the previous entry draft on selection and keeps a failed save until leaving", async () => {
+  const onDirtyChange = vi.fn();
+  const { rerender } = render(
+    <WordbookPanel entries={[FIRST, SECOND]} onDirtyChange={onDirtyChange} />,
+  );
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
   fireEvent.change(screen.getByLabelText("대사 1"), { target: { value: "고치던 인사" } });
   fireEvent.click(screen.getByRole("button", { name: "작별" }));
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
   fireEvent.change(screen.getByLabelText("대사 1"), { target: { value: "고치던 작별" } });
-  rerender(<WordbookPanel entries={[{ ...FIRST }, { ...SECOND }]} />);
-  fireEvent.click(screen.getByRole("button", { name: "인사 · 미저장" }));
-  expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "고치던 인사");
+  rerender(<WordbookPanel entries={[{ ...FIRST }, { ...SECOND }]} onDirtyChange={onDirtyChange} />);
   vi.mocked(command).mockRejectedValueOnce(new Error("저장할 수 없어요."));
   fireEvent.click(screen.getByRole("button", { name: "단어장 저장" }));
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "저장할 수 없어요.");
-  expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "고치던 인사");
-  fireEvent.click(screen.getByRole("button", { name: "작별 · 미저장" }));
   expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "고치던 작별");
+  fireEvent.click(screen.getByRole("button", { name: "인사" }));
+  expect(screen.getByLabelText("대사 1")).toHaveProperty("value", FIRST.lines[0].text);
+  fireEvent.click(screen.getByRole("button", { name: "작별" }));
+  expect(screen.getByLabelText("대사 1")).toHaveProperty("value", SECOND.lines[0].text);
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
 });
+
+it("clears dirty after restoring text, keywords and enabled state to saved values", () => {
+  const onDirtyChange = vi.fn();
+  render(<WordbookPanel entries={[FIRST]} onDirtyChange={onDirtyChange} />);
+  fireEvent.change(screen.getByLabelText("대사 1"), { target: { value: "잠깐 편집" } });
+  fireEvent.change(screen.getByLabelText("대사 1"), { target: { value: FIRST.lines[0].text } });
+  fireEvent.change(screen.getByRole("textbox", { name: "키워드" }), {
+    target: { value: "다른 키워드" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "키워드" }), {
+    target: { value: FIRST.keywords.join(", ") },
+  });
+  fireEvent.click(screen.getByRole("switch", { name: "인사 사용" }));
+  fireEvent.click(screen.getByRole("switch", { name: "인사 사용" }));
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  expect(screen.getByRole("button", { name: "단어장 저장" })).toHaveProperty("disabled", true);
+});
+
 it("creates an enabled entry with idle off and deletes only the selected entry", async () => {
   render(<WordbookPanel entries={[FIRST, SECOND]} />);
   fireEvent.click(screen.getByRole("button", { name: "새 항목 만들기" }));
@@ -106,22 +130,19 @@ it("creates an enabled entry with idle off and deletes only the selected entry",
   expect(screen.getByRole("button", { name: "인사" })).toBeTruthy();
 });
 
-it("cancels only the selected entry to its latest saved baseline and retains other drafts", () => {
+it("cancels the current entry to the latest saved baseline", () => {
   const { rerender } = render(<WordbookPanel entries={[FIRST, SECOND]} />);
   fireEvent.change(screen.getByLabelText("대사 1"), { target: { value: "미저장 인사" } });
-  fireEvent.click(screen.getByRole("button", { name: "작별" }));
-  fireEvent.change(screen.getByLabelText("대사 1"), { target: { value: "미저장 작별" } });
   const latest = { ...FIRST, lines: [{ ...FIRST.lines[0], text: "최근 저장된 인사" }] };
   rerender(<WordbookPanel entries={[latest, SECOND]} />);
-  fireEvent.click(screen.getByRole("button", { name: "인사 · 미저장" }));
   fireEvent.click(screen.getByRole("button", { name: "수정 취소" }));
   expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "최근 저장된 인사");
-  fireEvent.click(screen.getByRole("button", { name: "작별 · 미저장" }));
-  expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "미저장 작별");
+  fireEvent.click(screen.getByRole("button", { name: "작별" }));
+  expect(screen.getByLabelText("대사 1")).toHaveProperty("value", SECOND.lines[0].text);
   expect(command).not.toHaveBeenCalled();
 });
 
-it("discards only a new unsaved entry and returns to the existing dirty entry", () => {
+it("discards a new unsaved entry and returns to the saved entry", () => {
   render(<WordbookPanel entries={[FIRST]} />);
   fireEvent.change(screen.getByLabelText("대사 1"), { target: { value: "먼저 편집한 인사" } });
   fireEvent.click(screen.getByRole("button", { name: "새 항목 만들기" }));
@@ -130,7 +151,7 @@ it("discards only a new unsaved entry and returns to the existing dirty entry", 
   });
   fireEvent.click(screen.getByRole("button", { name: "수정 취소" }));
   expect(screen.queryByRole("button", { name: /버릴 새 항목/ })).toBeNull();
-  expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "먼저 편집한 인사");
+  expect(screen.getByLabelText("대사 1")).toHaveProperty("value", FIRST.lines[0].text);
   expect(command).not.toHaveBeenCalled();
 });
 
@@ -202,7 +223,7 @@ it.each([false, true])(
   },
 );
 
-it("retains entry drafts and matching input and result across closing and reopening controls", async () => {
+it("discards entry drafts on selection while retaining the matching input and result", async () => {
   vi.mocked(command).mockResolvedValueOnce({ entry: FIRST, keyword: "안녕" });
   const { rerender } = render(<WordbookPanel entries={[FIRST, SECOND]} />);
   const draft = "  접어도 남는 대사\n\n다음 줄  ";
@@ -226,12 +247,15 @@ it("retains entry drafts and matching input and result across closing and reopen
   expect(matching.closest("details")).toHaveProperty("open", false);
   fireEvent.click(screen.getByRole("button", { name: "작별" }));
   rerender(<WordbookPanel entries={[{ ...FIRST }, { ...SECOND }]} />);
-  fireEvent.click(screen.getByRole("button", { name: "인사 · 미저장" }));
-  expect(screen.getByRole("textbox", { name: "대사 1" })).toHaveProperty("value", draft);
-  expect(screen.getByRole("combobox", { name: "분류 (선택)" })).toHaveProperty("value", "work");
+  fireEvent.click(screen.getByRole("button", { name: "인사" }));
+  expect(screen.getByRole("textbox", { name: "대사 1" })).toHaveProperty(
+    "value",
+    FIRST.lines[0].text,
+  );
+  expect(screen.getByRole("combobox", { name: "분류 (선택)" })).toHaveProperty("value", "");
   expect(screen.getByRole("switch", { name: "자동 잡담에도 사용" })).toHaveProperty(
     "checked",
-    true,
+    false,
   );
   fireEvent.click(matching);
   expect(screen.getByRole("textbox", { name: "테스트할 말" })).toHaveProperty(

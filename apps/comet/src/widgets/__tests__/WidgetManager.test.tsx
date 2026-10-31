@@ -129,7 +129,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-it("preserves the initially selected widget draft when a native deep link changes the selection", async () => {
+it("discards the previous widget draft when a native deep link changes the selection", async () => {
   vi.mocked(useWidgets).mockReturnValue({
     snapshot: {
       ...PREVIEW_WIDGETS,
@@ -155,21 +155,27 @@ it("preserves the initially selected widget draft when a native deep link change
 
   act(() => receiveTarget({ event: "planner-settings-target", id: 1, payload: "weather" }));
   expect(screen.getByRole("textbox", { name: "지역 이름" })).toBeTruthy();
-  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
   act(() => receiveTarget({ event: "planner-settings-target", id: 2, payload: "focus-timer" }));
   expect(screen.getByRole("region", { name: "집중 타이머 설정" })).toBeTruthy();
   expect(screen.getByRole("region", { name: "집중 타이머 세부 설정" })).toBeTruthy();
   expect(command).not.toHaveBeenCalledWith("install_widgets", expect.anything());
   expect(command).not.toHaveBeenCalledWith("set_widget_enabled", expect.anything());
-  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
   act(() => receiveTarget({ event: "planner-settings-target", id: 3, payload: "clock" }));
-  expect(screen.getByLabelText("기념일 이름")).toHaveProperty("value", "이어 쓰는 기념일");
-  expect(screen.getByRole("button", { name: "기념일 추가" })).toHaveProperty("disabled", false);
+  expect(screen.queryByLabelText("기념일 이름")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "기념일 추가…" }));
+  expect(screen.getByLabelText("기념일 이름")).toHaveProperty("value", "");
+  expect(screen.getByRole("button", { name: "기념일 추가" })).toHaveProperty("disabled", true);
 });
 
 it("opens the requested widget when settings first mount", async () => {
   vi.mocked(useWidgets).mockReturnValue({
-    snapshot: { ...PREVIEW_WIDGETS, onboardingDone: true, widgets: [installed("clock"), installed("focus-timer")] },
+    snapshot: {
+      ...PREVIEW_WIDGETS,
+      onboardingDone: true,
+      widgets: [installed("clock"), installed("focus-timer")],
+    },
     error: null,
     reload,
   });
@@ -260,8 +266,12 @@ it("opens catalog management from the keyboard and restores focus without changi
 
 it("shows official widgets and their independent reaction switches", async () => {
   vi.mocked(useWidgets).mockReturnValue({
-    snapshot: { ...PREVIEW_WIDGETS, widgets: PREVIEW_WIDGETS.catalog.map((item) => installed(item.id)) },
-    error: null, reload,
+    snapshot: {
+      ...PREVIEW_WIDGETS,
+      widgets: PREVIEW_WIDGETS.catalog.map((item) => installed(item.id)),
+    },
+    error: null,
+    reload,
   });
   render(<WidgetManager embedded />);
   const catalog = within(screen.getByRole("region", { name: "위젯 목록" }));
@@ -269,13 +279,19 @@ it("shows official widgets and their independent reaction switches", async () =>
   const reaction = catalog.getByRole("switch", { name: "할 일 캐릭터 반응" });
   expect(reaction).toHaveProperty("checked", true);
   fireEvent.click(reaction);
-  await waitFor(() => expect(command).toHaveBeenCalledWith("set_widget_reaction", { id: "todo", enabled: false }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("set_widget_reaction", { id: "todo", enabled: false }),
+  );
   expect(command).not.toHaveBeenCalledWith("remove_widget", expect.anything());
   expect(command).not.toHaveBeenCalledWith("set_widget_enabled", expect.anything());
-  fireEvent.change(screen.getByRole("searchbox", { name: "위젯 검색" }), { target: { value: "날씨" } });
+  fireEvent.change(screen.getByRole("searchbox", { name: "위젯 검색" }), {
+    target: { value: "날씨" },
+  });
   expect(catalog.queryByRole("button", { name: "할 일 켜짐" })).toBeNull();
   expect(catalog.getByRole("button", { name: "날씨 켜짐" })).toBeTruthy();
-  fireEvent.change(screen.getByRole("searchbox", { name: "위젯 검색" }), { target: { value: "없는 위젯" } });
+  fireEvent.change(screen.getByRole("searchbox", { name: "위젯 검색" }), {
+    target: { value: "없는 위젯" },
+  });
   expect(screen.getByText("찾는 위젯이 없어요. 검색어를 바꿔 보세요.")).toBeTruthy();
 });
 
@@ -297,7 +313,10 @@ it("opens a calendar awaiting a connection and changes character reaction separa
   fireEvent.click(screen.getByRole("menuitem", { name: "위젯 열기" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("open_widget", { id: "calendar" }));
   await waitFor(() =>
-    expect(screen.getByRole("switch", { name: "할 일 캐릭터 반응" })).toHaveProperty("disabled", false),
+    expect(screen.getByRole("switch", { name: "할 일 캐릭터 반응" })).toHaveProperty(
+      "disabled",
+      false,
+    ),
   );
   fireEvent.click(screen.getByRole("switch", { name: "할 일 캐릭터 반응" }));
   await waitFor(() =>
@@ -308,7 +327,8 @@ it("opens a calendar awaiting a connection and changes character reaction separa
 it("keeps official widgets available without removal actions", () => {
   vi.mocked(useWidgets).mockReturnValue({
     snapshot: { ...PREVIEW_WIDGETS, widgets: [installed("calendar"), installed("preparation")] },
-    error: null, reload,
+    error: null,
+    reload,
   });
   render(<WidgetManager embedded />);
   manageWidget("캘린더 켜짐");
@@ -382,10 +402,10 @@ it("opens official state rules from the widget header without changing its data"
   );
 });
 
-it("tracks and retains separate widget setting drafts across selection and snapshot refresh", async () => {
+it("discards widget setting drafts on catalog navigation while preserving them during snapshot refresh", async () => {
   const music = {
     ...installed("music"),
-    data: { configured: false, config: { provider: "music" } },
+    data: { configured: false, config: { provider: "auto" } },
   };
   const calendar = {
     ...installed("calendar"),
@@ -400,14 +420,16 @@ it("tracks and retains separate widget setting drafts across selection and snaps
   await waitFor(() => expect(dirty).toHaveBeenLastCalledWith(true));
   chooseWidget(/^캘린더/);
   fireEvent.click(screen.getByRole("button", { name: /캘린더 연결…/ }));
+  expect(dirty).toHaveBeenLastCalledWith(false);
   fireEvent.change(screen.getByLabelText(/^연결 이름/), { target: { value: "개인 일정" } });
   fireEvent.change(screen.getByLabelText(/^ICS \/ webcal/), {
     target: { value: "https://example.com/private.ics" },
   });
-  fireEvent.click(screen.getByText("일정과 생활 알림", { selector: "summary" }));
-  fireEvent.click(screen.getByLabelText("일정·할 일 기한 알림 켜기"));
+  expect(dirty).toHaveBeenLastCalledWith(true);
   chooseWidget(/^음악 정보/);
-  expect(screen.getByLabelText("음악 앱")).toHaveProperty("value", "spotify");
+  expect(screen.getByLabelText("음악 앱")).toHaveProperty("value", "auto");
+  expect(dirty).toHaveBeenLastCalledWith(false);
+  fireEvent.change(screen.getByLabelText("음악 앱"), { target: { value: "spotify" } });
   vi.mocked(useWidgets).mockReturnValue({
     snapshot: {
       ...snapshot,
@@ -423,13 +445,12 @@ it("tracks and retains separate widget setting drafts across selection and snaps
   view.rerender(<WidgetManager embedded onDirtyChange={dirty} />);
   expect(screen.getByLabelText("음악 앱")).toHaveProperty("value", "spotify");
   fireEvent.click(screen.getByRole("button", { name: "선택 초기화" }));
-  expect(dirty).toHaveBeenLastCalledWith(true);
+  expect(dirty).toHaveBeenLastCalledWith(false);
   chooseWidget(/^캘린더/);
-  expect(screen.getByLabelText(/^연결 이름/)).toHaveProperty("value", "개인 일정");
-  expect(screen.getByLabelText("일정·할 일 기한 알림 켜기")).toHaveProperty("checked", true);
-  fireEvent.click(screen.getByRole("button", { name: "연결 입력 지우기" }));
-  fireEvent.click(screen.getByRole("button", { name: "‹ 연결한 캘린더" }));
-  fireEvent.click(screen.getByRole("button", { name: "알림 변경 취소" }));
+  expect(screen.queryByRole("textbox", { name: /^연결 이름/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /캘린더 연결…/ }));
+  expect(screen.getByLabelText(/^연결 이름/)).toHaveProperty("value", "");
+  expect(screen.getByLabelText(/^ICS \/ webcal/)).toHaveProperty("value", "");
   await waitFor(() => expect(dirty).toHaveBeenLastCalledWith(false));
   expect(
     vi
@@ -441,16 +462,24 @@ it("tracks and retains separate widget setting drafts across selection and snaps
 it.each(["clock", "weather", "focus-timer", "calendar", "music", "preparation"])(
   "offers character reaction and state rules for %s",
   async (kind) => {
-    vi.mocked(useWidgets).mockReturnValue({ snapshot: { ...PREVIEW_WIDGETS, widgets: [installed(kind)] }, error: null, reload });
+    vi.mocked(useWidgets).mockReturnValue({
+      snapshot: { ...PREVIEW_WIDGETS, widgets: [installed(kind)] },
+      error: null,
+      reload,
+    });
     render(<WidgetManager embedded />);
     const name = PREVIEW_WIDGETS.catalog.find((item) => item.id === kind)!.name;
     const reaction = screen.getByRole("switch", { name: `${name} 캐릭터 반응` });
     fireEvent.click(reaction);
-    await waitFor(() => expect(command).toHaveBeenCalledWith("set_widget_reaction", { id: kind, enabled: false }));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("set_widget_reaction", { id: kind, enabled: false }),
+    );
     manageWidget(`${name} 켜짐`);
     expect(screen.queryByRole("menuitem", { name: /제거/ })).toBeNull();
     fireEvent.click(screen.getByRole("menuitem", { name: "상태별 캐릭터 대사 편집" }));
-    await waitFor(() => expect(command).toHaveBeenCalledWith("open_widget_state_rules", { id: kind }));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("open_widget_state_rules", { id: kind }),
+    );
   },
 );
 
@@ -621,13 +650,13 @@ it("runs generated lifecycle actions with fresh revisions and preserves data on 
   expect(screen.queryByRole("button", { name: /^단수 세기/ })).toBeNull();
 });
 
-it("keeps official setting drafts and generated edit requests while switching the common list", async () => {
+it("discards official setting drafts and generated edit requests while switching the common list", async () => {
   generatedSnapshot([generated()]);
   vi.mocked(useWidgets).mockReturnValue({
     snapshot: {
       ...PREVIEW_WIDGETS,
       widgets: [
-        { ...installed("music"), data: { configured: false, config: { provider: "music" } } },
+        { ...installed("music"), data: { configured: false, config: { provider: "auto" } } },
       ],
     },
     error: null,
@@ -642,17 +671,16 @@ it("keeps official setting drafts and generated edit requests while switching th
     target: { value: "목표 단수를 추가해 줘" },
   });
   chooseWidget("음악 정보 켜짐");
-  expect(screen.getByLabelText("음악 앱")).toHaveProperty("value", "spotify");
+  expect(screen.getByLabelText("음악 앱")).toHaveProperty("value", "auto");
   expect(screen.queryByRole("textbox", { name: "수정할 내용" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "선택 초기화" }));
-  await waitFor(() => expect(dirty).toHaveBeenLastCalledWith(true));
+  await waitFor(() => expect(dirty).toHaveBeenLastCalledWith(false));
   generatedSnapshot([generated({ revision: 12 })]);
   view.rerender(<WidgetManager embedded onDirtyChange={dirty} />);
   chooseWidget("단수 세기 켜짐");
-  expect(screen.getByRole("textbox", { name: "수정할 내용" })).toHaveProperty(
-    "value",
-    "목표 단수를 추가해 줘",
-  );
+  expect(screen.getByRole("textbox", { name: "수정할 내용" })).toHaveProperty("value", "");
+  fireEvent.change(screen.getByRole("textbox", { name: "수정할 내용" }), {
+    target: { value: "목표 단수를 추가해 줘" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "AI로 수정하기" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("generate_widget", {
@@ -795,7 +823,10 @@ it("places and removes desktop widgets through the shared desktop commands", asy
   desktop.state = { revision: 2, mode: "stack", order: ["weather"], shapes: {} };
   view.rerender(<WidgetManager embedded />);
   await waitFor(() =>
-    expect(screen.getByRole("switch", { name: "날씨 캐릭터 반응" })).toHaveProperty("disabled", false),
+    expect(screen.getByRole("switch", { name: "날씨 캐릭터 반응" })).toHaveProperty(
+      "disabled",
+      false,
+    ),
   );
   manageWidget("날씨 켜짐");
   fireEvent.click(screen.getByRole("menuitem", { name: "바탕화면에서 빼기" }));
@@ -803,7 +834,10 @@ it("places and removes desktop widgets through the shared desktop commands", asy
     expect(command).toHaveBeenCalledWith("remove_widget_desktop_item", { id: "weather" }),
   );
   await waitFor(() =>
-    expect(screen.getByRole("switch", { name: "공 캐릭터 반응" })).toHaveProperty("disabled", false),
+    expect(screen.getByRole("switch", { name: "공 캐릭터 반응" })).toHaveProperty(
+      "disabled",
+      false,
+    ),
   );
   manageWidget("공 켜짐");
   expect(screen.queryByRole("menuitem", { name: "바탕화면에 놓기" })).toBeNull();
@@ -922,9 +956,15 @@ it("starts official widget details at the top on selection and re-entry without 
   rerender(<WidgetManager embedded />);
   expect(view.scrollTop).toBe(82);
   chooseWidget(/날씨/);
-  expect(view.scrollTop).toBe(0);
-  expect(view.scrollLeft).toBe(0);
-  view.scrollTop = 40;
+  const weatherView = container.getElementsByClassName(
+    managerStyles.officialView,
+  )[0] as HTMLDivElement;
+  expect(weatherView.scrollTop).toBe(0);
+  expect(weatherView.scrollLeft).toBe(0);
+  weatherView.scrollTop = 40;
   chooseWidget(/날씨/);
-  expect(view.scrollTop).toBe(0);
+  const reopenedView = container.getElementsByClassName(
+    managerStyles.officialView,
+  )[0] as HTMLDivElement;
+  expect(reopenedView.scrollTop).toBe(0);
 });

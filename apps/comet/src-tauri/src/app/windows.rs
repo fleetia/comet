@@ -661,8 +661,15 @@ pub(crate) fn confirm_settings_exit(
     if !settings_exit_needs_confirmation(state) {
         return Ok(false);
     }
-    let section = *lock(&state.settings_section)?;
-    open_settings_section(app.clone(), section)?;
+    if let Some(window) = app.get_webview_window("settings") {
+        skip_talk(app.clone(), app.state::<Arc<AppState>>())?;
+        window.unminimize().map_err(|error| error.to_string())?;
+        window.show().map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())?;
+    } else {
+        let section = *lock(&state.settings_section)?;
+        open_settings_section(app.clone(), section)?;
+    }
     app.emit_to("settings", "confirm-settings-exit", ())
         .map_err(|error| error.to_string())?;
     Ok(true)

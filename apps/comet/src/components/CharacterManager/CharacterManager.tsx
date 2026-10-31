@@ -24,6 +24,7 @@ import { CharacterSharing, type SharingAction } from "../CharacterSharing/Charac
 import { CharacterPackSelector } from "../CharacterPackSelector/CharacterPackSelector";
 import { MemorySettings } from "../MemorySettings/MemorySettings";
 import { CharacterMemorySettings } from "../CharacterMemorySettings/CharacterMemorySettings";
+import { DEFAULT_BALLOON_STYLE } from "../balloonTypography";
 import { WindowHeader } from "../WindowHeader/WindowHeader";
 import type { CharacterRequest } from "../SettingsPanel/useSettingsNavigation";
 import * as ui from "../../common.css";
@@ -41,6 +42,22 @@ type Props = {
 type DialogueOwner = { key: string; ids: string[] };
 const NEW_ID = "new-character";
 const MAX_ROSTER = 8;
+function definitionKey(definition: CharacterDefinition | undefined): string | undefined {
+  if (!definition) return undefined;
+  const { balloonStyle, animation, reactions, bodyRegions, gestureMotions, ...rest } = definition;
+  return JSON.stringify({
+    ...rest,
+    balloonStyle: {
+      ...DEFAULT_BALLOON_STYLE,
+      ...balloonStyle,
+      textSpeed: balloonStyle?.textSpeed ?? 0,
+    },
+    animation: animation ?? null,
+    reactions: reactions ?? [],
+    bodyRegions: bodyRegions ?? [],
+    gestureMotions: gestureMotions ?? [],
+  });
+}
 function moved(ids: string[], from: number, to: number): string[] {
   const next = [...ids];
   const [id] = next.splice(from, 1);
@@ -114,6 +131,8 @@ export function CharacterManager({
     };
   }, [packIds]);
   const [selectedId, setSelectedId] = useState(installed[0]?.id ?? NEW_ID);
+  const [newCharacter, setNewCharacter] = useState(newDefinition);
+  const [editRevision, setEditRevision] = useState(0);
   const [libraryOpen, setLibraryOpen] = useState(memoryTabRequest === 0);
   useEffect(() => {
     if (memoryTabRequest > 0) setLibraryOpen(false);
@@ -133,11 +152,13 @@ export function CharacterManager({
   );
   const [animationVersions, setAnimationVersions] = useState<Record<string, number>>({});
   const animationPickerGeneration = useRef(0);
+  const editGeneration = useRef(0);
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
   useEffect(
     () => () => {
       animationPickerGeneration.current += 1;
+      editGeneration.current += 1;
     },
     [],
   );
@@ -159,15 +180,26 @@ export function CharacterManager({
   const [notice, setNotice] = useState<string | null>(null);
   const locks = useRef(new Set<string>());
   const selected = installed.find((character) => character.id === selectedId);
-  const definition = drafts[selectedId] ?? selected?.definition;
-  const dirty = Boolean(drafts[selectedId]);
+  const definition =
+    drafts[selectedId] ??
+    selected?.definition ??
+    (selectedId === NEW_ID ? newCharacter : undefined);
+  const definitionDraftIds = Object.keys(drafts).filter(
+    (id) =>
+      definitionKey(drafts[id]) !==
+      definitionKey(
+        installed.find((character) => character.id === id)?.definition ??
+          (id === NEW_ID ? newCharacter : undefined),
+      ),
+  );
+  const dirty = definitionDraftIds.includes(selectedId);
   const hasStoryDrafts = Object.values(storyDrafts).some(
     (value) => JSON.stringify(value.definition) !== JSON.stringify(value.saved.definition),
   );
   const hasDialogueDrafts = Object.values(dialogueDirty).some(Boolean) || hasStoryDrafts;
   const hasMemoryDrafts = Object.values(memoryDirty).some(Boolean);
   const hasUnsavedChanges =
-    Object.keys(drafts).length > 0 || hasDialogueDrafts || sharingDirty || hasMemoryDrafts;
+    definitionDraftIds.length > 0 || hasDialogueDrafts || sharingDirty || hasMemoryDrafts;
   const anyPending =
     Object.values(pendingTargets).some(Boolean) ||
     Object.values(dialoguePending).some(Boolean) ||
@@ -179,7 +211,7 @@ export function CharacterManager({
     packPending ||
     storyPending ||
     Boolean(pendingTargets.roster);
-  const rosterBlocked = anyPending || Object.keys(drafts).length > 0 || hasDialogueDrafts;
+  const rosterBlocked = anyPending || definitionDraftIds.length > 0 || hasDialogueDrafts;
   // Adding and importing friends are pages inside the friends section, not sheets.
   const subpageOpen = packOpen || sharingAction === "import";
   const together = active.includes(selectedId);
@@ -237,26 +269,56 @@ export function CharacterManager({
       return;
     }
     locks.current.add(target);
+    const generation = editGeneration.current;
     setPendingTargets((previous) => ({ ...previous, [target]: true }));
     setError(null);
     setNotice(null);
     try {
       await action();
     } catch (cause) {
-      setError(errorText(cause));
+      if (generation === editGeneration.current) setError(errorText(cause));
     } finally {
       locks.current.delete(target);
       setPendingTargets((previous) => ({ ...previous, [target]: false }));
     }
   }
   function select(id: string): void {
-    animationPickerGeneration.current += 1;
+    if (id !== selectedIdRef.current) discardEdits();
     selectedIdRef.current = id;
     setSelectedId(id);
     setLibraryOpen(false);
     setError(null);
     setNotice(null);
     setRemoveId(null);
+  }
+  function discardEdits(preserveCharacter = false): void {
+    if (!preserveCharacter) {
+      editGeneration.current += 1;
+      animationPickerGeneration.current += 1;
+      setDrafts({});
+    }
+    setStoryDrafts({});
+    if (!preserveCharacter) setAnimationAssets({});
+    setMemoryDirty({});
+    setDialogueDirty({});
+    setSharingDirty(false);
+    setEditRevision((previous) => previous + 1);
+  }
+  function changeDefinition(value: CharacterDefinition): void {
+    const baseline = selected?.definition ?? newCharacter;
+    setDrafts((previous) => {
+      const next = { ...previous };
+      if (definitionKey(value) === definitionKey(baseline)) {
+        delete next[selectedId];
+      } else {
+        next[selectedId] = value;
+      }
+      return next;
+    });
+  }
+  function openSharing(action: SharingAction | null): void {
+    if (action !== sharingAction) discardEdits();
+    setSharingAction(action);
   }
   function discardDefinition(): void {
     animationPickerGeneration.current += 1;
@@ -279,6 +341,7 @@ export function CharacterManager({
     if (!definition) {
       return;
     }
+    const generation = editGeneration.current;
     await run(async () => {
       animationPickerGeneration.current += 1;
       const referenced = new Set(
@@ -295,9 +358,11 @@ export function CharacterManager({
           ...animationArgs,
         });
         setCreatedCharacters((values) => [...values, created]);
+        if (generation !== editGeneration.current) return;
         select(created.id);
       } else {
         await command("save_character", { id: selectedId, definition, ...animationArgs });
+        if (generation !== editGeneration.current) return;
       }
       setAnimationAssets((values) => {
         const next = { ...values };
@@ -324,13 +389,7 @@ export function CharacterManager({
     if (!definition) {
       return;
     }
-    setDrafts((values) => ({
-      ...values,
-      [selectedId]: {
-        ...(values[selectedId] ?? definition),
-        animation: animation.clips.length > 0 ? animation : null,
-      },
-    }));
+    changeDefinition({ ...definition, animation: animation.clips.length > 0 ? animation : null });
     if (assets.length > 0) {
       setAnimationAssets((values) => ({
         ...values,
@@ -427,7 +486,7 @@ export function CharacterManager({
             <CharacterPackSelector
               characters={snapshot.characters}
               disabled={anyPending && !packPending}
-              hasUnsavedChanges={Object.keys(drafts).length > 0 || hasDialogueDrafts}
+              hasUnsavedChanges={definitionDraftIds.length > 0 || hasDialogueDrafts}
               onPendingChange={setPackPending}
               onApplied={(id) => {
                 select(id);
@@ -436,16 +495,14 @@ export function CharacterManager({
               selectedCharacterId={picked?.id ?? null}
               onSelectCharacter={setPickedId}
               onCreate={() => {
-                setDrafts((values) => ({
-                  ...values,
-                  [NEW_ID]: values[NEW_ID] ?? newDefinition(),
-                }));
+                if (selectedIdRef.current === NEW_ID) discardEdits();
+                setNewCharacter(newDefinition());
                 select(NEW_ID);
                 setPackOpen(false);
               }}
               onImport={() => {
                 setPackOpen(false);
-                setSharingAction("import");
+                openSharing("import");
               }}
             />
           </div>
@@ -461,7 +518,7 @@ export function CharacterManager({
             changedIds={installed
               .filter(
                 (character) =>
-                  Boolean(drafts[character.id]) ||
+                  definitionDraftIds.includes(character.id) ||
                   Boolean(memoryDirty[character.id]) ||
                   owners.some(
                     (owner) => owner.ids.includes(character.id) && dialogueDirty[owner.key],
@@ -472,12 +529,15 @@ export function CharacterManager({
             rosterBlocked={rosterBlocked}
             exportDisabled={dirty || hasDialogueDrafts}
             onSelect={select}
-            onAdd={() => setPackOpen(true)}
-            onImport={() => setSharingAction("import")}
+            onAdd={() => {
+              discardEdits();
+              setPackOpen(true);
+            }}
+            onImport={() => openSharing("import")}
             onExport={() => {
               if (active.length === 1) setSelectedId(active[0]);
               setExportScope(active.length > 1 ? "pair" : "selected");
-              setSharingAction("export");
+              openSharing("export");
             }}
             onTogether={(id) => void applyRoster([...active, id], "함께 지내기 시작했어요.")}
             onMove={(from, to) =>
@@ -497,18 +557,18 @@ export function CharacterManager({
                 snapshot={snapshot}
                 selectedId={selected?.id ?? null}
                 disabled={anyPending && !sharingPending}
-                contentDirty={
-                  Object.keys(drafts).length > 0 || hasDialogueDrafts || hasMemoryDrafts
-                }
+                contentDirty={definitionDraftIds.length > 0 || hasDialogueDrafts || hasMemoryDrafts}
                 onPendingChange={setSharingPending}
                 onDirtyChange={setSharingDirty}
                 exportScope={exportScope}
                 action={sharingAction}
-                onActionChange={setSharingAction}
+                onActionChange={openSharing}
               >
                 {(packSummary) => (
                   <div className={friends.detail} hidden={libraryOpen || subpageOpen}>
                     <CharacterEditor
+                      key={`${selected?.id ?? newCharacter.sourceId}:${editGeneration.current}`}
+                      onNavigate={() => discardEdits(true)}
                       lifeContent={(visible) => (
                         <PackStoryEditor
                           packId={selected?.packId ?? null}
@@ -522,7 +582,7 @@ export function CharacterManager({
                           drafts={storyDrafts}
                           onDraftsChange={setStoryDrafts}
                           onPendingChange={setStoryPending}
-                          characterDirty={Object.keys(drafts).length > 0}
+                          characterDirty={definitionDraftIds.length > 0}
                         />
                       )}
                       packContent={packSummary}
@@ -531,7 +591,7 @@ export function CharacterManager({
                           <Button
                             variant="ghost"
                             disabled={!selected?.packId || anyPending}
-                            onClick={() => setSharingAction("attribution")}
+                            onClick={() => openSharing("attribution")}
                           >
                             출처 편집
                           </Button>
@@ -540,6 +600,7 @@ export function CharacterManager({
                             disabled={!selected || selectedPending || dirty || hasDialogueDrafts}
                             onClick={() =>
                               void run(async () => {
+                                const generation = editGeneration.current;
                                 const created = await command<InstalledCharacter>(
                                   "clone_character",
                                   {
@@ -547,6 +608,7 @@ export function CharacterManager({
                                   },
                                 );
                                 setCreatedCharacters((values) => [...values, created]);
+                                if (generation !== editGeneration.current) return;
                                 select(created.id);
                                 setNotice("별도의 관계를 가진 복사본을 만들었어요.");
                               })
@@ -556,7 +618,10 @@ export function CharacterManager({
                           </Button>
                         </>
                       }
-                      onBack={() => setLibraryOpen(true)}
+                      onBack={() => {
+                        discardEdits();
+                        setLibraryOpen(true);
+                      }}
                       onHistory={() =>
                         void run(async () => {
                           await command("open_panel", { persona: selectedId, mode: "history" });
@@ -593,7 +658,7 @@ export function CharacterManager({
                       }
                       onExport={() => {
                         setExportScope("selected");
-                        setSharingAction("export");
+                        openSharing("export");
                       }}
                       statusDescription={
                         selected
@@ -619,27 +684,29 @@ export function CharacterManager({
                               캐릭터를 저장하면 함께 나눈 기억을 볼 수 있어요.
                             </p>
                           )}
-                          {memoryOwners.map((id) => (
-                            <div key={id} hidden={id !== selectedId} className={s.ownerContent}>
-                              <MemorySettings
-                                key={`${id}:${memoryVersions[id] ?? 0}`}
-                                characterId={id}
-                                characterName={
-                                  installed.find((value) => value.id === id)?.definition.name
-                                }
-                                onManage={onManage}
-                                active={id === selectedId}
-                                memoryRevision={snapshot.memoryRevision}
-                                onDirtyChange={(value) =>
-                                  setMemoryDirty((previous) =>
-                                    Boolean(previous[id]) === value
-                                      ? previous
-                                      : { ...previous, [id]: value },
-                                  )
-                                }
-                              />
-                            </div>
-                          ))}
+                          {memoryOwners
+                            .filter((id) => id === selectedId)
+                            .map((id) => (
+                              <div key={id} hidden={id !== selectedId} className={s.ownerContent}>
+                                <MemorySettings
+                                  key={`${id}:${editRevision}:${memoryVersions[id] ?? 0}`}
+                                  characterId={id}
+                                  characterName={
+                                    installed.find((value) => value.id === id)?.definition.name
+                                  }
+                                  onManage={onManage}
+                                  active={id === selectedId}
+                                  memoryRevision={snapshot.memoryRevision}
+                                  onDirtyChange={(value) =>
+                                    setMemoryDirty((previous) =>
+                                      Boolean(previous[id]) === value
+                                        ? previous
+                                        : { ...previous, [id]: value },
+                                    )
+                                  }
+                                />
+                              </div>
+                            ))}
                         </>
                       )}
                       settingsContent={
@@ -653,13 +720,13 @@ export function CharacterManager({
                             memoryDirty={Boolean(memoryDirty[selectedId])}
                             onExport={() => {
                               setExportScope("selected");
-                              setSharingAction("export");
+                              openSharing("export");
                             }}
                             onExportPack={
                               selected.packId
                                 ? () => {
                                     setExportScope("pack");
-                                    setSharingAction("export");
+                                    openSharing("export");
                                   }
                                 : undefined
                             }
@@ -668,7 +735,10 @@ export function CharacterManager({
                                 ...previous,
                                 [selectedId]: (previous[selectedId] ?? 0) + 1,
                               }));
-                              setMemoryDirty((previous) => ({ ...previous, [selectedId]: false }));
+                              setMemoryDirty((previous) => ({
+                                ...previous,
+                                [selectedId]: false,
+                              }));
                             }}
                           />
                         ) : undefined
@@ -706,9 +776,7 @@ export function CharacterManager({
                       animationVersion={animationVersions[selectedId] ?? 0}
                       onAnimationChange={changeAnimation}
                       onChooseAnimationAssets={chooseAnimationAssets}
-                      onChange={(value) =>
-                        setDrafts((values) => ({ ...values, [selectedId]: value }))
-                      }
+                      onChange={changeDefinition}
                       onSprite={(expression, remove) =>
                         void run(async () => {
                           if (remove) {
@@ -742,9 +810,10 @@ export function CharacterManager({
                               aria-label="등록 대사 대상"
                               value={scope}
                               disabled={packPending || Boolean(pendingTargets.roster)}
-                              onChange={(event) =>
-                                setScope(event.target.value === "pair" ? "pair" : "single")
-                              }
+                              onChange={(event) => {
+                                discardEdits();
+                                setScope(event.target.value === "pair" ? "pair" : "single");
+                              }}
                             >
                               <option value="single">
                                 {selected?.definition.name ?? "새 캐릭터"}
@@ -771,40 +840,44 @@ export function CharacterManager({
                             </Button>
                           )}
                         </div>
-                        {owners.map((owner) => (
-                          <div
-                            key={owner.key}
-                            hidden={owner.key !== dialogueKey}
-                            className={s.ownerContent}
-                          >
-                            <fieldset
-                              className={`${s.fieldset} ${s.ownerContent}`}
-                              disabled={packPending || Boolean(pendingTargets.roster)}
+                        {owners
+                          .filter((owner) => owner.key === dialogueKey)
+                          .map((owner) => (
+                            <div
+                              key={owner.key}
+                              hidden={owner.key !== dialogueKey}
+                              className={s.ownerContent}
                             >
-                              <CharacterDialogueEditor
-                                key={`${owner.key}:${dialogueVersions[owner.key] ?? 0}`}
-                                ids={owner.ids}
-                                owners={owner.ids.map((id) =>
-                                  installed.find((character) => character.id === id),
-                                )}
-                                expressions={[
-                                  ...new Set(
-                                    owner.ids.flatMap((id) =>
-                                      Object.keys(
-                                        installed.find((character) => character.id === id)
-                                          ?.definition.expressions ?? {},
+                              <fieldset
+                                className={`${s.fieldset} ${s.ownerContent}`}
+                                disabled={packPending || Boolean(pendingTargets.roster)}
+                              >
+                                <CharacterDialogueEditor
+                                  key={`${owner.key}:${editRevision}:${dialogueVersions[owner.key] ?? 0}`}
+                                  ids={owner.ids}
+                                  owners={owner.ids.map((id) =>
+                                    installed.find((character) => character.id === id),
+                                  )}
+                                  expressions={[
+                                    ...new Set(
+                                      owner.ids.flatMap((id) =>
+                                        Object.keys(
+                                          installed.find((character) => character.id === id)
+                                            ?.definition.expressions ?? {},
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ]}
-                                onDirtyChange={(value) => updateDialogueDirty(owner.key, value)}
-                                onPendingChange={(value) => updateDialoguePending(owner.key, value)}
-                                compact
-                                mode={dialogueType === "scenes" ? "scenes" : "keyword"}
-                              />
-                            </fieldset>
-                          </div>
-                        ))}
+                                  ]}
+                                  onDirtyChange={(value) => updateDialogueDirty(owner.key, value)}
+                                  onPendingChange={(value) =>
+                                    updateDialoguePending(owner.key, value)
+                                  }
+                                  compact
+                                  mode={dialogueType === "scenes" ? "scenes" : "keyword"}
+                                />
+                              </fieldset>
+                            </div>
+                          ))}
                       </div>
                       {!selected && (
                         <p className={s.small}>

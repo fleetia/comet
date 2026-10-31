@@ -20,6 +20,10 @@ export type SettingsDraft = {
 };
 type ApiKeyDrafts = Partial<Record<ApiProvider, { baseUrl: string; key: string }>>;
 
+function sameValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 export function useSettingsDraft(savedSettings: Settings, scope: SettingsScope): SettingsDraft {
   const [settings, setSettings] = useState(savedSettings);
   const [apiKeys, setApiKeys] = useState<ApiKeyDrafts>({});
@@ -27,30 +31,42 @@ export function useSettingsDraft(savedSettings: Settings, scope: SettingsScope):
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const dirty = useRef(new Set<keyof Settings>());
+  const saved = useRef(savedSettings);
+  const current = useRef(settings);
   const lock = useRef(false);
+  const generation = useRef(0);
   const selectedKey = apiKeys[settings.apiProvider];
   const apiKey = selectedKey?.baseUrl === settings.baseUrl ? selectedKey.key : "";
+  current.current = settings;
   useEffect(() => {
-    setSettings((previous) => ({
+    saved.current = savedSettings;
+    for (const key of dirty.current) {
+      if (sameValue(current.current[key], savedSettings[key])) dirty.current.delete(key);
+    }
+    const next = {
       ...savedSettings,
-      ...Object.fromEntries([...dirty.current].map((key) => [key, previous[key]])),
-    }));
+      ...Object.fromEntries([...dirty.current].map((key) => [key, current.current[key]])),
+    };
+    current.current = next;
+    setSettings(next);
   }, [savedSettings]);
   function change<K extends keyof Settings>(key: K, value: Settings[K]): void {
-    if (value === savedSettings[key]) dirty.current.delete(key);
+    if (sameValue(value, saved.current[key])) dirty.current.delete(key);
     else dirty.current.add(key);
-    setSettings((previous) => ({ ...previous, [key]: value }));
+    current.current = { ...current.current, [key]: value };
+    setSettings(current.current);
     setNotice(null);
   }
   function selectProvider(provider: AiProvider): void {
-    const next = selectAiProvider(settings, provider);
+    const next = selectAiProvider(current.current, provider);
     for (const key of Object.keys(next) as Array<keyof Settings>) {
-      if (JSON.stringify(next[key]) === JSON.stringify(savedSettings[key])) {
+      if (sameValue(next[key], saved.current[key])) {
         dirty.current.delete(key);
       } else {
         dirty.current.add(key);
       }
     }
+    current.current = next;
     setSettings(next);
     setError(null);
     setNotice(null);
@@ -68,15 +84,22 @@ export function useSettingsDraft(savedSettings: Settings, scope: SettingsScope):
     setPending(name);
     setError(null);
     setNotice(null);
+    const submitted = current.current;
+    const submittedFields = [...dirty.current];
+    const operationGeneration = generation.current;
     try {
       let args = commandArgs;
       if (name === "save_settings") {
-        args = { settings, scope, apiKey: scope === "model" ? apiKey.trim() || null : null };
+        args = {
+          settings: submitted,
+          scope,
+          apiKey: scope === "model" ? apiKey.trim() || null : null,
+        };
         const matchingKeys = Object.fromEntries(
           (Object.entries(apiKeys) as Array<[ApiProvider, { baseUrl: string; key: string }]>)
             .filter(
               ([provider, value]) =>
-                value.key.trim() && value.baseUrl === getApiProfile(settings, provider).baseUrl,
+                value.key.trim() && value.baseUrl === getApiProfile(submitted, provider).baseUrl,
             )
             .map(([provider, value]) => [provider, { ...value, key: value.key.trim() }]),
         );
@@ -97,18 +120,36 @@ export function useSettingsDraft(savedSettings: Settings, scope: SettingsScope):
       }
       if (name === "pick_model_file") {
         const picked = await command<string | null>(name);
-        if (picked) change("localModelPath", picked);
+        if (picked && operationGeneration === generation.current) change("localModelPath", picked);
         return;
       }
       if (name === "test_local_model" || name === "test_apple_model") {
         const result = await command<LocalModelTest>(name, args);
-        setNotice(`${(result.elapsedMs / 1000).toFixed(1)}초 · ${result.reply}`);
+        if (operationGeneration === generation.current) {
+          setNotice(`${(result.elapsedMs / 1000).toFixed(1)}초 · ${result.reply}`);
+        }
         return;
       }
       await command(name, args);
+      if (operationGeneration !== generation.current) return;
       if (name === "save_settings") {
-        setApiKeys({});
-        dirty.current.clear();
+        setApiKeys((previous) =>
+          Object.fromEntries(
+            Object.entries(previous).filter(
+              ([provider, value]) =>
+                !sameValue(value, apiKeys[provider as ApiProvider]) ||
+                value?.baseUrl !== getApiProfile(submitted, provider as ApiProvider).baseUrl,
+            ),
+          ),
+        );
+        saved.current = {
+          ...saved.current,
+          ...Object.fromEntries(submittedFields.map((key) => [key, submitted[key]])),
+        };
+        for (const key of submittedFields) {
+          if (sameValue(current.current[key], submitted[key])) dirty.current.delete(key);
+          else dirty.current.add(key);
+        }
         setNotice(scope === "automatic" ? "자동 대화 설정을 저장했어요." : "AI 연결을 저장했어요.");
       } else if (name === "clear_api_key") {
         setApiKeys((previous) => {
@@ -121,15 +162,17 @@ export function useSettingsDraft(savedSettings: Settings, scope: SettingsScope):
         setNotice("연결을 확인했어요.");
       }
     } catch (cause) {
-      setError(errorText(cause));
+      if (operationGeneration === generation.current) setError(errorText(cause));
     } finally {
       lock.current = false;
       setPending(null);
     }
   }
   function reset(): void {
+    generation.current += 1;
     dirty.current.clear();
-    setSettings(savedSettings);
+    current.current = saved.current;
+    setSettings(saved.current);
     setApiKeys({});
     setError(null);
     setNotice(null);
@@ -142,7 +185,12 @@ export function useSettingsDraft(savedSettings: Settings, scope: SettingsScope):
     error,
     notice,
     hasChanges:
-      dirty.current.size > 0 || Object.values(apiKeys).some((value) => Boolean(value?.key)),
+      dirty.current.size > 0 ||
+      Object.entries(apiKeys).some(
+        ([provider, value]) =>
+          Boolean(value?.key.trim()) &&
+          value?.baseUrl === getApiProfile(settings, provider as ApiProvider).baseUrl,
+      ),
     validInterval:
       Number.isInteger(settings.idleMinutes) &&
       settings.idleMinutes >= 1 &&

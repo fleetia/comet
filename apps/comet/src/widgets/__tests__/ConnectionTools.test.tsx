@@ -72,6 +72,47 @@ it.each(["Linux x86_64", "Win32", "MacIntel"])(
     expect(localCalendar.getByText("1개")).toBeTruthy();
   },
 );
+it("reports only changed calendar connection values and clears drafts on returning to the list", () => {
+  const onDirtyChange = vi.fn();
+  render(
+    <CalendarTool
+      mode="settings"
+      widget={widget("calendar", {
+        connections: [
+          {
+            id: "saved",
+            name: "기존 연결",
+            provider: "apple",
+            status: "ready",
+            selectedCalendarIds: ["a"],
+          },
+        ],
+        events: [],
+      })}
+      act={act}
+      onDirtyChange={onDirtyChange}
+    />,
+  );
+  fireEvent.click(screen.getByLabelText("기존 연결 메뉴"));
+  fireEvent.click(screen.getByRole("button", { name: "다시 연결·캘린더 선택" }));
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  fireEvent.change(screen.getByLabelText("연결 이름"), { target: { value: "바꾼 이름" } });
+  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  fireEvent.change(screen.getByLabelText("연결 이름"), { target: { value: "기존 연결" } });
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  fireEvent.change(screen.getByLabelText("연결 이름"), { target: { value: "버릴 이름" } });
+  fireEvent.click(screen.getByRole("button", { name: "‹ 연결한 캘린더" }));
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  fireEvent.click(screen.getByRole("button", { name: "+ 캘린더 연결…" }));
+  expect(screen.getByLabelText("연결 이름")).toHaveProperty("value", "");
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  fireEvent.click(screen.getByRole("button", { name: "민트" }));
+  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  fireEvent.click(screen.getByRole("button", { name: "코랄" }));
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  expect(act).not.toHaveBeenCalled();
+});
+
 it("requests Apple access only from the explicit button and connects only selected calendars", async () => {
   vi.mocked(command)
     .mockResolvedValueOnce("prompt")
@@ -273,6 +314,29 @@ it("reconnects under the same connection id while keeping the submitted draft on
   expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.getByLabelText(/^ICS \/ webcal 구독 주소/)).toHaveProperty("value", "");
 });
+it("clears music changes when the same allowed apps are restored in a different order", () => {
+  const onDirtyChange = vi.fn();
+  render(
+    <ConnectionTool
+      mode="settings"
+      widget={widget("music", {
+        ...EMPTY,
+        config: { provider: "auto", allowedProviders: ["music", "spotify"] },
+      })}
+      onDirtyChange={onDirtyChange}
+    />,
+  );
+  const appleMusic = screen.getByRole("switch", { name: "Apple Music · macOS" });
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  fireEvent.click(appleMusic);
+  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  fireEvent.click(appleMusic);
+  expect(appleMusic).toHaveProperty("checked", true);
+  expect(screen.getByRole("switch", { name: "Spotify · Spicetify" })).toHaveProperty("checked", true);
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  expect(command).not.toHaveBeenCalled();
+});
+
 it("does not query private sources before opting in to the selected music provider", async () => {
   render(<ConnectionTool mode="settings" widget={widget("music", EMPTY)} />);
   expect(command).not.toHaveBeenCalled();
@@ -442,40 +506,43 @@ it("saves weather presentation and refresh preferences without changing the sele
 it.each([
   { label: "민트", color: "#77d9ca" },
   { label: "사용자 색 추가", color: "#123abc" },
-])("persists calendar fetch interval, local event destination, and $label connection color", async ({ label, color }) => {
-  render(
-    <CalendarTool
-      mode="settings"
-      widget={widget("calendar", { connections: [], events: [] })}
-      act={act}
-    />,
-  );
-  fireEvent.change(screen.getByLabelText("캘린더 확인 간격"), { target: { value: "30" } });
-  expect(act).toHaveBeenCalledWith("configure", { refreshIntervalMinutes: 30 });
-  expect(screen.getByLabelText("새 일정을 넣을 곳")).toHaveProperty("value", "local");
-  fireEvent.click(screen.getByRole("button", { name: "+ 캘린더 연결…" }));
-  fireEvent.change(screen.getByLabelText(/^연결 이름/), { target: { value: "구독" } });
-  fireEvent.change(screen.getByLabelText(/^ICS \/ webcal/), {
-    target: { value: "https://example.com/calendar.ics" },
-  });
-  if (label === "사용자 색 추가") {
-    const picker = screen.getByLabelText(label);
-    expect(picker).toHaveProperty("type", "color");
-    fireEvent.change(picker, { target: { value: color } });
-  } else {
-    fireEvent.click(screen.getByRole("button", { name: label }));
-  }
-  fireEvent.click(screen.getByRole("button", { name: "구독 주소 연결" }));
-  await waitFor(() =>
-    expect(act).toHaveBeenCalledWith("configure", { connectionColor: color }),
-  );
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledWith(
-      "connect_calendar_ics",
-      expect.objectContaining({ input: { name: "구독", url: "https://example.com/calendar.ics" } }),
-    ),
-  );
-});
+])(
+  "persists calendar fetch interval, local event destination, and $label connection color",
+  async ({ label, color }) => {
+    render(
+      <CalendarTool
+        mode="settings"
+        widget={widget("calendar", { connections: [], events: [] })}
+        act={act}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("캘린더 확인 간격"), { target: { value: "30" } });
+    expect(act).toHaveBeenCalledWith("configure", { refreshIntervalMinutes: 30 });
+    expect(screen.getByLabelText("새 일정을 넣을 곳")).toHaveProperty("value", "local");
+    fireEvent.click(screen.getByRole("button", { name: "+ 캘린더 연결…" }));
+    fireEvent.change(screen.getByLabelText(/^연결 이름/), { target: { value: "구독" } });
+    fireEvent.change(screen.getByLabelText(/^ICS \/ webcal/), {
+      target: { value: "https://example.com/calendar.ics" },
+    });
+    if (label === "사용자 색 추가") {
+      const picker = screen.getByLabelText(label);
+      expect(picker).toHaveProperty("type", "color");
+      fireEvent.change(picker, { target: { value: color } });
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: label }));
+    }
+    fireEvent.click(screen.getByRole("button", { name: "구독 주소 연결" }));
+    await waitFor(() => expect(act).toHaveBeenCalledWith("configure", { connectionColor: color }));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith(
+        "connect_calendar_ics",
+        expect.objectContaining({
+          input: { name: "구독", url: "https://example.com/calendar.ics" },
+        }),
+      ),
+    );
+  },
+);
 it("shows the last weather observation as stale through the desktop weather renderer", () => {
   render(
     <ConnectionTool

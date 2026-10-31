@@ -82,6 +82,7 @@ it("shows the command error instead of changing the list", async () => {
 
 it("installs a pack within dialogue settings without saving a personal wordbook draft", async () => {
   render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="wordbook" />);
+  const savedLine = (screen.getByLabelText("대사 1") as HTMLTextAreaElement).value;
   fireEvent.change(screen.getByLabelText("대사 1"), {
     target: { value: "  쓰던 대사\n\n다음 줄  " },
   });
@@ -94,7 +95,7 @@ it("installs a pack within dialogue settings without saving a personal wordbook 
   );
   fireEvent.click(screen.getByRole("button", { name: "‹ 대화" }));
   fireEvent.click(screen.getByRole("button", { name: /단어장/ }));
-  expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "  쓰던 대사\n\n다음 줄  ");
+  expect(screen.getByLabelText("대사 1")).toHaveProperty("value", savedLine);
   expect(vi.mocked(command).mock.calls.some(([name]) => name === "save_wordbook_entry")).toBe(
     false,
   );

@@ -87,7 +87,7 @@ function button(name: string): HTMLElement {
   return screen.getByRole("button", { name });
 }
 
-it("keeps reaction candidates and ordinary line motion in the character draft across selection, then saves their original text", async () => {
+it("keeps reaction candidates and ordinary line motion across dialogue types, then saves their original text", async () => {
   render(
     <CharacterManager
       snapshot={{
@@ -121,9 +121,6 @@ it("keeps reaction candidates and ordinary line motion in the character draft ac
   });
   fireEvent.click(dialoguePanel().getByRole("button", { name: "인사·수다·출입" }));
   fireEvent.change(dialoguePanel().getByLabelText("인사 1 동작"), { target: { value: "static" } });
-  selectFriend(/^B/);
-  expect(dialoguePanel().queryByLabelText("반응 1 후보 1 대사")).toBeNull();
-  selectFriend(/^A/);
   fireEvent.click(dialoguePanel().getByRole("button", { name: "사건 반응" }));
   expect(dialoguePanel().getByLabelText("반응 1 후보 1 대사")).toHaveProperty(
     "value",
@@ -153,6 +150,32 @@ it("keeps reaction candidates and ordinary line motion in the character draft ac
     ],
   });
   expect(args.definition.greeting[0].motion).toEqual({ mode: "static" });
+});
+
+it("discards an unsaved reaction when switching to a different friend", () => {
+  render(
+    <CharacterManager
+      snapshot={{
+        ...PREVIEW_SNAPSHOT,
+        characters: { ...PREVIEW_SNAPSHOT.characters, installed: owners },
+      }}
+      embedded
+    />,
+  );
+  openCharacterPage("프로필");
+  openCharacterPage("대사·반응");
+  const dialoguePanel = () => within(screen.getByRole("tabpanel", { name: "대사·반응" }));
+  fireEvent.click(dialoguePanel().getByRole("button", { name: "사건 반응" }));
+  fireEvent.click(dialoguePanel().getByRole("button", { name: "반응 추가" }));
+  fireEvent.change(dialoguePanel().getByLabelText("반응 1 후보 1 대사"), {
+    target: { value: "  앗,\n어디로?  " },
+  });
+  selectFriend(/^B/);
+  expect(dialoguePanel().queryByLabelText("반응 1 후보 1 대사")).toBeNull();
+  selectFriend(/^A/);
+  fireEvent.click(dialoguePanel().getByRole("button", { name: "사건 반응" }));
+  expect(dialoguePanel().queryByLabelText("반응 1 후보 1 대사")).toBeNull();
+  expect(vi.mocked(command).mock.calls.some(([name]) => name === "save_character")).toBe(false);
 });
 
 it("previews native selection and busy rejection without emitting live reaction commands, and rejects stale preview results", async () => {

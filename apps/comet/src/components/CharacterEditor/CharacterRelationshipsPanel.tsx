@@ -1,10 +1,11 @@
-import type { JSX } from "react";
+import { useState, type JSX } from "react";
 import { Button, Select, Textarea } from "@comet/ui";
 import { AuthoringTrial } from "./AuthoringTrial";
 import { Lines } from "./Lines";
 import { CharacterWorkPanel } from "./CharacterWorkPanel";
 import { MAX_RELATIONSHIPS, relationshipTargetName } from "./characterEditorValues";
 import type { CharacterEditorState } from "./useCharacterEditor";
+import type { CharacterDefinition } from "../../types";
 import * as e from "./CharacterEditor.css";
 import * as s from "../characters.css";
 
@@ -32,6 +33,18 @@ export function CharacterRelationshipsPanel({
     tab,
     nextTarget,
   } = editor;
+  const [dismissedTarget, setDismissedTarget] = useState<string | null>(null);
+  const requestedRelationship =
+    reactionTarget &&
+    reactionTarget !== dismissedTarget &&
+    definition.relationships.length < MAX_RELATIONSHIPS &&
+    relationshipTargets.some((target) => target.id === reactionTarget) &&
+    !definition.relationships.some(({ targetId }) => targetId === reactionTarget)
+      ? { targetId: reactionTarget, description: "" }
+      : null;
+  const relationships: CharacterDefinition["relationships"] = requestedRelationship
+    ? [...definition.relationships, requestedRelationship]
+    : definition.relationships;
   return (
     <fieldset className={`${s.fieldset} ${e.relationshipWorkspace}`} disabled={pending}>
       <CharacterWorkPanel footer={definitionActions}>
@@ -41,7 +54,19 @@ export function CharacterRelationshipsPanel({
             이 캐릭터가 상대를 어떻게 생각하고 대하는지 적어요. 상대의 관점은 상대 캐릭터에서 따로
             설정해요.
           </p>
-          {definition.relationships.map((relationship, index) => {
+          {relationships.map((relationship, index) => {
+            const isRequested = index >= definition.relationships.length;
+            function updateRelationship(value: typeof relationship): void {
+              if (isRequested && value.targetId !== relationship.targetId) {
+                setDismissedTarget(relationship.targetId);
+              }
+              change(
+                "relationships",
+                isRequested
+                  ? [...definition.relationships, value]
+                  : definition.relationships.map((current, i) => (i === index ? value : current)),
+              );
+            }
             const target = relationshipTargets.find(
               (member) => member.id === relationship.targetId,
             );
@@ -56,12 +81,7 @@ export function CharacterRelationshipsPanel({
                     aria-label={`관계 ${index + 1} 대상`}
                     value={relationship.targetId}
                     onChange={(event) =>
-                      change(
-                        "relationships",
-                        definition.relationships.map((value, i) =>
-                          i === index ? { ...value, targetId: event.target.value } : value,
-                        ),
-                      )
+                      updateRelationship({ ...relationship, targetId: event.target.value })
                     }
                   >
                     {missingTarget && (
@@ -86,12 +106,19 @@ export function CharacterRelationshipsPanel({
                     size="small"
                     type="button"
                     aria-label={`관계 ${index + 1} 삭제`}
-                    onClick={() =>
-                      change(
-                        "relationships",
-                        definition.relationships.filter((_, i) => i !== index),
-                      )
-                    }
+                    onClick={() => {
+                      if (isRequested) {
+                        setDismissedTarget(relationship.targetId);
+                      } else {
+                        if (relationship.targetId === reactionTarget) {
+                          setDismissedTarget(relationship.targetId);
+                        }
+                        change(
+                          "relationships",
+                          definition.relationships.filter((_, i) => i !== index),
+                        );
+                      }
+                    }}
                   >
                     삭제
                   </Button>
@@ -107,12 +134,7 @@ export function CharacterRelationshipsPanel({
                   placeholder="예: 오래된 친구라 편하게 장난치지만 힘들어하면 먼저 챙겨요."
                   value={relationship.description}
                   onChange={(event) =>
-                    change(
-                      "relationships",
-                      definition.relationships.map((value, i) =>
-                        i === index ? { ...value, description: event.target.value } : value,
-                      ),
-                    )
+                    updateRelationship({ ...relationship, description: event.target.value })
                   }
                 />
                 <details open={relationship.targetId === reactionTarget || undefined}>
@@ -125,14 +147,7 @@ export function CharacterRelationshipsPanel({
                     clips={definition.animation?.clips ?? []}
                     onSelect={() => {}}
                     allowEmpty
-                    onChange={(replyLines) =>
-                      change(
-                        "relationships",
-                        definition.relationships.map((value, i) =>
-                          i === index ? { ...value, replyLines } : value,
-                        ),
-                      )
-                    }
+                    onChange={(replyLines) => updateRelationship({ ...relationship, replyLines })}
                   />
                 </details>
                 {character && target && (

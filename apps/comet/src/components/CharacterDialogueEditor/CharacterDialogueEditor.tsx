@@ -42,6 +42,24 @@ export function CharacterDialogueEditor({
   const [revision, setRevision] = useState(0);
   const lock = useRef(false);
   const key = ids.join(":");
+  const scope = useRef({ key, generation: 0, mounted: false });
+  if (scope.current.key !== key) {
+    scope.current = { key, generation: scope.current.generation + 1, mounted: false };
+  }
+  function current(generation: number): boolean {
+    return scope.current.mounted && scope.current.generation === generation;
+  }
+  useEffect(() => {
+    scope.current.mounted = true;
+    lock.current = false;
+    setPending(false);
+    return () => {
+      scope.current.mounted = false;
+      scope.current.generation += 1;
+      if (lock.current) onPendingChange?.(false);
+      lock.current = false;
+    };
+  }, [key]);
   useEffect(() => {
     let active = true;
     setError(null);
@@ -70,18 +88,23 @@ export function CharacterDialogueEditor({
   useEffect(() => {
     onDirtyChange(hasStructureChanges || hasSceneChanges || wordbookDirty || pending);
   }, [hasStructureChanges, hasSceneChanges, wordbookDirty, pending, onDirtyChange]);
-  async function save(next: CharacterDialogue): Promise<void> {
+  async function save(next: CharacterDialogue): Promise<boolean> {
     if (lock.current) throw new Error("다른 대사를 저장하고 있어요. 잠시 후 다시 시도해 주세요.");
+    const generation = scope.current.generation;
     lock.current = true;
     setPending(true);
     onPendingChange?.(true);
     try {
       await command("save_character_dialogue", { ids, dialogue: next });
+      if (!current(generation)) return false;
       setDialogue(next);
+      return true;
     } finally {
-      lock.current = false;
-      setPending(false);
-      onPendingChange?.(false);
+      if (current(generation)) {
+        lock.current = false;
+        setPending(false);
+        onPendingChange?.(false);
+      }
     }
   }
   async function saveEntry(entry: WordbookEntry): Promise<void> {
@@ -129,6 +152,11 @@ export function CharacterDialogueEditor({
     setScenes((values) => [...values, scene]);
     setSelectedId(scene.id);
   }
+  function selectScene(id: string): void {
+    if (id === selected?.id) return;
+    setSelectedId(id);
+    setError(null);
+  }
   function cancelSelected(): void {
     if (!selected) return;
     const baseline = baselineLines[selected.id];
@@ -143,29 +171,31 @@ export function CharacterDialogueEditor({
   }
   async function saveSelected(): Promise<void> {
     if (!dialogue || !selected || !validLines(selected.lines)) return;
+    const generation = scope.current.generation;
     setError(null);
     const nextOrder = baselineOrder.includes(selected.id)
       ? baselineOrder
       : [...baselineOrder, selected.id];
     const nextLines = { ...baselineLines, [selected.id]: selected.lines };
     try {
-      await save({ ...dialogue, pairScenes: nextOrder.map((id) => nextLines[id]) });
+      if (!(await save({ ...dialogue, pairScenes: nextOrder.map((id) => nextLines[id]) }))) return;
       setBaselineOrder(nextOrder);
       setBaselineLines(nextLines);
     } catch (cause) {
-      setError(errorText(cause));
+      if (current(generation)) setError(errorText(cause));
     }
   }
   async function saveAll(): Promise<void> {
     if (!dialogue || !scenes.every((scene) => validLines(scene.lines))) return;
+    const generation = scope.current.generation;
     setError(null);
     try {
-      await save({ ...dialogue, pairScenes: scenes.map((scene) => scene.lines) });
+      if (!(await save({ ...dialogue, pairScenes: scenes.map((scene) => scene.lines) }))) return;
       setRemovedDrafts({});
       setBaselineOrder(scenes.map((scene) => scene.id));
       setBaselineLines(Object.fromEntries(scenes.map((scene) => [scene.id, scene.lines])));
     } catch (cause) {
-      setError(errorText(cause));
+      if (current(generation)) setError(errorText(cause));
     }
   }
   function cancelStructure(): void {
@@ -235,22 +265,24 @@ export function CharacterDialogueEditor({
   );
   return (
     <div className={s.editor}>
-      <div hidden={mode === "scenes"} className={s.ownerPanel}>
-        <WordbookPanel
-          title={ids.length === 1 ? "이 캐릭터의 키워드 대사" : "현재 친구들의 키워드 대사"}
-          description="개인 단어장 다음에 찾는 등록 대사예요. 항목마다 따로 저장해요."
-          entries={dialogue.wordbook}
-          owners={owners}
-          singleCharacter={ids.length === 1}
-          speakerCount={ids.length}
-          saveEntry={saveEntry}
-          deleteEntry={deleteEntry}
-          onDirtyChange={setWordbookDirty}
-          highlight={false}
-        />
-      </div>
-      {ids.length > 1 && (
-        <section hidden={mode === "keyword"} className={s.ownerPanel} aria-label="조합의 자동 수다">
+      {mode !== "scenes" && (
+        <div className={s.ownerPanel}>
+          <WordbookPanel
+            title={ids.length === 1 ? "이 캐릭터의 키워드 대사" : "현재 친구들의 키워드 대사"}
+            description="개인 단어장 다음에 찾는 등록 대사예요. 항목마다 따로 저장해요."
+            entries={dialogue.wordbook}
+            owners={owners}
+            singleCharacter={ids.length === 1}
+            speakerCount={ids.length}
+            saveEntry={saveEntry}
+            deleteEntry={deleteEntry}
+            onDirtyChange={setWordbookDirty}
+            highlight={false}
+          />
+        </div>
+      )}
+      {ids.length > 1 && mode !== "keyword" && (
+        <section className={s.ownerPanel} aria-label="조합의 자동 수다">
           <div className={s.sceneLayout}>
             <CharacterWorkPanel
               role="complementary"
@@ -265,7 +297,7 @@ export function CharacterDialogueEditor({
                   className={s.sceneRow}
                   aria-label={`장면 ${index + 1} 선택`}
                   disabled={pending}
-                  onClick={() => setSelectedId(scene.id)}
+                  onClick={() => selectScene(scene.id)}
                 >
                   <strong>
                     장면 {index + 1}

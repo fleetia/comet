@@ -267,24 +267,23 @@ it("adds only the picked resting friend to the roster from the add page", async 
   );
 });
 
-it("blocks pack application for a draft on another character and unlocks after cancelling", async () => {
+it("discards the previous friend's draft before allowing pack application", async () => {
   render(<CharacterManager embedded snapshot={{ ...PREVIEW_SNAPSHOT, characters }} />);
   openCharacterPage("프로필");
   fireEvent.change(screen.getByLabelText("이름"), { target: { value: "수정 중인 A" } });
   selectFriend(/^B/);
   openFriendPacks();
-  expect(applyIn(await pack("2. 별 친구 · 1명"))).toHaveProperty("disabled", true);
-  expect(screen.getByRole("button", { name: "함께 지내기" })).toHaveProperty("disabled", true);
-  expect(screen.getByText(/수정 중인 캐릭터와 대사를 저장하거나 취소/)).toBeTruthy();
+  expect(applyIn(await pack("2. 별 친구 · 1명"))).toHaveProperty("disabled", false);
+  expect(screen.queryByText(/수정 중인 캐릭터와 대사를 저장하거나 취소/)).toBeNull();
   fireEvent.click(
     within(screen.getByRole("navigation", { name: "친구 추가 경로" })).getByRole("button", {
       name: "친구들로 돌아가기",
     }),
   );
-  selectFriend(/^수정 중인 A/);
+  selectFriend(/^A/);
   openCharacterPage("프로필");
-  expect(screen.getByLabelText("이름")).toHaveProperty("value", "수정 중인 A");
-  fireEvent.click(screen.getByRole("button", { name: "캐릭터 수정 취소" }));
+  expect(screen.getByLabelText("이름")).toHaveProperty("value", "A");
+  expect(vi.mocked(command).mock.calls.some(([name]) => name === "save_character")).toBe(false);
   openFriendPacks();
   expect(applyIn(await pack("2. 별 친구 · 1명"))).toHaveProperty("disabled", false);
 });
@@ -315,8 +314,16 @@ it("locks character and dialogue edits during an unresolved pack switch", async 
   await screen.findByRole("textbox", { name: "제목" });
   openFriendPacks();
   fireEvent.click(applyIn(await pack("2. 별 친구 · 1명")));
-  expect(screen.getByLabelText("이름").matches(":disabled")).toBe(true);
-  expect(screen.getByLabelText("등록 대사 대상").matches(":disabled")).toBe(true);
+  expect(screen.getByRole("button", { name: "전환 중…" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "새로 만들기" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "파일에서" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "취소" })).toHaveProperty("disabled", true);
+  expect(within(await pack("2. 별 친구 · 1명")).getByRole("button", { name: /모래/ })).toHaveProperty(
+    "disabled",
+    true,
+  );
   finish();
+  await waitFor(() => expect(screen.queryByRole("button", { name: "전환 중…" })).toBeNull());
+  openCharacterPage("프로필");
   await waitFor(() => expect(screen.getByLabelText("이름")).toHaveProperty("value", "모래"));
 });
