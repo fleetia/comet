@@ -263,7 +263,9 @@ export function MemorySearchSettings({
               );
             })
           ) : (
-            <p role="status">검색 설정을 불러오고 있어요.</p>
+            <p role="status" className={figma.groupMessage}>
+              검색 설정을 불러오고 있어요.
+            </p>
           )}
         </div>
         {(commandError || fetchError) && (
