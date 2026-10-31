@@ -101,7 +101,11 @@ function AIProviderSettingsExample({
         ))}
       </Select>
       {recommended && (
-        <p style={CAPTION}>macOS에서는 Apple 온디바이스 AI를 추천해요. 내려받지 않고 바로 쓸 수 있어요. 지원하지 않는 Mac이면 이 기기의 모델(2.7GB, 무료)을 써요.</p>
+        <p style={CAPTION}>
+          {platform === "macos"
+            ? "macOS에서는 Apple 온디바이스 AI를 추천해요. 내려받지 않고 바로 쓸 수 있어요. 지원하지 않는 Mac이면 이 기기의 모델(2.7GB, 무료)을 써요."
+            : "Windows에서는 ChatGPT를 추천해요. Plus·Pro 계정이 있으면 가장 빠르고, 없으면 이 기기의 모델(2.7GB, 무료)을 써요."}
+        </p>
       )}
 
       {provider === "apple" && (
