@@ -63,7 +63,7 @@ function choose(name: string): void {
   selectFriend(new RegExp(`^${name}`));
 }
 
-it("keeps character memory drafts independent and scopes edits and forgetting without showing internal person labels", async () => {
+it("discards memory drafts when choosing another friend and scopes saves and forgetting", async () => {
   render(<CharacterManager snapshot={PREVIEW_SNAPSHOT} />);
   openCharacterPage("프로필");
   characterTab("기억");
@@ -83,10 +83,15 @@ it("keeps character memory drafts independent and scopes edits and forgetting wi
     target: { value: "B 초안" },
   });
   choose("A");
-  expect(memoryPanel().getByRole("textbox", { name: "기억 내용" })).toHaveProperty(
-    "value",
-    "A 초안",
+  await waitFor(() =>
+    expect(memoryPanel().getByRole("textbox", { name: "기억 내용" })).toHaveProperty(
+      "value",
+      memory.content,
+    ),
   );
+  fireEvent.change(memoryPanel().getByRole("textbox", { name: "기억 내용" }), {
+    target: { value: "A 초안" },
+  });
   expect(screen.queryByText(/현재 사용자|이전 사용자|person-1/)).toBeNull();
   fireEvent.click(
     within(memoryPanel().getByRole("region", { name: "캐릭터의 기억" })).getByText("기억의 근거", {
@@ -103,9 +108,11 @@ it("keeps character memory drafts independent and scopes edits and forgetting wi
     }),
   );
   choose("B");
-  expect(memoryPanel().getByRole("textbox", { name: "기억 내용" })).toHaveProperty(
-    "value",
-    "B 초안",
+  await waitFor(() =>
+    expect(memoryPanel().getByRole("textbox", { name: "기억 내용" })).toHaveProperty(
+      "value",
+      memory.content,
+    ),
   );
   fireEvent.click(memoryPanel().getByRole("button", { name: "이 기억 지우기" }));
   fireEvent.click(memoryPanel().getByRole("button", { name: "기억 삭제 확인" }));
@@ -199,32 +206,60 @@ it("registers a trimmed name, leaves same-name changes alone, and explicitly con
 it("keeps a birthday draft when this form changes the user's name", async () => {
   const birthday = { month: 2, day: 10, year: null };
   const user = { id: "old-user", name: "민수", startedAt: 1, endedAt: null };
-  const { rerender } = render(<UserSettings snapshot={{ ...PREVIEW_SNAPSHOT, user, userBirthday: birthday }} />);
+  const { rerender } = render(
+    <UserSettings snapshot={{ ...PREVIEW_SNAPSHOT, user, userBirthday: birthday }} />,
+  );
   const section = within(screen.getByRole("region", { name: "사용자 생일" }));
   fireEvent.change(section.getByLabelText("일"), { target: { value: "11" } });
   fireEvent.change(screen.getByLabelText("부를 이름"), { target: { value: "지연" } });
   fireEvent.click(screen.getByRole("button", { name: "바꾸기…" }));
   fireEvent.click(screen.getByRole("button", { name: "바꾸기" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("set_user_name", { name: "지연" }));
-  rerender(<UserSettings snapshot={{ ...PREVIEW_SNAPSHOT, user: { ...user, id: "new-user", name: "지연" }, userBirthday: birthday }} />);
+  rerender(
+    <UserSettings
+      snapshot={{
+        ...PREVIEW_SNAPSHOT,
+        user: { ...user, id: "new-user", name: "지연" },
+        userBirthday: birthday,
+      }}
+    />,
+  );
   expect(section.getByLabelText("일")).toHaveProperty("value", "11");
   fireEvent.click(section.getByRole("button", { name: "생일 저장" }));
-  await waitFor(() => expect(command).toHaveBeenCalledWith("set_user_birthday", {
-    birthday: { month: 2, day: 11, year: null }, expected: birthday, userId: "new-user",
-  }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("set_user_birthday", {
+      birthday: { month: 2, day: 11, year: null },
+      expected: birthday,
+      userId: "new-user",
+    }),
+  );
 });
 
 it("keeps the original birthday target when another identity appears", async () => {
   const birthday = { month: 2, day: 10, year: null };
   const user = { id: "old-user", name: "민수", startedAt: 1, endedAt: null };
-  const { rerender } = render(<UserSettings snapshot={{ ...PREVIEW_SNAPSHOT, user, userBirthday: birthday }} />);
+  const { rerender } = render(
+    <UserSettings snapshot={{ ...PREVIEW_SNAPSHOT, user, userBirthday: birthday }} />,
+  );
   const section = within(screen.getByRole("region", { name: "사용자 생일" }));
   fireEvent.change(section.getByLabelText("일"), { target: { value: "11" } });
-  rerender(<UserSettings snapshot={{ ...PREVIEW_SNAPSHOT, user: { ...user, id: "other-user", name: "다른 사람" }, userBirthday: birthday }} />);
+  rerender(
+    <UserSettings
+      snapshot={{
+        ...PREVIEW_SNAPSHOT,
+        user: { ...user, id: "other-user", name: "다른 사람" },
+        userBirthday: birthday,
+      }}
+    />,
+  );
   fireEvent.click(section.getByRole("button", { name: "생일 저장" }));
-  await waitFor(() => expect(command).toHaveBeenCalledWith("set_user_birthday", {
-    birthday: { month: 2, day: 11, year: null }, expected: birthday, userId: "old-user",
-  }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("set_user_birthday", {
+      birthday: { month: 2, day: 11, year: null },
+      expected: birthday,
+      userId: "old-user",
+    }),
+  );
 });
 
 it("rejects blank and overlong names and preserves a failed registration draft", async () => {

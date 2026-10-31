@@ -24,29 +24,47 @@ const memories = [
   { ...identity, id: "two", content: "둘째 기억", sourceMessageId: "message-two", updatedAt: 2 },
 ];
 
-it("keeps drafts by memory ID across selection and snapshots, and cancels only the selected memory", () => {
+it("discards drafts when selecting another memory but preserves the current draft across snapshots", () => {
   const onDirtyChange = vi.fn();
   const { rerender } = render(
     <MemoryEditor characterId="builtin-a" memories={memories} onDirtyChange={onDirtyChange} />,
   );
   fireEvent.change(screen.getByLabelText("기억 내용"), { target: { value: "첫 초안" } });
   fireEvent.click(screen.getByRole("button", { name: "둘째 기억" }));
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  fireEvent.change(screen.getByLabelText("기억 내용"), { target: { value: "둘째 초안" } });
   const latest = memories.map((memory) => ({ ...memory, content: `${memory.content} 최신` }));
   rerender(
     <MemoryEditor characterId="builtin-a" memories={latest} onDirtyChange={onDirtyChange} />,
   );
-  expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "둘째 기억 최신");
-  fireEvent.change(screen.getByLabelText("기억 내용"), { target: { value: "둘째 초안" } });
-  fireEvent.click(screen.getByRole("button", { name: "첫 기억 최신 · 미저장" }));
-  expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "첫 초안");
-  fireEvent.click(screen.getByRole("button", { name: "변경 취소" }));
-  expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "첫 기억 최신");
-  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
-  fireEvent.click(screen.getByRole("button", { name: "둘째 기억 최신 · 미저장" }));
   expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "둘째 초안");
-  fireEvent.click(screen.getByRole("button", { name: "변경 취소" }));
+  fireEvent.change(screen.getByLabelText("기억 내용"), { target: { value: "둘째 기억 최신" } });
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  fireEvent.change(screen.getByLabelText("기억 내용"), { target: { value: "다시 수정" } });
+  fireEvent.click(screen.getByRole("button", { name: "첫 기억 최신" }));
+  expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "첫 기억 최신");
+  fireEvent.click(screen.getByRole("button", { name: "둘째 기억 최신" }));
+  expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "둘째 기억 최신");
   expect(onDirtyChange).toHaveBeenLastCalledWith(false);
   expect(command).not.toHaveBeenCalled();
+});
+
+it("retains a failed save until selecting a different memory", async () => {
+  vi.mocked(command).mockRejectedValueOnce(new Error("저장 실패"));
+  render(<MemoryEditor characterId="builtin-a" memories={memories} />);
+  fireEvent.change(screen.getByLabelText("기억 내용"), { target: { value: "실패한 초안" } });
+  fireEvent.click(screen.getByRole("button", { name: "기억 저장" }));
+  await screen.findByRole("alert");
+  expect(command).toHaveBeenCalledWith("edit_memory", {
+    id: "one",
+    characterId: "builtin-a",
+    content: "실패한 초안",
+  });
+  expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "실패한 초안");
+  fireEvent.click(screen.getByRole("button", { name: "둘째 기억" }));
+  fireEvent.click(screen.getByRole("button", { name: "첫 기억" }));
+  expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "첫 기억");
+  expect(command).toHaveBeenCalledTimes(1);
 });
 
 it("keeps a draft after deletion fails and removes it only after a successful retry", async () => {

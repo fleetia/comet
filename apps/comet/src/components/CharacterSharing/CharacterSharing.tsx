@@ -83,6 +83,16 @@ export function CharacterSharing({
     attribution &&
     (attribution.saved.author !== author || attribution.saved.sourceUrl !== sourceUrl);
   const [attributionRevision, setAttributionRevision] = useState(0);
+  useEffect(() => {
+    setAttributions((values) =>
+      Object.fromEntries(
+        Object.entries(values).map(([id, value]) => [
+          id,
+          { saved: value.saved, draft: value.saved },
+        ]),
+      ),
+    );
+  }, [action, selectedId]);
   function changeAttribution(patch: Partial<Attribution>): void {
     if (!packId || !attribution) {
       return;

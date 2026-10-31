@@ -589,78 +589,83 @@ pub(crate) fn record_input_and_route(
     route_input(state, db, content, targets, message_id)
 }
 
+fn prepare_tutorial(
+    state: &AppState,
+) -> Result<(pack_stories::RunTicket, Arc<AtomicBool>, Vec<String>), String> {
+    let _action = lock(&state.action)?;
+    if unavailable(state) || lock(&state.pack_stories)?.run.is_some() {
+        return Err("지금은 이야기를 시작할 수 없어요.".into());
+    }
+    let db = lock(&state.db)?;
+    ensure_available(&db)?;
+    let status = lock(&state.runtime)?.clone();
+    if status.hidden
+        || status.paused
+        || super::quiet_hours::automatic_blocked(state, &store::settings(&db)?)?
+    {
+        return Err("지금은 이야기가 쉬고 있어요.".into());
+    }
+    let user = store::current_user(&db)?.ok_or("이름을 먼저 등록해 주세요.")?;
+    let mut selected = None;
+    for center in characters::active_ids(&db)? {
+        let actor = characters::get(&db, &center)?;
+        let Some(pack_id) = actor.pack_id else {
+            continue;
+        };
+        let snapshot = characters::get_pack_story_definition(&db, &pack_id)?;
+        if let Some(definition) = snapshot.definition.scenarios.iter().find(|definition| {
+            definition.purpose == pack_stories::ScenarioPurpose::Tutorial
+                && definition.chapters.is_some()
+                && snapshot.source_to_local.get(&definition.center_id) == Some(&center)
+        }) {
+            selected = Some((
+                pack_stories::Scope {
+                    user_id: user.id.clone(),
+                    pack_id,
+                    center_id: center,
+                },
+                definition.clone(),
+            ));
+            break;
+        }
+    }
+    let (scope, definition) = selected.ok_or("시작할 튜토리얼을 찾지 못했어요.")?;
+    let context = pack_stories::InputContext {
+        input_id: uuid::Uuid::new_v4().to_string(),
+        user_id: user.id,
+        targets: vec![scope.center_id.clone()],
+        epoch: state.epoch.load(Ordering::SeqCst),
+    };
+    let plan = pack_stories::scene_plan(&db, &context, scope, definition, None)?;
+    let (epoch, cancel) = super::tasks::reserve(state, super::tasks::Kind::Scene, false)?;
+    let prepared = (|| {
+        store::pause_conversations(&db)?;
+        *lock(&state.panel)? = None;
+        let admitted = bind_pack_plan_locked(state, &db, &plan, epoch)?;
+        let run = lock(&state.pack_stories)?
+            .run
+            .clone()
+            .ok_or("이야기 실행을 시작하지 못했어요.")?;
+        characters::life::wake(state, &run.scope.center_id)?;
+        pack_stories::resume::record_accepted(&db, &run)?;
+        Ok::<_, String>((run, admitted))
+    })();
+    let (run, admitted) = match prepared {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            super::scene_resume::clear_failed_start(state, &db, &plan.run_id, epoch, &error);
+            return Err(error);
+        }
+    };
+    Ok((run, cancel, admitted))
+}
+
 #[tauri::command]
 pub(crate) fn start_tutorial(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    let prepared = (|| -> Result<_, String> {
-        let _action = lock(&state.action)?;
-        if unavailable(&state) || lock(&state.pack_stories)?.run.is_some() {
-            return Err("지금은 이야기를 시작할 수 없어요.".into());
-        }
-        let db = lock(&state.db)?;
-        ensure_available(&db)?;
-        let status = lock(&state.runtime)?.clone();
-        if status.hidden
-            || status.paused
-            || super::quiet_hours::automatic_blocked(&state, &store::settings(&db)?)?
-        {
-            return Err("지금은 이야기가 쉬고 있어요.".into());
-        }
-        let user = store::current_user(&db)?.ok_or("이름을 먼저 등록해 주세요.")?;
-        let mut selected = None;
-        for center in characters::active_ids(&db)? {
-            let actor = characters::get(&db, &center)?;
-            let Some(pack_id) = actor.pack_id else {
-                continue;
-            };
-            let snapshot = characters::get_pack_story_definition(&db, &pack_id)?;
-            if let Some(definition) = snapshot.definition.scenarios.iter().find(|definition| {
-                definition.purpose == pack_stories::ScenarioPurpose::Tutorial
-                    && definition.chapters.is_some()
-                    && snapshot.source_to_local.get(&definition.center_id) == Some(&center)
-            }) {
-                selected = Some((
-                    pack_stories::Scope {
-                        user_id: user.id.clone(),
-                        pack_id,
-                        center_id: center,
-                    },
-                    definition.clone(),
-                ));
-                break;
-            }
-        }
-        let (scope, definition) = selected.ok_or("시작할 튜토리얼을 찾지 못했어요.")?;
-        let context = pack_stories::InputContext {
-            input_id: uuid::Uuid::new_v4().to_string(),
-            user_id: user.id,
-            targets: vec![scope.center_id.clone()],
-            epoch: state.epoch.load(Ordering::SeqCst),
-        };
-        let plan = pack_stories::scene_plan(&db, &context, scope, definition, None)?;
-        let (epoch, cancel) = super::tasks::reserve(&state, super::tasks::Kind::Scene, false)?;
-        let prepared = (|| {
-            store::pause_conversations(&db)?;
-            *lock(&state.panel)? = None;
-            let admitted = bind_pack_plan_locked(&state, &db, &plan, epoch)?;
-            let run = lock(&state.pack_stories)?
-                .run
-                .clone()
-                .ok_or("이야기 실행을 시작하지 못했어요.")?;
-            pack_stories::resume::record_accepted(&db, &run)?;
-            Ok::<_, String>((run, admitted))
-        })();
-        let (run, admitted) = match prepared {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                super::scene_resume::clear_failed_start(&state, &db, &plan.run_id, epoch, &error);
-                return Err(error);
-            }
-        };
-        Ok((run, cancel, admitted))
-    })();
+    let prepared = prepare_tutorial(&state);
     let (run, cancel, admitted) = match prepared {
         Ok(prepared) => prepared,
         Err(error) => {
@@ -712,8 +717,13 @@ pub(crate) async fn send_message(
 }
 
 pub(crate) enum MessageRoute {
-    Message { scene_ask_id: Option<String> },
-    Choice { request_id: String, option_id: String },
+    Message {
+        scene_ask_id: Option<String>,
+    },
+    Choice {
+        request_id: String,
+        option_id: String,
+    },
 }
 
 pub(crate) async fn send_message_inner(
@@ -727,7 +737,10 @@ pub(crate) async fn send_message_inner(
 ) -> Result<(), String> {
     let (choice, scene_ask_id) = match route {
         MessageRoute::Message { scene_ask_id } => (None, scene_ask_id),
-        MessageRoute::Choice { request_id, option_id } => (Some((request_id, option_id)), None),
+        MessageRoute::Choice {
+            request_id,
+            option_id,
+        } => (Some((request_id, option_id)), None),
     };
     uuid::Uuid::parse_str(&client_message_id)
         .map_err(|_| "메시지 식별자가 올바르지 않아요.".to_string())?;

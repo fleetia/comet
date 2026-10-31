@@ -186,46 +186,112 @@ it("exports the current pair without private wordbook selection and treats dialo
 
 it("exports every installed member of the selected pack including an absent NPC without changing the roster", async () => {
   const resident = { ...extra, packId: "mixed-pack" };
-  const guest = { ...extra, id: "pack-guest", packId: "mixed-pack", definition: { ...extra.definition, name: "방문자", presenceRole: "npc" as const } };
-  vi.mocked(command).mockImplementation(async (name) => name === "get_character_pack_attribution"
-    ? { author: "", sourceUrl: "" } : null);
-  render(<CharacterSharing snapshot={{ ...snapshot, characters: {
-    installed: [...PREVIEW_SNAPSHOT.characters.installed, resident, guest],
-    active: [resident.id],
-  } }} selectedId={resident.id} disabled={false} />);
+  const guest = {
+    ...extra,
+    id: "pack-guest",
+    packId: "mixed-pack",
+    definition: { ...extra.definition, name: "방문자", presenceRole: "npc" as const },
+  };
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "get_character_pack_attribution" ? { author: "", sourceUrl: "" } : null,
+  );
+  render(
+    <CharacterSharing
+      snapshot={{
+        ...snapshot,
+        characters: {
+          installed: [...PREVIEW_SNAPSHOT.characters.installed, resident, guest],
+          active: [resident.id],
+        },
+      }}
+      selectedId={resident.id}
+      disabled={false}
+    />,
+  );
   fireEvent.change(screen.getByLabelText("내보낼 대상"), { target: { value: "pack" } });
   fireEvent.click(screen.getByRole("button", { name: "공유 파일 내보내기" }));
-  await waitFor(() => expect(command).toHaveBeenCalledWith("save_character_pack", {
-    ids: [resident.id, guest.id],
-    wordbookIds: [],
-    options: { includeSprites: true, includeMemories: false, includeAffinity: false, includeMessages: false },
-  }));
-  expect(vi.mocked(command).mock.calls.some(([name]) => name === "apply_character_roster")).toBe(false);
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("save_character_pack", {
+      ids: [resident.id, guest.id],
+      wordbookIds: [],
+      options: {
+        includeSprites: true,
+        includeMemories: false,
+        includeAffinity: false,
+        includeMessages: false,
+      },
+    }),
+  );
+  expect(vi.mocked(command).mock.calls.some(([name]) => name === "apply_character_roster")).toBe(
+    false,
+  );
 });
 
-it.each([7, 8])("joins imported residents only and preserves a %i-member roster capacity", async (count) => {
-  const resident = { ...extra, id: "imported-resident", packId: "mixed-pack", definition: { ...extra.definition, sourceId: "mixed-resident" } };
-  const guest = { ...extra, id: "imported-guest", packId: "mixed-pack", definition: { ...extra.definition, sourceId: "mixed-guest", presenceRole: "npc" as const } };
-  const current = Array.from({ length: count }, (_, index) => ({ ...extra, id: `current-${index}` }));
-  vi.mocked(command).mockImplementation(async (name) => name === "choose_character_pack"
-    ? { pack: { ...pack, formatVersion: 8, characters: [resident.definition, guest.definition] }, warnings: [] }
-    : name === "import_character_pack" ? [resident, guest] : undefined);
-  render(<CharacterSharing snapshot={{ ...snapshot, characters: { installed: current, active: current.map((actor) => actor.id) } }} selectedId={current[0].id} disabled={false} />);
-  fireEvent.click(screen.getByRole("button", { name: "공유 파일 가져오기" }));
-  fireEvent.click(await screen.findByRole("button", { name: "내용 확인 후 설치" }));
-  const join = await screen.findByRole("button", { name: "가져온 친구와 함께 지내기" });
-  expect(join).toHaveProperty("disabled", count === 8);
-  if (count === 8) {
+it.each([7, 8])(
+  "joins imported residents only and preserves a %i-member roster capacity",
+  async (count) => {
+    const resident = {
+      ...extra,
+      id: "imported-resident",
+      packId: "mixed-pack",
+      definition: { ...extra.definition, sourceId: "mixed-resident" },
+    };
+    const guest = {
+      ...extra,
+      id: "imported-guest",
+      packId: "mixed-pack",
+      definition: { ...extra.definition, sourceId: "mixed-guest", presenceRole: "npc" as const },
+    };
+    const current = Array.from({ length: count }, (_, index) => ({
+      ...extra,
+      id: `current-${index}`,
+    }));
+    vi.mocked(command).mockImplementation(async (name) =>
+      name === "choose_character_pack"
+        ? {
+            pack: {
+              ...pack,
+              formatVersion: 8,
+              characters: [resident.definition, guest.definition],
+            },
+            warnings: [],
+          }
+        : name === "import_character_pack"
+          ? [resident, guest]
+          : undefined,
+    );
+    render(
+      <CharacterSharing
+        snapshot={{
+          ...snapshot,
+          characters: { installed: current, active: current.map((actor) => actor.id) },
+        }}
+        selectedId={current[0].id}
+        disabled={false}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "공유 파일 가져오기" }));
+    fireEvent.click(await screen.findByRole("button", { name: "내용 확인 후 설치" }));
+    const join = await screen.findByRole("button", { name: "가져온 친구와 함께 지내기" });
+    expect(join).toHaveProperty("disabled", count === 8);
+    if (count === 8) {
+      fireEvent.click(join);
+      expect(
+        vi.mocked(command).mock.calls.some(([name]) => name === "apply_character_roster"),
+      ).toBe(false);
+      return;
+    }
     fireEvent.click(join);
-    expect(vi.mocked(command).mock.calls.some(([name]) => name === "apply_character_roster")).toBe(false);
-    return;
-  }
-  fireEvent.click(join);
-  await waitFor(() => expect(command).toHaveBeenCalledWith("apply_character_roster", {
-    ids: [...current.map((actor) => actor.id), resident.id],
-  }));
-  expect(vi.mocked(command).mock.calls.filter(([name]) => name === "apply_character_roster")).toHaveLength(1);
-});
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("apply_character_roster", {
+        ids: [...current.map((actor) => actor.id), resident.id],
+      }),
+    );
+    expect(
+      vi.mocked(command).mock.calls.filter(([name]) => name === "apply_character_roster"),
+    ).toHaveLength(1);
+  },
+);
 
 it("exports only the personal wordbook entries explicitly selected for sharing", async () => {
   const entries = ["공유할 인사", "개인 대사"].map((title, index) => ({
@@ -434,7 +500,7 @@ it("loads and saves attribution for the selected source package", async () => {
   });
 });
 
-it("preserves attribution drafts per package across selection and failed saves", async () => {
+it("discards attribution drafts on selection and keeps failed saves until canceled", async () => {
   const first = { ...snapshot.characters.installed[0], packId: "first-pack" };
   const second = { ...snapshot.characters.installed[1], packId: "second-pack" };
   const sharingSnapshot = {
@@ -474,7 +540,7 @@ it("preserves attribution drafts per package across selection and failed saves",
   await waitFor(() =>
     expect(screen.getByLabelText("제작자")).toHaveProperty("value", "둘째 제작자"),
   );
-  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
   rerender(
     <CharacterSharing
       snapshot={sharingSnapshot}
@@ -483,7 +549,10 @@ it("preserves attribution drafts per package across selection and failed saves",
       onDirtyChange={onDirtyChange}
     />,
   );
-  expect(screen.getByLabelText("출처 URL")).toHaveProperty("value", "https://example.com/first");
+  expect(screen.getByLabelText("출처 URL")).toHaveProperty("value", "");
+  fireEvent.change(screen.getByLabelText("출처 URL"), {
+    target: { value: "https://example.com/first" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "출처 저장" }));
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "출처 저장 실패");
   expect(screen.getByLabelText("출처 URL")).toHaveProperty("value", "https://example.com/first");
@@ -545,9 +614,8 @@ it("imports personal records from a shared file only when each is chosen", async
 });
 
 it("drops the whole archive when no personal records are chosen", async () => {
-  const { withArchiveChoice, NO_ARCHIVE } = await import(
-    "../components/CharacterSharing/archiveChoice"
-  );
+  const { withArchiveChoice, NO_ARCHIVE } =
+    await import("../components/CharacterSharing/archiveChoice");
   const person = { id: "p", name: "사람", startedAt: 1, endedAt: 2 };
   const shared = {
     ...pack,

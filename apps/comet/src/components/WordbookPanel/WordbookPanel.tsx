@@ -90,6 +90,14 @@ function draftKeywords(draft: Draft): string[] {
     ? draft.entry.keywords
     : keywordsFrom(draft.keywords);
 }
+function changedDraft(draft: Draft): Draft {
+  return {
+    ...draft,
+    dirty:
+      JSON.stringify({ ...draft.entry, keywords: draftKeywords(draft) }) !==
+      JSON.stringify(draft.baseline),
+  };
+}
 type Props = {
   title?: string;
   description?: string;
@@ -153,7 +161,7 @@ export function WordbookPanel({
         if (!next[entry.id]?.dirty) {
           next[entry.id] = draftFor(entry);
         } else {
-          next[entry.id] = { ...next[entry.id], baseline: entry };
+          next[entry.id] = changedDraft({ ...next[entry.id], baseline: entry });
         }
       }
       return next;
@@ -227,11 +235,17 @@ export function WordbookPanel({
     setConfirmDelete(false);
     setDrafts((previous) => ({
       ...previous,
-      [selected]: { ...current, entry, keywords: keywordText, dirty: true },
+      [selected]: changedDraft({ ...current, entry, keywords: keywordText }),
     }));
     setNotice(null);
   }
-  function select(id: string): void {
+  function select(id: string, fresh?: Draft): void {
+    if (id !== selected) {
+      setDrafts({
+        ...Object.fromEntries(savedEntries.map((entry) => [entry.id, draftFor(entry)])),
+        ...(fresh ? { [id]: fresh } : {}),
+      });
+    }
     if (editorBody.current) editorBody.current.scrollTop = 0;
     setConfirmDelete(false);
     setSelected(id);
@@ -243,8 +257,7 @@ export function WordbookPanel({
     if (groupFilter !== "all" && groupFilter !== "ungrouped") {
       draft.entry.group = groupFilter;
     }
-    setDrafts((previous) => ({ ...previous, [draft.entry.id]: draft }));
-    select(draft.entry.id);
+    select(draft.entry.id, draft);
   }
   function cancel(): void {
     if (pending) return;
@@ -257,12 +270,7 @@ export function WordbookPanel({
     }
     const next = list.find((draft) => draft.entry.id !== selected);
     const fresh = next ?? newDraft();
-    setDrafts((previous) => {
-      const values = { ...previous, [fresh.entry.id]: fresh };
-      delete values[selected];
-      return values;
-    });
-    select(fresh.entry.id);
+    select(fresh.entry.id, fresh);
   }
   function changeLine(index: number, line: SceneLine): void {
     update({
@@ -459,11 +467,10 @@ export function WordbookPanel({
                             const enabled = event.target.checked;
                             setDrafts((previous) => ({
                               ...previous,
-                              [draft.entry.id]: {
+                              [draft.entry.id]: changedDraft({
                                 ...draft,
                                 entry: { ...draft.entry, enabled },
-                                dirty: true,
-                              },
+                              }),
                             }));
                             setNotice(null);
                           }}

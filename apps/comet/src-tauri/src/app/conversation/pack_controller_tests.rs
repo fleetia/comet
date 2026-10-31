@@ -2,6 +2,10 @@ use super::*;
 use crate::app::scene::{line_completion_locked, mark_line_displayed, LineCompletion};
 
 fn fixture(npc: bool) -> (AppState, Vec<String>) {
+    fixture_with_tutorial(npc, false)
+}
+
+fn fixture_with_tutorial(npc: bool, tutorial: bool) -> (AppState, Vec<String>) {
     let state = super::super::tests::state();
     let ids = {
         let db = lock(&state.db).unwrap();
@@ -69,6 +73,17 @@ fn fixture(npc: bool) -> (AppState, Vec<String>) {
                 ..scenario
             },
         ];
+        if tutorial {
+            pack.format_version = 14;
+            pack.scenarios = vec![serde_json::from_value(serde_json::json!({
+                "id": "tutorial", "title": "튜토리얼", "centerId": center,
+                "participants": [center], "purpose": "tutorial",
+                "chapters": [{"id": "first", "title": "첫 장", "steps": [
+                    {"kind": "line", "persona": center, "expression": "평온", "text": "안녕"}
+                ]}]
+            }))
+            .unwrap()];
+        }
         let installed = characters::import_pack(&db, &pack).unwrap();
         let ids = installed
             .iter()
@@ -86,6 +101,23 @@ fn fixture(npc: bool) -> (AppState, Vec<String>) {
         ids
     };
     (state, ids)
+}
+
+#[test]
+fn tutorial_preparation_wakes_only_the_selected_center() {
+    let (state, ids) = fixture_with_tutorial(false, true);
+    for id in &ids {
+        characters::life::set_sleep(&state, id, true).unwrap();
+    }
+
+    let (run, _, _) = prepare_tutorial(&state).unwrap();
+
+    assert_eq!(run.scope.center_id, ids[0]);
+    assert!(!characters::life::sleeping(&state, &ids[0]).unwrap());
+    assert!(characters::life::sleeping(&state, &ids[1]).unwrap());
+    let _action = lock(&state.action).unwrap();
+    let db = lock(&state.db).unwrap();
+    assert!(super::super::scene_events::available_locked(&state, &db, &run).unwrap());
 }
 
 fn choose(state: &AppState, center: &str, content: &str) -> pack_stories::Plan {

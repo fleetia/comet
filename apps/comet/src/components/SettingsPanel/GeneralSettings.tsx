@@ -1,12 +1,6 @@
-import { useRef, useState, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 import { ExitIcon, HideIcon, MemoryIcon } from "@comet/icon";
-import {
-  Button,
-  Dialog,
-  SettingControlRow,
-  SettingsSummary,
-  Switch,
-} from "@comet/ui";
+import { Button, Dialog, SettingControlRow, SettingsSummary, Switch } from "@comet/ui";
 import type { Snapshot } from "../../types";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { error as errorStyle } from "../../common.css";
@@ -92,6 +86,13 @@ export function GeneralSettings({
   const [resetPending, setResetPending] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
   const resetting = useRef(false);
+  useEffect(() => {
+    if (!active && !resetting.current) {
+      setResetOpen(false);
+      setResetError(null);
+      setFolderError(null);
+    }
+  }, [active]);
   const resetDisabled = quitDisabled || hasChanges;
   async function resetApp(): Promise<void> {
     if (resetting.current || resetDisabled) return;
@@ -118,19 +119,14 @@ export function GeneralSettings({
               <AutostartSettings active={active} compact />
             </div>
             <div className={styles.nested}>
-              <LauncherSettings compact onDirtyChange={onShortcutDirtyChange} />
+              {active && <LauncherSettings compact onDirtyChange={onShortcutDirtyChange} />}
             </div>
             <SettingControlRow
               className={styles.row}
               title="comet 종료"
               description="저장하지 않은 변경이 있으면 먼저 물어봐요"
               control={
-                <Button
-                  variant="ghost"
-                  size="small"
-                  disabled={quitDisabled}
-                  onClick={onQuit}
-                >
+                <Button variant="ghost" size="small" disabled={quitDisabled} onClick={onQuit}>
                   <ExitIcon size={15} />
                   종료
                 </Button>
@@ -144,9 +140,7 @@ export function GeneralSettings({
             <SettingsSummary
               title={name}
               description="친구들이 부르는 이름"
-              leading={
-                <span className={styles.avatar}>{Array.from(name)[0]}</span>
-              }
+              leading={<span className={styles.avatar}>{Array.from(name)[0]}</span>}
               className={styles.summary}
               onClick={onOpenUser}
             />
@@ -180,11 +174,7 @@ export function GeneralSettings({
               title="바탕화면 친구"
               description="함께 지내는 친구와 말풍선"
               control={
-                <Button
-                  variant="ghost"
-                  size="small"
-                  onClick={onToggleCharacters}
-                >
+                <Button variant="ghost" size="small" onClick={onToggleCharacters}>
                   <HideIcon size={15} />
                   {snapshot.runtime.hidden ? "친구 표시" : "친구 숨기기"}
                 </Button>
@@ -211,11 +201,7 @@ export function GeneralSettings({
               title="데이터 폴더"
               description="대화·기억·설정이 저장된 곳이에요. 열기만 하고 바꾸지 않아요"
               control={
-                <Button
-                  variant="ghost"
-                  size="small"
-                  onClick={() => void revealDataFolder()}
-                >
+                <Button variant="ghost" size="small" onClick={() => void revealDataFolder()}>
                   {fileManagerLabel()}
                 </Button>
               }
@@ -278,11 +264,7 @@ export function GeneralSettings({
         }}
         footer={
           <>
-            <Button
-              variant="ghost"
-              disabled={resetPending}
-              onClick={() => setResetOpen(false)}
-            >
+            <Button variant="ghost" disabled={resetPending} onClick={() => setResetOpen(false)}>
               취소
             </Button>
             <Button
@@ -296,9 +278,8 @@ export function GeneralSettings({
         }
       >
         <p>
-          설정, 대화, 기억, 단어장, 위젯, API 키와 ChatGPT 연결, 내려받은 모델이
-          모두 지워지고 별꼬리만 남아요. 끝나면 comet이 다시 시작돼요. 이 작업은
-          되돌릴 수 없어요.
+          설정, 대화, 기억, 단어장, 위젯, API 키와 ChatGPT 연결, 내려받은 모델이 모두 지워지고
+          별꼬리만 남아요. 끝나면 comet이 다시 시작돼요. 이 작업은 되돌릴 수 없어요.
         </p>
         {resetError && (
           <p role="alert" className={errorStyle}>

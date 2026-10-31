@@ -308,6 +308,38 @@ it("uses the actual fishing phase when rendering legacy fishing", () => {
   fireEvent.click(screen.getByRole("button", { name: "낚싯줄 거두기" }));
   expect(act).toHaveBeenCalledWith("reel");
 });
+it("reports only changed anniversary values after opening existing and empty forms", () => {
+  const onDirtyChange = vi.fn();
+  render(
+    <ClockTool
+      widget={widget("clock", {
+        anniversaries: [{ id: "saved", title: "기존 기념일", date: "2026-01-01", celebrate: true }],
+      })}
+      widgets={[]}
+      act={act}
+      onDirtyChange={onDirtyChange}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "수정 기존 기념일" }));
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  fireEvent.change(screen.getByLabelText("기념일 이름"), { target: { value: "다른 제목" } });
+  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  fireEvent.change(screen.getByLabelText("기념일 이름"), { target: { value: "기존 기념일" } });
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  fireEvent.click(screen.getByRole("switch", { name: "그날 친구가 축하하기" }));
+  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  fireEvent.click(screen.getByRole("switch", { name: "그날 친구가 축하하기" }));
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  fireEvent.click(screen.getByRole("button", { name: "수정 취소" }));
+  fireEvent.click(screen.getByRole("button", { name: "기념일 추가…" }));
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  fireEvent.click(screen.getByRole("switch", { name: "위젯에 보이기" }));
+  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  fireEvent.click(screen.getByRole("switch", { name: "위젯에 보이기" }));
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  expect(act).not.toHaveBeenCalled();
+});
+
 it("cancels anniversary edits without reusing the old record for a new anniversary", async () => {
   render(
     <ClockTool
@@ -663,7 +695,11 @@ it("keeps a tool usable when reactions are off and reports an absent tool", asyn
   });
   const view = render(<WidgetTool id="memo" />);
   expect(screen.queryByText("도구를 찾을 수 없어요.")).toBeNull();
-  vi.mocked(useWidgets).mockReturnValue({ snapshot: PREVIEW_WIDGETS, error: null, reload: vi.fn() });
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: PREVIEW_WIDGETS,
+    error: null,
+    reload: vi.fn(),
+  });
   view.rerender(<WidgetTool id="memo" />);
   expect(screen.getByText("도구를 찾을 수 없어요.")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "위젯 닫기" }));

@@ -25,6 +25,10 @@ const toys = [
   { id: "bubbles", name: "비눗방울" },
 ];
 
+function sameToys(left: string[], right: string[]): boolean {
+  return JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+}
+
 export function DesktopPreferences({
   hidden,
   platform,
@@ -48,12 +52,19 @@ export function DesktopPreferences({
   const [dirty, setDirty] = useState(false);
   const dirtyFields = useRef(new Set<"pranksEnabled" | "allowedToys">());
   const saved = useRef(preferences);
+  const current = useRef(preferences);
+  current.current = preferences;
   const refreshPreferences = useRef<() => Promise<void>>(async () => {});
   function edit(next: Preferences): void {
     if (!loaded || pending) return;
+    current.current = next;
     setPreferences(next);
     for (const key of ["pranksEnabled", "allowedToys"] as const) {
-      if (JSON.stringify(next[key]) === JSON.stringify(saved.current[key]))
+      if (
+        key === "allowedToys"
+          ? sameToys(next.allowedToys, saved.current.allowedToys)
+          : next.pranksEnabled === saved.current.pranksEnabled
+      )
         dirtyFields.current.delete(key);
       else dirtyFields.current.add(key);
     }
@@ -80,10 +91,24 @@ export function DesktopPreferences({
           if (!active || sequence !== request) return;
           setLoaded(true);
           saved.current = value;
-          setPreferences((previous) => ({
+          for (const key of dirtyFields.current) {
+            if (
+              key === "allowedToys"
+                ? sameToys(current.current.allowedToys, value.allowedToys)
+                : current.current.pranksEnabled === value.pranksEnabled
+            ) {
+              dirtyFields.current.delete(key);
+            }
+          }
+          const next = {
             ...value,
-            ...Object.fromEntries([...dirtyFields.current].map((key) => [key, previous[key]])),
-          }));
+            ...Object.fromEntries(
+              [...dirtyFields.current].map((key) => [key, current.current[key]]),
+            ),
+          };
+          current.current = next;
+          setPreferences(next);
+          setDirty(dirtyFields.current.size > 0);
         } catch (cause) {
           if (active && sequence === request) setError(errorText(cause));
         }
@@ -124,6 +149,7 @@ export function DesktopPreferences({
       await command("set_desktop_preferences", {
         preferences: { ...preferences, charactersVisible: !hidden },
       });
+      saved.current = { ...preferences, charactersVisible: !hidden };
       dirtyFields.current.clear();
       setDirty(false);
       await refreshPreferences.current();
@@ -264,14 +290,10 @@ export function DesktopPreferences({
                 disabled={
                   pending ||
                   !loaded ||
-                  !widgets.snapshot?.widgets.some(
-                    (item) => item.kind === toy.id,
-                  )
+                  !widgets.snapshot?.widgets.some((item) => item.kind === toy.id)
                 }
                 onClick={() => {
-                  const target = widgets.snapshot?.widgets.find(
-                    (item) => item.kind === toy.id,
-                  );
+                  const target = widgets.snapshot?.widgets.find((item) => item.kind === toy.id);
                   if (target)
                     void command("execute_widget", {
                       request: {
@@ -323,7 +345,12 @@ export function DesktopPreferences({
   );
 }
 
-function ActivityPreferences({ preferences, loaded, supported, onSaved }: {
+function ActivityPreferences({
+  preferences,
+  loaded,
+  supported,
+  onSaved,
+}: {
   preferences: Preferences;
   loaded: boolean;
   supported: boolean;
@@ -342,10 +369,12 @@ function ActivityPreferences({ preferences, loaded, supported, onSaved }: {
     try {
       const result = await command<DataRecord>("list_usage_applications");
       if (result.supported !== true) throw new Error("프로그램 목록을 불러올 수 없어요.");
-      setApplications(rows(result.applications).flatMap((item) => {
-        const app = readUsageTarget(item);
-        return app ? [app] : [];
-      }));
+      setApplications(
+        rows(result.applications).flatMap((item) => {
+          const app = readUsageTarget(item);
+          return app ? [app] : [];
+        }),
+      );
     } catch (cause) {
       setError(errorText(cause));
     } finally {
@@ -378,9 +407,11 @@ function ActivityPreferences({ preferences, loaded, supported, onSaved }: {
         <SettingControlRow
           className={figma.row}
           title="지금 하는 앱 눈치채기"
-          description={supported
-            ? "앱 이름과 연속 사용 시간만 봐요. 창 제목·내용은 읽지 않아요. (Windows)"
-            : "이 기기에서는 아직 안 돼요. Windows에서 사용할 수 있어요."}
+          description={
+            supported
+              ? "앱 이름과 연속 사용 시간만 봐요. 창 제목·내용은 읽지 않아요. (Windows)"
+              : "이 기기에서는 아직 안 돼요. Windows에서 사용할 수 있어요."
+          }
           control={
             <Switch
               aria-label="지금 하는 앱 눈치채기"
@@ -416,9 +447,14 @@ function ActivityPreferences({ preferences, loaded, supported, onSaved }: {
                   key={app.id}
                   pressed={excluded.includes(app.id)}
                   disabled={loading || pending}
-                  onClick={() => void save(preferences.activityEnabled, excluded.includes(app.id)
-                    ? excluded.filter((id) => id !== app.id)
-                    : [...excluded, app.id])}
+                  onClick={() =>
+                    void save(
+                      preferences.activityEnabled,
+                      excluded.includes(app.id)
+                        ? excluded.filter((id) => id !== app.id)
+                        : [...excluded, app.id],
+                    )
+                  }
                 >
                   {app.name}
                 </ToggleChip>
@@ -428,14 +464,26 @@ function ActivityPreferences({ preferences, loaded, supported, onSaved }: {
                   key={id}
                   pressed
                   disabled={loading || pending}
-                  onClick={() => void save(preferences.activityEnabled, excluded.filter((item) => item !== id))}
+                  onClick={() =>
+                    void save(
+                      preferences.activityEnabled,
+                      excluded.filter((item) => item !== id),
+                    )
+                  }
                 >
                   실행 중이지 않은 앱 {index + 1} · 제외 해제
                 </ToggleChip>
               ))}
             </div>
-            {!loading && applications.length === 0 && <p className={figma.caption}>실행 중인 앱을 찾지 못했어요.</p>}
-            <Button variant="ghost" size="small" disabled={loading || pending} onClick={() => void refresh()}>
+            {!loading && applications.length === 0 && (
+              <p className={figma.caption}>실행 중인 앱을 찾지 못했어요.</p>
+            )}
+            <Button
+              variant="ghost"
+              size="small"
+              disabled={loading || pending}
+              onClick={() => void refresh()}
+            >
               {loading ? "확인 중…" : "앱 목록 새로고침"}
             </Button>
           </div>

@@ -10,6 +10,132 @@ vi.mock("../hooks/useSnapshot", async (load) => ({
 afterEach(cleanup);
 beforeEach(() => vi.mocked(command).mockReset().mockResolvedValue(undefined));
 
+it("treats equal object values and reverted edits as unchanged", () => {
+  const { result, rerender } = renderHook((settings) => useSettingsDraft(settings, "automatic"), {
+    initialProps: PREVIEW_SNAPSHOT.settings,
+  });
+  expect(result.current.hasChanges).toBe(false);
+  rerender({
+    ...PREVIEW_SNAPSHOT.settings,
+    quietHours: { ...PREVIEW_SNAPSHOT.settings.quietHours },
+  });
+  act(() =>
+    result.current.change("quietHours", {
+      ...result.current.settings.quietHours,
+      enabled: !PREVIEW_SNAPSHOT.settings.quietHours.enabled,
+    }),
+  );
+  expect(result.current.hasChanges).toBe(true);
+  act(() => result.current.change("quietHours", { ...PREVIEW_SNAPSHOT.settings.quietHours }));
+  expect(result.current.hasChanges).toBe(false);
+});
+
+it("clears a draft when a snapshot contains its saved value and follows later updates", () => {
+  const { result, rerender } = renderHook((settings) => useSettingsDraft(settings, "model"), {
+    initialProps: PREVIEW_SNAPSHOT.settings,
+  });
+  act(() => result.current.change("apiModel", "saved-elsewhere"));
+  rerender({ ...PREVIEW_SNAPSHOT.settings, apiModel: "saved-elsewhere" });
+  expect(result.current.hasChanges).toBe(false);
+  rerender({ ...PREVIEW_SNAPSHOT.settings, apiModel: "newer-saved-model" });
+  expect(result.current.settings.apiModel).toBe("newer-saved-model");
+  expect(result.current.hasChanges).toBe(false);
+});
+
+it("uses a successful save as the baseline before its snapshot arrives", async () => {
+  const { result } = renderHook(() => useSettingsDraft(PREVIEW_SNAPSHOT.settings, "model"));
+  act(() => result.current.change("apiModel", "saved-model"));
+  await act(async () => result.current.run("save_settings"));
+  act(() => result.current.change("apiModel", PREVIEW_SNAPSHOT.settings.apiModel));
+  expect(result.current.hasChanges).toBe(true);
+  act(() => result.current.reset());
+  expect(result.current.settings.apiModel).toBe("saved-model");
+  expect(result.current.hasChanges).toBe(false);
+});
+
+it("preserves edits and keys made while a save is pending", async () => {
+  let finish: () => void = () => {};
+  vi.mocked(command).mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const { result } = renderHook(() => useSettingsDraft(PREVIEW_SNAPSHOT.settings, "model"));
+  act(() => {
+    result.current.change("apiModel", "submitted-model");
+    result.current.setApiKey("submitted-key");
+  });
+  let save!: Promise<void>;
+  act(() => {
+    save = result.current.run("save_settings");
+  });
+  act(() => {
+    result.current.change("apiModel", PREVIEW_SNAPSHOT.settings.apiModel);
+    result.current.setApiKey("newer-key");
+  });
+  await act(async () => {
+    finish();
+    await save;
+  });
+  expect(result.current.settings.apiModel).toBe(PREVIEW_SNAPSHOT.settings.apiModel);
+  expect(result.current.apiKey).toBe("newer-key");
+  expect(result.current.hasChanges).toBe(true);
+});
+
+it("does not revive a discarded draft when an earlier save completes", async () => {
+  let finish: () => void = () => {};
+  vi.mocked(command).mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const { result, rerender } = renderHook((settings) => useSettingsDraft(settings, "automatic"), {
+    initialProps: PREVIEW_SNAPSHOT.settings,
+  });
+  const submittedInterval = PREVIEW_SNAPSHOT.settings.idleMinutes === 17 ? 18 : 17;
+  act(() => result.current.change("idleMinutes", submittedInterval));
+  let save!: Promise<void>;
+  act(() => {
+    save = result.current.run("save_settings");
+  });
+  act(() => result.current.reset());
+  await act(async () => {
+    finish();
+    await save;
+  });
+  expect(result.current.settings.idleMinutes).toBe(PREVIEW_SNAPSHOT.settings.idleMinutes);
+  expect(result.current.hasChanges).toBe(false);
+  expect(result.current.notice).toBeNull();
+  rerender({ ...PREVIEW_SNAPSHOT.settings, idleMinutes: submittedInterval });
+  expect(result.current.settings.idleMinutes).toBe(submittedInterval);
+  expect(result.current.hasChanges).toBe(false);
+});
+
+it("ignores a file picker result after its draft was discarded", async () => {
+  let finish: (path: string) => void = () => {};
+  vi.mocked(command).mockImplementationOnce(
+    () =>
+      new Promise<string>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const { result } = renderHook(() => useSettingsDraft(PREVIEW_SNAPSHOT.settings, "model"));
+  let picking!: Promise<void>;
+  act(() => {
+    picking = result.current.run("pick_model_file");
+  });
+  act(() => result.current.reset());
+  await act(async () => {
+    finish("/models/discarded.gguf");
+    await picking;
+  });
+  expect(result.current.settings.localModelPath).toBe(PREVIEW_SNAPSHOT.settings.localModelPath);
+  expect(result.current.hasChanges).toBe(false);
+  expect(result.current.pending).toBeNull();
+});
+
 it("keeps the model draft and API key after a failed scoped save and prevents duplicate saves", async () => {
   let fail: (error: Error) => void = () => {};
   vi.mocked(command).mockImplementationOnce(
