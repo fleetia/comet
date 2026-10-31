@@ -122,7 +122,85 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-it("preserves scene stories when saving other edits and blocks editing and trials", async () => {
+it("confirms switching formats and saves edited scene chapters", async () => {
+  const saved = snapshot("a");
+  vi.mocked(command).mockImplementation(async (name, args) =>
+    name === "save_pack_story_definition"
+      ? {
+          ...saved,
+          definition: (args as { definition: PackStorySnapshot["definition"] }).definition,
+          baseline: "2",
+        }
+      : saved,
+  );
+  render(<Harness packId="a" />);
+  await screen.findByLabelText("이야기 제목");
+  fireEvent.click(screen.getByRole("button", { name: "장면형" }));
+  expect(screen.getByRole("dialog", { name: "이야기 방식을 바꿀까요?" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "계속 편집" }));
+  expect(screen.getByLabelText("제안 1 본문")).toHaveProperty("value", "등록 원문");
+  fireEvent.click(screen.getByRole("button", { name: "장면형" }));
+  fireEvent.click(screen.getByRole("button", { name: "방식 바꾸기" }));
+  expect(screen.queryByLabelText("제안 키워드 · 한 줄에 하나")).toBeNull();
+  expect(screen.queryByLabelText("노출 친밀도 · 선택 사항")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "튜토리얼" }));
+  fireEvent.change(screen.getByLabelText("장 제목"), { target: { value: "첫 만남" } });
+  fireEvent.change(screen.getByLabelText("단계 1 본문"), { target: { value: "안녕" } });
+  fireEvent.click(screen.getByRole("button", { name: "단계 추가" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "기다리기" }));
+  fireEvent.change(screen.getByLabelText("단계 2 기다릴 이벤트"), {
+    target: { value: "widget.saved" },
+  });
+  fireEvent.click(screen.getByText("시간이 지나면", { selector: "summary" }));
+  fireEvent.click(screen.getByRole("button", { name: "시간 초과 동작 추가" }));
+  fireEvent.change(screen.getByLabelText("단계 2 시간 초과 후"), { target: { value: "end" } });
+  fireEvent.click(screen.getByRole("button", { name: "장 추가" }));
+  fireEvent.change(screen.getByLabelText("장 제목"), { target: { value: "두 번째 장" } });
+  fireEvent.change(screen.getByLabelText("단계 1 본문"), { target: { value: "다음 대사" } });
+  fireEvent.click(screen.getByRole("button", { name: "첫 만남" }));
+  fireEvent.click(screen.getByText(/이 장이 끝나면/, { selector: "summary" }));
+  const chapterTarget = screen.getByLabelText<HTMLSelectElement>("이 장이 끝나면");
+  fireEvent.change(chapterTarget, { target: { value: chapterTarget.options[3].value } });
+  fireEvent.click(screen.getByRole("button", { name: "팩 이야기 저장" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith(
+      "save_pack_story_definition",
+      expect.objectContaining({ packId: "a", expectedBaseline: "1" }),
+    ),
+  );
+  const call = vi
+    .mocked(command)
+    .mock.calls.find(([name]) => name === "save_pack_story_definition");
+  if (!call) throw new Error("저장 요청이 없어요.");
+  const definition = (call[1] as { definition: PackStorySnapshot["definition"] }).definition;
+  const scene = definition.scenarios[0];
+  expect(scene.purpose).toBe("tutorial");
+  expect(scene.intro).toEqual([]);
+  expect(scene.chapters).toHaveLength(2);
+  if (!scene.chapters || scene.chapters.length !== 2) throw new Error("장이 두 개여야 해요.");
+  expect(scene.chapters[0]).toMatchObject({
+    title: "첫 만남",
+    next: scene.chapters[1].id,
+    steps: [
+      { kind: "line", text: "안녕" },
+      {
+        kind: "wait",
+        event: "widget.saved",
+        widget: "memo",
+        onTimeout: { then: "end", steps: [{ kind: "action", do: "widget.open", widget: "memo" }] },
+      },
+    ],
+  });
+  expect(await screen.findByText("팩의 이야기와 지식을 저장했어요.")).toBeTruthy();
+  expect(screen.getByLabelText("장 제목")).toHaveProperty("value", "첫 만남");
+  expect(screen.getByLabelText("단계 1 본문")).toHaveProperty("value", "안녕");
+  expect(scene.chapters[1]).toMatchObject({
+    title: "두 번째 장",
+    steps: [{ kind: "line", text: "다음 대사" }],
+  });
+});
+
+it("opens an existing scene for editing and keeps its steps on save", async () => {
   const saved = snapshot("a");
   saved.definition.scenarios[0] = {
     ...saved.definition.scenarios[0],
@@ -145,13 +223,9 @@ it("preserves scene stories when saving other edits and blocks editing and trial
   };
   vi.mocked(command).mockResolvedValue(saved);
   render(<Harness packId="a" />);
-  expect(await screen.findByText("이 이야기는 아직 여기서 고칠 수 없어요.")).toBeTruthy();
-  expect(screen.getByText("아직 시험할 수 없어요.")).toBeTruthy();
-  expect(screen.queryByLabelText("이야기 제목")).toBeNull();
-  expect(screen.queryByRole("button", { name: "등록 이야기 시험" })).toBeNull();
-  fireEvent.change(screen.getByLabelText("세계와 공통 규칙"), {
-    target: { value: "수정한 세계" },
-  });
+  expect(await screen.findByLabelText("단계 1 본문")).toHaveProperty("value", "안녕");
+  expect(screen.getByText("등록 이야기 시험", { selector: "summary" })).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("세계와 공통 규칙"), { target: { value: "수정한 세계" } });
   fireEvent.click(screen.getByRole("button", { name: "팩 이야기 저장" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("save_pack_story_definition", {
@@ -450,6 +524,19 @@ it("drops late trial results when its section closes or its visible tab changes"
         ["get_pack_story_definition", "trial_pack_authoring"].includes(name),
       ),
   ).toBe(true);
+});
+
+it("dismisses a format confirmation when the selected pack changes", async () => {
+  const view = render(<Harness packId="a" />);
+  await screen.findByLabelText("이야기 제목");
+  fireEvent.click(screen.getByRole("button", { name: "장면형" }));
+  expect(screen.getByRole("dialog", { name: "이야기 방식을 바꿀까요?" })).toBeTruthy();
+  view.rerender(<Harness packId="b" />);
+  await waitFor(() =>
+    expect(screen.getByLabelText("이야기 제목")).toHaveProperty("value", "b 이야기"),
+  );
+  expect(screen.queryByRole("dialog", { name: "이야기 방식을 바꿀까요?" })).toBeNull();
+  expect(screen.getByLabelText("제안 1 본문")).toHaveProperty("value", "등록 원문");
 });
 
 it("saves shared fields and all story drafts after selecting and adding stories", async () => {

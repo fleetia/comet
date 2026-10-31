@@ -51,6 +51,24 @@ pub(crate) struct AuthoringTrialRequest {
     pub subject: AuthoringSubject,
     pub context: AuthoringContext,
     pub inputs: Vec<String>,
+    #[serde(default)]
+    pub scene_responses: Vec<SceneResponse>,
+    #[serde(default)]
+    pub scene_known_name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub(crate) enum SceneResponse {
+    Event,
+    Timeout,
+    Answer { value: String },
+    Choice { option_id: String },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -96,6 +114,42 @@ pub(crate) struct AuthoringTrialStep {
 pub(crate) struct AuthoringTrialTrace {
     blocked_reasons: Vec<String>,
     steps: Vec<AuthoringTrialStep>,
+    scene: Option<SceneTrial>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SceneTrial {
+    status: &'static str,
+    chapter_id: Option<String>,
+    prompt: Option<String>,
+    options: Vec<SceneTrialOption>,
+    history: Vec<SceneHistory>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SceneHistory {
+    text: String,
+    persona: Option<String>,
+}
+
+fn record_scene_history(
+    request: &AuthoringTrialRequest,
+    scene: &mut SceneTrial,
+    text: String,
+    persona: Option<&str>,
+) -> Result<()> {
+    let persona = persona
+        .map(|id| source_actor(request, id).map(|actor| actor.id.clone()))
+        .transpose()?;
+    scene.history.push(SceneHistory { text, persona });
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SceneTrialOption {
+    id: String,
+    label: String,
 }
 
 fn distinct(values: &[String]) -> bool {
@@ -153,6 +207,9 @@ fn validate(request: &AuthoringTrialRequest) -> Result<()> {
         || !(0..=100).contains(&context.affinity)
         || context.turn > MAX_SAFE_TURN
         || context.wait_turn > MAX_SAFE_TURN
+        || request.scene_known_name.chars().count() > 40
+        || request.scene_known_name.chars().any(char::is_control)
+        || request.scene_responses.len() > 384
         || request.inputs.len() > 32
         || request
             .inputs
@@ -234,9 +291,7 @@ fn validate(request: &AuthoringTrialRequest) -> Result<()> {
                 .iter()
                 .find(|item| item.id == *scenario_id)
                 .ok_or("시험할 이야기를 찾을 수 없어요.")?;
-            if scene.chapters.is_some() {
-                return Err("아직 시험할 수 없어요.".into());
-            }
+            let _ = scene;
         }
     }
     Ok(())
@@ -491,8 +546,12 @@ fn scenario_conditions(
     deferred: &BTreeSet<String>,
     output: &mut AuthoringTrialStep,
 ) -> Result<bool> {
-    if scene.chapters.is_some() {
-        output.blocked_reasons.push("아직 시험할 수 없어요.".into());
+    if scene.chapters.is_some()
+        && !matches!(&request.subject, AuthoringSubject::Scenario { scenario_id } if scenario_id == &scene.id)
+    {
+        output
+            .blocked_reasons
+            .push("연결된 장면형 이야기는 따로 시험해 주세요.".into());
         return Ok(false);
     }
     let center = actor(request, &request.context.center_id)?;
@@ -529,19 +588,22 @@ fn scenario_conditions(
             .filter_map(|item| item.definition.npc.as_ref())
             .all(|npc| flags_match(&npc.required_flags, &flags)),
     );
-    condition(
-        output,
-        "affinity",
-        "이야기의 노출 친밀도",
-        request.context.affinity >= scene.reveal_affinity.unwrap_or(scene.min_affinity),
-    );
-    if request.context.affinity < scene.min_affinity && scene.reveal_affinity.is_some() {
+    let checks_affinity_and_wait = scene.chapters.is_none() || scene.purpose.is_story();
+    if checks_affinity_and_wait {
         condition(
             output,
-            "deferredToday",
-            "오늘 아직 유보하지 않은 이야기",
-            !deferred.contains(&scene.id),
+            "affinity",
+            "이야기의 노출 친밀도",
+            request.context.affinity >= scene.reveal_affinity.unwrap_or(scene.min_affinity),
         );
+        if request.context.affinity < scene.min_affinity && scene.reveal_affinity.is_some() {
+            condition(
+                output,
+                "deferredToday",
+                "오늘 아직 유보하지 않은 이야기",
+                !deferred.contains(&scene.id),
+            );
+        }
     }
     condition(
         output,
@@ -553,12 +615,14 @@ fn scenario_conditions(
             outcomes.1.contains(&scene.id),
         ),
     );
-    condition(
-        output,
-        "wait",
-        "재제안 대기 입력 수",
-        state.turn >= state.wait_turn,
-    );
+    if checks_affinity_and_wait {
+        condition(
+            output,
+            "wait",
+            "재제안 대기 입력 수",
+            state.turn >= state.wait_turn,
+        );
+    }
     condition(
         output,
         "residentParticipants",
@@ -629,6 +693,287 @@ fn leave_scene_guests(
     Ok(())
 }
 
+fn scene_render(text: &str, name: &str, answers: &BTreeMap<String, String>) -> String {
+    let mut result = text.replace("{userName}", name);
+    for (id, value) in answers {
+        result = result.replace(&format!("{{answer.{id}}}"), value);
+    }
+    result
+}
+
+fn action_description(action: &StoryAction) -> String {
+    match action {
+        StoryAction::WidgetOpen { widget } => {
+            let name = match widget {
+                StoryWidget::Memo => "메모",
+                StoryWidget::FocusTimer => "집중 타이머",
+                StoryWidget::Todo => "할 일",
+                StoryWidget::Calendar => "캘린더",
+                StoryWidget::Music => "음악",
+                StoryWidget::Ball => "공",
+                StoryWidget::PaperPlane => "종이비행기",
+                StoryWidget::Bubbles => "비눗방울",
+            };
+            format!("({name} 위젯을 엶)")
+        }
+        StoryAction::FocusStart { minutes } => format!("(집중 타이머를 {minutes}분 시작함)"),
+        StoryAction::FocusStop {} => "(집중 타이머를 멈춤)".into(),
+        StoryAction::SettingsOpen { .. } => "(설정을 엶)".into(),
+        StoryAction::GuideOpen { .. } => "(안내서를 엶)".into(),
+    }
+}
+
+fn scene_trial(
+    request: &AuthoringTrialRequest,
+    scene: &ScenarioDefinition,
+    state: &AuthoringState,
+) -> Result<AuthoringTrialTrace> {
+    let chapters = scene
+        .chapters
+        .as_ref()
+        .ok_or("이야기의 장을 찾을 수 없어요.")?;
+    let mut output = step(None, state);
+    let completed = request
+        .context
+        .completed_scenario_ids
+        .iter()
+        .cloned()
+        .collect();
+    let incomplete = request
+        .context
+        .incomplete_scenario_ids
+        .iter()
+        .cloned()
+        .collect();
+    let keyword = scene.keywords.first().map(String::as_str).unwrap_or("");
+    let eligible = scenario_conditions(
+        request,
+        scene,
+        keyword,
+        state,
+        (&completed, &incomplete),
+        &BTreeSet::new(),
+        &mut output,
+    )?;
+    let mut result = SceneTrial {
+        status: "blocked",
+        chapter_id: None,
+        prompt: None,
+        options: vec![],
+        history: vec![],
+    };
+    if !eligible {
+        return Ok(AuthoringTrialTrace {
+            blocked_reasons: output.blocked_reasons.clone(),
+            steps: vec![output],
+            scene: Some(result),
+        });
+    }
+    let mut chapter_index = 0usize;
+    let mut step_index = 0usize;
+    let mut responses = request.scene_responses.iter();
+    let mut answers = BTreeMap::new();
+    let mut name = request.scene_known_name.trim().to_owned();
+    for _ in 0..(request.scene_responses.len() + 1) * 400 {
+        let chapter = &chapters[chapter_index];
+        result.chapter_id = Some(chapter.id.clone());
+        let mut target = "next".to_owned();
+        if let Some(current) = chapter.steps.get(step_index) {
+            match current {
+                StoryStep::Line { text, persona, .. } => {
+                    record_scene_history(
+                        request,
+                        &mut result,
+                        scene_render(text, &name, &answers),
+                        Some(persona),
+                    )?;
+                }
+                StoryStep::Move { persona, .. } => {
+                    let actor = source_actor(request, persona)?;
+                    record_scene_history(
+                        request,
+                        &mut result,
+                        format!("({} 등장)", actor.definition.name),
+                        None,
+                    )?;
+                }
+                StoryStep::Action { action } => {
+                    record_scene_history(request, &mut result, action_description(action), None)?
+                }
+                StoryStep::Ask {
+                    id,
+                    prompt,
+                    input,
+                    known,
+                    persona,
+                    ..
+                } => {
+                    if *input == StoryInput::Name && !name.is_empty() {
+                        record_scene_history(
+                            request,
+                            &mut result,
+                            scene_render(known.as_deref().unwrap_or(prompt), &name, &answers),
+                            Some(persona),
+                        )?;
+                    } else {
+                        let prompt = scene_render(prompt, &name, &answers);
+                        record_scene_history(request, &mut result, prompt.clone(), Some(persona))?;
+                        match responses.next() {
+                            None => {
+                                result.status = "ask";
+                                result.prompt = Some(prompt);
+                                break;
+                            }
+                            Some(SceneResponse::Answer { value }) => {
+                                if *input == StoryInput::Text
+                                    && value
+                                        .chars()
+                                        .any(|c| matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}'))
+                                {
+                                    return Err("답변은 한 줄로 입력해 주세요.".into());
+                                }
+                                let value = value.trim();
+                                if *input == StoryInput::Name {
+                                    if value.is_empty()
+                                        || value.chars().count() > 40
+                                        || value.chars().any(char::is_control)
+                                    {
+                                        return Err(
+                                            "이름은 줄바꿈 없이 1~40자로 입력해 주세요.".into()
+                                        );
+                                    }
+                                    name = value.to_owned();
+                                } else {
+                                    if value.is_empty() || value.chars().count() > 200 {
+                                        return Err("답변은 1~200자로 입력해 주세요.".into());
+                                    }
+                                    answers.insert(id.clone(), value.to_owned());
+                                }
+                                record_scene_history(request, &mut result, value.to_owned(), None)?;
+                            }
+                            Some(_) => {
+                                return Err("기다리는 단계에 맞는 응답을 선택해 주세요.".into())
+                            }
+                        }
+                    }
+                }
+                StoryStep::Choice {
+                    prompt,
+                    options,
+                    persona,
+                    ..
+                } => {
+                    let prompt = scene_render(prompt, &name, &answers);
+                    record_scene_history(request, &mut result, prompt.clone(), Some(persona))?;
+                    match responses.next() {
+                        None => {
+                            result.status = "choice";
+                            result.prompt = Some(prompt);
+                            result.options = options
+                                .iter()
+                                .map(|option| SceneTrialOption {
+                                    id: option.id.clone(),
+                                    label: scene_render(&option.label, &name, &answers),
+                                })
+                                .collect();
+                            break;
+                        }
+                        Some(SceneResponse::Choice { option_id }) => {
+                            let option = options
+                                .iter()
+                                .find(|option| option.id == *option_id)
+                                .ok_or("선택지를 찾을 수 없어요.")?;
+                            record_scene_history(
+                                request,
+                                &mut result,
+                                scene_render(&option.label, &name, &answers),
+                                None,
+                            )?;
+                            target = option.goto.clone();
+                        }
+                        Some(_) => return Err("기다리는 단계에 맞는 응답을 선택해 주세요.".into()),
+                    }
+                }
+                StoryStep::Wait { on_timeout, .. } => match responses.next() {
+                    None => {
+                        result.status = "wait";
+                        break;
+                    }
+                    Some(SceneResponse::Event) => {
+                        record_scene_history(request, &mut result, "(이벤트를 보냄)".into(), None)?
+                    }
+                    Some(SceneResponse::Timeout) => {
+                        record_scene_history(request, &mut result, "(시간 초과)".into(), None)?;
+                        for item in &on_timeout.steps {
+                            match item {
+                                StoryStep::Line { text, persona, .. } => {
+                                    record_scene_history(
+                                        request,
+                                        &mut result,
+                                        scene_render(text, &name, &answers),
+                                        Some(persona),
+                                    )?;
+                                }
+                                StoryStep::Action { action } => {
+                                    record_scene_history(
+                                        request,
+                                        &mut result,
+                                        action_description(action),
+                                        None,
+                                    )?;
+                                }
+                                _ => return Err("시간 초과 단계를 확인해 주세요.".into()),
+                            }
+                        }
+                        target = on_timeout.then.clone();
+                    }
+                    Some(_) => return Err("기다리는 단계에 맞는 응답을 선택해 주세요.".into()),
+                },
+            }
+        } else {
+            target = "nextChapter".into();
+        }
+        if target == "next" {
+            step_index += 1;
+            continue;
+        }
+        if target == "nextChapter" {
+            target = chapter.next.clone().unwrap_or_else(|| {
+                chapters
+                    .get(chapter_index + 1)
+                    .map(|next| next.id.clone())
+                    .unwrap_or_else(|| "end".into())
+            });
+        }
+        if target == "end" {
+            result.status = "completed";
+            result.chapter_id = None;
+            break;
+        }
+        let next_index = chapters
+            .iter()
+            .position(|item| item.id == target)
+            .ok_or("이동할 장을 찾을 수 없어요.")?;
+        if chapter_index != next_index {
+            answers.clear();
+        }
+        chapter_index = next_index;
+        step_index = 0;
+    }
+    if result.status == "blocked" {
+        return Err("이야기 진행 범위를 확인해 주세요.".into());
+    }
+    if responses.next().is_some() {
+        return Err("시험 응답이 너무 많아요.".into());
+    }
+    output.source = "registered";
+    Ok(AuthoringTrialTrace {
+        blocked_reasons: vec![],
+        steps: vec![output],
+        scene: Some(result),
+    })
+}
+
 pub(crate) fn authoring_trial(request: AuthoringTrialRequest) -> Result<AuthoringTrialTrace> {
     validate(&request)?;
     let mut state = AuthoringState {
@@ -657,7 +1002,19 @@ pub(crate) fn authoring_trial(request: AuthoringTrialRequest) -> Result<Authorin
     let mut trace = AuthoringTrialTrace {
         blocked_reasons: vec![],
         steps: vec![],
+        scene: None,
     };
+    if let AuthoringSubject::Scenario { scenario_id } = &request.subject {
+        let scene = request
+            .definition
+            .scenarios
+            .iter()
+            .find(|scene| scene.id == *scenario_id)
+            .ok_or("시험할 이야기를 찾을 수 없어요.")?;
+        if scene.chapters.is_some() {
+            return scene_trial(&request, scene, &state);
+        }
+    }
     if request.inputs.is_empty() {
         trace.steps.push(step(None, &state));
     }

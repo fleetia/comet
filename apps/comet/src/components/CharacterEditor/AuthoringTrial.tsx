@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { TauriEvent } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Button, Checkbox, FormField, Select, Textarea, TextInput } from "@comet/ui";
+import { Button, Checkbox, FormField, Select, Surface, Textarea, TextInput } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type {
   AnimationAsset,
@@ -24,6 +24,17 @@ const STAGES = {
   decline: "거절",
   ending: "마무리",
 };
+const SCENE_STATUSES = {
+  wait: "이벤트 대기",
+  ask: "입력 대기",
+  choice: "선택 대기",
+  completed: "완료",
+  blocked: "시작할 수 없음",
+};
+type SceneResponse =
+  | { kind: "event" | "timeout" }
+  | { kind: "answer"; value: string }
+  | { kind: "choice"; optionId: string };
 
 export function AuthoringTrial({
   title,
@@ -60,6 +71,8 @@ export function AuthoringTrial({
   const [expanded, setExpanded] = useState(false);
   const [snapshot, setSnapshot] = useState<PackStorySnapshot | null>(null);
   const [inputs, setInputs] = useState("");
+  const [sceneKnownName, setSceneKnownName] = useState("");
+  const [sceneAnswer, setSceneAnswer] = useState("");
   const [centerId, setCenterId] = useState(defaultCenter);
   const [presentIds, setPresentIds] = useState(
     initialPresentIds ?? residents.map((actor) => actor.id),
@@ -78,10 +91,12 @@ export function AuthoringTrial({
   const mounted = useRef(true);
   const generation = useRef(0);
   const pending = useRef(false);
+  const sceneResponses = useRef<SceneResponse[]>([]);
   const definition = draftDefinition ?? snapshot?.definition ?? EMPTY;
-  const isSceneStory =
+  const sceneScenario =
     subject.kind === "scenario" &&
-    definition.scenarios.find((scenario) => scenario.id === subject.scenarioId)?.chapters != null;
+    definition.scenarios.find((scenario) => scenario.id === subject.scenarioId);
+  const isSceneStory = Boolean(sceneScenario && sceneScenario.chapters != null);
   const key = JSON.stringify([
     scope,
     visible,
@@ -92,6 +107,7 @@ export function AuthoringTrial({
     baseline,
     snapshot?.baseline,
     inputs,
+    sceneKnownName,
     centerId,
     presentIds,
     flags,
@@ -115,6 +131,7 @@ export function AuthoringTrial({
   }, []);
   useEffect(() => {
     setInputs("");
+    setSceneKnownName("");
     setFlags([]);
     setCompleted([]);
     setIncomplete([]);
@@ -133,6 +150,8 @@ export function AuthoringTrial({
   const invalidate = useCallback((): void => {
     generation.current += 1;
     setTrace(null);
+    sceneResponses.current = [];
+    setSceneAnswer("");
     setStepIndex(0);
     setError(null);
     setBusy(false);
@@ -191,12 +210,11 @@ export function AuthoringTrial({
     Number(affinity) <= 100 &&
     inputs.split("\n").length <= 32 &&
     inputs.split("\n").every((value) => Array.from(value).length <= 500);
-  async function test(): Promise<void> {
+  async function test(responses: SceneResponse[] = []): Promise<void> {
     if (
       !visible ||
       !expanded ||
       pending.current ||
-      isSceneStory ||
       !valid ||
       (packId && !draftDefinition && !snapshot)
     )
@@ -204,7 +222,7 @@ export function AuthoringTrial({
     const version = ++generation.current;
     pending.current = true;
     setBusy(true);
-    setTrace(null);
+    if (responses.length === 0) setTrace(null);
     setError(null);
     try {
       const result = await command<AuthoringTrialTrace>("trial_pack_authoring", {
@@ -227,11 +245,14 @@ export function AuthoringTrial({
             incompleteScenarioIds: incomplete,
           },
           inputs: inputs.split("\n"),
+          ...(isSceneStory ? { sceneResponses: responses, sceneKnownName } : {}),
         },
       });
       if (mounted.current && generation.current === version) {
         setTrace(result);
         setStepIndex(0);
+        sceneResponses.current = responses;
+        setSceneAnswer("");
       }
     } catch (cause) {
       if (mounted.current && generation.current === version) setError(errorText(cause));
@@ -263,14 +284,6 @@ export function AuthoringTrial({
   function stateText(state: AuthoringState): string {
     return `${state.stage ? STAGES[state.stage] : "대기"} · ${state.ready ? "입력 대기" : "대사 전"} · 참가 ${state.presentIds.length}명 · 조건 ${state.flags.join(", ") || "없음"} · 입력 ${state.turn} / 대기 ${state.waitTurn}${state.pendingNextScenarioId ? ` · 다음 이야기 ${state.pendingNextScenarioId}` : ""}`;
   }
-  if (isSceneStory) {
-    return (
-      <details>
-        <summary>{title}</summary>
-        <p>아직 시험할 수 없어요.</p>
-      </details>
-    );
-  }
   return (
     <details open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
       <summary>{title}</summary>
@@ -278,16 +291,18 @@ export function AuthoringTrial({
         편집 중인 원문과 임시 조건으로 시험해요. 실제 등장·대화·기억·친밀도·완료 조건은 바뀌지
         않아요.
       </p>
-      <FormField label={`${title} 입력 · 한 줄에 한 번`}>
-        <Textarea
-          layout="flexible"
-          fill
-          rows={3}
-          maxLength={32031}
-          value={inputs}
-          onChange={(event) => setInputs(event.target.value)}
-        />
-      </FormField>
+      {!isSceneStory && (
+        <FormField label={`${title} 입력 · 한 줄에 한 번`}>
+          <Textarea
+            layout="flexible"
+            fill
+            rows={3}
+            maxLength={32031}
+            value={inputs}
+            onChange={(event) => setInputs(event.target.value)}
+          />
+        </FormField>
+      )}
       <FormField label={`${title} 중심 인물`}>
         <Select fill value={centerId} onChange={(event) => setCenterId(event.target.value)}>
           <option value="">선택해 주세요</option>
@@ -303,6 +318,15 @@ export function AuthoringTrial({
         <p className={s.small}>
           현재 구성은 시험의 시작값이에요. 체크를 바꿔도 실제 구성은 바뀌지 않아요.
         </p>
+        {isSceneStory && (
+          <FormField label="이미 알고 있는 이름 · 시험에만 사용">
+            <TextInput
+              fill
+              value={sceneKnownName}
+              onChange={(event) => setSceneKnownName(event.target.value)}
+            />
+          </FormField>
+        )}
         {actors.map((actor) => (
           <Checkbox
             key={actor.id}
@@ -405,8 +429,93 @@ export function AuthoringTrial({
           팩 조건 다시 불러오기
         </Button>
       )}
-      {error && <p role="alert">{error}</p>}
-      {trace && (
+      {error && (
+        <p role="alert" style={{ color: "var(--comet-color-danger)" }}>
+          {error}
+        </p>
+      )}
+      {trace && isSceneStory && (
+        <section aria-label={`${title} 결과`}>
+          {trace.blockedReasons.map((reason, index) => (
+            <p key={index}>{reason}</p>
+          ))}
+          {trace.scene && (
+            <>
+              <Surface variant="card" className={s.sourcePanel}>
+                현재 상태: {SCENE_STATUSES[trace.scene.status]}
+                {trace.scene.chapterId &&
+                  ` · ${(sceneScenario && sceneScenario.chapters?.find((chapter) => chapter.id === trace.scene?.chapterId)?.title) ?? trace.scene.chapterId}`}
+              </Surface>
+              {trace.scene.status === "wait" && (
+                <div>
+                  <p>기다리는 단계</p>
+                  <Button
+                    variant="primary"
+                    disabled={busy}
+                    onClick={() => void test([...sceneResponses.current, { kind: "event" }])}
+                  >
+                    이벤트 보내기
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => void test([...sceneResponses.current, { kind: "timeout" }])}
+                  >
+                    시간 초과
+                  </Button>
+                </div>
+              )}
+              {trace.scene.status === "ask" && (
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void test([...sceneResponses.current, { kind: "answer", value: sceneAnswer }]);
+                  }}
+                >
+                  <FormField label={trace.scene.prompt ?? "시험 입력"}>
+                    <TextInput
+                      fill
+                      value={sceneAnswer}
+                      onChange={(event) => setSceneAnswer(event.target.value)}
+                    />
+                  </FormField>
+                  <Button type="submit" disabled={busy}>
+                    보내기
+                  </Button>
+                </form>
+              )}
+              {trace.scene.status === "choice" && (
+                <div>
+                  <p>{trace.scene.prompt}</p>
+                  {trace.scene.options.map((option) => (
+                    <Button
+                      key={option.id}
+                      disabled={busy}
+                      onClick={() =>
+                        void test([
+                          ...sceneResponses.current,
+                          { kind: "choice", optionId: option.id },
+                        ])
+                      }
+                    >
+                      {option.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+              <p>이렇게 이어져요</p>
+              {trace.scene.history.map((entry, index) => (
+                <p key={index} style={{ whiteSpace: "pre-wrap" }}>
+                  {entry.persona &&
+                    `${actors.find((actor) => actor.id === entry.persona)?.definition.name ?? "확인할 화자"}: `}
+                  {entry.text}
+                </p>
+              ))}
+            </>
+          )}
+        </section>
+      )}
+      {trace && !isSceneStory && (
         <section aria-label={`${title} 결과`}>
           {trace.blockedReasons.map((reason, index) => (
             <p key={index}>{reason}</p>
