@@ -40,26 +40,41 @@ fn reveal_note(
     state: &AppState,
     id: &str,
     note_id: &str,
+    story: Option<&crate::pack_stories::RunTicket>,
     reveal: impl FnOnce() -> Result<(), String>,
 ) -> Result<bool, String> {
     let _action = lock(&state.action)?;
-    if crate::unavailable(state) {
-        return Ok(false);
-    }
-    let current = storage::get(&*lock(&state.db)?, id)?;
-    if !current.data["notes"].as_array().is_some_and(|notes| {
-            notes
-                .iter()
-                .any(|note| note["id"] == note_id && note["isOpen"] == true)
+    if crate::unavailable(state)
+        || story.is_some_and(|run| {
+            !crate::app::scene_events::execution_current(state, run).unwrap_or(false)
         })
     {
         return Ok(false);
     }
+    let db = lock(&state.db)?;
+    if let Some(run) = story {
+        if !crate::app::scene_events::available_locked(state, &db, run)? {
+            return Ok(false);
+        }
+    }
+    let current = storage::get(&db, id)?;
+    if !current.data["notes"].as_array().is_some_and(|notes| {
+        notes
+            .iter()
+            .any(|note| note["id"] == note_id && note["isOpen"] == true)
+    }) {
+        return Ok(false);
+    }
+    drop(db);
     reveal()?;
     Ok(true)
 }
 
-fn reconcile(app: &tauri::AppHandle, focus: Option<&str>) -> Result<(), String> {
+fn reconcile(
+    app: &tauri::AppHandle,
+    focus: Option<&str>,
+    story: Option<&crate::pack_stories::RunTicket>,
+) -> Result<(), String> {
     let state = app.state::<Arc<AppState>>();
     let instances = {
         let _action = lock(&state.action)?;
@@ -69,10 +84,7 @@ fn reconcile(app: &tauri::AppHandle, focus: Option<&str>) -> Result<(), String> 
         storage::instances(&*lock(&state.db)?)?
     };
     let mut desired = BTreeSet::new();
-    for instance in instances
-        .iter()
-        .filter(|item| item.kind == "memo")
-    {
+    for instance in instances.iter().filter(|item| item.kind == "memo") {
         let Some(notes) = instance.data["notes"].as_array() else {
             continue;
         };
@@ -122,24 +134,36 @@ fn reconcile(app: &tauri::AppHandle, focus: Option<&str>) -> Result<(), String> 
                             close_window.emit_to(close_window.label(), "memo-close-request", ());
                     }
                 });
-                let revealed = reveal_note(&state, &instance.id, note_id, || {
-                    window.show().map_err(|error| error.to_string())?;
-                    if focus == Some(window_label.as_str()) {
-                        window.set_focus().map_err(|error| error.to_string())?;
-                    }
-                    Ok(())
-                });
+                let revealed = reveal_note(
+                    &state,
+                    &instance.id,
+                    note_id,
+                    story.filter(|_| focus == Some(window_label.as_str())),
+                    || {
+                        window.show().map_err(|error| error.to_string())?;
+                        if focus == Some(window_label.as_str()) {
+                            window.set_focus().map_err(|error| error.to_string())?;
+                        }
+                        Ok(())
+                    },
+                );
                 if !matches!(revealed, Ok(true)) {
                     let _ = window.destroy();
                 }
                 revealed?;
             } else if focus == Some(window_label.as_str()) {
                 if let Some(window) = app.get_webview_window(&window_label) {
-                    reveal_note(&state, &instance.id, note_id, || {
-                        window.unminimize().map_err(|error| error.to_string())?;
-                        window.show().map_err(|error| error.to_string())?;
-                        window.set_focus().map_err(|error| error.to_string())
-                    })?;
+                    reveal_note(
+                        &state,
+                        &instance.id,
+                        note_id,
+                        story.filter(|_| focus == Some(window_label.as_str())),
+                        || {
+                            window.unminimize().map_err(|error| error.to_string())?;
+                            window.show().map_err(|error| error.to_string())?;
+                            window.set_focus().map_err(|error| error.to_string())
+                        },
+                    )?;
                 }
             }
         }
@@ -156,14 +180,33 @@ fn reconcile(app: &tauri::AppHandle, focus: Option<&str>) -> Result<(), String> 
     Ok(())
 }
 
-async fn sync(app: &tauri::AppHandle, focus: Option<String>) -> Result<(), String> {
+async fn sync_story(
+    app: &tauri::AppHandle,
+    focus: Option<String>,
+    story: Option<crate::pack_stories::RunTicket>,
+) -> Result<(), String> {
     let (send, receive) = tokio::sync::oneshot::channel();
     let handle = app.clone();
     app.run_on_main_thread(move || {
-        let _ = send.send(reconcile(&handle, focus.as_deref()));
+        let _ = send.send(reconcile(&handle, focus.as_deref(), story.as_ref()));
     })
     .map_err(|error| error.to_string())?;
     receive.await.map_err(|error| error.to_string())?
+}
+
+async fn sync(app: &tauri::AppHandle, focus: Option<String>) -> Result<(), String> {
+    sync_story(app, focus, None).await
+}
+
+pub(crate) async fn reveal_story_note(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    id: &str,
+    note: &str,
+    run: crate::pack_stories::RunTicket,
+) -> Result<(), String> {
+    publish_widgets(app, state);
+    sync_story(app, Some(label(id, note)), Some(run)).await
 }
 
 pub(crate) fn schedule_sync(app: &tauri::AppHandle) {
@@ -177,6 +220,51 @@ pub(crate) fn schedule_sync(app: &tauri::AppHandle) {
 
 pub(crate) fn create_note(db: &rusqlite::Connection, id: &str) -> Result<WidgetSnapshot, String> {
     execute(db, id, "add", json!({"isOpen":true}))
+}
+
+pub(crate) fn open_story_note(db: &rusqlite::Connection, id: &str) -> Result<String, String> {
+    let instance = storage::get(db, id)?;
+    let note = instance.data["notes"].as_array().and_then(|notes| {
+        notes.iter()
+            .filter(|note| note["title"] == "" && note["body"] == "")
+            .max_by_key(|note| note["updatedAt"].as_i64())
+            .and_then(|note| note["id"].as_str())
+    });
+    if let Some(note) = note {
+        execute(db, id, "update", json!({"id":note,"isOpen":true}))?;
+        return Ok(note.to_owned());
+    }
+    let snapshot = create_note(db, id)?;
+    let note = snapshot.widgets.iter().find(|item| item.instance.id == id)
+        .and_then(|item| item.instance.data["notes"].as_array())
+        .and_then(|notes| notes.last())
+        .and_then(|note| note["id"].as_str())
+        .ok_or("메모를 열지 못했어요.")?.to_owned();
+    Ok(note)
+}
+
+fn interrupt_scene_for_user_open(
+    state: &AppState,
+    db: &rusqlite::Connection,
+) -> Result<(), String> {
+    if !lock(&state.pack_stories)?
+        .run
+        .as_ref()
+        .is_some_and(|run| run.stage == crate::pack_stories::Stage::Chapter)
+    {
+        return Ok(());
+    }
+    let (epoch, _) = crate::app::interrupt_with_db(state, false, db)?;
+    state
+        .widget_epoch
+        .store(epoch, std::sync::atomic::Ordering::SeqCst);
+    *lock(&state.panel)? = None;
+    let mut runtime = lock(&state.runtime)?;
+    runtime.phase = crate::types::RuntimePhase::Idle;
+    runtime.persona = None;
+    runtime.error = None;
+    state.nlp.pause_indexing(false);
+    Ok(())
 }
 
 pub(crate) async fn reveal_created_note(
@@ -204,7 +292,10 @@ pub(crate) async fn create_memo_note(
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
 ) -> Result<WidgetSnapshot, String> {
-    let snapshot = change(&state, |db| create_note(db, &id))?;
+    let snapshot = change(&state, |db| {
+        interrupt_scene_for_user_open(&state, db)?;
+        create_note(db, &id)
+    })?;
     reveal_created_note(&app, &state, &id, snapshot).await
 }
 
@@ -216,6 +307,7 @@ pub(crate) async fn open_memo_note(
     note_id: String,
 ) -> Result<WidgetSnapshot, String> {
     let snapshot = change(&state, |db| {
+        interrupt_scene_for_user_open(&state, db)?;
         execute(db, &id, "update", json!({"id":note_id,"isOpen":true}))
     })?;
     cancel_widget_scene(&app, &state)?;
@@ -232,7 +324,13 @@ pub(crate) async fn close_memo_note(
     note_id: String,
 ) -> Result<WidgetSnapshot, String> {
     let snapshot = change(&state, |db| {
-        execute(db, &id, "update", json!({"id":note_id,"isOpen":false}))
+        let snapshot = execute(db, &id, "update", json!({"id":note_id,"isOpen":false}))?;
+        crate::app::scene_events::window_closed_locked(
+            &state,
+            crate::pack_stories::StoryWindow::Memo,
+            &format!("{id}:{note_id}"),
+        )?;
+        Ok(snapshot)
     })?;
     cancel_widget_scene(&app, &state)?;
     publish_widgets(&app, &state);
@@ -251,12 +349,14 @@ pub(crate) fn save_memo_note(
     expected_body: String,
 ) -> Result<WidgetSnapshot, String> {
     let snapshot = change(&state, |db| {
-        execute(
+        let snapshot = execute(
             db,
             &id,
             "update",
             json!({"id":note_id,"body":body,"fontSize":font_size,"expectedBody":expected_body}),
-        )
+        )?;
+        crate::app::scene_events::memo_saved_locked(&state, &id, &note_id)?;
+        Ok(snapshot)
     })?;
     cancel_widget_scene(&app, &state)?;
     publish_widgets(&app, &state);
@@ -337,10 +437,10 @@ fn note_windows(app: &tauri::AppHandle, id: Option<&str>) -> Vec<tauri::WebviewW
 
 fn open_notes(db: &rusqlite::Connection, id: Option<&str>) -> Result<BTreeSet<String>, String> {
     let mut notes = BTreeSet::new();
-    for instance in storage::instances(db)?.into_iter().filter(|instance| {
-        instance.kind == "memo"
-            && id.is_none_or(|id| instance.id == id)
-    }) {
+    for instance in storage::instances(db)?
+        .into_iter()
+        .filter(|instance| instance.kind == "memo" && id.is_none_or(|id| instance.id == id))
+    {
         if let Some(items) = instance.data["notes"].as_array() {
             notes.extend(
                 items
@@ -477,7 +577,12 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let db = crate::store::open(&directory.path().join("notes.sqlite")).unwrap();
         storage::verify_packages(&db, directory.path()).unwrap();
-        let id = storage::instances(&db).unwrap().into_iter().find(|widget| widget.kind == "memo").unwrap().id;
+        let id = storage::instances(&db)
+            .unwrap()
+            .into_iter()
+            .find(|widget| widget.kind == "memo")
+            .unwrap()
+            .id;
         (db, directory, id)
     }
 
@@ -486,6 +591,73 @@ mod tests {
             .as_array()
             .unwrap()
             .clone()
+    }
+
+    #[test]
+    fn opening_a_user_memo_interrupts_a_chapter_and_keeps_its_resume_point() {
+        for create in [true, false] {
+            let (db, _directory, id) = database();
+            let state = crate::app::tests::state();
+            *lock(&state.db).unwrap() = db;
+            let (epoch, cancel) = {
+                let _action = lock(&state.action).unwrap();
+                crate::app::interrupt(&state, false).unwrap()
+            };
+            let note_id = {
+                let db = lock(&state.db).unwrap();
+                let user_id = crate::store::active_user_id(&db).unwrap();
+                let run = crate::pack_stories::RunTicket {
+                    run_id: "chapter-run".into(),
+                    input_id: "input".into(),
+                    scope: crate::pack_stories::Scope {
+                        user_id,
+                        pack_id: "pack".into(),
+                        center_id: "a".into(),
+                    },
+                    scenario_id: Some("tutorial".into()),
+                    stage: crate::pack_stories::Stage::Chapter,
+                    chapter_id: Some("first".into()),
+                    step: 0,
+                    phase_generation: 1,
+                    epoch,
+                    participants: vec!["a".into()],
+                    pack_baseline: "1".into(),
+                    definition_baselines: Default::default(),
+                    last_playback_id: String::new(),
+                    definition: None,
+                    ready: false,
+                };
+                let scope = serde_json::to_string(&run.scope).unwrap();
+                db.execute("INSERT INTO pack_story_resume VALUES(?1,'tutorial','first','chapter-run','1',100)", [scope]).unwrap();
+                *lock(&state.pack_stories).unwrap() = crate::pack_stories::Runtime {
+                    run: Some(run),
+                    ..Default::default()
+                };
+                execute(&db, &id, "add", json!({"isOpen":false})).unwrap();
+                notes(&db, &id)[0]["id"].as_str().unwrap().to_owned()
+            };
+            change(&state, |db| {
+                interrupt_scene_for_user_open(&state, db)?;
+                if create {
+                    create_note(db, &id)?;
+                } else {
+                    execute(db, &id, "update", json!({"id":note_id,"isOpen":true}))?;
+                }
+                Ok(())
+            })
+            .unwrap();
+            assert!(cancel.load(std::sync::atomic::Ordering::SeqCst));
+            assert!(lock(&state.pack_stories).unwrap().run.is_none());
+            let db = lock(&state.db).unwrap();
+            assert_eq!(db.query_row("SELECT COUNT(*) FROM pack_story_outcomes WHERE run_id='chapter-run' AND kind='cancelled'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+            assert_eq!(
+                db.query_row("SELECT COUNT(*) FROM pack_story_resume", [], |row| row
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                1
+            );
+            assert!(notes(&db, &id).iter().any(|note| note["isOpen"] == true));
+        }
     }
 
     #[test]
@@ -515,7 +687,7 @@ mod tests {
                     _ => unreachable!(),
                 }
             }
-            let result = reveal_note(&state, &id, &note_id, || {
+            let result = reveal_note(&state, &id, &note_id, None, || {
                 panic!("a stale pending note must not become visible: {mutation}")
             });
             assert!(!matches!(result, Ok(true)), "{mutation}");
@@ -533,7 +705,7 @@ mod tests {
         let state = crate::app::tests::state();
         *lock(&state.db).unwrap() = db;
         let mut revealed = false;
-        assert!(reveal_note(&state, &id, &note_id, || {
+        assert!(reveal_note(&state, &id, &note_id, None, || {
             assert!(matches!(
                 state.action.try_lock(),
                 Err(std::sync::TryLockError::WouldBlock)

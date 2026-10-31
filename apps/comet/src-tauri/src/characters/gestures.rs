@@ -158,6 +158,8 @@ pub(crate) struct GestureEvent {
     pub generation: u64,
     pub phase: Phase,
     pub position: Option<WindowPosition>,
+    #[serde(skip)]
+    pub start_position: WindowPosition,
     pub body_part: Option<String>,
     #[serde(skip)]
     pub definition_key: String,
@@ -284,6 +286,7 @@ impl Registry {
             generation: session.generation,
             phase,
             position: None,
+            start_position: session.start_position.clone(),
             body_part: session.body_part.clone(),
             definition_key: session.definition_key.clone(),
             roster_key: session.roster_key.clone(),
@@ -303,7 +306,8 @@ impl Registry {
             session_id: entry.session.session_id,
             generation: entry.session.generation,
             phase: Phase::Cancelled,
-            position: Some(entry.session.start_position),
+            position: Some(entry.session.start_position.clone()),
+            start_position: entry.session.start_position,
             body_part: entry.session.body_part,
             definition_key: entry.session.definition_key,
             roster_key: entry.session.roster_key,
@@ -898,6 +902,13 @@ fn same_touch(a: &TouchSession, b: &TouchSession) -> bool {
         && a.actor == b.actor
 }
 
+pub(crate) fn notify_scene_click_locked(state: &AppState, character_id: &str, action: &str, accepted: bool) -> Result<(), String> {
+    if action == "poke" && accepted {
+        crate::app::scene_events::body_event_locked(state, character_id, false)?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) fn trigger_character_interaction(
     window: WebviewWindow,
@@ -1040,6 +1051,7 @@ pub(crate) fn trigger_character_interaction(
             crate::characters::life::change_interaction_mood(
                 app, &state, character_id, &action, result.accepted, &session_id,
             )?;
+            notify_scene_click_locked(&state, character_id, &action, result.accepted)?;
             result.event
         };
         (eligible, held, stale)

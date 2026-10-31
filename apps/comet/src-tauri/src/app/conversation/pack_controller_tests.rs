@@ -1409,3 +1409,693 @@ fn standalone_entry_exact_cancellation_leaves_guest_quietly_after_registered_pri
         assert_eq!(effects(&db), (0, 0));
     }
 }
+
+fn chapter_run_fixture() -> (AppState, pack_stories::RunTicket) {
+    use pack_stories::{Chapter, StoryStep};
+    let (state, ids) = fixture(false);
+    let run = {
+        let db = lock(&state.db).unwrap();
+        let pack_id = characters::get(&db, &ids[0]).unwrap().pack_id.unwrap();
+        let snapshot = characters::get_pack_story_definition(&db, &pack_id).unwrap();
+        let mut definition = snapshot.definition.scenarios[0].clone();
+        let actor = definition.center_id.clone();
+        let line = || StoryStep::Line {
+            persona: actor.clone(),
+            expression: "평온".into(),
+            text: "안녕".into(),
+            motion: Default::default(),
+        };
+        definition.chapters = Some(vec![
+            Chapter {
+                id: "first".into(),
+                title: "첫 장".into(),
+                next: Some("third".into()),
+                steps: vec![line(), line()],
+            },
+            Chapter {
+                id: "second".into(),
+                title: "둘째 장".into(),
+                next: None,
+                steps: vec![line()],
+            },
+            Chapter {
+                id: "third".into(),
+                title: "셋째 장".into(),
+                next: Some("end".into()),
+                steps: vec![line()],
+            },
+        ]);
+        let user_id = store::active_user_id(&db).unwrap();
+        let scope = pack_stories::Scope {
+            user_id: user_id.clone(),
+            pack_id,
+            center_id: ids[0].clone(),
+        };
+        let context = pack_stories::InputContext {
+            input_id: uuid::Uuid::new_v4().to_string(),
+            user_id,
+            targets: vec![ids[0].clone()],
+            epoch: 1,
+        };
+        pack_stories::scene_plan(&db, &context, scope, definition, None)
+            .unwrap()
+            .run
+    };
+    (state, run)
+}
+
+#[test]
+fn non_display_first_step_saves_resumable_checkpoint_only_for_current_execution() {
+    use pack_stories::{StoryAction, StoryEnter, StoryEvent, StoryStep, StoryTimeout};
+
+    for kind in 0..3 {
+        let (state, mut run) = chapter_run_fixture();
+        let first_step = {
+            let db = lock(&state.db).unwrap();
+            let mut snapshot =
+                characters::get_pack_story_definition(&db, &run.scope.pack_id).unwrap();
+            let definition = &mut snapshot.definition.scenarios[0];
+            definition.intro.clear();
+            definition.accept.clear();
+            definition.decline.clear();
+            definition.ending.clear();
+            definition.accept_keywords.clear();
+            definition.decline_keywords.clear();
+            definition.proceed_keywords.clear();
+            definition.cancel_keywords.clear();
+            definition.accept_next_id = None;
+            definition.decline_next_id = None;
+            definition.allow_incomplete_repeat = false;
+            let first_step = match kind {
+                0 => StoryStep::Move {
+                    persona: definition.center_id.clone(),
+                    enter: StoryEnter::Left,
+                },
+                1 => StoryStep::Action {
+                    action: StoryAction::FocusStart { minutes: 5 },
+                },
+                _ => StoryStep::Wait {
+                    event: StoryEvent::BodyClicked {},
+                    timeout_sec: 90,
+                    cancel_on: vec![],
+                    on_timeout: StoryTimeout {
+                        steps: vec![],
+                        then: "next".into(),
+                    },
+                },
+            };
+            let mut chapters = run.definition.as_ref().unwrap().chapters.clone().unwrap();
+            chapters[0].steps.insert(0, first_step.clone());
+            definition.chapters = Some(chapters);
+            let saved = characters::save_pack_story_definition_expected(
+                &db,
+                &run.scope.pack_id,
+                &snapshot.definition,
+                &snapshot.baseline,
+            )
+            .unwrap();
+            run.definition = Some(saved.definition.scenarios[0].clone());
+            run.pack_baseline = saved.baseline;
+            pack_stories::resume::record_accepted(&db, &run).unwrap();
+            first_step
+        };
+        state.epoch.store(run.epoch, Ordering::SeqCst);
+        lock(&state.pack_stories).unwrap().run = Some(run.clone());
+        let cancel = AtomicBool::new(false);
+        let mut saved = false;
+        let line = run.definition.as_ref().unwrap().chapters.as_ref().unwrap()[0].steps[1].clone();
+        assert!(
+            scene_story::checkpoint_before_step(&state, &run, &cancel, &line, &mut saved).unwrap()
+        );
+        assert!(!saved);
+        let mut stale = run.clone();
+        stale.phase_generation += 1;
+        assert!(!scene_story::checkpoint_before_step(
+            &state,
+            &stale,
+            &cancel,
+            &first_step,
+            &mut saved
+        )
+        .unwrap());
+        stale = run.clone();
+        stale.pack_baseline.push_str("-stale");
+        assert!(!scene_story::checkpoint_before_step(
+            &state,
+            &stale,
+            &cancel,
+            &first_step,
+            &mut saved
+        )
+        .unwrap());
+        state.epoch.store(run.epoch + 1, Ordering::SeqCst);
+        assert!(!scene_story::checkpoint_before_step(
+            &state,
+            &run,
+            &cancel,
+            &first_step,
+            &mut saved
+        )
+        .unwrap());
+        state.epoch.store(run.epoch, Ordering::SeqCst);
+        cancel.store(true, Ordering::SeqCst);
+        assert!(!scene_story::checkpoint_before_step(
+            &state,
+            &run,
+            &cancel,
+            &first_step,
+            &mut saved
+        )
+        .unwrap());
+        assert!(
+            pack_stories::resume::load_for_scope(&lock(&state.db).unwrap(), &run.scope)
+                .unwrap()
+                .is_empty()
+        );
+        cancel.store(false, Ordering::SeqCst);
+        assert!(scene_story::checkpoint_before_step(
+            &state,
+            &run,
+            &cancel,
+            &first_step,
+            &mut saved
+        )
+        .unwrap());
+        assert!(saved);
+        scene_story::cleanup(&state, &run);
+        let db = lock(&state.db).unwrap();
+        let points = pack_stories::resume::load_for_scope(&db, &run.scope).unwrap();
+        assert_eq!(points.len(), 1);
+        let resolved = pack_stories::resume::resolve(&db, &run.scope, &points[0])
+            .unwrap()
+            .unwrap();
+        assert_eq!(resolved.chapter_id, "first");
+        assert!(!resolved.definition.allow_incomplete_repeat);
+        let context = pack_stories::InputContext {
+            input_id: uuid::Uuid::new_v4().to_string(),
+            user_id: run.scope.user_id.clone(),
+            targets: vec![run.scope.center_id.clone()],
+            epoch: run.epoch + 1,
+        };
+        assert!(pack_stories::select(
+            &db,
+            &pack_stories::Runtime::default(),
+            &context,
+            "이야기 시작",
+        )
+        .unwrap()
+        .is_none());
+    }
+}
+
+#[test]
+fn chapter_steps_follow_explicit_next_and_choice_goto() {
+    let (_, mut run) = chapter_run_fixture();
+    assert_eq!(scene_story::next_target(&run).unwrap(), "next");
+    assert!(scene_story::transition(&mut run, "next").unwrap());
+    assert_eq!(run.step, 1);
+    assert_eq!(scene_story::next_target(&run).unwrap(), "third");
+    assert!(scene_story::transition(&mut run, "second").unwrap());
+    assert_eq!(run.chapter_id.as_deref(), Some("second"));
+    assert_eq!(run.step, 0);
+    assert!(scene_story::transition(&mut run, "nextChapter").unwrap());
+    assert_eq!(run.chapter_id.as_deref(), Some("third"));
+    assert!(!scene_story::transition(&mut run, "end").unwrap());
+}
+
+#[test]
+fn chapter_rejects_previous_phase_and_epoch_tickets() {
+    let (_, run) = chapter_run_fixture();
+    let mut stale = run.clone();
+    assert!(scene_story::matches_run(&run, &stale));
+    stale.phase_generation += 1;
+    assert!(!scene_story::matches_run(&run, &stale));
+    stale = run.clone();
+    stale.epoch += 1;
+    assert!(!scene_story::matches_run(&run, &stale));
+}
+
+#[test]
+fn stale_chapter_choice_cannot_advance_the_current_phase() {
+    let (state, mut run) = chapter_run_fixture();
+    state.epoch.store(run.epoch, Ordering::SeqCst);
+    let request_id = "scene-choice:old".to_string();
+    lock(&state.story).unwrap().replace(story::Request {
+        id: request_id.clone(),
+        display_started_at: Some(10),
+        persona: run.scope.center_id.clone(),
+        expression: None,
+        motion: None,
+        title: "선택".into(),
+        prompt: "어떻게 할까?".into(),
+        choices: vec![],
+        character_id: run.scope.center_id.clone(),
+        user_id: run.scope.user_id.clone(),
+        scene: story::Scene {
+            id: "unused".into(),
+            chapter: 0,
+            title: String::new(),
+            prompt: String::new(),
+            choices: vec![],
+        },
+        epoch: run.epoch,
+    });
+    let interaction = pack_stories::SceneInteraction {
+        run_id: run.run_id.clone(),
+        epoch: run.epoch,
+        generation: run.phase_generation,
+        request_id: request_id.clone(),
+        persona: run.scope.center_id.clone(),
+        choices: Some(vec!["yes".into()]),
+        answer: None,
+    };
+    run.phase_generation += 1;
+    {
+        let mut runtime = lock(&state.pack_stories).unwrap();
+        runtime.run = Some(run);
+        runtime.interaction = Some(interaction);
+    }
+    assert!(!scene_story::answer_choice(&state, &request_id, "yes").unwrap());
+    assert!(lock(&state.pack_stories)
+        .unwrap()
+        .interaction
+        .as_ref()
+        .unwrap()
+        .answer
+        .is_none());
+}
+
+#[test]
+fn cancelled_chapter_cannot_present_a_late_line() {
+    let (state, mut run) = chapter_run_fixture();
+    let token = super::super::interrupt(&state, false).unwrap();
+    run.epoch = token.0;
+    lock(&state.pack_stories).unwrap().run = Some(run.clone());
+    let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
+    token.1.store(true, Ordering::SeqCst);
+    let line = SceneLine {
+        persona: run.scope.center_id,
+        expression: "평온".into(),
+        text: "지나간 대사".into(),
+        widget: None,
+        motion: Default::default(),
+    };
+    assert!(!super::super::scene::present_line(
+        &state,
+        &line,
+        "tutorial",
+        "stale-chapter",
+        0,
+        1,
+        revision,
+        token.0,
+        &token.1,
+        false
+    )
+    .unwrap());
+    assert!(lock(&state.playback).unwrap().is_none());
+}
+
+#[test]
+fn reopening_does_not_restore_an_unaccepted_chapter_plan() {
+    let (state, run) = chapter_run_fixture();
+    let db = lock(&state.db).unwrap();
+    let plan = pack_stories::Plan {
+        replaced_run_id: None,
+        retry: false,
+        input_id: run.input_id.clone(),
+        run_id: run.run_id.clone(),
+        source: "tutorial".into(),
+        lines: vec![],
+        required_guest_ids: vec![],
+        run: run.clone(),
+    };
+    db.execute(
+        "INSERT INTO pack_story_plans(input_id,user_id,data) VALUES(?1,?2,?3)",
+        rusqlite::params![
+            run.input_id,
+            run.scope.user_id,
+            serde_json::to_string(&plan).unwrap()
+        ],
+    )
+    .unwrap();
+    pack_stories::initialize(&db).unwrap();
+    assert!(pack_stories::load_plan(&db, &run.input_id).is_err());
+    let count: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM pack_story_outcomes WHERE run_id=?1",
+            [&run.run_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
+    assert!(pack_stories::Runtime::default().run.is_none());
+}
+
+#[test]
+fn chapter_text_answer_is_single_line_ephemeral_and_only_accepted_once() {
+    let (state, run) = chapter_run_fixture();
+    state.epoch.store(run.epoch, Ordering::SeqCst);
+    let request_id = "scene-ask";
+    let message_id = uuid::Uuid::new_v4().to_string();
+    lock(&state.pack_stories).unwrap().run = Some(run.clone());
+    {
+        let _action = lock(&state.action).unwrap();
+        let db = lock(&state.db).unwrap();
+        let participants =
+            capture_participants_locked(&state, &db, &run.participants, run.epoch).unwrap();
+        lock(&state.tasks).unwrap().participants = Some(participants);
+    }
+    let prompt = SceneLine {
+        persona: run.scope.center_id.clone(),
+        expression: "평온".into(),
+        text: "무슨 이야기를 할까?".into(),
+        widget: None,
+        motion: Default::default(),
+    };
+    let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
+    assert!(super::super::scene::present_line(
+        &state,
+        &prompt,
+        "tutorial",
+        "scene-story:prompt",
+        0,
+        1,
+        revision,
+        run.epoch,
+        &AtomicBool::new(false),
+        false,
+    )
+    .unwrap());
+    let _proof = displayed_proof(&state);
+    assert!(scene_story::finish_line(&state, &run, &AtomicBool::new(false), true).unwrap());
+    {
+        let mut runtime = lock(&state.pack_stories).unwrap();
+        runtime.run = Some(run.clone());
+        runtime.interaction = Some(pack_stories::SceneInteraction {
+            run_id: run.run_id.clone(),
+            epoch: run.epoch,
+            generation: run.phase_generation,
+            request_id: request_id.into(),
+            persona: run.scope.center_id.clone(),
+            choices: None,
+            answer: None,
+        });
+    }
+    *lock(&state.panel).unwrap() = Some(PanelState {
+        persona: run.scope.center_id.clone(),
+        mode: "input".into(),
+    });
+    lock(&state.runtime).unwrap().phase = RuntimePhase::Waiting;
+    let snapshot = super::super::snapshot(&state).unwrap();
+    assert_eq!(snapshot.scene_ask_id.as_deref(), Some(request_id));
+    assert_eq!(snapshot.playback.as_ref().unwrap().text, prompt.text);
+    for invalid in [
+        "".into(),
+        "가".repeat(201),
+        "한 줄\n두 줄".into(),
+        "끝\r".into(),
+        "하나\u{2028}둘".into(),
+    ] {
+        assert!(scene_story::answer_text(
+            &state,
+            &run.scope.center_id,
+            &invalid,
+            &message_id,
+            request_id
+        )
+        .is_err());
+    }
+    assert!(
+        !scene_story::answer_text(&state, &run.scope.center_id, "내용", &message_id, "stale")
+            .unwrap()
+    );
+    let answer = "가".repeat(200);
+    assert!(scene_story::answer_text(
+        &state,
+        &run.scope.center_id,
+        &answer,
+        &message_id,
+        request_id
+    )
+    .unwrap());
+    assert!(!scene_story::answer_text(
+        &state,
+        &run.scope.center_id,
+        &answer,
+        &message_id,
+        request_id
+    )
+    .unwrap());
+    assert!(lock(&state.panel).unwrap().is_none());
+    assert!(super::super::snapshot(&state).unwrap().playback.is_none());
+    assert_eq!(
+        lock(&state.pack_stories)
+            .unwrap()
+            .interaction
+            .as_ref()
+            .unwrap()
+            .answer
+            .as_deref(),
+        Some(answer.as_str())
+    );
+    {
+        let db = lock(&state.db).unwrap();
+        let exists: bool = db
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM messages WHERE id=?1)",
+                [&message_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!exists);
+        let jobs: i64 = db
+            .query_row(
+                "SELECT COUNT(*) FROM memory_analysis_jobs WHERE message_id=?1",
+                [&message_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(jobs, 0);
+    }
+    let answers = std::collections::BTreeMap::from([("topic".into(), answer.clone())]);
+    let template = "{userName}, {answer.topic} 이야기구나.";
+    let line = SceneLine {
+        persona: run.scope.center_id.clone(),
+        expression: "평온".into(),
+        text: scene_story::render(template, "친구", &answers),
+        widget: None,
+        motion: Default::default(),
+    };
+    let recorded = scene_story::render_record(template, "친구", &answers).unwrap();
+    let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
+    assert!(super::super::scene::present_line_with_record(
+        &state,
+        &line,
+        "tutorial",
+        "answer-line",
+        0,
+        1,
+        revision,
+        run.epoch,
+        &AtomicBool::new(false),
+        false,
+        Some(&recorded),
+    )
+    .unwrap());
+    assert_eq!(
+        lock(&state.playback).unwrap().as_ref().unwrap().text,
+        line.text
+    );
+    let db = lock(&state.db).unwrap();
+    let saved: String = db
+        .query_row(
+            "SELECT data FROM messages WHERE id='answer-line'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(!saved.contains(&answer));
+    assert!(saved.contains("친구, … 이야기구나."));
+    drop(db);
+    scene_story::cleanup(&state, &run);
+    assert!(lock(&state.pack_stories).unwrap().interaction.is_none());
+}
+
+#[tokio::test]
+async fn chapter_wait_distinguishes_timeout_cancel_and_epoch_interruption() {
+    use crate::app::scene_events;
+    use pack_stories::StoryEvent;
+    use scene_story::WaitOutcome;
+    let (state, run) = chapter_run_fixture();
+    state.epoch.store(run.epoch, Ordering::SeqCst);
+    lock(&state.pack_stories).unwrap().run = Some(run.clone());
+    let cancel = Arc::new(AtomicBool::new(false));
+    let event = StoryEvent::BodyClicked {};
+    let cancel_on = [StoryEvent::BodyMoved {}];
+    assert!(scene_events::begin_wait(&state, &run, &event, &cancel_on).unwrap());
+    assert_eq!(
+        scene_story::wait_for_event(&state, &run, cancel.clone(), tokio::time::Instant::now())
+            .await
+            .unwrap(),
+        WaitOutcome::TimedOut
+    );
+    assert!(scene_events::begin_wait(&state, &run, &event, &cancel_on).unwrap());
+    scene_events::body_event(&state, &run.scope.center_id, true).unwrap();
+    assert_eq!(
+        scene_story::wait_for_event(&state, &run, cancel.clone(), tokio::time::Instant::now())
+            .await
+            .unwrap(),
+        WaitOutcome::Cancelled
+    );
+    assert!(scene_events::begin_wait(&state, &run, &event, &cancel_on).unwrap());
+    scene_events::body_event(&state, &run.scope.center_id, false).unwrap();
+    state.epoch.store(run.epoch + 1, Ordering::SeqCst);
+    assert_eq!(
+        scene_story::wait_for_event(&state, &run, cancel, tokio::time::Instant::now())
+            .await
+            .unwrap(),
+        WaitOutcome::Interrupted
+    );
+}
+
+#[tokio::test]
+async fn chapter_wait_runs_timeout_steps_in_order_before_each_destination() {
+    use crate::app::scene_events;
+    use pack_stories::{StoryEvent, StoryStep, StoryTimeout};
+    for cancelled in [false, true] {
+        for then in ["next", "nextChapter", "second", "end"] {
+            let (state, mut run) = chapter_run_fixture();
+            state.epoch.store(run.epoch, Ordering::SeqCst);
+            lock(&state.pack_stories).unwrap().run = Some(run.clone());
+            let cancel = Arc::new(AtomicBool::new(false));
+            assert!(scene_events::begin_wait(
+                &state,
+                &run,
+                &StoryEvent::BodyClicked {},
+                &[StoryEvent::BodyMoved {}],
+            )
+            .unwrap());
+            if cancelled {
+                scene_events::body_event(&state, &run.scope.center_id, true).unwrap();
+            }
+            let outcome =
+                scene_story::wait_for_event(&state, &run, cancel, tokio::time::Instant::now())
+                    .await
+                    .unwrap();
+            let timeout: StoryTimeout = serde_json::from_value(serde_json::json!({
+                "steps": [
+                    {"kind":"line", "persona":"friend", "expression":"평온", "text":"다시 알려줄게"},
+                    {"kind":"action", "do":"focus.start", "minutes":5}
+                ],
+                "then": then
+            }))
+            .unwrap();
+            let effects = std::sync::Mutex::new(Vec::new());
+            let target = scene_story::follow_wait(outcome, timeout, |step| {
+                let effects = &effects;
+                async move {
+                    match step {
+                        StoryStep::Line { text, .. } => effects.lock().unwrap().push(text),
+                        StoryStep::Action { action } => {
+                            let value = serde_json::to_value(action).unwrap();
+                            assert_eq!(value["do"], "focus.start");
+                            effects.lock().unwrap().push("focus.start".into());
+                        }
+                        _ => panic!("unexpected timeout step"),
+                    }
+                    Ok(true)
+                }
+            })
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(*effects.lock().unwrap(), ["다시 알려줄게", "focus.start"]);
+            let target = if target == "next" {
+                scene_story::next_target(&run).unwrap()
+            } else {
+                target
+            };
+            let continuing = scene_story::transition(&mut run, &target).unwrap();
+            match then {
+                "next" => {
+                    assert!(continuing);
+                    assert_eq!(run.chapter_id.as_deref(), Some("first"));
+                    assert_eq!(run.step, 1);
+                }
+                "nextChapter" => {
+                    assert!(continuing);
+                    assert_eq!(run.chapter_id.as_deref(), Some("third"));
+                    assert_eq!(run.step, 0);
+                }
+                "second" => {
+                    assert!(continuing);
+                    assert_eq!(run.chapter_id.as_deref(), Some("second"));
+                    assert_eq!(run.step, 0);
+                }
+                "end" => assert!(!continuing),
+                _ => unreachable!(),
+            }
+        }
+    }
+}
+
+#[test]
+fn failed_chapter_playback_cleanup_keeps_resume_point_and_records_cancellation() {
+    let (state, run) = chapter_run_fixture();
+    state.epoch.store(run.epoch, Ordering::SeqCst);
+    {
+        let db = lock(&state.db).unwrap();
+        pack_stories::resume::record_accepted(&db, &run).unwrap();
+        pack_stories::resume::save_chapter(&db, &run, "first", 10).unwrap();
+    }
+    lock(&state.pack_stories).unwrap().run = Some(run.clone());
+    scene_story::cleanup(&state, &run);
+    assert!(lock(&state.pack_stories).unwrap().run.is_none());
+    let db = lock(&state.db).unwrap();
+    let points = pack_stories::resume::load_for_scope(&db, &run.scope).unwrap();
+    assert_eq!(points.len(), 1);
+    assert_eq!(points[0].chapter_id, "first");
+    let cancelled: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pack_story_outcomes WHERE run_id=?1 AND kind='cancelled')",
+            [&run.run_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(cancelled);
+}
+
+#[test]
+fn failed_cancellation_write_clears_the_run_and_defers_the_outcome() {
+    let (state, run) = chapter_run_fixture();
+    state.epoch.store(run.epoch, Ordering::SeqCst);
+    {
+        let db = lock(&state.db).unwrap();
+        pack_stories::resume::record_accepted(&db, &run).unwrap();
+        pack_stories::resume::save_chapter(&db, &run, "first", 10).unwrap();
+        db.execute_batch("CREATE TRIGGER reject_cancel BEFORE INSERT ON pack_story_outcomes WHEN NEW.kind='cancelled' BEGIN SELECT RAISE(FAIL, 'synthetic failure'); END;").unwrap();
+    }
+    lock(&state.pack_stories).unwrap().run = Some(run.clone());
+    scene_story::cleanup(&state, &run);
+    {
+        let runtime = lock(&state.pack_stories).unwrap();
+        assert!(runtime.run.is_none());
+        assert_eq!(runtime.pending_cancellations.len(), 1);
+    }
+    let db = lock(&state.db).unwrap();
+    db.execute_batch("DROP TRIGGER reject_cancel").unwrap();
+    pack_stories::flush_cancellations(&db, &mut lock(&state.pack_stories).unwrap()).unwrap();
+    let cancelled: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pack_story_outcomes WHERE run_id=?1 AND kind='cancelled')",
+            [&run.run_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(cancelled);
+    assert_eq!(
+        pack_stories::resume::load_for_scope(&db, &run.scope).unwrap()[0].chapter_id,
+        "first"
+    );
+}

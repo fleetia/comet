@@ -310,7 +310,23 @@ pub(crate) fn ambient_start(
         return Ok(None);
     }
     let execution =
-        prepare_direct_checked(&state, character_id, gesture, None, window, Some(token))?;
+        prepare_direct_checked(&state, character_id, gesture, None, window, MotionContext::Ambient(token))?;
+    if execution.is_some() {
+        app::publish(app, &state);
+    }
+    Ok(execution)
+}
+
+pub(crate) fn scene_motion_start(
+    app: &AppHandle,
+    state: Arc<AppState>,
+    character_id: &str,
+    gesture: &str,
+    window: usize,
+    run: &crate::pack_stories::RunTicket,
+    token: &str,
+) -> Result<Option<String>> {
+    let execution = prepare_direct_checked(&state, character_id, gesture, None, window, MotionContext::Scene(run, token))?;
     if execution.is_some() {
         app::publish(app, &state);
     }
@@ -440,7 +456,13 @@ fn prepare_direct(
     region_id: Option<&str>,
     window: usize,
 ) -> Result<Option<String>> {
-    prepare_direct_checked(state, character_id, gesture, region_id, window, None)
+    prepare_direct_checked(state, character_id, gesture, region_id, window, MotionContext::Direct)
+}
+
+enum MotionContext<'a> {
+    Direct,
+    Ambient(&'a str),
+    Scene(&'a crate::pack_stories::RunTicket, &'a str),
 }
 
 fn prepare_direct_checked(
@@ -449,9 +471,18 @@ fn prepare_direct_checked(
     gesture: &str,
     region_id: Option<&str>,
     window: usize,
-    ambient_token: Option<&str>,
+    context: MotionContext<'_>,
 ) -> Result<Option<String>> {
     let _action = lock(&state.action)?;
+    if let MotionContext::Scene(run, token) = context {
+        let db = lock(&state.db)?;
+        if !app::scene_events::current(state, run)?
+            || !app::scene_events::available_locked(state, &db, run)?
+            || !lock(&state.life)?.wandering.scene_current(character_id, token, window)
+        {
+            return Ok(None);
+        }
+    }
     if lock(&state.runtime)?.hidden || app::unavailable(state) {
         return Ok(None);
     }
@@ -461,10 +492,10 @@ fn prepare_direct_checked(
             return Ok(None);
         }
     }
-    if reactions::ambient_gesture(gesture)
+    if !matches!(context, MotionContext::Scene(..)) && reactions::ambient_gesture(gesture)
         && (!crate::characters::life::ambient_allowed(state, character_id)?
             || lock(&state.reactions)?.blocks_character(character_id)
-            || ambient_token.is_some_and(|token| {
+            || matches!(context, MotionContext::Ambient(token) if {
                 !crate::characters::life::wandering::accepts_start(
                     state,
                     character_id,
@@ -934,6 +965,9 @@ fn handle_gesture(
     if !accepted {
         return Ok(());
     }
+    if event.phase == Phase::Ended && event.position.as_ref().is_some_and(|position| position.x != event.start_position.x || position.y != event.start_position.y) {
+        crate::app::scene_events::body_event(&state, &event.character_id, true)?;
+    }
     if matches!(event.phase, Phase::Ended | Phase::Cancelled) {
         let _action = lock(&state.action)?;
         cancel_grab_speech(&state, &event.character_id)?;
@@ -1308,6 +1342,7 @@ pub(crate) fn trigger_character_reaction(
     if !window.is_visible().map_err(|error| error.to_string())? {
         return Ok(false);
     }
+    crate::app::scene_events::body_event(&state, id, false)?;
     trigger(
         window.app_handle(),
         state.inner().clone(),

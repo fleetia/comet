@@ -731,11 +731,75 @@ pub(crate) async fn prepare_music_widget(
     id: &str,
     launch: bool,
 ) -> Result<(), String> {
+    prepare_music_widget_inner(app, state, id, launch, None).await
+}
+
+pub(crate) async fn prepare_music_widget_for_story(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    id: &str,
+    run: &crate::pack_stories::RunTicket,
+) -> Result<(), String> {
+    let cancel = {
+        let _action = lock(&state.action)?;
+        if !crate::app::scene_events::current(state, run)? {
+            return Err("이야기 실행이 바뀌었어요.".into());
+        }
+        let cancel = lock(&state.cancellation)?.clone().ok_or("이야기 실행이 끝났어요.")?;
+        cancel
+    };
+    prepare_music_widget_inner(app, state, id, true, Some((run, &cancel))).await
+}
+
+type StoryGuard<'a> = (&'a crate::pack_stories::RunTicket, &'a Arc<AtomicBool>);
+
+fn validate_story(state: &AppState, story: Option<StoryGuard<'_>>) -> Result<(), String> {
+    if let Some((run, cancel)) = story {
+        if !crate::app::is_current(state, run.epoch, cancel) || !crate::app::scene_events::execution_current(state, run)? {
+            return Err("이야기 실행이 바뀌었어요.".into());
+        }
+    }
+    Ok(())
+}
+
+fn validate_story_available(state: &AppState, story: Option<StoryGuard<'_>>) -> Result<(), String> {
+    if let Some((run, _)) = story {
+        let _action = lock(&state.action)?;
+        let db = lock(&state.db)?;
+        validate_story(state, story)?;
+        if !crate::app::scene_events::available_locked(state, &db, run)? {
+            return Err("이야기가 중단되었어요.".into());
+        }
+    }
+    Ok(())
+}
+
+async fn execute_story_job<T>(job: &Job, story: Option<StoryGuard<'_>>, work: impl std::future::Future<Output = Result<T, String>>) -> Result<T, String> {
+    if let Some((_, cancel)) = story {
+        tokio::select! {
+            _ = models::cancelled(cancel.clone()) => {
+                job.cancel.store(true, Ordering::SeqCst);
+                Err("이야기 실행이 바뀌었어요.".into())
+            }
+            result = execute(job, work) => result,
+        }
+    } else {
+        execute(job, work).await
+    }
+}
+
+async fn prepare_music_widget_inner(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    id: &str,
+    launch: bool,
+    story: Option<StoryGuard<'_>>,
+) -> Result<(), String> {
     let original = storage::get(&*lock(&state.db)?, id)?;
     let restored = if connections::uses_music_bridge(&original.data["config"])
         && pairing_id(&original.data).is_some()
     {
-        resume_music_widget(app, state, id).await
+        resume_music_widget(app, state, id, story).await
     } else {
         Ok(())
     };
@@ -745,6 +809,7 @@ pub(crate) async fn prepare_music_widget(
     // The resume job is finished before launch gets its own cancellation token. A subsequent
     // playback command may cancel launching, but must not cancel the established listener.
     let job = begin(state, id, Some("music"), |current| {
+        validate_story(state, story)?;
         if !spotify_widget(current)
             || current.data["config"]["provider"] != original.data["config"]["provider"]
             || pairing_id(&current.data) != pairing_id(&original.data)
@@ -753,15 +818,16 @@ pub(crate) async fn prepare_music_widget(
         }
         Ok(None)
     })?;
-    let result = execute(&job, async {
+    let result = execute_story_job(&job, story, async {
         music_job_current(state, &job)?;
+        validate_story_available(state, story)?;
         crate::widgets::music_native::launch_spotify(job.cancel.clone())
             .await
             .map_err(|error| error.message)?;
         restored
     })
     .await;
-    let outcome = finish_music_preparation(state, &job, &result);
+    let outcome = finish_music_preparation(state, &job, &result, story);
     publish_widgets(app, state);
     outcome.and(result)
 }
@@ -770,8 +836,13 @@ fn finish_music_preparation(
     state: &AppState,
     job: &Job,
     result: &Result<(), String>,
+    story: Option<StoryGuard<'_>>,
 ) -> Result<(), String> {
     finish(state, job, |db, current| {
+        validate_story(state, story)?;
+        if let Some((run, _)) = story {
+            if !crate::app::scene_events::available_locked(state, db, run)? { return Err("이야기가 중단되었어요.".into()); }
+        }
         let mut data = current.data.clone();
         match result {
             Ok(()) => {
@@ -794,16 +865,19 @@ async fn resume_music_widget(
     app: &AppHandle,
     state: &Arc<AppState>,
     id: &str,
+    story: Option<StoryGuard<'_>>,
 ) -> Result<(), String> {
     let job = begin(state, id, Some("music"), |instance| {
+        validate_story(state, story)?;
         if !spotify_widget(instance) {
             return Err("Spotify를 사용하는 음악 위젯이 아닙니다.".into());
         }
         Ok(None)
     })?;
     let pairing = pairing_id(&job.instance.data).map(str::to_owned);
-    let result = execute(&job, async {
+    let result = execute_story_job(&job, story, async {
         music_job_current(state, &job)?;
+        validate_story_available(state, story)?;
         let restored = if connections::uses_music_bridge(&job.instance.data["config"]) {
             if let Some(pairing) = pairing.as_deref() {
                 crate::widgets::music_bridge::resume(id, pairing, job.cancel.clone())
@@ -819,7 +893,7 @@ async fn resume_music_widget(
         restored
     })
     .await;
-    let outcome = finish_music_preparation(state, &job, &result);
+    let outcome = finish_music_preparation(state, &job, &result, story);
     if outcome.is_err() {
         job.cancel.store(true, Ordering::SeqCst);
         if let Some(pairing) = pairing {
@@ -1850,6 +1924,24 @@ mod tests {
         assert!(information_due_with_connection(&instance, 15_100, true));
     }
     #[test]
+    fn story_music_guard_rejects_an_interrupted_execution() {
+        let state = crate::lifecycle_tests::state();
+        let epoch = state.epoch.load(Ordering::SeqCst);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let run = crate::pack_stories::RunTicket {
+            run_id: "run".into(), input_id: "input".into(),
+            scope: crate::pack_stories::Scope { user_id: "user".into(), pack_id: "pack".into(), center_id: "center".into() },
+            scenario_id: None, stage: crate::pack_stories::Stage::Chapter,
+            chapter_id: Some("chapter".into()), step: 0, phase_generation: 1, epoch,
+            participants: vec![], pack_baseline: String::new(), definition_baselines: Default::default(),
+            last_playback_id: String::new(), definition: None, ready: false,
+        };
+        lock(&state.pack_stories).unwrap().run = Some(run.clone());
+        assert!(validate_story(&state, Some((&run, &cancel))).is_ok());
+        state.epoch.fetch_add(1, Ordering::SeqCst);
+        assert!(validate_story(&state, Some((&run, &cancel))).is_err());
+    }
+    #[test]
     fn completed_resume_token_is_not_cancelled_by_launch_or_playback_jobs() {
         let state = crate::lifecycle_tests::state();
         let directory = tempfile::tempdir().unwrap();
@@ -1864,12 +1956,12 @@ mod tests {
                 .id
         };
         let resume = begin(&state, &id, Some("music"), |_| Ok(None)).unwrap();
-        finish_music_preparation(&state, &resume, &Ok(())).unwrap();
+        finish_music_preparation(&state, &resume, &Ok(()), None).unwrap();
         let launch = begin(&state, &id, Some("music"), |_| Ok(None)).unwrap();
         let _playback = begin(&state, &id, Some("music"), |_| Ok(None)).unwrap();
         assert!(launch.cancel.load(Ordering::SeqCst));
         assert!(!resume.cancel.load(Ordering::SeqCst));
-        assert!(finish_music_preparation(&state, &launch, &Ok(())).is_err());
+        assert!(finish_music_preparation(&state, &launch, &Ok(()), None).is_err());
     }
     #[test]
     fn unlink_removes_restore_authority_before_credential_cleanup() {

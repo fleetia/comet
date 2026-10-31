@@ -183,7 +183,7 @@ fn context_for_character(
         WHERE EXISTS (SELECT 1 FROM message_characters i WHERE i.message_id=message.id AND i.character_id IN (SELECT value FROM json_each(?2)) AND (?3 IS NULL OR i.character_id=?3)
             AND NOT EXISTS(SELECT 1 FROM memory_exclusions e WHERE e.source=message.id AND e.character_id=i.character_id AND e.user_id=?4))
         AND EXISTS(SELECT 1 FROM message_users mu WHERE mu.message_id=message.id AND mu.user_id=?4)
-        AND NOT EXISTS (SELECT 1 FROM message_context c WHERE c.message_id=message.id AND (c.forgotten=1 OR c.source='story'))
+        AND NOT EXISTS (SELECT 1 FROM message_context c WHERE c.message_id=message.id AND (c.forgotten=1 OR c.source IN ('story','tutorial')))
         ORDER BY seq DESC LIMIT ?1) ORDER BY seq").map_err(err)?;
     let rows = stmt
         .query_map(
@@ -470,7 +470,7 @@ fn insert_message_record_locked(
             params![message.id, super::active_user_id(tx)?],
         )
         .map_err(err)?;
-        let source = if message.role == "user" {
+        let source = if message.role == "user" && source != "tutorial" {
             "user"
         } else {
             source
@@ -520,13 +520,15 @@ fn insert_message_record_locked(
             )
             .map_err(err)?;
         }
-        if message.role == "user" {
+        if message.role == "user" && source != "tutorial" {
             tx.execute(
                 "INSERT INTO memory_analysis_jobs(message_id,state) VALUES(?1,'pending')",
                 [&message.id],
             )
             .map_err(err)?;
             super::memory::apply_direct_affinity(tx, message)?;
+        }
+        if message.role == "user" {
             forget_expired_messages(tx, message.created_at)?;
             extend_generated_recall(tx, message.created_at)?;
             bump_revision(tx)?;
@@ -542,7 +544,7 @@ fn insert_message_record_locked(
         if message.role == "assistant" {
             super::record_conversation_disclosure(tx, &message.id)?;
         }
-        if message.role == "user" || direct_reply {
+        if source != "tutorial" && (message.role == "user" || direct_reply) {
             if let Some(session) = super::active_conversation(tx)? {
                 if direct_reply
                     && (matches!(source, "story" | "scenario" | "npc")
@@ -710,7 +712,7 @@ pub fn mark_message_finished(
     if started_at <= 0 || ends_at < started_at || now < ends_at {
         return Err("대사의 표시가 아직 끝나지 않았어요.".into());
     }
-    let changed = conn.execute("INSERT OR IGNORE INTO message_finishes SELECT m.id,?2,?3,?4 FROM messages m JOIN message_users u ON u.message_id=m.id JOIN message_context c ON c.message_id=m.id JOIN message_presentations p ON p.message_id=m.id WHERE m.id=?1 AND m.role='assistant' AND u.user_id=?5 AND c.source IN ('scenario','npc') AND p.shown_at<=?2", params![id, started_at, ends_at, now, super::active_user_id(conn)?]).map_err(err)?;
+    let changed = conn.execute("INSERT OR IGNORE INTO message_finishes SELECT m.id,?2,?3,?4 FROM messages m JOIN message_users u ON u.message_id=m.id JOIN message_context c ON c.message_id=m.id JOIN message_presentations p ON p.message_id=m.id WHERE m.id=?1 AND m.role='assistant' AND u.user_id=?5 AND c.source IN ('scenario','npc','tutorial') AND p.shown_at<=?2", params![id, started_at, ends_at, now, super::active_user_id(conn)?]).map_err(err)?;
     if changed == 0 && !message_finished(conn, id)? {
         return Err("현재 화면에 표시한 대사를 확인할 수 없어요.".into());
     }
@@ -760,7 +762,7 @@ pub fn saved_reply_for_participants(
         }
         None => super::conversation_message_allowed(conn, &message, &line.persona)?,
     };
-    if (!matches!(source.as_str(), "scenario" | "npc") && revision != super::revision(conn)?)
+    if (!matches!(source.as_str(), "scenario" | "npc" | "tutorial") && revision != super::revision(conn)?)
         || !allowed
         || message.content != line.text
         || message.expression.as_deref() != Some(line.expression.as_str())
@@ -829,7 +831,10 @@ pub fn save_reply_scene_with_source(
     lines: &[SceneLine],
     source: &str,
 ) -> Result<()> {
-    if !matches!(source, "wordbook" | "story" | "scenario" | "npc") {
+    if !matches!(
+        source,
+        "wordbook" | "story" | "scenario" | "npc" | "tutorial"
+    ) {
         return Err("등록 답변의 종류를 확인해 주세요.".into());
     }
     conn.execute(
@@ -858,6 +863,7 @@ pub fn reply_scene_source(conn: &Connection, message_id: &str) -> Result<&'stati
         "story" => Ok("story"),
         "scenario" => Ok("scenario"),
         "npc" => Ok("npc"),
+        "tutorial" => Ok("tutorial"),
         _ => Err("저장된 답변의 종류를 확인할 수 없어요. 새 메시지로 말해 주세요.".into()),
     }
 }

@@ -409,6 +409,8 @@ export type StoryRequest = {
   title: string;
   prompt: string;
   choices: { id: string; label: string }[];
+  expression?: string;
+  motion?: MotionOverride;
 };
 export type FollowUpRequest = {
   requestId: string;
@@ -689,6 +691,7 @@ export type Snapshot = {
   settings: Settings;
   playback: Playback | null;
   story: StoryRequest | null;
+  sceneAskId?: string;
   followUps?: FollowUpRequest | null;
   panel: PanelState | null;
   conversation?: ConversationView | null;

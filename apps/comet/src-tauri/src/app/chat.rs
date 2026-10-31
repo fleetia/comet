@@ -126,7 +126,7 @@ pub(crate) async fn choose_follow_up(
         String::new(),
         uuid::Uuid::new_v4().to_string(),
         None,
-        Some((request_id, option_id)),
+        super::conversation::MessageRoute::Choice { request_id, option_id },
     )
     .await;
     publish(&app, &owner);
@@ -180,7 +180,10 @@ fn begin_reply(state: &AppState, playback_id: &str) -> Result<u64, String> {
     let registered = store::current_user(&db)?.is_some();
     if registered {
         let seed = (actor.definition.presence_role == crate::pack_stories::PresenceRole::Resident
-            && !matches!(line.source.as_str(), "story" | "scenario" | "npc"))
+            && !matches!(
+                line.source.as_str(),
+                "story" | "scenario" | "npc" | "tutorial"
+            ))
         .then_some(line.id.as_str());
         let source =
             if seed.is_some() && store::automatic_message_displayed_at(&db, &line.id)?.is_some() {
@@ -794,8 +797,18 @@ mod tests {
             let old = store::create_conversation(&db, &[actor], None, None, at).unwrap();
             store::save_conversation_draft(&db, &old.id, "쓰던 초안\n보존").unwrap();
             let data = serde_json::json!({"configured":true,"status":"ready","observation":{"observedAt":at,"title":"밤의 산책","artist":"별빛정원"}});
-            let music_id: String = db.query_row("SELECT id FROM widget_instances WHERE kind='music'", [], |row| row.get(0)).unwrap();
-            db.execute("UPDATE widget_instances SET revision=7,data=?1 WHERE id=?2", rusqlite::params![data.to_string(), music_id]).unwrap();
+            let music_id: String = db
+                .query_row(
+                    "SELECT id FROM widget_instances WHERE kind='music'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            db.execute(
+                "UPDATE widget_instances SET revision=7,data=?1 WHERE id=?2",
+                rusqlite::params![data.to_string(), music_id],
+            )
+            .unwrap();
             (old, music_id)
         };
         assert!(begin_music_discussion(&state, &music_id, 6).is_err());
@@ -1262,8 +1275,7 @@ mod tests {
             .unwrap();
             store::save_conversation_draft(&db, &session.id, "다음 질문 초안").unwrap();
             store::pause_conversations(&db).unwrap();
-            crate::widgets::storage::verify_packages(&db, directory.path())
-                .unwrap();
+            crate::widgets::storage::verify_packages(&db, directory.path()).unwrap();
             let timer = crate::widgets::storage::instances(&db)
                 .unwrap()
                 .into_iter()

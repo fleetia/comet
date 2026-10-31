@@ -6,7 +6,7 @@ use crate::{
 };
 use std::{
     collections::BTreeMap,
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex},
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager, WebviewWindow};
@@ -160,9 +160,46 @@ struct Restore {
 pub(crate) struct Runtime {
     entries: BTreeMap<String, Entry>,
     preferences: BTreeMap<String, (usize, bool)>,
+    scene_entries: BTreeMap<String, SceneEntry>,
+    scene_revisions: BTreeMap<String, u64>,
+}
+
+#[derive(Clone)]
+struct SceneEntry {
+    token: String,
+    identity: usize,
+    home: Point,
+    bounds: Bounds,
+    cancelling: bool,
+    moved: bool,
 }
 
 impl Runtime {
+    fn scene_revision(&self, id: &str) -> u64 {
+        *self.scene_revisions.get(id).unwrap_or(&0)
+    }
+    fn invalidate_scene(&mut self, id: &str) {
+        let revision = self.scene_revisions.entry(id.into()).or_default();
+        *revision = revision.wrapping_add(1);
+    }
+    pub(crate) fn scene_current(&self, id: &str, token: &str, identity: usize) -> bool {
+        self.scene_entries.get(id).is_some_and(|entry| {
+            entry.token == token && entry.identity == identity && !entry.cancelling
+        })
+    }
+    fn begin_scene_cancel(&mut self, id: &str, token: Option<&str>) -> Option<SceneEntry> {
+        let entry = self.scene_entries.get_mut(id)
+            .filter(|entry| token.is_none_or(|token| token == entry.token))?;
+        entry.cancelling = true;
+        Some(entry.clone())
+    }
+    fn finish_scene_cancel(&mut self, id: &str, pending: &SceneEntry) -> bool {
+        if self.scene_entries.get(id).is_none_or(|entry| {
+            entry.token != pending.token || entry.identity != pending.identity || !entry.cancelling
+        }) { return false; }
+        self.scene_entries.remove(id);
+        true
+    }
     pub(crate) fn motion_allowed(&self, id: &str) -> bool {
         self.preferences.get(id).is_some_and(|&(owner, reduced)| {
             !reduced
@@ -210,6 +247,122 @@ fn random() -> u64 {
 
 fn placement_anchor(bounds: Bounds, fallback: Point, saved: Option<(f64, f64)>) -> Point {
     bounds.clamp(saved.map_or(fallback, |(x, y)| Point { x, y }), false)
+}
+
+fn entry_motion_enabled(definition: &characters::CharacterDefinition, reduced: bool) -> bool {
+    let available = |name: &str| definition.gesture_motions.iter().any(|motion| {
+        motion.gesture == name && [motion.start.as_ref(), motion.hold.as_ref(), motion.moving_hold.as_ref(), motion.end.as_ref()].into_iter().any(|value| value.is_some())
+    });
+    !reduced && available("peek") && available("walk")
+}
+
+fn entry_edge(bounds: Bounds, home: Point, enter: &crate::pack_stories::StoryEnter) -> Point {
+    bounds.clamp(Point {
+        x: match enter {
+            crate::pack_stories::StoryEnter::Left => bounds.area.x - bounds.sprite.x - bounds.sprite.width / 2.0,
+            crate::pack_stories::StoryEnter::Right => bounds.area.x + bounds.area.width - bounds.sprite.x - bounds.sprite.width / 2.0,
+        },
+        y: home.y,
+    }, true)
+}
+
+async fn entry_position(
+    window: &WebviewWindow, state: &Arc<AppState>, run: &crate::pack_stories::RunTicket,
+    entry: &SceneEntry, target: Point, cancel: &Arc<AtomicBool>,
+) -> Result<bool> {
+    loop {
+    if !crate::app::scene_events::available(state, run)? { return Ok(false); }
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let window = window.clone();
+    let state = state.clone();
+    let run = run.clone();
+    let queued_cancel = cancel.clone();
+    let entry = entry.clone();
+    window.clone().run_on_main_thread(move || {
+        let result = (|| -> Result<Option<bool>> {
+            let Ok(_action) = state.action.try_lock() else { return Ok(None) };
+            let Some(id) = window.label().strip_prefix("body-") else { return Ok(Some(false)) };
+            if !crate::app::is_current(&state, run.epoch, &queued_cancel)
+                || characters::reaction_host::window_identity(&window) != entry.identity
+                || !same_geometry(&window, entry.bounds)
+            { return Ok(Some(false)); }
+            let Ok(runtime) = state.pack_stories.try_lock() else { return Ok(None) };
+            if !runtime.run.as_ref().is_some_and(|active| active.run_id == run.run_id && active.epoch == run.epoch && active.phase_generation == run.phase_generation) { return Ok(Some(false)); }
+            drop(runtime);
+            let Ok(db) = state.db.try_lock() else { return Ok(None) };
+            if !crate::pack_stories::current(&db, &run)? { return Ok(Some(false)); }
+            drop(db);
+            let Ok(status) = state.runtime.try_lock() else { return Ok(None) };
+            if status.hidden || status.paused { return Ok(Some(false)); }
+            drop(status);
+            let Ok(mut life) = state.life.try_lock() else { return Ok(None) };
+            if !life.wandering.scene_current(id, &entry.token, entry.identity) { return Ok(Some(false)); }
+            if let Some(current) = life.wandering.scene_entries.get_mut(id) { current.moved = true; }
+            drop(life);
+            window.set_position(tauri::PhysicalPosition::new(target.x.round() as i32, target.y.round() as i32)).map_err(|e| e.to_string())?;
+            Ok(Some(true))
+        })();
+        let _ = tx.send(result);
+    }).map_err(|e| e.to_string())?;
+    if let Some(applied) = rx.await.map_err(|e| e.to_string())?? { return Ok(applied); }
+    tokio::select! { _ = crate::models::cancelled(cancel.clone()) => return Ok(false), _ = tokio::time::sleep(FRAME) => {} }
+    }
+}
+
+pub(crate) async fn scene_entry(
+    app: &AppHandle, state: &Arc<AppState>, run: &crate::pack_stories::RunTicket,
+    id: &str, enter: &crate::pack_stories::StoryEnter, cancel: Arc<AtomicBool>,
+) -> Result<bool> {
+    cancel_ambient(app, state, id)?;
+    let revision = {
+        let _action = lock(&state.action)?;
+        lock(&state.life)?.wandering.scene_revision(id)
+    };
+    let Some(window) = app.get_webview_window(&format!("body-{id}")) else { return Ok(false) };
+    let identity = characters::reaction_host::window_identity(&window);
+    let definition = characters::get(&*lock(&state.db)?, id)?.definition;
+    let reduced = lock(&state.life)?.wandering.reduced_motion(id, identity);
+    if !entry_motion_enabled(&definition, reduced) { return Ok(true); }
+    let Some((observed, bounds)) = bounds(&window, definition.sprite_size) else { return Ok(false) };
+    let home = placement_anchor(bounds, observed, saved_position(state, id)?);
+    let edge = entry_edge(bounds, home, enter);
+    let entry = SceneEntry { token: uuid::Uuid::new_v4().to_string(), identity, home, bounds, cancelling: false, moved: false };
+    {
+        let _action = lock(&state.action)?;
+        let db = lock(&state.db)?;
+        if !crate::app::scene_events::current(state, run)? || !crate::app::scene_events::available_locked(state, &db, run)? { return Ok(false); }
+        if lock(&state.reactions)?.blocks_character(id) { return Ok(false); }
+        let mut life = lock(&state.life)?;
+        if life.wandering.scene_entries.contains_key(id) || life.wandering.reduced_motion(id, identity)
+            || life.wandering.scene_revision(id) != revision
+        { return Ok(false); }
+        life.wandering.scene_entries.insert(id.into(), entry.clone());
+    }
+    let result = async {
+    if !entry_position(&window, state, run, &entry, edge, &cancel).await? { return Ok(false); }
+    {
+        let motion = characters::reaction_host::scene_motion_start(app, state.clone(), id, "peek", identity, run, &entry.token)?;
+        tokio::select! { _ = crate::models::cancelled(cancel.clone()) => {}, _ = tokio::time::sleep(Duration::from_millis(700)) => {} }
+        if let Some(motion) = motion { characters::reaction_host::direct_end(app, state.clone(), id, &motion, true)?; }
+    }
+    let mut motion = None;
+    if !lock(&state.life)?.wandering.reduced_motion(id, identity) {
+        motion = characters::reaction_host::scene_motion_start(app, state.clone(), id, "walk", identity, run, &entry.token)?;
+        let duration = Duration::from_secs_f64(((home.x - edge.x).abs() / 300.0).clamp(0.4, 6.0));
+        let started = Instant::now();
+        loop {
+            let progress = (started.elapsed().as_secs_f64() / duration.as_secs_f64()).min(1.0);
+            let target = Point { x: edge.x + (home.x - edge.x) * progress, y: home.y };
+            if !entry_position(&window, state, run, &entry, target, &cancel).await? { break; }
+            if progress >= 1.0 || lock(&state.life)?.wandering.reduced_motion(id, identity) { break; }
+            tokio::select! { _ = crate::models::cancelled(cancel.clone()) => break, _ = tokio::time::sleep(FRAME) => {} }
+        }
+    }
+    if let Some(motion) = motion { characters::reaction_host::direct_end(app, state.clone(), id, &motion, true)?; }
+    entry_position(&window, state, run, &entry, home, &cancel).await
+    }.await;
+    cancel_scene(app, state, id, Some(&entry.token))?;
+    result
 }
 
 fn intersects(a: Rect, b: Rect) -> bool {
@@ -394,6 +547,39 @@ fn same_geometry(window: &WebviewWindow, bounds: Bounds) -> bool {
 }
 
 pub(crate) fn cancel(app: &AppHandle, state: &Arc<AppState>, id: &str) -> Result<()> {
+    {
+        let _action = lock(&state.action)?;
+        let mut life = lock(&state.life)?;
+        life.wandering.invalidate_scene(id);
+    }
+    cancel_scene(app, state, id, None)?;
+    cancel_ambient(app, state, id)
+}
+
+fn cancel_scene(app: &AppHandle, state: &Arc<AppState>, id: &str, token: Option<&str>) -> Result<()> {
+    let pending = {
+        let _action = lock(&state.action)?;
+        let mut life = lock(&state.life)?;
+        let Some(entry) = life.wandering.begin_scene_cancel(id, token) else { return Ok(()) };
+        entry
+    };
+    let window = app.get_webview_window(&format!("body-{id}"));
+    let can_restore = pending.moved && window.as_ref().is_some_and(|window| {
+        characters::reaction_host::window_identity(window) == pending.identity && same_geometry(window, pending.bounds)
+    });
+    let _action = lock(&state.action)?;
+    let mut life = lock(&state.life)?;
+    if !life.wandering.finish_scene_cancel(id, &pending) { return Ok(()); }
+    drop(life);
+    if can_restore {
+        window.expect("checked window").set_position(tauri::PhysicalPosition::new(
+            pending.home.x.round() as i32, pending.home.y.round() as i32,
+        )).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn cancel_ambient(app: &AppHandle, state: &Arc<AppState>, id: &str) -> Result<()> {
     let pending = {
         let _action = lock(&state.action)?;
         let mut life = lock(&state.life)?;
@@ -551,7 +737,7 @@ pub(crate) fn tick(app: &AppHandle, state: &Arc<AppState>) -> Result<()> {
         .cloned()
         .collect::<Vec<_>>();
     for id in old.iter().filter(|id| !active.contains(id)) {
-        cancel(app, state, id)?;
+        cancel_ambient(app, state, id)?;
     }
     {
         let mut life = lock(&state.life)?;
@@ -563,12 +749,12 @@ pub(crate) fn tick(app: &AppHandle, state: &Arc<AppState>) -> Result<()> {
     for member in members {
         let id = &member.id;
         let Some(window) = app.get_webview_window(&format!("body-{id}")) else {
-            cancel(app, state, id)?;
+            cancel_ambient(app, state, id)?;
             continue;
         };
         let identity = characters::reaction_host::window_identity(&window);
         let Some((observed, bounds)) = bounds(&window, member.definition.sprite_size) else {
-            cancel(app, state, id)?;
+            cancel_ambient(app, state, id)?;
             continue;
         };
         let visible =
@@ -591,7 +777,7 @@ pub(crate) fn tick(app: &AppHandle, state: &Arc<AppState>) -> Result<()> {
         let changed = context_changes.is_some_and(|changes| changes.into_iter().any(|value| value));
         let context_cancelled = context.is_some_and(|(_, required)| required);
         if context_cancelled {
-            cancel(app, state, id)?;
+            cancel_ambient(app, state, id)?;
         }
         let (start, allowed_before, reduced_before) = {
             let _action = lock(&state.action)?;
@@ -752,7 +938,7 @@ pub(crate) fn tick(app: &AppHandle, state: &Arc<AppState>) -> Result<()> {
                     "secondsSinceInput": crate::app::now().saturating_sub(state.last_input.load(Ordering::SeqCst)),
                 }));
             }
-            cancel(app, state, id)?;
+            cancel_ambient(app, state, id)?;
         } else if let Some(run) = start {
             start_run(app, state, id, run)?;
         }
@@ -794,7 +980,7 @@ fn start_run(app: &AppHandle, state: &Arc<AppState>, id: &str, run: Run) -> Resu
         if let Some(execution) = execution {
             characters::reaction_host::direct_end(app, state.clone(), id, &execution, true)?;
         }
-        cancel(app, state, id)?;
+        cancel_ambient(app, state, id)?;
         return Ok(());
     }
     let app = app.clone();
@@ -827,7 +1013,7 @@ fn start_run(app: &AppHandle, state: &Arc<AppState>, id: &str, run: Run) -> Resu
                     })
                     .unwrap_or(false);
                 if current {
-                    let _ = cancel(&app, &state, &id);
+                    let _ = cancel_ambient(&app, &state, &id);
                 }
                 break;
             }
@@ -1389,6 +1575,52 @@ mod tests {
             0
         )
         .is_none());
+    }
+
+    #[test]
+    fn scene_contact_revokes_frames_and_old_restoration_cannot_replace_a_new_entry() {
+        let mut runtime = Runtime::default();
+        let before_contact = runtime.scene_revision("local");
+        runtime.invalidate_scene("local");
+        assert_ne!(runtime.scene_revision("local"), before_contact);
+        let home = Point { x: -850.0, y: 700.0 };
+        let entry = SceneEntry { token: "old".into(), identity: 11, home, bounds: bounds(), cancelling: false, moved: true };
+        runtime.scene_entries.insert("local".into(), entry.clone());
+        assert!(runtime.scene_current("local", "old", 11));
+        let pending = runtime.begin_scene_cancel("local", None).unwrap();
+        assert!(!runtime.scene_current("local", "old", 11));
+        assert!(runtime.finish_scene_cancel("local", &pending));
+        runtime.scene_entries.insert("local".into(), SceneEntry { token: "new".into(), ..entry });
+        assert!(!runtime.finish_scene_cancel("local", &pending));
+        assert!(runtime.begin_scene_cancel("local", Some("old")).is_none());
+        assert!(runtime.scene_current("local", "new", 11));
+        assert!(!runtime.scene_current("local", "new", 12));
+    }
+
+    #[test]
+    fn scene_entry_uses_available_motions_and_honors_reduced_motion() {
+        let mut definition = characters::factory_pack().characters.remove(0);
+        definition.gesture_motions.clear();
+        assert!(!entry_motion_enabled(&definition, false));
+        for name in ["peek", "walk"] {
+            definition.gesture_motions.push(serde_json::from_value(serde_json::json!({
+                "id": name, "gesture": name, "hold": {"mode": "static"}
+            })).unwrap());
+            if name == "peek" {
+                assert!(!entry_motion_enabled(&definition, false));
+            }
+        }
+        assert!(entry_motion_enabled(&definition, false));
+        assert!(!entry_motion_enabled(&definition, true));
+        definition.gesture_motions.remove(0);
+        assert!(!entry_motion_enabled(&definition, false));
+        let home = Point { x: -850.0, y: 700.0 };
+        let left = entry_edge(bounds(), home, &crate::pack_stories::StoryEnter::Left);
+        let right = entry_edge(bounds(), home, &crate::pack_stories::StoryEnter::Right);
+        assert_eq!(left.x + bounds().sprite.x + bounds().sprite.width / 2.0, bounds().area.x);
+        assert_eq!(right.x + bounds().sprite.x + bounds().sprite.width / 2.0, bounds().area.x + bounds().area.width);
+        assert_eq!(left.y, home.y);
+        assert_eq!(right.y, home.y);
     }
 
     #[test]

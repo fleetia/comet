@@ -61,6 +61,7 @@ pub(crate) fn state() -> AppState {
         follow_ups: Mutex::new(None),
         follow_up_dismissed_epoch: AtomicU64::new(u64::MAX),
         pack_stories: Mutex::new(crate::pack_stories::Runtime::default()),
+        scene_events: Mutex::new(super::scene_events::Runtime::default()),
         story_clock: Mutex::new(story::Clock::default()),
         story_catalog: Mutex::new(story::catalog().unwrap()),
         widget_jobs: Mutex::new(HashMap::new()),
@@ -240,8 +241,7 @@ fn talk_remaining_lines_stop_after_each_dependency_and_host_invalidation() {
         let (token, lines, revision) = {
             let _action = lock(&state.action).unwrap();
             let db = lock(&state.db).unwrap();
-            widgets::storage::verify_packages(&db, directory.path())
-                .unwrap();
+            widgets::storage::verify_packages(&db, directory.path()).unwrap();
             let token = interrupt(&state, cause != "manual-pause").unwrap();
             let lines = talk::host::prepare(&state, &db, None).unwrap().unwrap();
             assert!(talk::runtime::history(&db).unwrap().is_empty());
@@ -257,9 +257,7 @@ fn talk_remaining_lines_stop_after_each_dependency_and_host_invalidation() {
                 let instance = widgets::storage::instances(&db)
                     .unwrap()
                     .into_iter()
-                    .find(|instance| {
-                        instance.kind == cause
-                    })
+                    .find(|instance| instance.kind == cause)
                     .unwrap();
                 {
                     let mut changed = instance.data;
@@ -375,10 +373,10 @@ fn brief_idle_pause_discards_widget_queue_before_a_scheduler_tick() {
         let db = lock(&state.db).unwrap();
         widgets::storage::verify_packages(&db, directory.path()).unwrap();
         let instance = widgets::storage::instances(&db)
-                .unwrap()
-                .into_iter()
-                .find(|instance| instance.kind == "small-match")
-                .unwrap();
+            .unwrap()
+            .into_iter()
+            .find(|instance| instance.kind == "small-match")
+            .unwrap();
         widgets::storage::commit_data(
             &db,
             &instance.id,
@@ -403,10 +401,10 @@ fn brief_idle_pause_discards_widget_queue_before_a_scheduler_tick() {
                 .is_none()
         );
         let instance = widgets::storage::instances(&db)
-                .unwrap()
-                .into_iter()
-                .find(|instance| instance.kind == "small-match")
-                .unwrap();
+            .unwrap()
+            .into_iter()
+            .find(|instance| instance.kind == "small-match")
+            .unwrap();
         widgets::storage::commit_data(
             &db,
             &instance.id,
@@ -461,10 +459,13 @@ fn weather_day_is_recorded_only_after_current_line_is_displayed() {
         line_index: 0,
         line_count: 1,
     };
-    let count = || db.query_row(
+    let count =
+        || {
+            db.query_row(
         "SELECT COUNT(*) FROM widget_preferences WHERE key='weather-talk:weather.last-year'",
         [], |row| row.get::<_, i64>(0),
-    ).unwrap();
+    ).unwrap()
+        };
     super::scene::mark_displayed_weather_reaction(&state, &db, &line).unwrap();
     assert_eq!(count(), 0);
     mark_line_displayed(&mut line, 100);
@@ -2255,12 +2256,18 @@ fn external_notice_is_seeded_once_when_session_opens() {
     let path = directory.path().join("session.sqlite");
     let db = open_session(&path).unwrap();
     let first = widgets::storage::instances(&db).unwrap();
-    let first = first.iter().find(|item| item.kind == "external-notice").unwrap();
+    let first = first
+        .iter()
+        .find(|item| item.kind == "external-notice")
+        .unwrap();
     let id = first.id.clone();
     drop(db);
     let reopened = open_session(&path).unwrap();
-    let notices: Vec<_> = widgets::storage::instances(&reopened).unwrap()
-        .into_iter().filter(|item| item.kind == "external-notice").collect();
+    let notices: Vec<_> = widgets::storage::instances(&reopened)
+        .unwrap()
+        .into_iter()
+        .filter(|item| item.kind == "external-notice")
+        .collect();
     assert_eq!(notices.len(), 1);
     assert_eq!(notices[0].id, id);
 }
@@ -2270,18 +2277,42 @@ fn restart_discards_external_notice_reactions_but_keeps_the_journal() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("session.sqlite");
     let db = open_session(&path).unwrap();
-    let instance = widgets::storage::instances(&db).unwrap().into_iter()
-        .find(|item| item.kind == "external-notice").unwrap();
-    widgets::storage::record_external_notice(&db, &instance, widgets::EventDraft {
-        kind: "external-notice".into(), text: "이전 알림".into(),
-        payload: serde_json::json!({"bubbleEnabled":true}),
-    }, chrono::Utc::now().timestamp_millis()).unwrap();
-    let pending: i64 = db.query_row("SELECT COUNT(*) FROM widget_events WHERE pending=1", [], |row| row.get(0)).unwrap();
+    let instance = widgets::storage::instances(&db)
+        .unwrap()
+        .into_iter()
+        .find(|item| item.kind == "external-notice")
+        .unwrap();
+    widgets::storage::record_external_notice(
+        &db,
+        &instance,
+        widgets::EventDraft {
+            kind: "external-notice".into(),
+            text: "이전 알림".into(),
+            payload: serde_json::json!({"bubbleEnabled":true}),
+        },
+        chrono::Utc::now().timestamp_millis(),
+    )
+    .unwrap();
+    let pending: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM widget_events WHERE pending=1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert_eq!(pending, 1);
     drop(db);
     let reopened = open_session(&path).unwrap();
-    let pending: i64 = reopened.query_row("SELECT COUNT(*) FROM widget_events WHERE pending=1", [], |row| row.get(0)).unwrap();
-    let journal: i64 = reopened.query_row("SELECT COUNT(*) FROM widget_journal", [], |row| row.get(0)).unwrap();
+    let pending: i64 = reopened
+        .query_row(
+            "SELECT COUNT(*) FROM widget_events WHERE pending=1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let journal: i64 = reopened
+        .query_row("SELECT COUNT(*) FROM widget_journal", [], |row| row.get(0))
+        .unwrap();
     assert_eq!(pending, 0);
     assert_eq!(journal, 1);
 }
@@ -3052,8 +3083,12 @@ async fn shutdown_and_update_save_note_drafts_before_becoming_unavailable() {
         let id = {
             let db = lock(&state.db).unwrap();
             crate::widgets::storage::verify_packages(&db, directory.path()).unwrap();
-            crate::widgets::storage::instances(&db).unwrap().into_iter()
-                .find(|widget| widget.kind == "memo").unwrap().id
+            crate::widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|widget| widget.kind == "memo")
+                .unwrap()
+                .id
         };
         let (send, receive) = tokio::sync::oneshot::channel();
         let preparation = super::lifecycle::prepare_after_notes(
@@ -3832,10 +3867,391 @@ fn disabling_recall_invalidates_an_ordinary_talk_scene_using_its_snapshot() {
     let db = lock(&state.db).unwrap();
     let date = (chrono::Local::now().date_naive() - chrono::Days::new(7)).to_string();
     let diary = serde_json::json!({"revision":1,"pages":[{"id":"page","title":"","date":date,"entries":[{"id":"note","kind":"note","text":"private diary"}]}],"notes":[],"moves":[]});
-    db.execute("UPDATE diary_state SET data=?1 WHERE id=1", [diary.to_string()]).unwrap();
+    db.execute(
+        "UPDATE diary_state SET data=?1 WHERE id=1",
+        [diary.to_string()],
+    )
+    .unwrap();
     assert!(talk::host::prepare(&state, &db, None).unwrap().is_some());
     let mut settings = store::settings(&db).unwrap();
     settings.diary_recall_enabled = false;
     store::save_settings(&db, &settings).unwrap();
     assert!(!talk::host::current(&state, &db).unwrap());
+}
+
+mod scene_events_tests {
+    use super::*;
+    use crate::app::scene_events::*;
+    use crate::pack_stories::{RunTicket, Scope, Stage, StoryEvent, StoryWindow};
+    use std::collections::BTreeMap;
+
+    fn run(state: &AppState) -> RunTicket {
+        let run = RunTicket {
+            run_id: "run".into(),
+            input_id: "input".into(),
+            scope: Scope {
+                user_id: "user".into(),
+                pack_id: "pack".into(),
+                center_id: "center".into(),
+            },
+            scenario_id: None,
+            stage: Stage::Chapter,
+            chapter_id: Some("one".into()),
+            step: 0,
+            phase_generation: 1,
+            epoch: 0,
+            participants: vec!["center".into()],
+            pack_baseline: String::new(),
+            definition_baselines: BTreeMap::new(),
+            last_playback_id: String::new(),
+            definition: None,
+            ready: false,
+        };
+        lock(&state.pack_stories).unwrap().run = Some(run.clone());
+        run
+    }
+
+    #[test]
+    fn waits_only_accept_later_events_from_the_center_and_current_phase() {
+        let state = crate::app::tests::state();
+        let mut run = run(&state);
+        body_event(&state, "center", false).unwrap();
+        assert!(begin_wait(&state, &run, &StoryEvent::BodyClicked {}, &[]).unwrap());
+        assert_eq!(take_event(&state, &run).unwrap(), None);
+        body_event(&state, "other", false).unwrap();
+        assert_eq!(take_event(&state, &run).unwrap(), None);
+        body_event(&state, "center", false).unwrap();
+        lock(&state.pack_stories)
+            .unwrap()
+            .run
+            .as_mut()
+            .unwrap()
+            .phase_generation += 1;
+        assert_eq!(take_event(&state, &run).unwrap(), None);
+        run.phase_generation += 1;
+        assert!(begin_wait(&state, &run, &StoryEvent::BodyMoved {}, &[]).unwrap());
+        assert_eq!(take_event(&state, &run).unwrap(), None);
+        body_event(&state, "center", true).unwrap();
+        assert_eq!(take_event(&state, &run).unwrap(), Some(WaitResult::Matched));
+    }
+
+    #[test]
+    fn only_owned_memo_produces_first_save_and_close_can_cancel() {
+        let state = crate::app::tests::state();
+        let run = run(&state);
+        let saved = StoryEvent::WidgetSaved {
+            widget: crate::pack_stories::SavedWidget::Memo,
+        };
+        let closed = StoryEvent::WindowClosed {
+            window: StoryWindow::Memo,
+        };
+        begin_wait(&state, &run, &saved, &[closed]).unwrap();
+        register_window_locked(&state, &run, "memo", "widget:owned".into()).unwrap();
+        {
+            let _action = lock(&state.action).unwrap();
+            memo_saved_locked(&state, "widget", "other").unwrap();
+        }
+        assert_eq!(take_event(&state, &run).unwrap(), None);
+        window_closed(&state, StoryWindow::Memo, "widget:other").unwrap();
+        assert_eq!(take_event(&state, &run).unwrap(), None);
+        window_closed(&state, StoryWindow::Memo, "widget:owned").unwrap();
+        assert_eq!(
+            take_event(&state, &run).unwrap(),
+            Some(WaitResult::Cancelled)
+        );
+        register_window_locked(&state, &run, "memo", "widget:owned".into()).unwrap();
+        begin_wait(&state, &run, &saved, &[]).unwrap();
+        {
+            let _action = lock(&state.action).unwrap();
+            memo_saved_locked(&state, "widget", "owned").unwrap();
+        }
+        assert_eq!(take_event(&state, &run).unwrap(), Some(WaitResult::Matched));
+        begin_wait(&state, &run, &saved, &[]).unwrap();
+        {
+            let _action = lock(&state.action).unwrap();
+            memo_saved_locked(&state, "widget", "owned").unwrap();
+        }
+        assert_eq!(take_event(&state, &run).unwrap(), None);
+    }
+
+    #[test]
+    fn memo_save_is_consumed_only_when_delivered_to_the_current_wait() {
+        let state = crate::app::tests::state();
+        let mut run = run(&state);
+        let saved = StoryEvent::WidgetSaved {
+            widget: crate::pack_stories::SavedWidget::Memo,
+        };
+        mark_resumed_locked(&state, &run).unwrap();
+        register_window_locked(&state, &run, "memo", "widget:owned".into()).unwrap();
+        {
+            let _action = lock(&state.action).unwrap();
+            memo_saved_locked(&state, "widget", "owned").unwrap();
+        }
+        begin_wait(&state, &run, &StoryEvent::BodyClicked {}, &[]).unwrap();
+        {
+            let _action = lock(&state.action).unwrap();
+            memo_saved_locked(&state, "widget", "owned").unwrap();
+        }
+        assert_eq!(take_event(&state, &run).unwrap(), None);
+        begin_wait(&state, &run, &saved, &[]).unwrap();
+        lock(&state.pack_stories)
+            .unwrap()
+            .run
+            .as_mut()
+            .unwrap()
+            .phase_generation += 1;
+        {
+            let _action = lock(&state.action).unwrap();
+            memo_saved_locked(&state, "widget", "owned").unwrap();
+        }
+        run.phase_generation += 1;
+        begin_wait(&state, &run, &saved, &[]).unwrap();
+        {
+            let _action = lock(&state.action).unwrap();
+            memo_saved_locked(&state, "widget", "owned").unwrap();
+        }
+        assert_eq!(take_event(&state, &run).unwrap(), Some(WaitResult::Matched));
+        begin_wait(&state, &run, &saved, &[]).unwrap();
+        {
+            let _action = lock(&state.action).unwrap();
+            memo_saved_locked(&state, "widget", "owned").unwrap();
+        }
+        assert_eq!(take_event(&state, &run).unwrap(), None);
+        register_window_locked(&state, &run, "memo", "widget:another".into()).unwrap();
+        begin_wait(
+            &state,
+            &run,
+            &StoryEvent::BodyClicked {},
+            std::slice::from_ref(&saved),
+        )
+        .unwrap();
+        {
+            let _action = lock(&state.action).unwrap();
+            memo_saved_locked(&state, "widget", "another").unwrap();
+        }
+        assert_eq!(
+            take_event(&state, &run).unwrap(),
+            Some(WaitResult::Cancelled)
+        );
+        begin_wait(&state, &run, &saved, &[]).unwrap();
+        {
+            let _action = lock(&state.action).unwrap();
+            memo_saved_locked(&state, "widget", "another").unwrap();
+        }
+        assert_eq!(take_event(&state, &run).unwrap(), None);
+    }
+
+    #[test]
+    fn body_poke_delivers_one_click_and_duplicate_receipt_is_ignored() {
+        let state = crate::app::tests::state();
+        let center = {
+            let db = lock(&state.db).unwrap();
+            store::set_user_name(&db, "사용자", chrono::Utc::now().timestamp_millis()).unwrap();
+            characters::active_ids(&db).unwrap()[0].clone()
+        };
+        let mut run = run(&state);
+        run.scope.center_id = center.clone();
+        lock(&state.pack_stories).unwrap().run = Some(run.clone());
+        let id = uuid::Uuid::new_v4().to_string();
+        begin_wait(&state, &run, &StoryEvent::BodyClicked {}, &[]).unwrap();
+        for duplicate in [false, true] {
+            {
+                let _action = lock(&state.action).unwrap();
+                let db = lock(&state.db).unwrap();
+                let result = characters::guests::interact_locked(
+                    &state,
+                    &db,
+                    &center,
+                    "poke",
+                    &id,
+                    chrono::Utc::now().timestamp_millis(),
+                )
+                .unwrap();
+                characters::gestures::notify_scene_click_locked(
+                    &state,
+                    &center,
+                    "poke",
+                    result.accepted,
+                )
+                .unwrap();
+            }
+            assert_eq!(
+                take_event(&state, &run).unwrap(),
+                if duplicate {
+                    None
+                } else {
+                    Some(WaitResult::Matched)
+                }
+            );
+            begin_wait(&state, &run, &StoryEvent::BodyClicked {}, &[]).unwrap();
+        }
+    }
+
+    #[test]
+    fn chapter_wait_and_action_gate_observe_silence_hidden_and_pause_immediately() {
+        let state = crate::app::tests::state();
+        let run = run(&state);
+        assert!(available(&state, &run).unwrap());
+        lock(&state.runtime).unwrap().hidden = true;
+        assert!(!available(&state, &run).unwrap());
+        assert!(!begin_wait(&state, &run, &StoryEvent::BodyClicked {}, &[]).unwrap());
+        lock(&state.runtime).unwrap().hidden = false;
+        lock(&state.runtime).unwrap().paused = true;
+        assert!(!available(&state, &run).unwrap());
+        lock(&state.runtime).unwrap().paused = false;
+        {
+            let db = lock(&state.db).unwrap();
+            let mut settings = store::settings(&db).unwrap();
+            let now = chrono::Local::now();
+            settings.quiet_hours.enabled = true;
+            settings.quiet_hours.weekdays = (0..7).collect();
+            settings.quiet_hours.start = (now - chrono::Duration::hours(1))
+                .format("%H:%M")
+                .to_string();
+            settings.quiet_hours.end = (now + chrono::Duration::hours(1))
+                .format("%H:%M")
+                .to_string();
+            store::save_settings(&db, &settings).unwrap();
+        }
+        assert!(!available(&state, &run).unwrap());
+        assert!(!begin_wait(&state, &run, &StoryEvent::BodyClicked {}, &[]).unwrap());
+        let center = {
+            let db = lock(&state.db).unwrap();
+            let mut settings = store::settings(&db).unwrap();
+            settings.quiet_hours.enabled = false;
+            store::save_settings(&db, &settings).unwrap();
+            characters::active_ids(&db).unwrap()[0].clone()
+        };
+        let mut run = run;
+        run.scope.center_id = center.clone();
+        lock(&state.pack_stories).unwrap().run = Some(run.clone());
+        characters::life::set_sleep(&state, &center, true).unwrap();
+        assert!(!available(&state, &run).unwrap());
+    }
+
+    #[test]
+    fn closing_before_wait_is_not_delivered_to_a_later_phase() {
+        let state = crate::app::tests::state();
+        let run = run(&state);
+        begin_wait(&state, &run, &StoryEvent::BodyClicked {}, &[]).unwrap();
+        register_window_locked(&state, &run, "focus-timer", "timer".into()).unwrap();
+        closed_label(&state, "widget-timer").unwrap();
+        begin_wait(
+            &state,
+            &run,
+            &StoryEvent::WindowClosed {
+                window: StoryWindow::FocusTimer,
+            },
+            &[],
+        )
+        .unwrap();
+        assert_eq!(take_event(&state, &run).unwrap(), None);
+    }
+
+    fn update_focus_in_owned_window(state: &AppState, id: &str, action: &str) {
+        let _action = lock(&state.action).unwrap();
+        let db = lock(&state.db).unwrap();
+        let before = focus_running(&db).unwrap();
+        let timer = widgets::storage::get(&db, id).unwrap();
+        widgets::storage::execute(
+            &db,
+            &widgets::WidgetRequest {
+                request_id: uuid::Uuid::new_v4().to_string(),
+                instance_id: id.into(),
+                expected_revision: timer.revision,
+                action: action.into(),
+                input: serde_json::json!({"durationMs":60_000}),
+            },
+            chrono::Utc::now().timestamp_millis(),
+            1,
+        )
+        .unwrap();
+        let after = focus_running(&db).unwrap();
+        focus_changed_locked(state, &db, before, after, true).unwrap();
+    }
+
+    #[test]
+    fn owned_focus_is_retained_on_pause_and_cancelled_on_run_end() {
+        let state = crate::app::tests::state();
+        let directory = tempfile::tempdir().unwrap();
+        let timer = {
+            let db = lock(&state.db).unwrap();
+            widgets::storage::verify_packages(&db, directory.path()).unwrap();
+            widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|item| item.kind == "focus-timer")
+                .unwrap()
+        };
+        let run = run(&state);
+        begin_wait(&state, &run, &StoryEvent::FocusStarted {}, &[]).unwrap();
+        register_window_locked(&state, &run, "focus-timer", timer.id.clone()).unwrap();
+        update_focus_in_owned_window(&state, &timer.id, "start");
+        assert_eq!(take_event(&state, &run).unwrap(), Some(WaitResult::Matched));
+        assert!(owned_focus(&state, &run).unwrap());
+        let mut line = Playback {
+            id: format!("scene-story:{}:{}:line", run.run_id, run.phase_generation),
+            persona: run.scope.center_id.clone(),
+            expression: "평온".into(),
+            text: "대사".into(),
+            motion: Default::default(),
+            source: "tutorial".into(),
+            link: None,
+            text_speed: 1,
+            display_started_at: Some(1),
+            ends_at: 100,
+            line_index: 0,
+            line_count: 1,
+        };
+        assert!(crate::desktop::scene_surface_owns_focus(&state, None, None, Some(&line)).unwrap());
+        line.source = "talk".into();
+        assert!(
+            !crate::desktop::scene_surface_owns_focus(&state, None, None, Some(&line)).unwrap()
+        );
+        line.source = "tutorial".into();
+        line.id = "scene-story:other:1:line".into();
+        assert!(
+            !crate::desktop::scene_surface_owns_focus(&state, None, None, Some(&line)).unwrap()
+        );
+        begin_wait(&state, &run, &StoryEvent::FocusStopped {}, &[]).unwrap();
+        update_focus_in_owned_window(&state, &timer.id, "pause");
+        assert_eq!(take_event(&state, &run).unwrap(), Some(WaitResult::Matched));
+        assert!(owned_focus(&state, &run).unwrap());
+        {
+            let _action = lock(&state.action).unwrap();
+            let db = lock(&state.db).unwrap();
+            clear_run(&state, &db, &run.run_id).unwrap();
+            assert_eq!(
+                widgets::storage::get(&db, &timer.id).unwrap().data["status"],
+                "idle"
+            );
+        }
+    }
+
+    #[test]
+    fn unrelated_focus_is_not_claimed_or_cancelled() {
+        let state = crate::app::tests::state();
+        let directory = tempfile::tempdir().unwrap();
+        let timer = {
+            let db = lock(&state.db).unwrap();
+            widgets::storage::verify_packages(&db, directory.path()).unwrap();
+            widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|item| item.kind == "focus-timer")
+                .unwrap()
+        };
+        super::run_focus_timer(&state, "start");
+        let mut run = run(&state);
+        run.epoch = state.epoch.load(Ordering::SeqCst);
+        lock(&state.pack_stories).unwrap().run = Some(run.clone());
+        assert!(!begin_wait(&state, &run, &StoryEvent::FocusStopped {}, &[]).unwrap());
+        let _action = lock(&state.action).unwrap();
+        let db = lock(&state.db).unwrap();
+        clear_run(&state, &db, &run.run_id).unwrap();
+        assert_eq!(
+            widgets::storage::get(&db, &timer.id).unwrap().data["status"],
+            "running"
+        );
+    }
 }

@@ -143,7 +143,11 @@ fn touching_one_character_expires_old_events_for_all_owners() {
     widgets::storage::body_interaction(&db, &id, "stroke", &uuid::Uuid::new_v4().to_string(), now)
         .unwrap();
     let expired: i64 = db
-        .query_row("SELECT COUNT(*) FROM character_touch_events WHERE created_at<?1", [cutoff], |row| row.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM character_touch_events WHERE created_at<?1",
+            [cutoff],
+            |row| row.get(0),
+        )
         .unwrap();
     let retained: i64 = db
         .query_row("SELECT COUNT(*) FROM character_touch_events WHERE character_id='other-character' AND user_id='other-user'", [], |row| row.get(0))
@@ -185,10 +189,22 @@ fn milestone_interrupts_automatic_talk_only_when_allowed_and_matched() {
     };
     let now = chrono::Utc::now().timestamp_millis();
     let character = event.event.payload["owner"].as_str().unwrap();
-    lock(&state.life).unwrap().apply_interaction(character, "stroke", true, &event.id, now, old_epoch);
+    lock(&state.life)
+        .unwrap()
+        .apply_interaction(character, "stroke", true, &event.id, now, old_epoch);
     assert!(scene::present_line(
-        &state, &old_lines[0], "talk", "old-first", 0, 2, revision, old_epoch, &old_cancel, false,
-    ).unwrap());
+        &state,
+        &old_lines[0],
+        "talk",
+        "old-first",
+        0,
+        2,
+        revision,
+        old_epoch,
+        &old_cancel,
+        false,
+    )
+    .unwrap());
     assert!(scene::clear_line_if_current(&state, old_epoch, &old_cancel).unwrap());
     assert!(speech_reason(&state).unwrap().is_none());
     state.automatic.store(false, Ordering::SeqCst);
@@ -204,14 +220,14 @@ fn milestone_interrupts_automatic_talk_only_when_allowed_and_matched() {
         assert!(!old_cancel.load(Ordering::SeqCst));
         assert!(crate::talk::host::current(&state, &db).unwrap());
         event.event.payload["milestone"] = serde_json::json!(1);
-        let (lines, (epoch, cancel)) = prepare_milestone(&state, &db, &event)
-            .unwrap()
-            .unwrap();
+        let (lines, (epoch, cancel)) = prepare_milestone(&state, &db, &event).unwrap().unwrap();
         assert_eq!(lines[0].text, "기념 대사");
         assert!(!cancel.load(Ordering::SeqCst));
         assert!(crate::talk::host::current(&state, &db).unwrap());
         let count: i64 = db
-            .query_row("SELECT SUM(count) FROM character_touches", [], |row| row.get(0))
+            .query_row("SELECT SUM(count) FROM character_touches", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(count, 1);
         (lines, epoch, cancel)
@@ -220,11 +236,31 @@ fn milestone_interrupts_automatic_talk_only_when_allowed_and_matched() {
     assert_eq!(mood.epoch, new_epoch);
     assert!(old_cancel.load(Ordering::SeqCst));
     assert!(!scene::present_line(
-        &state, &old_lines[1], "talk", "old-next", 1, 2, revision, old_epoch, &old_cancel, false,
-    ).unwrap());
+        &state,
+        &old_lines[1],
+        "talk",
+        "old-next",
+        1,
+        2,
+        revision,
+        old_epoch,
+        &old_cancel,
+        false,
+    )
+    .unwrap());
     assert!(scene::present_line(
-        &state, &new_lines[0], "talk", "milestone", 0, 1, revision, new_epoch, &new_cancel, false,
-    ).unwrap());
+        &state,
+        &new_lines[0],
+        "talk",
+        "milestone",
+        0,
+        1,
+        revision,
+        new_epoch,
+        &new_cancel,
+        false,
+    )
+    .unwrap());
 }
 
 #[test]
@@ -533,6 +569,8 @@ fn a_current_registered_story_keeps_direct_reactions_silent_without_advancing_or
             },
             scenario_id: None,
             stage: crate::pack_stories::Stage::Entry,
+            chapter_id: None,
+            step: 0,
             phase_generation: 1,
             epoch: 0,
             participants: vec![id.clone()],
@@ -774,14 +812,19 @@ fn reaction_carries_only_its_own_current_interaction_mood() {
     for is_stale in [false, true] {
         let (state, id) = configured();
         let now = chrono::Utc::now().timestamp_millis();
-        lock(&state.life).unwrap().apply_interaction(&id, "stroke", true, "accepted", now, 0);
-        lock(&state.life).unwrap().apply_interaction(&id, "snack", true, "other", now, 0);
+        lock(&state.life)
+            .unwrap()
+            .apply_interaction(&id, "stroke", true, "accepted", now, 0);
+        lock(&state.life)
+            .unwrap()
+            .apply_interaction(&id, "snack", true, "other", now, 0);
         if is_stale {
             app::interrupt(&state, false).unwrap();
         }
         let before = state.epoch.load(Ordering::SeqCst);
         let result = prepare_reaction_inner(&state, &id, "click", 7, None, None, Some("accepted"))
-            .unwrap().unwrap();
+            .unwrap()
+            .unwrap();
         assert!(result.speech.is_some());
         let after = state.epoch.load(Ordering::SeqCst);
         assert_eq!(after, before + 1);

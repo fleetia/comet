@@ -32,6 +32,14 @@ export function characterName(snapshot: Snapshot, persona: Persona): string {
   return activeCharacter(snapshot, persona)?.definition.name ?? persona.toUpperCase();
 }
 export function currentExpression(snapshot: Snapshot, persona: Persona | null): string {
+  if (
+    persona !== null &&
+    snapshot.story?.displayStartedAt != null &&
+    activeCharacter(snapshot, snapshot.story.persona)?.id === persona &&
+    snapshot.story.expression
+  ) {
+    return snapshot.story.expression;
+  }
   return persona !== null &&
     snapshot.playback &&
     activeCharacter(snapshot, snapshot.playback.persona)?.id === persona

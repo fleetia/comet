@@ -288,6 +288,56 @@ it("allows the next draft during generation while blocking submission", async ()
   expect(input).toHaveProperty("value", "새 초안");
 });
 
+it("shows the scene question and submits its answer while retaining prompt playback", async () => {
+  const snapshot: Snapshot = {
+    ...conversationSnapshot("기존 대화 초안"),
+    sceneAskId: "ask-topic",
+    playback: {
+      id: "scene-question",
+      persona: "builtin-a",
+      text: "무엇을 좋아해요?",
+      expression: "평온",
+      source: "scenario",
+      endsAt: 1,
+      lineIndex: 0,
+      lineCount: 1,
+    },
+  };
+  const view = render(
+    <>
+      <ConversationResponse snapshot={snapshot} preview />
+      <Balloon snapshot={snapshot} surface="input" preview />
+    </>,
+  );
+  expect(screen.getByLabelText("무엇을 좋아해요?").textContent).toBe("무엇을 좋아해요?");
+  const input = screen.getByRole("textbox");
+  expect(input).toHaveProperty("value", "");
+  vi.useFakeTimers();
+  fireEvent.change(input, { target: { value: "별" } });
+  await act(async () => {
+    vi.advanceTimersByTime(500);
+  });
+  expect(command).not.toHaveBeenCalledWith("save_conversation_draft", expect.anything());
+  vi.useRealTimers();
+  expect(screen.getByRole("button", { name: "보내기" })).toHaveProperty("disabled", false);
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(command).toHaveBeenCalledWith("send_message", {
+    content: "별",
+    target: "builtin-a",
+    clientMessageId: expect.any(String),
+    sceneAskId: "ask-topic",
+  }));
+  expect(command).not.toHaveBeenCalledWith("save_conversation_draft", expect.anything());
+  const next = { ...snapshot, sceneAskId: undefined, playback: null };
+  view.rerender(
+    <>
+      <ConversationResponse snapshot={next} preview />
+      <Balloon snapshot={next} surface="input" preview />
+    </>,
+  );
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "기존 대화 초안");
+});
+
 it("shows recorded responses in a read-only surface without autosave or idle controls", async () => {
   vi.useFakeTimers();
   render(<ConversationResponse snapshot={conversationSnapshot("저장된 초안")} preview />);

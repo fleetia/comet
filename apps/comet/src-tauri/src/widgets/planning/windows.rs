@@ -85,6 +85,10 @@ pub(crate) fn open(app: &tauri::AppHandle, tab: &str) -> Result<(), String> {
     open_view(app, tab, None)
 }
 
+pub(crate) fn open_for_story(app: &tauri::AppHandle, tab: &str, run: crate::pack_stories::RunTicket) -> Result<(), String> {
+    lifecycle::schedule_story_open(app, OpenRequest::Planner { tab: tab.into(), target: None, note: None }, run)
+}
+
 fn open_view(
     app: &tauri::AppHandle,
     tab: &str,

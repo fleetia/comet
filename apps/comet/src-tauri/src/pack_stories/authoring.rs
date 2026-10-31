@@ -595,6 +595,8 @@ fn trial_ticket(scene: &ScenarioDefinition, stage: Stage) -> RunTicket {
         },
         scenario_id: Some(scene.id.clone()),
         stage,
+        chapter_id: None,
+        step: 0,
         phase_generation: 1,
         epoch: 0,
         participants: scene.participants.clone(),

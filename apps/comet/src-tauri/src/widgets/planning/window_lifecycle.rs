@@ -77,6 +77,7 @@ impl ReleasePolicy {
 struct OpenTicket {
     generation: u64,
     request: OpenRequest,
+    story: Option<crate::pack_stories::RunTicket>,
 }
 
 #[derive(Default)]
@@ -88,10 +89,14 @@ pub(super) struct WindowRuntime {
 }
 impl WindowRuntime {
     fn open(&mut self, request: OpenRequest) -> Option<OpenTicket> {
+        self.open_with_story(request, None)
+    }
+    fn open_with_story(&mut self, request: OpenRequest, story: Option<crate::pack_stories::RunTicket>) -> Option<OpenTicket> {
         self.requested_generation += 1;
         let ticket = OpenTicket {
             generation: self.requested_generation,
             request,
+            story,
         };
         if self.destroying {
             self.pending_open = Some(ticket);
@@ -170,6 +175,16 @@ pub(super) fn schedule_open(app: &tauri::AppHandle, request: OpenRequest) -> Res
     Ok(())
 }
 
+pub(super) fn schedule_story_open(app: &tauri::AppHandle, request: OpenRequest, story: crate::pack_stories::RunTicket) -> Result<(), String> {
+    let ticket = {
+        let navigation = app.state::<Navigation>();
+        let mut runtime = crate::lock(runtime(&navigation, request.label())?)?;
+        runtime.open_with_story(request, Some(story))
+    };
+    if let Some(ticket) = ticket { schedule_ticket(app, ticket)?; }
+    Ok(())
+}
+
 fn schedule_ticket(app: &tauri::AppHandle, ticket: OpenTicket) -> Result<(), String> {
     let handle = app.clone();
     app.run_on_main_thread(move || {
@@ -189,6 +204,14 @@ fn show(app: &tauri::AppHandle, ticket: OpenTicket) -> Result<(), String> {
     if crate::unavailable(&state) {
         return Ok(());
     }
+    let _action = if let Some(story) = &ticket.story {
+        let guard = crate::lock(&state.action)?;
+        if !crate::app::scene_events::execution_current(&state, story)? { return Ok(()); }
+        let db = crate::lock(&state.db)?;
+        if !crate::app::scene_events::available_locked(&state, &db, story)? { return Ok(()); }
+        drop(db);
+        Some(guard)
+    } else { None };
     let navigation = app.state::<Navigation>();
     let request = ticket.request;
     let label = request.label();
@@ -317,6 +340,8 @@ pub(crate) async fn release_planning_window(
             let state = runtime.state;
             drop(runtime);
             if label == "planner" {
+                let app_state = handle.state::<std::sync::Arc<crate::app::AppState>>();
+                let _ = crate::app::scene_events::closed_label(&app_state, "planner");
                 crate::widgets::runtime::refresh(&handle);
             }
             Ok(state)

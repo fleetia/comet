@@ -117,7 +117,11 @@ pub(crate) fn playback_blocked(
         }
         return Ok(!event_allowed(&event.event));
     }
-    Ok(state.automatic.load(Ordering::SeqCst))
+    Ok(state.automatic.load(Ordering::SeqCst)
+        || lock(&state.pack_stories)?
+            .run
+            .as_ref()
+            .is_some_and(|run| run.stage == crate::pack_stories::Stage::Chapter))
 }
 
 pub(crate) fn reconcile(state: &AppState) -> Result<bool, String> {
@@ -151,12 +155,21 @@ pub(crate) fn reconcile_at(state: &AppState, at: NaiveDateTime) -> Result<bool, 
     widgets::storage::discard_pending_during_quiet(&db)?;
     crate::widgets::generated::discard_pending(&db)?;
     crate::widgets::generated::commands::skip_automatic_message(&db)?;
-    let cancel_automatic = lock(&state.widget_playback)?.as_ref().map_or_else(
-        || state.automatic.load(Ordering::SeqCst),
-        |event| !event_allowed(&event.event),
-    );
+    let chapter_running = lock(&state.pack_stories)?
+        .run
+        .as_ref()
+        .is_some_and(|run| run.stage == crate::pack_stories::Stage::Chapter);
+    let cancel_automatic = chapter_running
+        || lock(&state.widget_playback)?.as_ref().map_or_else(
+            || state.automatic.load(Ordering::SeqCst),
+            |event| !event_allowed(&event.event),
+        );
     if cancel_automatic {
-        let (epoch, _) = interrupt(state, false)?;
+        let (epoch, _) = if chapter_running {
+            super::interrupt_with_db(state, false, &db)?
+        } else {
+            interrupt(state, false)?
+        };
         // Preserve time-critical events already queued at this boundary.
         state.widget_epoch.store(epoch, Ordering::SeqCst);
         let mut runtime = lock(&state.runtime)?;
@@ -507,6 +520,50 @@ mod tests {
     }
 
     #[test]
+    fn quiet_hours_block_and_cancel_a_manually_started_chapter() {
+        let state = crate::app::tests::state();
+        save(&state, schedule());
+        let (epoch, cancel) = interrupt(&state, false).unwrap();
+        let user_id = store::active_user_id(&lock(&state.db).unwrap()).unwrap();
+        let run = crate::pack_stories::RunTicket {
+            run_id: "manual-chapter".into(),
+            input_id: "input".into(),
+            scope: crate::pack_stories::Scope {
+                user_id,
+                pack_id: "pack".into(),
+                center_id: "a".into(),
+            },
+            scenario_id: Some("tutorial".into()),
+            stage: crate::pack_stories::Stage::Chapter,
+            chapter_id: Some("first".into()),
+            step: 0,
+            phase_generation: 1,
+            epoch,
+            participants: vec!["a".into()],
+            pack_baseline: "1".into(),
+            definition_baselines: Default::default(),
+            last_playback_id: String::new(),
+            definition: None,
+            ready: false,
+        };
+        *lock(&state.pack_stories).unwrap() = crate::pack_stories::Runtime {
+            run: Some(run),
+            ..Default::default()
+        };
+        state.widget_editing.store(true, Ordering::SeqCst);
+        let settings = store::settings(&lock(&state.db).unwrap()).unwrap();
+        assert!(playback_blocked(&state, &settings, false).unwrap());
+        state.widget_editing.store(false, Ordering::SeqCst);
+        assert!(reconcile_at(&state, at("2026-09-28 22:00:00")).unwrap());
+        assert!(cancel.load(Ordering::SeqCst));
+        assert!(lock(&state.pack_stories).unwrap().run.is_none());
+        assert!(state.epoch.load(Ordering::SeqCst) > epoch);
+        let db = lock(&state.db).unwrap();
+        let cancelled: i64 = db.query_row("SELECT COUNT(*) FROM pack_story_outcomes WHERE run_id='manual-chapter' AND kind='cancelled'", [], |row| row.get(0)).unwrap();
+        assert_eq!(cancelled, 1);
+    }
+
+    #[test]
     fn direct_work_critical_events_and_manual_pause_survive_schedule_entry_and_exit() {
         for kind in [
             None,
@@ -586,10 +643,10 @@ mod tests {
                 let db = lock(&state.db).unwrap();
                 widgets::storage::verify_packages(&db, directory.path()).unwrap();
                 let timer = widgets::storage::instances(&db)
-                .unwrap()
-                .into_iter()
-                .find(|instance| instance.kind == "focus-timer")
-                .unwrap();
+                    .unwrap()
+                    .into_iter()
+                    .find(|instance| instance.kind == "focus-timer")
+                    .unwrap();
                 widgets::storage::commit_data(
                     &db,
                     &timer.id,
