@@ -43,6 +43,7 @@ pub(crate) fn state() -> AppState {
         launcher_session: AtomicU64::new(0),
         launcher_gate: tokio::sync::Mutex::new(()),
         settings_section: Mutex::new(windows::SettingsSection::default()),
+        story_editor_target: Mutex::new(None),
         settings_character: Mutex::new(None),
         settings_dirty: AtomicBool::new(false),
         settings_exit_confirmed: AtomicBool::new(false),

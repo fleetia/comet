@@ -55,6 +55,7 @@ pub(crate) struct AppState {
     pub(crate) launcher_session: AtomicU64,
     pub(crate) launcher_gate: tokio::sync::Mutex<()>,
     pub(crate) settings_section: Mutex<windows::SettingsSection>,
+    pub(crate) story_editor_target: Mutex<Option<windows::StoryEditorTarget>>,
     pub(crate) settings_character:
         Mutex<Option<crate::characters::commands::SettingsCharacterRequest>>,
     pub(crate) settings_dirty: AtomicBool,

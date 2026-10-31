@@ -1380,12 +1380,16 @@ fn chapter_schema_accepts_99_chapters_and_rejects_100() {
     );
     validate_pack(&characters, &extras).unwrap();
 
-    extras.scenarios[0].chapters.as_mut().unwrap().push(Chapter {
-        id: "chapter-99".into(),
-        title: "장".into(),
-        next: None,
-        steps: vec![line],
-    });
+    extras.scenarios[0]
+        .chapters
+        .as_mut()
+        .unwrap()
+        .push(Chapter {
+            id: "chapter-99".into(),
+            title: "장".into(),
+            next: None,
+            steps: vec![line],
+        });
     assert_eq!(
         validate_pack(&characters, &extras).unwrap_err(),
         "장은 1~99개여야 해요."

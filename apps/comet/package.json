@@ -29,6 +29,7 @@
     "@comet/ui": "workspace:*",
     "@tauri-apps/api": "^2.11.1",
     "@vanilla-extract/css": "^1.21.2",
+    "@xyflow/react": "12.12.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
