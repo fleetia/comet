@@ -16,6 +16,33 @@ function graph(ids: string[], edges: [string, string, StoryGraphEdge["kind"]][])
 }
 
 describe("layoutStoryGraph의 깊이와 순서", () => {
+  it("다섯 열까지는 기존 좌표를 유지하고 여섯 번째 열부터 왼쪽에 놓는다", () => {
+    const ids = ["a", "b", "c", "d", "e", "f", "g"];
+    const edges: [string, string, StoryGraphEdge["kind"]][] = ids.slice(1).map((id, index) => [ids[index], id, "next"]);
+
+    expect(layoutStoryGraph(graph(ids.slice(0, 5), edges.slice(0, 4)))).toEqual({
+      a: { x: 0, y: 0 }, b: { x: 280, y: 0 }, c: { x: 560, y: 0 },
+      d: { x: 840, y: 0 }, e: { x: 1120, y: 0 },
+    });
+    const positions = layoutStoryGraph(graph(ids, edges));
+    expect(positions.f).toEqual({ x: 0, y: 180 });
+    expect(positions.g).toEqual({ x: 280, y: 180 });
+  });
+
+  it("앞 묶음의 모든 갈래 아래에 다음 묶음을 둔다", () => {
+    const positions = layoutStoryGraph(graph(
+      ["start", "a", "b", "c", "d", "e", "f"],
+      [
+        ["start", "a", "next"], ["start", "b", "choice"],
+        ["a", "c", "next"], ["b", "c", "next"],
+        ["c", "d", "next"], ["d", "e", "next"], ["e", "f", "next"],
+      ],
+    ));
+
+    expect(positions.b.y).toBe(180);
+    expect(positions.f).toEqual({ x: 0, y: 360 });
+  });
+
   it("합류하는 장을 양쪽 경로보다 뒤에 둔다", () => {
     const positions = layoutStoryGraph(
       graph(
@@ -66,6 +93,15 @@ describe("layoutStoryGraph의 깊이와 순서", () => {
     expect(positions).toEqual({ a: { x: 0, y: 0 }, b: { x: 280, y: 0 }, c: { x: 560, y: 0 } });
   });
 
+  it("다섯 열을 넘는 순환도 다음 묶음에 배치한다", () => {
+    const positions = layoutStoryGraph(graph(
+      ["a", "b", "c", "d", "e", "f"],
+      [["a", "b", "next"], ["b", "c", "next"], ["c", "d", "next"],
+        ["d", "e", "next"], ["e", "f", "next"], ["f", "a", "choice"]],
+    ));
+    expect(positions.f).toEqual({ x: 0, y: 180 });
+  });
+
   it("99장에 지름길이 많아도 가장 긴 경로로 배치한다", () => {
     const ids = Array.from({ length: 99 }, (_, index) => String(index));
     const edges: [string, string, StoryGraphEdge["kind"]][] = [];
@@ -79,6 +115,6 @@ describe("layoutStoryGraph의 깊이와 순서", () => {
     const positions = layoutStoryGraph(graph(ids, edges));
 
     expect(Object.keys(positions)).toHaveLength(99);
-    expect(positions["98"].x).toBe(98 * 280);
+    expect(positions["98"]).toEqual({ x: 3 * 280, y: 19 * 204 });
   });
 });

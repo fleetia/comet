@@ -421,6 +421,10 @@ export function buildStoryGraph(
   return { nodes, edges, startId: "proposal:intro" };
 }
 
+export function storyNodeHeight(node: StoryGraphNode | undefined, exitCount: number): number {
+  return node?.kind === "end" ? 40 : 100 + (exitCount + (node?.localExits?.length ?? 0)) * 24;
+}
+
 export function layoutStoryGraph(graph: StoryGraph, columnWidth = 280): Record<string, { x: number; y: number }> {
   const positions: Record<string, { x: number; y: number }> = {};
   const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
@@ -481,14 +485,24 @@ export function layoutStoryGraph(graph: StoryGraph, columnWidth = 280): Record<s
     for (const id of order) {
       const depth = depths.get(id) ?? 0;
       const y = rows.get(depth) ?? 0;
-      positions[id] = { x: depth * columnWidth, y };
-      const node = nodes.get(id);
-      const height =
-        node?.kind === "end"
-          ? 40
-          : 100 + ((exits.get(id)?.length ?? 0) + (node?.localExits?.length ?? 0)) * 24;
+      positions[id] = { x: (depth % 5) * columnWidth, y };
+      const height = storyNodeHeight(nodes.get(id), exits.get(id)?.length ?? 0);
       rows.set(depth, y + height + 56);
     }
+  }
+  const groupHeights: number[] = [];
+  for (const [depth, height] of rows) {
+    const group = Math.floor(depth / 5);
+    groupHeights[group] = Math.max(groupHeights[group] ?? 0, height);
+  }
+  const groupOffsets: number[] = [];
+  let offset = 0;
+  for (const height of groupHeights) {
+    groupOffsets.push(offset);
+    offset += height;
+  }
+  for (const [id, position] of Object.entries(positions)) {
+    position.y += groupOffsets[Math.floor((depths.get(id) ?? 0) / 5)];
   }
   return positions;
 }

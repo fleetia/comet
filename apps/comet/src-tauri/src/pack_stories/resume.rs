@@ -1,5 +1,6 @@
 use super::{
-    scope_key, transaction, Result, RunTicket, ScenarioDefinition, ScenarioPurpose, Scope,
+    scope_key, transaction, Result, RunTicket, ScenarioDefinition, ScenarioPurpose, Scope, StoryInput,
+    StoryStep,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -66,17 +67,31 @@ pub fn record_accepted(db: &Connection, run: &RunTicket) -> Result<()> {
 
 pub fn save_chapter(db: &Connection, run: &RunTicket, chapter_id: &str, at: i64) -> Result<()> {
     let (id, definition) = scenario(run)?;
-    if !definition
+    let chapter = definition
         .chapters
         .as_ref()
-        .is_some_and(|chapters| chapters.iter().any(|chapter| chapter.id == chapter_id))
-        || crate::store::current_user(db)?
-            .as_ref()
-            .map(|user| user.id.as_str())
-            != Some(run.scope.user_id.as_str())
+        .and_then(|chapters| chapters.iter().find(|chapter| chapter.id == chapter_id))
+        .ok_or("이야기 실행이 바뀌었어요.")?;
+    if crate::store::current_user(db)?
+        .as_ref()
+        .map(|user| user.id.as_str())
+        != Some(run.scope.user_id.as_str())
         || !super::current(db, run)?
     {
         return Err("이야기 실행이 바뀌었어요.".into());
+    }
+    if chapter.next.as_deref() == Some("end")
+        && chapter.steps.iter().any(|step| {
+            matches!(
+                step,
+                StoryStep::Ask {
+                    input: StoryInput::Name,
+                    ..
+                }
+            )
+        })
+    {
+        return Ok(());
     }
     db.execute(
         "INSERT INTO pack_story_resume(scope,scenario_id,chapter_id,run_id,pack_baseline,updated_at) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(scope,scenario_id) DO UPDATE SET chapter_id=excluded.chapter_id,run_id=excluded.run_id,pack_baseline=excluded.pack_baseline,updated_at=excluded.updated_at",

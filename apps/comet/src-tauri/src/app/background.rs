@@ -1271,6 +1271,82 @@ mod recall_opportunity_tests {
     }
 
     #[test]
+    fn interrupted_tutorial_after_name_offers_only_resumable_chapters() {
+        for (chapter_id, resume_chapter) in [("brief", None), ("name", Some("talk"))] {
+            let state = super::super::tests::state();
+            {
+                let db = lock(&state.db).unwrap();
+                let mut pack = characters::byulkkori_pack();
+                pack.format_version = 14;
+                pack.scenarios.push(
+                    serde_json::from_str(include_str!("../../content/byulkkori-tutorial.json"))
+                        .unwrap(),
+                );
+                let installed = characters::import_pack(&db, &pack).unwrap();
+                characters::apply_roster(&db, vec![installed[0].id.clone()]).unwrap();
+            }
+            let cancel = AtomicBool::new(false);
+            let FirstTutorial::Started(mut run, _) =
+                begin_first_tutorial(&state, 0, &cancel).unwrap()
+            else {
+                panic!("튜토리얼이 시작되어야 해요");
+            };
+            run.chapter_id = Some(chapter_id.into());
+            lock(&state.pack_stories).unwrap().run = Some((*run).clone());
+            {
+                let db = lock(&state.db).unwrap();
+                store::register_story_user_profile(
+                    &db,
+                    "친구",
+                    None,
+                    1000,
+                    store::StoryRegistration {
+                        run: &run,
+                        chapter: resume_chapter.unwrap_or(chapter_id),
+                        lines: &[],
+                        characters: &[],
+                    },
+                )
+                .unwrap();
+                if chapter_id == "brief" {
+                    crate::pack_stories::resume::save_chapter(&db, &run, chapter_id, 1001)
+                        .unwrap();
+                }
+                crate::pack_stories::cancel_with_progress(
+                    &db,
+                    &mut lock(&state.pack_stories).unwrap(),
+                )
+                .unwrap();
+                let points = crate::pack_stories::resume::load_for_scope(&db, &run.scope).unwrap();
+                assert_eq!(
+                    points.first().map(|point| point.chapter_id.as_str()),
+                    resume_chapter
+                );
+                assert_eq!(points.len(), usize::from(resume_chapter.is_some()));
+                assert!(db
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM pack_story_outcomes WHERE run_id=?1 AND kind='cancelled')",
+                        [&run.run_id],
+                        |row| row.get::<_, bool>(0)
+                    )
+                    .unwrap());
+            }
+            assert_eq!(
+                offer_scene_resume(&state, 0, &cancel).unwrap(),
+                resume_chapter.is_some()
+            );
+            assert_eq!(
+                lock(&state.story)
+                    .unwrap()
+                    .as_ref()
+                    .map(|story| story.prompt.as_str())
+                    .map(str::to_owned),
+                resume_chapter.map(|_| "아까 둘러보던 거, 이어서 할래?".to_string())
+            );
+        }
+    }
+
+    #[test]
     fn scene_resume_is_offered_only_once_per_runtime() {
         let state = super::super::tests::state();
         {

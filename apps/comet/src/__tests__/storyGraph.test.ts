@@ -367,7 +367,7 @@ describe("layoutStoryGraph", () => {
       ),
     );
     expect(Object.keys(positions)).toHaveLength(99);
-    expect(positions["98"].x).toBe(98 * 280);
+    expect(positions["98"]).toEqual({ x: 3 * 280, y: 19 * 180 });
   });
 });
 

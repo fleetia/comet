@@ -1,5 +1,10 @@
 import { useLayoutEffect, useMemo, useState } from "react";
-import { layoutStoryGraph, type StoryGraph, type StoryGraphNode } from "./storyGraph";
+import {
+  layoutStoryGraph,
+  storyNodeHeight,
+  type StoryGraph,
+  type StoryGraphNode,
+} from "./storyGraph";
 
 export type StoryPositions = Record<string, { x: number; y: number }>;
 
@@ -68,6 +73,52 @@ function keyedLayout(graph: StoryGraph, columnWidth = 280): StoryPositions {
   const layout = layoutStoryGraph(graph, columnWidth);
   return Object.fromEntries(graph.nodes.map((node) => [positionKey(graph, node), layout[node.id]]));
 }
+
+function initialPositions(
+  graph: StoryGraph,
+  stored: StoryPositions,
+  columnWidth: number,
+): StoryPositions {
+  const positions = { ...keyedLayout(graph, columnWidth), ...stored };
+  const occupied: { x: number; y: number; width: number; height: number }[] = [];
+  const widths = { chapter: 224, story: 180, end: 72 };
+  const nodes = graph.nodes.map((node) => {
+    const key = positionKey(graph, node);
+    return {
+      key,
+      saved: stored[node.id] ?? stored[key],
+      width: widths[node.kind],
+      height: storyNodeHeight(node, graph.edges.filter((edge) => edge.source === node.id).length),
+    };
+  });
+  for (const node of nodes) {
+    if (node.saved) {
+      positions[node.key] = node.saved;
+      occupied.push({ ...node.saved, width: node.width, height: node.height });
+    }
+  }
+  for (const node of nodes) {
+    if (node.saved) continue;
+    const position = { ...positions[node.key] };
+    const overlapping = (): (typeof occupied)[number] | undefined =>
+      occupied.find(
+        (other) =>
+          position.x < other.x + other.width &&
+          position.x + node.width > other.x &&
+          position.y < other.y + other.height &&
+          position.y + node.height > other.y,
+      );
+    let collision = overlapping();
+    while (collision) {
+      position.y = collision.y + collision.height + 56;
+      collision = overlapping();
+    }
+    positions[node.key] = position;
+    occupied.push({ ...position, width: node.width, height: node.height });
+  }
+  return positions;
+}
+
 export function useStoryPositions(
   graph: StoryGraph,
   packId: string,
@@ -92,10 +143,9 @@ export function useStoryPositions(
       return Object.keys(storedPositions).length === 0 ? 280 : 320;
     }
   });
-  const [rememberedPositions, setRememberedPositions] = useState<StoryPositions>(() => ({
-    ...keyedLayout(graph, columnWidth),
-    ...storedPositions,
-  }));
+  const [rememberedPositions, setRememberedPositions] = useState<StoryPositions>(() =>
+    initialPositions(graph, storedPositions, columnWidth),
+  );
   const positions = useMemo(() => {
     const next = { ...rememberedPositions };
     for (const node of graph.nodes) {
