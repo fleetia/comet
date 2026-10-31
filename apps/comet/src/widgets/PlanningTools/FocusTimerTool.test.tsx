@@ -41,13 +41,14 @@ function widget(kind: string, data: DataRecord): WidgetView {
     packageBytes: 1,
   };
 }
+const FIXED_TIME = "2026-10-07T10:00:00";
 const action = vi.fn<ToolAction>();
 beforeEach(() => {
   localStorage.clear();
   action.mockReset().mockResolvedValue(true);
   diary.save.mockReset().mockResolvedValue(false);
   vi.useFakeTimers();
-  vi.setSystemTime(new Date("2026-10-07T10:00:00"));
+  vi.setSystemTime(new Date(FIXED_TIME));
 });
 afterEach(() => {
   cleanup();
@@ -55,6 +56,12 @@ afterEach(() => {
 });
 async function click(name: string, role = "button"): Promise<void> {
   await reactAct(async () => fireEvent.click(screen.getByRole(role, { name })));
+}
+
+function useRealTimersWithFixedDate(): void {
+  vi.useRealTimers();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(FIXED_TIME));
 }
 
 function noteTimer(): WidgetView {
@@ -81,7 +88,7 @@ function noteTimer(): WidgetView {
 it.each(["cancel", "header", "footer", "save"])(
   "returns to the selected record and its note button after %s",
   async (dismissal) => {
-    vi.useRealTimers();
+    useRealTimersWithFixedDate();
     const user = userEvent.setup();
     const timer = noteTimer();
     render(<TimerTool widget={timer} widgets={[]} act={action} />);
@@ -131,7 +138,7 @@ it.each(["cancel", "header", "footer", "save"])(
 );
 
 it("retains a requested note after a rejected save and falls back when its record disappears", async () => {
-  vi.useRealTimers();
+  useRealTimersWithFixedDate();
   const user = userEvent.setup();
   const timer = noteTimer();
   const view = render(<TimerTool widget={timer} widgets={[]} act={action} />);
@@ -155,7 +162,7 @@ it("retains a requested note after a rejected save and falls back when its recor
 });
 
 it("focuses the record context once when the note closes while its host is busy", async () => {
-  vi.useRealTimers();
+  useRealTimersWithFixedDate();
   const user = userEvent.setup();
   const timer = noteTimer();
   const view = render(<TimerTool widget={timer} widgets={[]} act={action} />);
@@ -176,7 +183,7 @@ it("focuses the record context once when the note closes while its host is busy"
 it.each(["another-widget", "inactive"])(
   "does not restore a record focus into %s after a late note save",
   async (nextScope) => {
-    vi.useRealTimers();
+    useRealTimersWithFixedDate();
     const user = userEvent.setup();
     let finish: (saved: boolean) => void = () => {};
     diary.save.mockImplementationOnce(
