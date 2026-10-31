@@ -110,7 +110,9 @@ fn menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
         menu.append(&item).map_err(|error| error.to_string())?;
     }
     let submenu = Submenu::new(app, "위젯 바로 열기", true).map_err(|error| error.to_string())?;
-    for instance in instances.iter().filter(|instance| !widgets::is_retired(&instance.kind) && instance.kind != "external-notice") {
+    for instance in instances.iter().filter(|instance| {
+        !widgets::is_retired(&instance.kind) && instance.kind != "external-notice"
+    }) {
         let manifest = widgets::manifest(&instance.kind)?;
         let item = MenuItem::with_id(
             app,
@@ -145,7 +147,7 @@ fn menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
     }
     let separator = PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?;
     menu.append(&separator).map_err(|error| error.to_string())?;
-    for (id, text) in [("settings", "설정"), ("quit", "종료")] {
+    for (id, text) in [("guide", "안내서"), ("settings", "설정"), ("quit", "종료")] {
         let item = MenuItem::with_id(app, id, text, true, None::<&str>)
             .map_err(|error| error.to_string())?;
         menu.append(&item).map_err(|error| error.to_string())?;
@@ -186,6 +188,7 @@ pub(crate) fn create(app: &tauri::AppHandle) -> Result<(), String> {
                     }
                     "hide" => crate::hide_boxes(app.clone(), state).await,
                     "widgets" => crate::open_widgets(app.clone()).await,
+                    "guide" => crate::guide::open_from_navigation(app.clone()),
                     "settings" => crate::open_settings(app.clone()).await,
                     "pause" => crate::set_paused(app.clone(), state, true, None),
                     "pause-hour" => crate::set_paused(app.clone(), state, true, Some(60)),

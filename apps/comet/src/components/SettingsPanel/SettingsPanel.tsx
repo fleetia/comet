@@ -20,10 +20,13 @@ import { CharacterManager } from "../CharacterManager/CharacterManager";
 import { WidgetManager } from "../../widgets/WidgetManager/WidgetManager";
 import { WindowHeader } from "../WindowHeader/WindowHeader";
 import { useSettingsNavigation } from "./useSettingsNavigation";
+import type { GuideOpenError } from "../../guide";
 import * as s from "../../common.css";
 import * as styles from "./settings.css";
 
 type Props = { snapshot: Snapshot; preview?: boolean; initialSection?: string };
+type HighlightRequest = { id: number; value: "ai.recommended" | "general.guide" };
+type GuideErrorRequest = { id: number; error: GuideOpenError };
 function DraftActions({
   draft,
   label,
@@ -94,12 +97,131 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
   const {
     section,
     visited,
-    navigate,
+    navigate: navigateSection,
     navigationError,
     memoryTabRequest,
     characterRequest,
     openCharacter,
   } = useSettingsNavigation(initialSection);
+  const containerRef = useRef<HTMLElement>(null);
+  const requestRevision = useRef(0);
+  const [highlight, setHighlight] = useState<{
+    value: "ai.recommended" | "general.guide";
+    revision: number;
+  } | null>(null);
+  const [guideOpenResult, setGuideOpenResult] = useState<{ error: GuideOpenError | null }>();
+  function navigate(value: string): void {
+    if (value !== section) {
+      requestRevision.current += 1;
+      setHighlight(null);
+    }
+    navigateSection(value);
+  }
+  useEffect(() => {
+    if (!isDesktop()) return;
+    let active = true;
+    const cleanups: (() => void)[] = [];
+    let lastGuideId = 0;
+    let lastHighlightId = 0;
+    function applyHighlight(request: HighlightRequest | null, revision: number): void {
+      if (!active || !request || request.id <= lastHighlightId) return;
+      if (request.value !== "ai.recommended" && request.value !== "general.guide") return;
+      if (revision !== requestRevision.current) return;
+      lastHighlightId = request.id;
+      navigateSection(request.value === "ai.recommended" ? "model" : "general");
+      setHighlight({ value: request.value, revision: request.id });
+    }
+    async function readHighlight(revision: number): Promise<void> {
+      if (!active) return;
+      const request = await command<HighlightRequest | null>("take_settings_highlight");
+      applyHighlight(request, revision);
+    }
+    function applyGuideError(request: GuideErrorRequest | null): void {
+      if (!active || !request || request.id <= lastGuideId) return;
+      lastGuideId = request.id;
+      setGuideOpenResult({ error: request.error });
+    }
+    async function readGuideError(): Promise<void> {
+      if (!active) return;
+      const request = await command<GuideErrorRequest | null>("take_guide_open_error");
+      applyGuideError(request);
+    }
+    void listen<HighlightRequest>("story-settings-highlight", (event) => {
+      applyHighlight(event.payload, requestRevision.current);
+      void command("take_settings_highlight", { expectedId: event.payload.id }).catch(
+        (cause: unknown) => {
+          if (active) setActionError(errorText(cause));
+        },
+      );
+    })
+      .then((unlisten) => {
+        if (!active) {
+          unlisten();
+          return;
+        }
+        cleanups.push(unlisten);
+        return readHighlight(requestRevision.current);
+      })
+      .catch((cause: unknown) => active && setActionError(errorText(cause)));
+    void listen<number>("guide-open-succeeded", (event) => {
+      if (event.payload <= lastGuideId) return;
+      lastGuideId = event.payload;
+      setGuideOpenResult({ error: null });
+    })
+      .then((unlisten) => {
+        if (!active) {
+          unlisten();
+          return;
+        }
+        cleanups.push(unlisten);
+        return listen<GuideErrorRequest>("guide-open-failed", (event) => {
+          applyGuideError(event.payload);
+          void command("take_guide_open_error", { expectedId: event.payload.id }).catch(
+            (cause: unknown) => {
+              if (active) setActionError(errorText(cause));
+            },
+          );
+        }).then((unlistenFailure) => {
+          if (!active) {
+            unlistenFailure();
+            return;
+          }
+          cleanups.push(unlistenFailure);
+          return readGuideError();
+        });
+      })
+      .catch((cause: unknown) => active && setActionError(errorText(cause)));
+    return () => {
+      active = false;
+      cleanups.forEach((cleanup) => cleanup());
+    };
+  }, []);
+  useEffect(() => {
+    if (!highlight) return;
+    const targetSection = highlight.value === "ai.recommended" ? "model" : "general";
+    if (section !== targetSection) {
+      setHighlight(null);
+      return;
+    }
+    const target = containerRef.current?.querySelector<HTMLElement>(
+      `[data-settings-highlight="${highlight.value}"]`,
+    );
+    if (!target) return;
+    target.scrollIntoView?.({ block: "nearest" });
+    void target.offsetWidth;
+    target.classList.add(styles.tutorialHighlight);
+    // Sections above the target finish loading after the tab opens and push it down.
+    const scrollTimer = window.setTimeout(
+      () => target.scrollIntoView?.({ block: "nearest" }),
+      300,
+    );
+    const timer = window.setTimeout(() => setHighlight(null), 2000);
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(timer);
+      target.classList.remove(styles.tutorialHighlight);
+    };
+  }, [highlight, section]);
   const automatic = useSettingsDraft(snapshot.settings, "automatic");
   const model = useSettingsDraft(snapshot.settings, "model");
   const [organizerDirty, setOrganizerDirty] = useState(false);
@@ -201,6 +323,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
   );
   return (
     <Container
+      ref={containerRef}
       className={`${styles.window} ${preview ? styles.preview : ""}`}
       data-section={section}
     >
@@ -400,6 +523,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
         >
           {visited.has("general") && (
             <GeneralSettings
+              guideOpenResult={guideOpenResult}
               snapshot={snapshot}
               active={section === "general"}
               onOpenUser={() => navigate("user")}

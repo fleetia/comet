@@ -69,4 +69,6 @@ Ex-brain 파일이 다른 곳에서 바뀌었다면 내용을 확인한 뒤 다�
 
 ## 그래도 안 되면
 
-안내서가 열리지 않거나 문제가 계속되면 [GitHub Issues](https://github.com/fleetia/comet/issues) 또는 dev@star-light.space로 알려 주세요.
+안내서가 열리지 않으면 설정 → 일반 → 안내서에서 **경로 복사**를 눌러 경로를 복사한 뒤 브라우저 주소창에 붙여 넣어 주세요.
+
+문제가 계속되면 [GitHub Issues](https://github.com/fleetia/comet/issues) 또는 dev@star-light.space로 알려 주세요.

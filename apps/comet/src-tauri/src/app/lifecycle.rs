@@ -198,6 +198,7 @@ pub fn run() {
         .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
             crate::guide::open_guide,
+            crate::guide::take_guide_open_error,
             crate::analytics::get_analytics_context,
             crate::analytics::get_analytics_consent,
             crate::analytics::set_analytics_consent,
@@ -467,6 +468,7 @@ pub fn run() {
             crate::characters::gestures::touch_character_from_menu,
             windows::open_organizer_settings,
             windows::get_settings_section,
+            windows::take_settings_highlight,
             windows::set_settings_section,
             windows::set_settings_dirty,
             windows::show_characters,
@@ -524,6 +526,9 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         launcher_session: AtomicU64::new(0),
         launcher_gate: tokio::sync::Mutex::new(()),
         settings_section: Mutex::new(windows::SettingsSection::default()),
+        guide_open_error: Mutex::new(crate::guide::GuideOpenPending::default()),
+        settings_highlight: Mutex::new(None),
+        settings_highlight_sequence: AtomicU64::new(0),
         story_editor_target: Mutex::new(None),
         settings_character: Mutex::new(None),
         settings_dirty: AtomicBool::new(false),

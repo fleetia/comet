@@ -9,6 +9,7 @@ import {
   within,
 } from "@testing-library/react";
 import { command } from "../../hooks/useSnapshot";
+import { openGuide } from "../../guide";
 import { PREVIEW_SNAPSHOT } from "../../previewSnapshot";
 import { GeneralSettings } from "./GeneralSettings";
 
@@ -18,6 +19,7 @@ vi.mock("../../hooks/useSnapshot", () => ({
   errorText: (cause: unknown) =>
     cause instanceof Error ? cause.message : String(cause),
 }));
+vi.mock("../../guide", () => ({ openGuide: vi.fn() }));
 vi.mock("../AutostartSettings/AutostartSettings", () => ({
   AutostartSettings: () => null,
 }));
@@ -46,8 +48,55 @@ function props(consent = true): ComponentProps<typeof GeneralSettings> {
 
 beforeEach(() => {
   vi.mocked(command).mockReset().mockResolvedValue(undefined);
+  vi.mocked(openGuide).mockReset().mockResolvedValue(undefined);
 });
 afterEach(cleanup);
+
+it("starts the tutorial and shows its failure in the guide group", async () => {
+  vi.mocked(command).mockRejectedValueOnce(new Error("튜토리얼을 시작하지 못했어요."));
+  render(<GeneralSettings {...props()} />);
+  fireEvent.click(screen.getByRole("button", { name: "다시 보기" }));
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    "튜토리얼을 시작하지 못했어요.",
+  );
+  expect(command).toHaveBeenCalledWith("start_tutorial");
+});
+
+it("shows the guide failure, copies its path, and clears it on success", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  vi.mocked(openGuide).mockRejectedValueOnce({
+    message: "열기 실패",
+    path: "/guide/first-meeting.html",
+  });
+  render(<GeneralSettings {...props()} />);
+  fireEvent.click(screen.getByRole("button", { name: "안내서 열기" }));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "열기 실패");
+  expect(screen.getByTitle("/guide/first-meeting.html")).toHaveProperty(
+    "textContent",
+    "/guide/first-meeting.html",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "경로 복사" }));
+  expect(await screen.findByRole("button", { name: "복사했어요" })).toBeTruthy();
+  expect(writeText).toHaveBeenCalledExactlyOnceWith("/guide/first-meeting.html");
+  fireEvent.click(screen.getByRole("button", { name: "안내서 열기" }));
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  expect(openGuide).toHaveBeenCalledWith("first-meeting");
+});
+
+it("displays a pending guide failure delivered by the settings panel", () => {
+  const view = render(
+    <GeneralSettings
+      {...props()}
+      guideOpenResult={{ error: { message: "열기 실패", path: "/guide/first-meeting.html" } }}
+    />,
+  );
+  expect(screen.getByRole("alert")).toHaveProperty("textContent", "열기 실패");
+  expect(screen.getByTitle("/guide/first-meeting.html")).toBeTruthy();
+  view.rerender(<GeneralSettings {...props()} guideOpenResult={{ error: null }} />);
+  expect(screen.queryByRole("alert")).toBeNull();
+});
 
 it("saves analytics consent independently for withdrawal and regrant", async () => {
   const view = render(<GeneralSettings {...props()} />);

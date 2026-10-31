@@ -17,7 +17,9 @@ export type LauncherAction =
   | { type: "image"; expectedRevision: number | null }
   | { type: "chat"; content: string; target: string; clientMessageId: string }
   | { type: "addTodo"; id: string; expectedRevision: number; title: string; requestId: string }
-  | { type: "travel"; id: string };
+  | { type: "travel"; id: string }
+  | { type: "guide" }
+  | { type: "tutorial" };
 export type LauncherTravel = {
   id: string;
   title: string;
@@ -32,7 +34,7 @@ export type LauncherResult = {
   title: string;
   detail: string;
   preview: string;
-  kind: "settings" | "widget" | "chat" | "target" | "notice" | "todo" | "travel";
+  kind: "settings" | "widget" | "chat" | "target" | "notice" | "todo" | "travel" | "help";
   action?:
     | Exclude<LauncherAction, { type: "chat" } | { type: "addTodo" }>
     | Omit<Extract<LauncherAction, { type: "chat" }>, "clientMessageId">
@@ -133,6 +135,30 @@ const SECTION_ALIASES: Partial<Record<SettingsSection, string[]>> = {
   widgets: ["위젯 관리"],
   general: ["업데이트", "사용자", "사용자 설정"],
 };
+const HELP_RESULTS: { result: LauncherResult; aliases: string[] }[] = [
+  {
+    result: {
+      id: "guide",
+      title: "안내서 열기",
+      detail: "사용법·용어·문제 해결 · 기본 브라우저로 열어요",
+      preview: "",
+      kind: "help",
+      action: { type: "guide" },
+    },
+    aliases: ["안내서", "안내서 열기"],
+  },
+  {
+    result: {
+      id: "tutorial",
+      title: "튜토리얼 다시 보기",
+      detail: "별꼬리와 처음 만나기를 처음부터 다시 해요",
+      preview: "",
+      kind: "help",
+      action: { type: "tutorial" },
+    },
+    aliases: ["튜토리얼", "처음부터", "튜토리얼 다시 보기"],
+  },
+];
 function widgetResult(
   entry: { id: string; name: string; description: string },
   instance: WidgetView | undefined,
@@ -152,22 +178,24 @@ function widgetResult(
   const toy = isDesktopToy(entry.id);
   return {
     id: `widget:${entry.id}`,
-    title: available && entry.id === "image"
-      ? "이미지 띄우기"
-      : available
-      ? entry.id === "memo"
-        ? "새 메모 꺼내기"
-        : `${entry.name} ${toy ? "꺼내기" : "열기"}`
-      : `${entry.name} 설정 열기`,
-    detail: available && entry.id === "image"
-      ? "바탕화면 이미지"
-      : available
-      ? entry.id === "memo"
-        ? "바탕화면 낱장 메모"
-        : toy
-          ? "바탕화면 장난감"
-          : "위젯"
-      : "설정 › 위젯",
+    title:
+      available && entry.id === "image"
+        ? "이미지 띄우기"
+        : available
+          ? entry.id === "memo"
+            ? "새 메모 꺼내기"
+            : `${entry.name} ${toy ? "꺼내기" : "열기"}`
+          : `${entry.name} 설정 열기`,
+    detail:
+      available && entry.id === "image"
+        ? "바탕화면 이미지"
+        : available
+          ? entry.id === "memo"
+            ? "바탕화면 낱장 메모"
+            : toy
+              ? "바탕화면 장난감"
+              : "위젯"
+          : "설정 › 위젯",
     preview: available
       ? entry.id === "memo"
         ? "새 낱장을 꺼내요. 저장한 메모 목록과 검색은 다이어리에서 볼 수 있어요."
@@ -176,11 +204,12 @@ function widgetResult(
           : entry.description
       : `${entry.name} 사용 준비가 필요해요. 설정 → 위젯 → ${entry.name}에서 연결을 확인해 주세요.`,
     kind: "widget",
-    action: available && instance && entry.id === "image"
-      ? { type: "image", expectedRevision: instance.revision }
-      : available && instance
-      ? { type: "widget", id: instance.id, expectedRevision: instance.revision }
-      : { type: "settings", section: "widgets", widgetKind: entry.id },
+    action:
+      available && instance && entry.id === "image"
+        ? { type: "image", expectedRevision: instance.revision }
+        : available && instance
+          ? { type: "widget", id: instance.id, expectedRevision: instance.revision }
+          : { type: "settings", section: "widgets", widgetKind: entry.id },
   };
 }
 /** Saves the whole input, as typed, to the undated inbox only when this row is chosen. */
@@ -210,12 +239,19 @@ function todoResult(
   };
 }
 /** Trips whose name or destination contains the query; upcoming ones first. */
-function travelResults(query: string, travels: LauncherTravel[]): { result: LauncherResult; rank: number }[] {
+function travelResults(
+  query: string,
+  travels: LauncherTravel[],
+): { result: LauncherResult; rank: number }[] {
   const needle = normalize(query);
   if (!needle) return [];
   return travels
-    .filter((travel) => [travel.title, travel.destination].some((value) => normalize(value).includes(needle)))
-    .sort((a, b) => Number(a.finished) - Number(b.finished) || b.startDate.localeCompare(a.startDate))
+    .filter((travel) =>
+      [travel.title, travel.destination].some((value) => normalize(value).includes(needle)),
+    )
+    .sort(
+      (a, b) => Number(a.finished) - Number(b.finished) || b.startDate.localeCompare(a.startDate),
+    )
     .slice(0, 3)
     .map((travel) => ({
       rank: normalize(travel.title).startsWith(needle) ? 0 : 1,
@@ -274,6 +310,13 @@ export function launcherResults(
   }
   const normalized = query.trim();
   const candidates: { result: LauncherResult; rank: number }[] = [];
+  const helpRanks = HELP_RESULTS.map(({ aliases }) => score(normalized, aliases));
+  if (normalized && helpRanks.some((rank) => rank >= 0)) {
+    HELP_RESULTS.forEach(({ result }, index) => {
+      const rank = helpRanks[index];
+      candidates.push({ result, rank: rank < 0 ? 2 : rank });
+    });
+  }
   const settings: LauncherResult = {
     id: "settings",
     title: "설정 열기",
