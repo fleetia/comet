@@ -31,6 +31,10 @@ pub struct Request {
     pub title: String,
     pub prompt: String,
     pub choices: Vec<Choice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expression: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub motion: Option<crate::characters::reactions::MotionOverride>,
     #[serde(skip)]
     pub character_id: String,
     #[serde(skip)]
@@ -278,6 +282,8 @@ pub fn prepare_from_catalog(
         persona: persona.into(),
         title: scene.title.clone(),
         prompt: scene.prompt.clone(),
+        expression: None,
+        motion: None,
         choices: scene
             .choices
             .iter()

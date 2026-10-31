@@ -597,6 +597,8 @@ pub struct Snapshot {
     pub wordbook: Vec<WordbookEntry>,
     #[serde(default, skip_deserializing)]
     pub story: Option<crate::story::Request>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene_ask_id: Option<String>,
     #[serde(default, skip_deserializing)]
     pub follow_ups: Option<FollowUpRequest>,
 }

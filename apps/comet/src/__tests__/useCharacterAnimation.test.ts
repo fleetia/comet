@@ -99,6 +99,20 @@ it("prioritizes direct motions and displayed speech before local sleep, focus, r
   expect(result.current.frames).toBe(frameSets.get("idle"));
 });
 
+it("uses the choice motion only after that character's choice is displayed", () => {
+  const story: Snapshot["story"] = {
+    id: "scene-choice:1", persona: character.id, title: "선택", prompt: "어떻게 할까?",
+    choices: [{ id: "yes", label: "좋아" }], displayStartedAt: null,
+    motion: { mode: "clip", clipId: "happy", repeat: true, intervalMs: 0 },
+  };
+  const { result, rerender } = setup({ ...snapshot, story });
+  expect(result.current.frames).toBe(frameSets.get("idle"));
+  rerender({ state: { ...snapshot, story: { ...story, displayStartedAt: 1 } }, expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("happy"));
+  rerender({ state: { ...snapshot, story: { ...story, persona: "another", displayStartedAt: 1 } }, expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("idle"));
+});
+
 it("uses a quiet static pose for an unassigned sleep or focus binding and keeps sleep local", () => {
   character.definition.animation!.bindings.musicPlaying = {
     clipId: "happy",

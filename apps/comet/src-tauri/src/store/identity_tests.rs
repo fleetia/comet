@@ -17,6 +17,36 @@ fn analyze(conn: &Connection, message: &Message, kind: &str) {
 }
 
 #[test]
+fn tutorial_messages_keep_their_source_without_creating_memory_or_affinity() {
+    let db = open(Path::new(":memory:")).unwrap();
+    let at = chrono::Utc::now().timestamp_millis();
+    set_user_name(&db, "민수", at).unwrap();
+    let answer = input("tutorial-answer", "a", "고마워, 나는 녹차를 좋아해", at);
+    insert_message_with_source(&db, &answer, "tutorial", None, false).unwrap();
+    let source: String = db
+        .query_row(
+            "SELECT source FROM message_context WHERE message_id=?1",
+            [&answer.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(source, "tutorial");
+    assert_eq!(messages(&db, 10).unwrap()[0].content, answer.content);
+    assert!(pending_user_messages(&db).unwrap().is_empty());
+    assert!(context_messages_for(&db, 10, "a").unwrap().is_empty());
+    assert_eq!(relationships(&db).unwrap()[0].score, 20);
+    analyze_apply(
+        &db,
+        &json!({"revision":revision(&db).unwrap(),"memories":[{
+        "kind":"user_fact", "certain":true, "sourceMessageId":answer.id,
+        "evidence":answer.content, "supersedesId":""
+    }],"events":[]}),
+    )
+    .unwrap();
+    assert!(memories(&db).unwrap().is_empty());
+}
+
+#[test]
 fn shared_memory_is_owned_separately_and_forgetting_does_not_cross_characters() {
     let db = open(Path::new(":memory:")).unwrap();
     let at = chrono::Utc::now().timestamp_millis();

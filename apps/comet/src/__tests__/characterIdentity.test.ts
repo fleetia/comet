@@ -54,3 +54,18 @@ it("uses available built-in or custom mood expression keys", () => {
   expect(moodExpression(withExpressions({ happy: "Happy", tired: "Tired" }), -1)).toBe("tired");
   expect(moodExpression(undefined, 1)).toBeUndefined();
 });
+
+it("uses a displayed choice's expression only for its speaker", () => {
+  const snapshot: Snapshot = {
+    ...PREVIEW_SNAPSHOT,
+    playback: null,
+    story: {
+      id: "scene-choice:1", persona: "builtin-a", title: "선택", prompt: "어떻게 할까?",
+      choices: [], expression: "기쁨", displayStartedAt: null,
+    },
+  };
+  expect(currentExpression(snapshot, "builtin-a")).toBe("평온");
+  const displayed = { ...snapshot, story: { ...snapshot.story!, displayStartedAt: 1 } };
+  expect(currentExpression(displayed, "builtin-a")).toBe("기쁨");
+  expect(currentExpression(displayed, "builtin-b")).toBe("평온");
+});

@@ -452,7 +452,7 @@ pub(super) fn create(app: &AppHandle, frame: Frame, x: f64, y: f64) -> Result<()
     app.run_on_main_thread(move || {
         let id = frame.id.clone();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
-            create_panel(app_copy.clone(), frame, x, y)
+            super::run_story_creation(&app_copy, &id, || create_panel(app_copy.clone(), frame, x, y))
         }))
         .unwrap_or_else(|_| Err("장난감 창을 준비하지 못했어요.".into()));
         super::creation_result(&app_copy, &id, result);

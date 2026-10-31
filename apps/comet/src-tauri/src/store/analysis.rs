@@ -26,7 +26,8 @@ pub(super) fn initialize(conn: &Connection) -> Result<()> {
         tx.execute(
             "INSERT OR IGNORE INTO memory_analysis_jobs(message_id,state)
             SELECT id,CASE WHEN seq>COALESCE((SELECT seq FROM messages WHERE id=?1),0)
-                THEN 'pending' ELSE 'legacy_unverified' END FROM messages WHERE role='user'",
+                THEN 'pending' ELSE 'legacy_unverified' END FROM messages m WHERE role='user'
+                AND NOT EXISTS(SELECT 1 FROM message_context c WHERE c.message_id=m.id AND c.source='tutorial')",
             [cursor],
         )
         .map_err(err)?;

@@ -87,7 +87,7 @@ export function Balloon({
     dispatch,
   );
   const userId = snapshot.user?.id;
-  const viewIdentity = `${snapshot.user?.id ?? ""}:${mode === "input" && sessionId ? `conversation:${sessionId}` : snapshot.panel ? `${mode}:${snapshot.panel.persona}${mode === "update" ? `:${snapshot.playback?.id ?? ""}` : ""}` : (snapshot.playback?.id ?? "")}`;
+  const viewIdentity = `${snapshot.user?.id ?? ""}:${snapshot.sceneAskId ?? (mode === "input" && sessionId ? `conversation:${sessionId}` : snapshot.panel ? `${mode}:${snapshot.panel.persona}${mode === "update" ? `:${snapshot.playback?.id ?? ""}` : ""}` : (snapshot.playback?.id ?? ""))}`;
   const currentView = useRef<BalloonView>({
     identity: viewIdentity,
     mode,
@@ -222,6 +222,7 @@ export function Balloon({
     playing,
     canRetry,
     latestUser,
+    sceneAskId: snapshot.sceneAskId,
   });
   const inputError = error || (mode === "input" || !mode ? snapshot.runtime.error : null);
   const download = snapshot.runtime.download;
@@ -287,6 +288,14 @@ export function Balloon({
     if (sessionId) return;
     setTarget(persona);
   }, [persona, sessionId]);
+  useEffect(() => {
+    if (!snapshot.sceneAskId) return;
+    setTarget(persona);
+    draft.current = { userId, sessionId: undefined, value: "", saved: "" };
+    setInput("");
+    setError(null);
+    forgetSubmission();
+  }, [snapshot.sceneAskId]);
   useEffect(() => {
     draft.current = {
       userId: conversation?.session.userId ?? userId,

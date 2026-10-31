@@ -62,11 +62,12 @@ pub(crate) fn change<T>(
     state: &AppState,
     action: impl FnOnce(&rusqlite::Connection) -> Result<T, String>,
 ) -> Result<T, String> {
-    change_with_epoch(state, action, |result, _| Ok(result))
+    change_with_epoch(state, false, action, |result, _| Ok(result))
 }
 
 fn change_with_epoch<T, U>(
     state: &AppState,
+    focus_window: bool,
     action: impl FnOnce(&rusqlite::Connection) -> Result<T, String>,
     after: impl FnOnce(T, u64) -> Result<U, String>,
 ) -> Result<U, String> {
@@ -77,8 +78,12 @@ fn change_with_epoch<T, U>(
     let db = lock(&state.db)?;
     current_events(state, &db)?;
     let was_focused = storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?;
+    let was_running = crate::app::scene_events::focus_running(&db)?;
     let result = action(&db)?;
-    if !was_focused && storage::focus_active(&db, chrono::Utc::now().timestamp_millis())? {
+    let is_focused = storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?;
+    let is_running = crate::app::scene_events::focus_running(&db)?;
+    let owned_focus = crate::app::scene_events::focus_changed_locked(state, &db, was_running, is_running, focus_window)?;
+    if !was_focused && is_focused && !owned_focus {
         store::pause_conversations_for_focus(&db, chrono::Utc::now().timestamp_millis())?;
         let (epoch, _) = crate::app::interrupt_with_db(state, false, &db)?;
         state.widget_epoch.store(epoch, Ordering::SeqCst);
@@ -403,6 +408,7 @@ pub(crate) fn focus_transition(event: &WidgetEvent) -> bool {
 #[tauri::command]
 pub(crate) async fn execute_widget(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, Arc<AppState>>,
     request: WidgetRequest,
 ) -> Result<Option<String>, String> {
@@ -438,7 +444,8 @@ pub(crate) async fn execute_widget(
             Ok(None)
         });
     }
-    let (created_id, interaction_accepted) = change(&state, |db| {
+    let from_widget_window = window.label() == format!("widget-{}", request.instance_id);
+    let (created_id, interaction_accepted) = change_with_epoch(&state, from_widget_window, |db| {
         let timestamp = chrono::Utc::now().timestamp_millis();
         let focus_before = if request.action == "cancel"
             && lock(&state.widget_clocks)?
@@ -491,7 +498,7 @@ pub(crate) async fn execute_widget(
         }
         crate::characters::life::note_mood_input(&state)?;
         Ok((created_id, interaction_accepted))
-    })?;
+    }, |result, _| Ok(result))?;
     crate::widgets::memo_notes::schedule_sync(&app);
     // New state can invalidate an already playing reaction to this widget.
     if let Err(error) = cancel_widget_scene_for_interaction(
@@ -726,6 +733,8 @@ pub(crate) async fn open_widgets(app: tauri::AppHandle) -> Result<(), String> {
 pub(crate) fn close_widgets(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("settings") {
         window.hide().map_err(|error| error.to_string())?;
+        let state = app.state::<Arc<AppState>>();
+        crate::app::scene_events::closed_label(&state, "settings")?;
     }
     Ok(())
 }
@@ -736,6 +745,18 @@ pub(crate) async fn open_widget(
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
 ) -> Result<(), String> {
+    let interrupted = {
+        let _action = lock(&state.action)?;
+        if lock(&state.pack_stories)?.run.as_ref().is_some_and(|run| run.stage == crate::pack_stories::Stage::Chapter) {
+            let db = lock(&state.db)?;
+            Some(crate::app::interrupt_with_db(&state, false, &db)?.0)
+        } else {
+            None
+        }
+    };
+    if let Some(epoch) = interrupted {
+        crate::app::phase(&app, &state, epoch, crate::types::RuntimePhase::Idle, None, None);
+    }
     open_widget_inner(&app, &state, &id, None, None, None).await
 }
 
@@ -1031,6 +1052,7 @@ struct ConversationOpen<'a> {
     expected_revision: i64,
     epoch: u64,
     cancel: &'a AtomicBool,
+    story: Option<&'a crate::pack_stories::RunTicket>,
 }
 
 #[cfg(test)]
@@ -1045,6 +1067,7 @@ mod conversation_open_tests {
             expected_revision: 3,
             epoch: state.epoch.load(Ordering::SeqCst),
             cancel: &cancel,
+            story: None,
         };
         let mut instance = widgets::WidgetInstance {
             id: uuid::Uuid::new_v4().to_string(),
@@ -1079,7 +1102,7 @@ fn validate_conversation_open(
     let Some(guard) = guard else {
         return Ok(());
     };
-    if !matches!(
+    if guard.story.is_none() && !matches!(
         instance.kind.as_str(),
         "ball" | "paper-plane" | "interaction"
     ) {
@@ -1087,6 +1110,7 @@ fn validate_conversation_open(
     }
     if instance.revision != guard.expected_revision
         || !crate::app::is_current(state, guard.epoch, guard.cancel)
+        || guard.story.is_some_and(|run| !crate::app::scene_events::current(state, run).unwrap_or(false))
     {
         return Err("대화 또는 위젯 상태가 바뀌어 열지 않았어요.".into());
     }
@@ -1109,9 +1133,29 @@ pub(crate) async fn open_widget_for_conversation(
         expected_revision,
         epoch,
         cancel,
+        story: None,
     };
     open_widget_inner(app, managed.inner(), id, None, Some(&guard), None).await?;
     Ok(serde_json::json!({"opened":true,"widgetId":id,"revision":expected_revision}))
+}
+
+pub(crate) async fn open_widget_for_story(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    run: &crate::pack_stories::RunTicket,
+    cancel: &AtomicBool,
+    kind: &str,
+) -> Result<(), String> {
+    let instance = {
+        let _action = lock(&state.action)?;
+        if !crate::app::is_current(state, run.epoch, cancel) || !crate::app::scene_events::current(state, run)? {
+            return Ok(());
+        }
+        storage::instances(&*lock(&state.db)?)?.into_iter().find(|instance| instance.kind == kind).ok_or("위젯을 찾지 못했어요.")?
+    };
+    let guard = ConversationOpen { expected_revision: instance.revision, epoch: run.epoch, cancel, story: Some(run) };
+    let managed = app.state::<Arc<AppState>>();
+    open_widget_inner(app, managed.inner(), &instance.id, None, Some(&guard), None).await
 }
 
 fn validate_open_widget(
@@ -1177,6 +1221,24 @@ fn create_memo_for_open(
     })
 }
 
+fn open_memo_for_story(
+    state: &AppState,
+    id: &str,
+    guard: &ConversationOpen<'_>,
+    run: &crate::pack_stories::RunTicket,
+) -> Result<String, String> {
+    change(state, |db| {
+        let current = storage::get(db, id)?;
+        validate_conversation_open(state, &current, Some(guard))?;
+        if !crate::app::scene_events::available_locked(state, db, run)? {
+            return Err("이야기가 중단되었어요.".into());
+        }
+        let note = crate::widgets::memo_notes::open_story_note(db, id)?;
+        crate::app::scene_events::register_window_locked(state, run, "memo", format!("{id}:{note}"))?;
+        Ok(note)
+    })
+}
+
 fn planner_tab_for_widget(kind: &str) -> Option<&'static str> {
     match kind {
         "todo" => Some("todos"),
@@ -1200,6 +1262,9 @@ async fn open_widget_inner(
         let instance = storage::get(db, id)?;
         validate_open_widget(state, &instance, launcher)?;
         validate_conversation_open(state, &instance, conversation)?;
+        if let Some(run) = conversation.and_then(|guard| guard.story) {
+            if !crate::app::scene_events::available_locked(state, db, run)? { return Err("이야기가 중단되었어요.".into()); }
+        }
         let intent = if instance.kind == "music" {
             Some(begin_widget_open(state, id)?)
         } else {
@@ -1208,8 +1273,14 @@ async fn open_widget_inner(
         Ok((instance, intent))
     })?;
     if instance.kind == "memo" {
-        let snapshot = create_memo_for_open(state, id, launcher, playback)?;
-        crate::widgets::memo_notes::reveal_created_note(app, state, id, snapshot).await?;
+        if let Some(guard) = conversation.filter(|guard| guard.story.is_some()) {
+            let run = guard.story.expect("story guard");
+            let note = open_memo_for_story(state, id, guard, run)?;
+            crate::widgets::memo_notes::reveal_story_note(app, state, id, &note, run.clone()).await?;
+        } else {
+            let snapshot = create_memo_for_open(state, id, launcher, playback)?;
+            crate::widgets::memo_notes::reveal_created_note(app, state, id, snapshot).await?;
+        }
         return Ok(());
     }
     if instance.kind == "image" {
@@ -1242,24 +1313,30 @@ async fn open_widget_inner(
             let current = storage::get(db, id)?;
             validate_open_widget(state, &current, launcher)?;
             validate_conversation_open(state, &current, conversation)?;
+            if let Some(run) = conversation.and_then(|guard| guard.story) {
+                if !crate::app::scene_events::available_locked(state, db, run)? { return Err("이야기가 중단되었어요.".into()); }
+            }
             crate::desktop::toys::validate_launch(app, id, token)?;
             if let Some((_, session)) = launcher {
                 crate::app::launcher::accept_execution(state, session)?;
             }
-            crate::desktop::toys::open(
-                app,
-                &current.id,
-                &current.kind,
-                None,
-                current.revision,
-                false,
-                &geometry,
-            )?;
+            let actor_id = if let Some(run) = conversation.and_then(|guard| guard.story) {
+                crate::desktop::toys::open_for_story(app, &current.id, &current.kind, current.revision, &geometry, run.clone())?
+            } else {
+                crate::desktop::toys::open(app, &current.id, &current.kind, None, current.revision, false, &geometry)?
+            };
+            if let Some(run) = conversation.and_then(|guard| guard.story) {
+                crate::app::scene_events::register_window_locked(state, run, &current.kind, actor_id)?;
+            }
             Ok(())
         });
     }
     if crate::widgets::connection_host::spotify_widget(&instance) {
-        let _ = crate::widgets::connection_host::prepare_music_widget(app, state, id, true).await;
+        if let Some(run) = conversation.and_then(|guard| guard.story) {
+            let _ = crate::widgets::connection_host::prepare_music_widget_for_story(app, state, id, run).await;
+        } else {
+            let _ = crate::widgets::connection_host::prepare_music_widget(app, state, id, true).await;
+        }
     }
     // The widget may have been disabled or removed while the OS was launching Spotify.
     let _action = lock(&state.action)?;
@@ -1276,12 +1353,21 @@ async fn open_widget_inner(
         let current = storage::get(&db, id)?;
         validate_open_widget(state, &current, launcher)?;
         validate_conversation_open(state, &current, conversation)?;
+        if let Some(run) = conversation.and_then(|guard| guard.story) {
+            if !crate::app::scene_events::available_locked(state, &db, run)? { return Err("이야기가 중단되었어요.".into()); }
+        }
         current
     };
     if let Some((_, session)) = launcher {
         crate::app::launcher::accept_execution(state, session)?;
     }
+    if let Some(run) = conversation.and_then(|guard| guard.story) {
+        crate::app::scene_events::register_window_locked(state, run, &current.kind, current.id.clone())?;
+    }
     if let Some(tab) = planner_tab_for_widget(&current.kind) {
+        if let Some(run) = conversation.and_then(|guard| guard.story) {
+            return crate::widgets::planning::windows::open_for_story(app, tab, run.clone());
+        }
         return crate::widgets::planning::windows::open(app, tab);
     }
     let label = format!("widget-{id}");
@@ -1391,6 +1477,15 @@ pub(crate) async fn close_widget(
     cancel_widget_opens(&state, Some(&id))?;
     if let Some(window) = app.get_webview_window(&format!("widget-{id}")) {
         window.destroy().map_err(|error| error.to_string())?;
+        let kind = storage::get(&*lock(&state.db)?, &id)?.kind;
+        let story_window = match kind.as_str() {
+            "focus-timer" => Some(crate::pack_stories::StoryWindow::FocusTimer),
+            "music" => Some(crate::pack_stories::StoryWindow::Music),
+            _ => None,
+        };
+        if let Some(story_window) = story_window {
+            crate::app::scene_events::window_closed_locked(&state, story_window, &id)?;
+        }
     }
     crate::widgets::runtime::refresh(&app);
     Ok(())
@@ -1399,6 +1494,7 @@ pub(crate) async fn close_widget(
 pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
     let (changed, usage_changed) = change_with_epoch(
         state,
+        false,
         |db| {
             let timestamp = chrono::Utc::now().timestamp_millis();
             let usage_changed = advance_app_usage(state, db, timestamp)?;
@@ -1729,6 +1825,74 @@ fn fallback_reaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn story_open_reuses_latest_empty_memo_and_resumed_wait_accepts_its_save() {
+        for resumed in [false, true] {
+            let state = crate::app::tests::state();
+            let memo = storage::instances(&lock(&state.db).unwrap()).unwrap().into_iter().find(|item| item.kind == "memo").unwrap();
+            let data = json!({"notes":[
+                {"id":"1-a","title":"","body":"","updatedAt":50,"isOpen":false},
+                {"id":"2-b","title":"","body":"","updatedAt":30,"isOpen":false},
+                {"id":"3-c","title":"제목","body":"","updatedAt":40,"isOpen":false}
+            ]});
+            lock(&state.db).unwrap().execute("UPDATE widget_instances SET data=?1 WHERE id=?2", rusqlite::params![data.to_string(), memo.id]).unwrap();
+            let run = crate::pack_stories::RunTicket {
+                run_id: "run".into(), input_id: "input".into(),
+                scope: crate::pack_stories::Scope { user_id: "user".into(), pack_id: "pack".into(), center_id: "center".into() },
+                scenario_id: None, stage: crate::pack_stories::Stage::Chapter, chapter_id: Some("one".into()), step: 0,
+                phase_generation: 1, epoch: 0, participants: vec!["center".into()],
+                pack_baseline: String::new(), definition_baselines: Default::default(),
+                last_playback_id: String::new(), definition: None, ready: false,
+            };
+            lock(&state.pack_stories).unwrap().run = Some(run.clone());
+            if resumed {
+                crate::app::scene_events::mark_resumed_locked(&state, &run).unwrap();
+            } else {
+                assert!(crate::app::scene_events::begin_wait(&state, &run, &crate::pack_stories::StoryEvent::BodyClicked {}, &[]).unwrap());
+            }
+            let cancel = AtomicBool::new(false);
+            let guard = ConversationOpen { expected_revision: memo.revision, epoch: run.epoch, cancel: &cancel, story: Some(&run) };
+            let note = open_memo_for_story(&state, &memo.id, &guard, &run).unwrap();
+            assert_eq!(note, "1-a");
+            let current = storage::get(&lock(&state.db).unwrap(), &memo.id).unwrap();
+            let notes = current.data["notes"].as_array().unwrap();
+            assert_eq!(notes.len(), 3);
+            assert_eq!(notes[0]["isOpen"], true);
+            assert_eq!(notes[1]["isOpen"], false);
+            assert_eq!(notes[2]["title"], "제목");
+            let saved = crate::pack_stories::StoryEvent::WidgetSaved { widget: crate::pack_stories::SavedWidget::Memo };
+            assert!(crate::app::scene_events::begin_wait(&state, &run, &saved, &[]).unwrap());
+            change(&state, |db| {
+                storage::execute(db, &WidgetRequest {
+                    request_id: uuid::Uuid::new_v4().to_string(), instance_id: memo.id.clone(), expected_revision: current.revision,
+                    action: "update".into(), input: json!({"id":note,"body":"저장한 내용","expectedBody":""}),
+                }, chrono::Utc::now().timestamp_millis(), 1)?;
+                crate::app::scene_events::memo_saved_locked(&state, &memo.id, &note)
+            }).unwrap();
+            assert_eq!(crate::app::scene_events::take_event(&state, &run).unwrap(), Some(crate::app::scene_events::WaitResult::Matched));
+        }
+    }
+
+    #[test]
+    fn story_open_creates_a_note_when_all_notes_have_content() {
+        let state = crate::app::tests::state();
+        let memo = storage::instances(&lock(&state.db).unwrap()).unwrap().into_iter().find(|item| item.kind == "memo").unwrap();
+        let data = json!({"notes":[
+            {"id":"1-a","title":"제목","body":"","updatedAt":10,"isOpen":false},
+            {"id":"2-b","title":"","body":"본문","updatedAt":20,"isOpen":false}
+        ]});
+        let db = lock(&state.db).unwrap();
+        db.execute("UPDATE widget_instances SET data=?1 WHERE id=?2", rusqlite::params![data.to_string(), memo.id]).unwrap();
+        let note = crate::widgets::memo_notes::open_story_note(&db, &memo.id).unwrap();
+        let current = storage::get(&db, &memo.id).unwrap();
+        let notes = current.data["notes"].as_array().unwrap();
+        assert_eq!(notes.len(), 3);
+        assert_eq!(notes[0]["title"], "제목");
+        assert_eq!(notes[1]["body"], "본문");
+        assert_eq!(notes[2]["id"], note);
+        assert_eq!(notes[2]["isOpen"], true);
+    }
 
     #[test]
     fn rain_forecast_excludes_snow_clear_and_missing_codes() {

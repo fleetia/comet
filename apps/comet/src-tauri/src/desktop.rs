@@ -1486,6 +1486,44 @@ fn show_conversation_surface(window: &WebviewWindow, _raise: bool) -> Result<(),
     Ok(())
 }
 
+pub(crate) fn scene_surface_owns_focus(
+    state: &AppState,
+    panel: Option<&crate::types::PanelState>,
+    story: Option<&crate::story::Request>,
+    playback: Option<&crate::types::Playback>,
+) -> Result<bool, String> {
+    let runtime = crate::app::lock(&state.pack_stories)?;
+    let Some(run) = runtime.run.as_ref().filter(|run| {
+        run.stage == crate::pack_stories::Stage::Chapter
+            && run.epoch == state.epoch.load(Ordering::SeqCst)
+    }) else {
+        return Ok(false);
+    };
+    let belongs = if let Some(panel) = panel {
+        runtime.interaction.as_ref().is_some_and(|interaction| {
+            interaction.run_id == run.run_id
+                && interaction.epoch == run.epoch
+                && interaction.generation == run.phase_generation
+                && interaction.choices.is_none()
+                && interaction.persona == panel.persona
+                && panel.mode == "input"
+        })
+    } else if let Some(story) = story {
+        story.id == format!("scene-choice:{}:{}", run.run_id, run.phase_generation)
+    } else {
+        playback.is_some_and(|line| {
+            line.id.starts_with(&format!(
+                "scene-story:{}:{}:",
+                run.run_id, run.phase_generation
+            )) && matches!(line.source.as_str(), "tutorial" | "scenario")
+        })
+    };
+    if !belongs {
+        return Ok(false);
+    }
+    crate::app::scene_events::owned_focus(state, run)
+}
+
 fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, String> {
     let state = app.state::<Arc<AppState>>();
     // A worker may be waiting on this thread, so retry contended state without blocking the UI.
@@ -1531,6 +1569,12 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         || birthday_expired
         || stale_activity
         || (crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
+            && !scene_surface_owns_focus(
+                &state,
+                panel.as_ref(),
+                story.as_ref(),
+                playback.as_ref(),
+            )?
             && panel.as_ref().is_none_or(|panel| {
                 matches!(
                     panel.mode.as_str(),
@@ -1669,12 +1713,17 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
                     .map(|at| (line.id.clone(), at, line.source.clone()));
                 if line.source == "talk" {
                     crate::talk::host::mark_moment_recall_displayed(
-                        &state, &db, line.line_index, line.display_started_at.unwrap_or_default(),
+                        &state,
+                        &db,
+                        line.line_index,
+                        line.display_started_at.unwrap_or_default(),
                     )?;
                 }
                 if line.source == "talk" && line.line_index == 0 {
                     crate::talk::host::mark_birthday_displayed(
-                        &state, &db, line.display_started_at.unwrap_or_default(),
+                        &state,
+                        &db,
+                        line.display_started_at.unwrap_or_default(),
                     )?;
                     crate::talk::host::mark_anniversary_displayed(
                         &state,
@@ -2706,6 +2755,8 @@ mod tests {
             title: "제목".into(),
             prompt: "본문".into(),
             choices: vec![],
+            expression: None,
+            motion: None,
             character_id: id.clone(),
             epoch: 7,
             scene: crate::story::Scene {

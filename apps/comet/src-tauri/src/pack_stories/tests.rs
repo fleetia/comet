@@ -1403,3 +1403,103 @@ fn chapter_answers_expire_at_chapter_boundaries() {
     });
     assert!(validate_pack(&characters, &extras).is_err());
 }
+
+fn resume_fixture() -> (Connection, RunTicket) {
+    let (db, pack_id, center, _) = fixture();
+    store::set_user_name(&db, "사용자", 1000).unwrap();
+    let context = input(&db, &center, "이야기", 1);
+    let mut run = select(&db, &Runtime::default(), &context, "이야기")
+        .unwrap().unwrap().run;
+    let mut snapshot = characters::get_pack_story_definition(&db, &pack_id).unwrap();
+    let definition = &mut snapshot.definition.scenarios[0];
+    definition.intro.clear();
+    definition.accept.clear();
+    definition.decline.clear();
+    definition.ending.clear();
+    definition.accept_keywords.clear();
+    definition.decline_keywords.clear();
+    definition.proceed_keywords.clear();
+    definition.cancel_keywords.clear();
+    definition.completion = CompletionEffects::default();
+    definition.chapters = Some(serde_json::from_value(serde_json::json!([
+        {"id":"first", "title":"첫 장", "steps":[{"kind":"line", "persona":definition.center_id, "expression":"평온", "text":"첫 줄"}]},
+        {"id":"second", "title":"둘째 장", "steps":[{"kind":"line", "persona":definition.center_id, "expression":"평온", "text":"다음 줄"}]}
+    ])).unwrap());
+    let saved = characters::save_pack_story_definition_expected(&db, &pack_id, &snapshot.definition, &snapshot.baseline).unwrap();
+    run.definition = Some(saved.definition.scenarios[0].clone());
+    run.pack_baseline = saved.baseline;
+    (db, run)
+}
+
+#[test]
+fn chapter_tutorial_plan_uses_tutorial_source() {
+    let (db, run) = resume_fixture();
+    let mut snapshot = characters::get_pack_story_definition(&db, &run.scope.pack_id).unwrap();
+    snapshot.definition.scenarios[0].purpose = ScenarioPurpose::Tutorial;
+    characters::save_pack_story_definition_expected(
+        &db,
+        &run.scope.pack_id,
+        &snapshot.definition,
+        &snapshot.baseline,
+    )
+    .unwrap();
+
+    let context = input(&db, &run.scope.center_id, "이야기", 2);
+    let plan = select(&db, &Runtime::default(), &context, "이야기")
+        .unwrap()
+        .unwrap();
+    assert_eq!(plan.run.stage, Stage::Chapter);
+    assert_eq!(plan.source, "tutorial");
+    assert_eq!(plan.run.chapter_id.as_deref(), Some("first"));
+}
+
+#[test]
+fn resume_persists_chapter_and_falls_back_when_pack_removes_it() {
+    let (db, run) = resume_fixture();
+    resume::record_accepted(&db, &run).unwrap();
+    resume::save_chapter(&db, &run, "second", 100).unwrap();
+    let point = resume::load_for_scope(&db, &run.scope).unwrap().remove(0);
+    assert_eq!(resume::resolve(&db, &run.scope, &point).unwrap().unwrap().chapter_id, "second");
+
+    let mut snapshot = characters::get_pack_story_definition(&db, &run.scope.pack_id).unwrap();
+    snapshot.definition.scenarios[0].chapters.as_mut().unwrap().pop();
+    characters::save_pack_story_definition_expected(&db, &run.scope.pack_id, &snapshot.definition, &snapshot.baseline).unwrap();
+    let resolved = resume::resolve(&db, &run.scope, &point).unwrap().unwrap();
+    assert_eq!(resolved.chapter_id, "first");
+    assert_eq!(resolved.chapter_title, "첫 장");
+    assert_ne!(characters::get_pack_story_definition(&db, &run.scope.pack_id).unwrap().baseline, point.pack_baseline);
+    assert!(resume::save_chapter(&db, &run, "first", 200).is_err());
+}
+
+#[test]
+fn resume_decline_deletes_only_the_offered_point_and_rolls_back_on_error() {
+    let (db, run) = resume_fixture();
+    resume::record_accepted(&db, &run).unwrap();
+    resume::save_chapter(&db, &run, "first", 100).unwrap();
+    let stale = resume::load_for_scope(&db, &run.scope).unwrap().remove(0);
+    resume::save_chapter(&db, &run, "second", 200).unwrap();
+    assert!(!resume::decline(&db, &run.scope, &stale).unwrap());
+    let current = resume::load_for_scope(&db, &run.scope).unwrap().remove(0);
+    db.execute_batch("CREATE TRIGGER fail_resume_decline BEFORE INSERT ON pack_story_outcomes WHEN NEW.kind='declined' BEGIN SELECT RAISE(ABORT, 'failed'); END;").unwrap();
+    assert!(resume::decline(&db, &run.scope, &current).is_err());
+    assert_eq!(resume::load_for_scope(&db, &run.scope).unwrap(), vec![current.clone()]);
+    db.execute_batch("DROP TRIGGER fail_resume_decline").unwrap();
+    assert!(resume::decline(&db, &run.scope, &current).unwrap());
+    assert!(resume::load_for_scope(&db, &run.scope).unwrap().is_empty());
+    let (count, run_id): (i64, String) = db.query_row("SELECT COUNT(*),run_id FROM pack_story_outcomes WHERE kind='declined'", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+    assert_eq!(count, 1);
+    assert_ne!(run_id, run.run_id);
+}
+
+#[test]
+fn resume_removes_point_if_scenario_purpose_changes() {
+    let (db, run) = resume_fixture();
+    resume::record_accepted(&db, &run).unwrap();
+    resume::save_chapter(&db, &run, "first", 100).unwrap();
+    let point = resume::load_for_scope(&db, &run.scope).unwrap().remove(0);
+    let mut snapshot = characters::get_pack_story_definition(&db, &run.scope.pack_id).unwrap();
+    snapshot.definition.scenarios[0].purpose = ScenarioPurpose::Tutorial;
+    characters::save_pack_story_definition_expected(&db, &run.scope.pack_id, &snapshot.definition, &snapshot.baseline).unwrap();
+    assert!(resume::resolve(&db, &run.scope, &point).unwrap().is_none());
+    assert!(resume::load_for_scope(&db, &run.scope).unwrap().is_empty());
+}

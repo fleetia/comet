@@ -311,7 +311,8 @@ pub fn insert_moment(
         Some(reference) => format!("moment:{event}:{date}:{reference}"),
         None => format!("moment:{event}:{date}"),
     };
-    let source_text = serde_json::json!({"event":event,"at":at,"summary":summary,"refs":refs}).to_string();
+    let source_text =
+        serde_json::json!({"event":event,"at":at,"summary":summary,"refs":refs}).to_string();
     let day_pattern = format!("moment:%:{date}");
     let day_ref_pattern = format!("moment:%:{date}:%");
     let memory_id = uuid::Uuid::new_v4().to_string();
@@ -349,7 +350,8 @@ pub fn insert_moment(
             Ok(inserted)
         }
         Err(error) => {
-            conn.execute_batch("ROLLBACK TO insert_moment; RELEASE insert_moment").map_err(err)?;
+            conn.execute_batch("ROLLBACK TO insert_moment; RELEASE insert_moment")
+                .map_err(err)?;
             Err(error)
         }
     }
@@ -436,7 +438,7 @@ fn field<'a>(v: &'a Value, key: &str) -> &'a str {
 fn evidence(conn: &Connection, item: &Value) -> Result<Option<Message>> {
     let raw: Option<String> = conn
         .query_row(
-            "SELECT data FROM messages WHERE id=? AND role='user'",
+            "SELECT m.data FROM messages m JOIN message_context c ON c.message_id=m.id WHERE m.id=? AND m.role='user' AND c.source!='tutorial'",
             [field(item, "sourceMessageId")],
             |r| r.get(0),
         )
