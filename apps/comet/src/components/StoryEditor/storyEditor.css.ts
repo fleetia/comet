@@ -22,13 +22,28 @@ globalStyle(`.${header} .${windowHeader.title}`, {
   alignItems: "center",
   flex: "0 0 auto",
 });
+globalStyle(`.${header} .${windowHeader.actions}`, {
+  flex: 1,
+  minWidth: 0,
+});
 export const windowTitle = style({
   color: tokens["color/ink"],
   fontSize: 13,
   whiteSpace: "nowrap",
 });
-export const selectors = style({ display: "flex", alignItems: "center", gap: 8 });
+export const selectors = style({ display: "flex", alignItems: "center", gap: 8, width: "100%" });
 globalStyle(`.${selectors} select`, { maxWidth: 200 });
+export const saveActions = style({
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  marginLeft: "auto",
+  flexShrink: 0,
+  whiteSpace: "nowrap",
+});
+export const workspace = style({ position: "relative", flex: 1, minHeight: 0, display: "flex" });
+export const panelOpen = style({});
+globalStyle(`.${panelOpen} > div:last-child`, { right: 416 });
 export const canvas = style({ position: "relative", flex: 1, minHeight: 0 });
 export const state = style({
   display: "flex",
@@ -39,7 +54,18 @@ export const state = style({
   height: "100%",
   color: tokens["color/ink-3"],
 });
-export const toolbar = style({ position: "absolute", zIndex: 5, top: 16, left: 16 });
+export const toolbar = style({
+  position: "absolute",
+  zIndex: 5,
+  top: 16,
+  left: 16,
+  display: "flex",
+  gap: 6,
+  borderRadius: 10,
+  padding: 4,
+  background: tokens["color/card"],
+  border: `1px solid ${tokens["color/card-border"]}`,
+});
 export const zoom = style({
   position: "absolute",
   zIndex: 5,
@@ -147,3 +173,5 @@ globalStyle(`.${canvas} .react-flow__minimap`, {
   background: tokens["color/card"],
   border: `1px solid ${tokens["color/card-border"]}`,
 });
+
+globalStyle(`.${canvas}.${panelOpen} .react-flow__minimap`, { right: 416 });

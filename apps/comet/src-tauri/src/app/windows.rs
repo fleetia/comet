@@ -31,6 +31,7 @@ pub(crate) enum SettingsSection {
 pub(crate) struct StoryEditorTarget {
     pack_id: String,
     scenario_id: String,
+    create_new: bool,
 }
 
 #[tauri::command]
@@ -45,12 +46,14 @@ pub(crate) fn open_story_editor(
     app: tauri::AppHandle,
     pack_id: String,
     scenario_id: String,
+    create_new: Option<bool>,
 ) -> Result<(), String> {
     let state = app.state::<Arc<AppState>>();
     let mut current = lock(&state.story_editor_target)?;
     let target = StoryEditorTarget {
         pack_id,
         scenario_id,
+        create_new: create_new.unwrap_or(false),
     };
     *current = Some(target.clone());
     if let Some(window) = app.get_webview_window("story-editor") {

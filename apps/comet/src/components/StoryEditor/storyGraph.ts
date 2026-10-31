@@ -1,4 +1,23 @@
-import type { ScenarioDefinition, SceneLine } from "../../types";
+import type { ScenarioChapter, ScenarioDefinition, SceneLine } from "../../types";
+
+export function normalizeStoryChapters(
+  chapters: ScenarioChapter[],
+  startId = chapters[0]?.id,
+): ScenarioChapter[] {
+  const normalized = chapters.map((chapter, index) => ({
+    ...chapter,
+    next: chapter.next ?? chapters[index + 1]?.id ?? "end",
+  }));
+  const startIndex = normalized.findIndex((chapter) => chapter.id === startId);
+  if (startIndex <= 0) {
+    return normalized;
+  }
+  return [
+    normalized[startIndex],
+    ...normalized.slice(0, startIndex),
+    ...normalized.slice(startIndex + 1),
+  ];
+}
 
 export type StoryGraphNode = {
   id: string;
@@ -8,15 +27,17 @@ export type StoryGraphNode = {
   isStart?: boolean;
   hasWait?: boolean;
   storyId?: string;
+  localExits?: StoryGraphExit[];
 };
 
-export type StoryGraphEdge = {
+export type StoryGraphExit = {
   id: string;
   source: string;
-  target: string;
   kind: "next" | "choice" | "timeout";
   label: string;
 };
+
+export type StoryGraphEdge = StoryGraphExit & { target: string };
 
 export type StoryGraph = {
   nodes: StoryGraphNode[];
@@ -74,9 +95,18 @@ export function buildStoryGraph(
         }
       };
       let canContinue = true;
-      for (const step of chapter.steps) {
+      const localExits: StoryGraphExit[] = [];
+      for (const [stepIndex, step] of chapter.steps.entries()) {
         if (step.kind === "choice") {
-          for (const option of step.options) {
+          for (const [optionIndex, option] of step.options.entries()) {
+            if (option.goto === "next") {
+              localExits.push({
+                id: `local:${chapter.id}:${stepIndex}:${optionIndex}`,
+                source,
+                kind: "choice",
+                label: `${option.label || "선택지"} · 다음 단계`,
+              });
+            }
             connect(option.goto, "choice", option.label);
           }
           if (!step.options.some((option) => option.goto === "next")) {
@@ -89,6 +119,10 @@ export function buildStoryGraph(
       }
       if (canContinue) {
         connect(next, "next", "다음 장");
+      }
+      const node = nodes[index];
+      if (localExits.length > 0) {
+        node.localExits = localExits;
       }
     }
     return { nodes, edges, startId: chapters[0] && chapterId(chapters[0].id) };
@@ -198,7 +232,11 @@ export function layoutStoryGraph(graph: StoryGraph): Record<string, { x: number;
       const depth = depths.get(id) ?? 0;
       const y = rows.get(depth) ?? 0;
       positions[id] = { x: depth * 320, y };
-      const height = nodes.get(id)?.kind === "end" ? 40 : 100 + (exits.get(id)?.length ?? 0) * 24;
+      const node = nodes.get(id);
+      const height =
+        node?.kind === "end"
+          ? 40
+          : 100 + ((exits.get(id)?.length ?? 0) + (node?.localExits?.length ?? 0)) * 24;
       rows.set(depth, y + height + 56);
     }
   }
