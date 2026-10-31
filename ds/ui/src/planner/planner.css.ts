@@ -751,7 +751,7 @@ export const focusPanel = style([
     borderRadius: 24,
     background: `radial-gradient(ellipse at 0% 120%, ${tokens["color/document/backdrop-panel/sky-glow-violet"]}, transparent 62%), radial-gradient(ellipse at 100% -20%, ${tokens["color/document/backdrop-panel/sky-glow-blue"]}, transparent 60%), ${tokens["color/document/backdrop-panel/sky"]}`,
     borderColor: tokens["color/glass-border"],
-    boxShadow: `0 22px 48px ${tokens["color/surface-shadow"]}`,
+    boxShadow: `0 4px 12px -2px ${tokens["color/surface-shadow"]}`,
     backdropFilter: "blur(12px)",
   },
 ]);

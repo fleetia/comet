@@ -212,10 +212,10 @@ export function deriveSkin(
     "document-highlight": [c.balloon, 0.65],
     "surface-highlight": [c.balloon, 0.7],
     "window-highlight": [c.balloon, 0.8],
-    "surface-shadow": [c.shadow, 0.22],
-    "pill-shadow": [c.shadow, 0.18],
-    "window-shadow": [c.shadow, 0.32],
-    "document-shadow": [c.shadow, 0.12],
+    "surface-shadow": [c.shadow, 0.11],
+    "pill-shadow": [c.shadow, 0.09],
+    "window-shadow": [c.shadow, 0.16],
+    "document-shadow": [c.shadow, 0.06],
   };
   // Remaining tokens that reuse a base role color keep their own alpha with the skin color.
   const remap = new Map<string, Rgb>();

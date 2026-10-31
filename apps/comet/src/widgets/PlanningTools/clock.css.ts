@@ -92,7 +92,7 @@ export const form = style({
   outline: `1px solid ${tokens["color/card-border"]}`,
   outlineOffset: -1,
   border: 0,
-  boxShadow: `0 14px 34px ${tokens["color/component/surface-shadow-alpha-400"]}, 0 0 0 4px ${tokens["color/document-accent-soft-10"]}`,
+  boxShadow: `0 4px 12px -2px ${tokens["color/component/surface-shadow-alpha-400"]}, 0 0 0 4px ${tokens["color/document-accent-soft-10"]}`,
   margin: "0 10px 10px",
   minWidth: 0,
   minHeight: 217,

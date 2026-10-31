@@ -15,7 +15,7 @@ export const dialog = style({
   border: `1px solid ${tokens["color/glass-border"]}`,
   background: tokens["color/glass-panel"],
   backdropFilter: "blur(24px)",
-  boxShadow: `inset 0 1px 0 ${tokens["color/surface-highlight"]}, 0 22px 48px ${tokens["color/surface-shadow"]}`,
+  boxShadow: `inset 0 1px 0 ${tokens["color/surface-highlight"]}, 0 4px 12px -2px ${tokens["color/surface-shadow"]}`,
   selectors: {
     "&:not([open])": { display: "none" },
     "&::backdrop": { background: tokens["color/scrim"] },

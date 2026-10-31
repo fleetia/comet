@@ -23,6 +23,8 @@ describe("skin derivation", () => {
     expect(values["color/ink"]).toBe("rgb(43 38 32)");
     expect(values["color/primary"]).toBe("rgb(180 67 43)");
     expect(values["color/glass-border"]).toBe("rgb(226 214 193)");
+    expect(values["color/surface-shadow"]).toBe("rgb(80 58 24 / 0.11)");
+    expect(values["color/component/surface-shadow-alpha-160"]).toBe("rgb(80 58 24 / 0.08)");
     expect(values["color/component/primary-alpha-300"]).toBe("rgb(180 67 43 / 0.3)");
     expect(values["color/list-blue"]).toBe(themes.light["color/list-blue"]);
     expect(Object.keys(values).every((path) => path.startsWith("color/"))).toBe(true);

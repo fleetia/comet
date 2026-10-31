@@ -256,7 +256,7 @@ export const segmentKinds = styleVariants({
     fontSize: 12.5,
     background: tokens["color/component/nav-badge"],
     color: tokens["color/component/calendar-block-ink"],
-    boxShadow: "0 2px 4px rgba(32,44,96,0.16)",
+    boxShadow: "0 2px 4px rgba(32,44,96,0.08)",
   },
 });
 

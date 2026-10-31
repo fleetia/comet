@@ -288,7 +288,7 @@ export const WidgetPreview: Story = {
           border: "1px solid var(--comet-color-glass-border-soft)",
           fontSize: 11.5,
           fontWeight: 400,
-          boxShadow: "0 14px 17px rgba(0,0,0,.28),inset 0 1px rgba(255,255,255,.09)",
+          boxShadow: "0 4px 12px -2px rgba(0,0,0,.14),inset 0 1px rgba(255,255,255,.09)",
         }}
       >
         <Icon name="todo" size={13} />3 / 5

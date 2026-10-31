@@ -162,7 +162,7 @@ export const inlineConfirm = style({
   borderRadius: 16,
   background: tokens["color/glass-panel"],
   border: `1px solid ${tokens["color/glass-border"]}`,
-  boxShadow: `0 10px 30px ${tokens["color/surface-shadow"]}`,
+  boxShadow: `0 4px 12px -2px ${tokens["color/surface-shadow"]}`,
 });
 export const confirmActions = style({
   display: "flex",

@@ -194,7 +194,7 @@ export const choice = style([
     borderRadius: 18,
     background: tokens["color/glass-pill"],
     backdropFilter: "blur(8px)",
-    boxShadow: `0 8px 20px ${tokens["color/component/surface-shadow-alpha-240"]}`,
+    boxShadow: `0 2px 8px -1px ${tokens["color/component/surface-shadow-alpha-240"]}`,
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
     maxWidth: "100%",
