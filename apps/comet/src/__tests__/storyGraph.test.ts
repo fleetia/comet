@@ -3,6 +3,7 @@ import type { ScenarioChapter, ScenarioDefinition } from "../types";
 import {
   buildStoryGraph,
   layoutStoryGraph,
+  normalizeStoryChapters,
   type StoryGraph,
 } from "../components/StoryEditor/storyGraph";
 
@@ -32,6 +33,71 @@ function chapter(id: string, next?: string): ScenarioChapter {
 function links(graph: StoryGraph): string[] {
   return graph.edges.map((edge) => `${edge.source}>${edge.target}:${edge.kind}`);
 }
+
+describe("normalizeStoryChapters", () => {
+  it("모든 분기와 시간 초과 경로를 유지하며 시작 장을 맨 앞으로 옮긴다", () => {
+    const a = chapter("a");
+    a.steps.push({
+      kind: "choice",
+      persona: "actor",
+      expression: "평온",
+      prompt: "?",
+      options: [
+        { id: "one", label: "계속", goto: "next" },
+        { id: "two", label: "마지막", goto: "c" },
+        { id: "three", label: "끝", goto: "end" },
+      ],
+    });
+    const b = chapter("b");
+    b.steps.push({
+      kind: "wait",
+      event: "body.clicked",
+      timeoutSec: 10,
+      onTimeout: { steps: [], then: "nextChapter" },
+    });
+    const original = [a, b, chapter("c", "end"), chapter("d")];
+    const normalized = normalizeStoryChapters(original, "b");
+
+    expect(normalized.map(({ id, next }) => [id, next])).toEqual([
+      ["b", "c"],
+      ["a", "b"],
+      ["c", "end"],
+      ["d", "end"],
+    ]);
+    expect(original[0].next).toBeUndefined();
+
+    function paths(chapters: ScenarioChapter[], start: string): string[] {
+      const graph = buildStoryGraph(scenario(chapters), []);
+      function visit(id: string, seen: Set<string>): string[] {
+        if (id.startsWith("end:")) {
+          return ["end"];
+        }
+        if (seen.has(id)) {
+          return [`${id}:cycle`];
+        }
+        const nextSeen = new Set(seen).add(id);
+        const outgoing = graph.edges.filter((edge) => edge.source === id);
+        return outgoing.flatMap((edge) =>
+          visit(edge.target, nextSeen).map((path) => `${id}:${edge.kind}>${path}`),
+        );
+      }
+      return visit(`chapter:${start}`, new Set()).sort();
+    }
+    for (const { id } of original) {
+      expect(paths(normalized, id)).toEqual(paths(original, id));
+    }
+    expect(paths(original, "a")).toHaveLength(4);
+  });
+
+  it("명시된 종료와 생략된 마지막 장을 구분하고 저장 후 다시 불러와도 유지한다", () => {
+    const original = [chapter("a", "end"), chapter("b"), chapter("c")];
+    const saved = normalizeStoryChapters(original);
+    expect(saved.map(({ next }) => next)).toEqual(["end", "c", "end"]);
+    const loaded: ScenarioChapter[] = JSON.parse(JSON.stringify(saved));
+    expect(normalizeStoryChapters(loaded)).toEqual(saved);
+    expect(normalizeStoryChapters([])).toEqual([]);
+  });
+});
 
 describe("buildStoryGraph", () => {
   it("생략한 다음 장을 저장 순서로 연결하고 마지막은 끝으로 연결한다", () => {
@@ -94,6 +160,44 @@ describe("buildStoryGraph", () => {
       },
     );
     expect(buildStoryGraph(scenario([a]), []).edges).toEqual([]);
+  });
+
+  it("다음 단계 선택지는 선 없이 각 출구에 표시하고 이후 실행되지 않는 단계는 제외한다", () => {
+    const a = chapter("a");
+    a.steps.push(
+      {
+        kind: "choice",
+        persona: "actor",
+        expression: "평온",
+        prompt: "?",
+        options: [
+          { id: "one", label: "계속", goto: "next" },
+          { id: "two", label: "", goto: "next" },
+          { id: "three", label: "끝", goto: "end" },
+        ],
+      },
+      {
+        kind: "choice",
+        persona: "actor",
+        expression: "평온",
+        prompt: "?",
+        options: [{ id: "four", label: "마침", goto: "end" }],
+      },
+      {
+        kind: "choice",
+        persona: "actor",
+        expression: "평온",
+        prompt: "?",
+        options: [{ id: "five", label: "닿지 않음", goto: "next" }],
+      },
+    );
+    const graph = buildStoryGraph(scenario([a]), []);
+    expect(graph.nodes[0].localExits).toMatchObject([
+      { kind: "choice", label: "계속 · 다음 단계" },
+      { kind: "choice", label: "선택지 · 다음 단계" },
+    ]);
+    expect(graph.edges).toHaveLength(2);
+    expect(graph.edges.every((edge) => edge.target.startsWith("end:"))).toBe(true);
   });
 
   it("모든 선택지가 장을 벗어나면 뒤 단계와 기본 다음 장은 실행되지 않는다", () => {
@@ -220,13 +324,24 @@ describe("layoutStoryGraph", () => {
     expect(new Set(Object.values(positions).map(({ x, y }) => `${x}:${y}`)).size).toBe(4);
   });
   it("이어지는 곳이 많은 장 아래에 다른 장을 겹치지 않게 놓는다", () => {
-    const pairs: [string, string][] = [["a", "b"], ["a", "c"]];
+    const pairs: [string, string][] = [
+      ["a", "b"],
+      ["a", "c"],
+    ];
     for (let index = 0; index < 10; index += 1) {
       pairs.push(["b", `end${index}`]);
     }
     const ids = ["a", "b", "c", ...Array.from({ length: 10 }, (_, index) => `end${index}`)];
     const positions = layoutStoryGraph(graph(ids, pairs));
     expect(positions.c.y - positions.b.y).toBeGreaterThanOrEqual(90 + 10 * 20 + 40);
+  });
+  it("장 안에서 이어지는 선택지의 높이도 배치에 반영한다", () => {
+    const value = graph(["a", "b", "c"], [["a", "b"], ["a", "c"]]);
+    value.nodes[1].localExits = Array.from({ length: 10 }, (_, index) => ({
+      id: String(index), source: "b", kind: "choice", label: "다음 단계",
+    }));
+    const positions = layoutStoryGraph(value);
+    expect(positions.c.y - positions.b.y).toBeGreaterThanOrEqual(100 + 10 * 24);
   });
   it("99장 모두 배치한다", () => {
     const ids = Array.from({ length: 99 }, (_, index) => String(index));

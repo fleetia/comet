@@ -138,7 +138,20 @@ it("opens the selected saved story in the story editor", async () => {
 it("requires a saved character to open the story editor", () => {
   render(<PackStoryEditor packId={null} visible installed={installed} drafts={{}} onDraftsChange={() => {}} onPendingChange={() => {}} characterDirty={false} />);
   expect(screen.getByRole<HTMLButtonElement>("button", { name: "장면 편집기 열기" }).disabled).toBe(true);
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "이야기 만들기" }).disabled).toBe(true);
   expect(screen.getByText(/캐릭터를 저장한 뒤/)).toBeTruthy();
+});
+
+it("requests a new story without saving an incomplete definition", async () => {
+  render(<Harness packId="a" />);
+  await screen.findByLabelText("이야기 제목");
+  fireEvent.click(screen.getByRole("button", { name: "이야기 만들기" }));
+  expect(command).toHaveBeenCalledWith("open_story_editor", {
+    packId: "a",
+    scenarioId: expect.any(String),
+    createNew: true,
+  });
+  expect(command).not.toHaveBeenCalledWith("save_pack_story_definition", expect.anything());
 });
 
 it("confirms switching formats and saves edited scene chapters", async () => {
