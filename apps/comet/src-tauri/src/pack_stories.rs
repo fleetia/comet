@@ -750,8 +750,12 @@ fn validate_chapters(
                     if !story_text(prompt, 500) || !(2..=4).contains(&options.len()) {
                         return Err("선택지와 질문을 확인해 주세요.".into());
                     }
+                    let mut option_ids = BTreeSet::new();
                     for option in options {
-                        if !id(&option.id) || !story_text(&option.label, 20) {
+                        if !id(&option.id)
+                            || !option_ids.insert(&option.id)
+                            || !story_text(&option.label, 20)
+                        {
                             return Err("선택지 ID·표시 문구를 확인해 주세요.".into());
                         }
                         target(&option.goto, &["next", "end"])?;
