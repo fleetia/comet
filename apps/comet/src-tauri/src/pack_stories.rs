@@ -710,8 +710,8 @@ fn validate_chapters(
     sources: &BTreeMap<&str, &CharacterDefinition>,
 ) -> Result<()> {
     let chapters = scene.chapters.as_ref().ok_or("장면을 확인해 주세요.")?;
-    if !(1..=12).contains(&chapters.len()) {
-        return Err("장은 1~12개여야 해요.".into());
+    if !(1..=99).contains(&chapters.len()) {
+        return Err("장은 1~99개여야 해요.".into());
     }
     let mut chapter_ids = BTreeMap::new();
     for (index, chapter) in chapters.iter().enumerate() {
