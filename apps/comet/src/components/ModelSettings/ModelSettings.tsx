@@ -20,6 +20,7 @@ import {
   getAiProviders,
   getAiProviderLabel,
   getApiProfile,
+  getAiRecommendationNote,
   getRecommendedAiProvider,
 } from "../../aiProviders";
 import type { SettingsDraft } from "../../hooks/useSettingsDraft";
@@ -88,6 +89,7 @@ export function ModelSettings({
   const provider = getAiProvider(settings);
   const providerLabel = getAiProviderLabel(settings);
   const recommendedProvider = getRecommendedAiProvider(snapshot.device.platform);
+  const recommendationNote = getAiRecommendationNote(snapshot.device.platform);
   const customApi = settings.apiProvider === "custom";
   const savedProfile = getApiProfile(snapshot.settings, settings.apiProvider);
   const hasSavedApiKey =
@@ -119,14 +121,7 @@ export function ModelSettings({
           </option>
         ))}
       </Select>
-      {recommendedProvider && (
-        <p className={figma.caption}>
-          {snapshot.device.platform === "macos"
-            ? "macOS에서는 Apple 온디바이스 AI를"
-            : "Windows에서는 ChatGPT를"}{" "}
-          먼저 추천해요. 저장한 선택은 유지해요.
-        </p>
-      )}
+      {recommendationNote && <p className={figma.caption}>{recommendationNote}</p>}
       <div className={figma.note}>
         <SparkleIcon size={13} />
         <p className={figma.caption}>AI가 없어도 인사, 단어장, 대화팩 대사는 그대로 동작해요.</p>
