@@ -1,5 +1,16 @@
 # @comet/storybook
 
+## 0.1.14
+
+### Patch Changes
+
+- fbd779d: 앱 전체의 창·팝업·알림·위젯 그림자를 작고 옅게 조정했습니다. 모든 테마와 사용자 스킨에 반영하고 Storybook에서 표면별 그림자와 실제 교감 창 크기를 비교할 수 있습니다.
+- a235c67: 창·패널·카드·말풍선·위젯 표면의 모서리를 최대 9px로 통일했습니다. 토글·탭·버튼·입력과 원형 표시는 기존 모양을 유지하며, 모아두기에 저장된 큰 모서리 값은 데이터를 보존한 채 화면에서 9px로 제한합니다.
+- Updated dependencies [fbd779d]
+- Updated dependencies [a235c67]
+  - @comet/token@0.3.2
+  - @comet/ui@0.9.3
+
 ## 0.1.13
 
 ### Patch Changes
