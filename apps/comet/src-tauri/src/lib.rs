@@ -13,6 +13,7 @@ mod domain;
 mod exbrain;
 mod external_api;
 mod external_notice;
+mod guide;
 mod inference;
 mod legacy_names;
 mod memory_commands;

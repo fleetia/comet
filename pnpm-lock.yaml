@@ -127,6 +127,12 @@ importers:
         specifier: ^5.0.0
         version: 5.0.0(@types/node@26.5.1)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(yaml@2.9.1))
 
+  apps/guide:
+    dependencies:
+      marked:
+        specifier: ^18.1.2
+        version: 18.1.2
+
   ds/icon:
     dependencies:
       react:
@@ -2143,6 +2149,11 @@ packages:
 
   magic-string@1.4.0:
     resolution: {integrity: sha512-8NqNnId7mC856G90HQHexzPTiojQFptw2gdl5XACcONjZIqC3RZGMCKktwA+WUtoOrr17VpUfCuBISIQhVebXg==}
+
+  marked@18.1.2:
+    resolution: {integrity: sha512-DfOnvLAQ6WYeWxWO1u4RyFOeqyHup6dks5PPqnoFiooU7ipRvidO/2j8plhAHIiZg574E9ZlzSjUiPMLAzFkgg==}
+    engines: {node: '>= 20'}
+    hasBin: true
 
   mdn-data@2.27.1:
     resolution: {integrity: sha512-9Yubnt3e8A0OKwxYSXyhLymGW4sCufcLG6VdiDdUGVkPhpqLxlvP5vl1983gQjJl3tqbrM731mjaZaP68AgosQ==}
@@ -4276,6 +4287,8 @@ snapshots:
   magic-string@1.4.0:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
+
+  marked@18.1.2: {}
 
   mdn-data@2.27.1: {}
 
