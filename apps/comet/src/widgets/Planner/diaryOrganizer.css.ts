@@ -23,7 +23,7 @@ export const layout = style({
 });
 const card = style({
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-22"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card-2"],
   minWidth: 0,
 });

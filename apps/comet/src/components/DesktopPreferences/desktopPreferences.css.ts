@@ -26,7 +26,7 @@ export const toyPreview = style({
   justifyContent: "center",
   gap: 14,
   minHeight: 120,
-  borderRadius: 18,
+  borderRadius: 9,
   background: tokens["color/card"],
 });
 export const saveBar = style({

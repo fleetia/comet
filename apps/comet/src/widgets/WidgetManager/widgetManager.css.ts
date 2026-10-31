@@ -71,7 +71,7 @@ export const detailHeader = style({
   gap: tokens["spacing/space-16"],
   minHeight: 80,
   padding: "16px 20px",
-  borderRadius: tokens["radius/radius-16"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card"],
   border: `1px solid ${tokens["color/card-border"]}`,
   "@media": {
@@ -166,7 +166,7 @@ export const genericPanel = style({
   overflowY: "auto",
   overscrollBehavior: "contain",
   padding: tokens["spacing/space-16"],
-  borderRadius: tokens["radius/radius-16"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card"],
   border: `1px solid ${tokens["color/card-border"]}`,
 });
@@ -183,7 +183,7 @@ export const runtimeMessages = style({
   display: "grid",
   gap: tokens["spacing/space-8"],
   padding: tokens["spacing/space-16"],
-  borderRadius: tokens["radius/radius-14"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/component/cat-rest-alpha-80"],
 });
 export const runtimeError = style({ display: "flex", alignItems: "center", gap: tokens["spacing/space-12"] });
@@ -227,7 +227,7 @@ export const directorySectionTitle = style({
 });
 export const experimentRows = style({
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 18,
+  borderRadius: 9,
   background: tokens["color/card"],
   overflow: "hidden",
 });

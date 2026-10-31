@@ -42,7 +42,7 @@ export const error = style({
   marginTop: tokens["spacing/space-8"],
   lineHeight: "1.462",
   overflowWrap: "anywhere",
-  borderRadius: tokens["radius/radius-10"],
+  borderRadius: tokens["radius/radius-9"],
   border: `1px solid ${tokens["color/component/danger-alpha-100"]}`,
 });
 export const success = style({
@@ -102,7 +102,7 @@ export const memory = style({
   padding: tokens["spacing/space-12"],
   marginBlock: tokens["spacing/space-6"],
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-12"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card"],
 });
 export const progress = style({

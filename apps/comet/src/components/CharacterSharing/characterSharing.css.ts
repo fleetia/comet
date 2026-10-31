@@ -16,7 +16,7 @@ export const previewCard = style({
   padding: "18px 20px 20px",
   alignSelf: "start",
   border: `1px solid ${tokens["color/chip-border"]}`,
-  borderRadius: 24,
+  borderRadius: 9,
   background: `radial-gradient(ellipse at top, ${tokens["color/icon-tile"]}, transparent 70%), ${tokens["color/card-2"]}`,
 });
 export const title = style({
@@ -43,7 +43,7 @@ export const character = style({
   gap: 14,
   padding: "24px 14px",
   border: `1px dashed ${tokens["color/card-border"]}`,
-  borderRadius: 18,
+  borderRadius: 9,
   background: tokens["color/input"],
 });
 export const portrait = style({
@@ -79,7 +79,7 @@ export const sectionTitle = style({
 export const contents = style({
   overflow: "hidden",
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 18,
+  borderRadius: 9,
   background: tokens["color/card"],
 });
 export const contentRow = style({
@@ -107,7 +107,7 @@ export const icon = style({
 export const instructions = style({
   border: `1px solid ${tokens["color/input-border"]}`,
   background: tokens["color/input"],
-  borderRadius: 12,
+  borderRadius: 9,
   padding: "10px 12px",
   fontSize: 13,
   lineHeight: "19px",

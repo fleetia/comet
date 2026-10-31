@@ -26,7 +26,7 @@ export const previewSurface = style({
   minWidth: 0,
   height: 232,
   padding: tokens["spacing/space-16"],
-  borderRadius: tokens["radius/radius-12"],
+  borderRadius: tokens["radius/radius-9"],
 });
 export const preview = style({
   height: 152,
@@ -36,7 +36,7 @@ export const preview = style({
   backgroundRepeat: "no-repeat",
   backgroundSize: "cover",
   border: 0,
-  borderRadius: tokens["radius/radius-12"],
+  borderRadius: tokens["radius/radius-9"],
   overflow: "hidden",
 });
 export const previewText = style({

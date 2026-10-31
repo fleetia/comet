@@ -15,7 +15,7 @@ export const overview = style({
 });
 export const hero = style({
   border: `1px solid ${tokens["color/chip-border"]}`,
-  borderRadius: 24,
+  borderRadius: 9,
   padding: "20px 22px 22px",
   display: "flex",
   flexDirection: "column",
@@ -76,7 +76,7 @@ export const together = style({
   padding: "12px 14px",
   boxSizing: "border-box",
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 16,
+  borderRadius: 9,
   background: tokens["color/card"],
 });
 globalStyle(`${together} > span:first-child`, { flex: 1, minWidth: 0 });
@@ -165,7 +165,7 @@ export const greetingStage = style({
   padding: "14px 12px 18px",
   display: "grid",
   placeItems: "center",
-  borderRadius: 18,
+  borderRadius: 9,
   border: `1px dashed ${tokens["color/card-border"]}`,
   background: tokens["color/input"],
 });
@@ -184,7 +184,7 @@ export const reactionList = style({
   margin: 0,
   padding: 0,
   listStyle: "none",
-  borderRadius: tokens["radius/radius-14"],
+  borderRadius: tokens["radius/radius-9"],
   border: `1px solid ${tokens["color/card-border"]}`,
   background: tokens["color/card"],
 });

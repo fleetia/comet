@@ -43,7 +43,7 @@ export const list = style({
   padding: 12,
   minWidth: 0,
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-20"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card-2"],
 });
 export const cards = style({ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 });
@@ -79,7 +79,7 @@ export const detail = style({
   flex: 1,
   padding: "20px 22px 18px",
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-20"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card-2"],
 });
 export const header = style({
@@ -103,7 +103,7 @@ export const compactDetail = style({
   border: 0,
   outline: `1px solid ${tokens["color/card-border"]}`,
   outlineOffset: -1,
-  borderRadius: tokens["radius/radius-16"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card"],
 });
 export const compactTitle = style({
@@ -152,7 +152,7 @@ export const metadata = style({
   flexDirection: "column",
   overflow: "hidden",
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-18"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card"],
 });
 export const metadataRow = style({

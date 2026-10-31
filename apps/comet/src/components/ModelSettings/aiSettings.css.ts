@@ -70,7 +70,7 @@ export const connectionStatus = style({
   display: "grid",
   gridTemplateColumns: "minmax(0, 1fr)",
   gap: 14,
-  borderRadius: 18,
+  borderRadius: 9,
   border: `1px dashed ${tokens["color/input-border"]}`,
   background: tokens["color/input"],
 });
@@ -85,7 +85,7 @@ export const sharingNote = style({
   display: "flex",
   gap: 10,
   padding: 14,
-  borderRadius: 16,
+  borderRadius: 9,
   border: `1px solid ${tokens["color/danger-border"]}`,
   background: tokens["color/component/danger-alpha-100"],
 });

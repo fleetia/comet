@@ -17,7 +17,7 @@ export const card = style([
     padding: "15px 18px",
     background: tokens["color/card-2"],
     border: `1px solid ${tokens["color/card-border"]}`,
-    borderRadius: 20,
+    borderRadius: 9,
   },
 ]);
 export const row = style({ display: "flex", alignItems: "center", gap: 12, minWidth: 0 });
@@ -142,7 +142,7 @@ export const habitTable = style([
     width: "100%",
     maxWidth: "100%",
     overflowX: "auto",
-    borderRadius: tokens["radius/radius-20"],
+    borderRadius: tokens["radius/radius-9"],
     background: tokens["color/card-2"],
   },
 ]);
@@ -166,7 +166,7 @@ export const tableFooter = style([
 
 export const habitMonth = style([
   card,
-  { width: "100%", padding: 12, gap: 8, borderRadius: tokens["radius/radius-18"] },
+  { width: "100%", padding: 12, gap: 8, borderRadius: tokens["radius/radius-9"] },
 ]);
 export const habitMonthLabel = style({ fontSize: 12, fontWeight: 600, lineHeight: "16px" });
 export const habitMonthGrid = style({
@@ -397,7 +397,7 @@ export const ring = style([
     width: 632,
     maxWidth: "100%",
     padding: "16px 20px",
-    borderRadius: tokens["radius/radius-22"],
+    borderRadius: tokens["radius/radius-9"],
   },
 ]);
 export const ringFill = style({ width: "100%" });
@@ -649,7 +649,7 @@ export const tripRow = style([
     maxWidth: "100%",
     padding: 16,
     border: `1px solid ${tokens["color/card-border"]}`,
-    borderRadius: 12,
+    borderRadius: 9,
     background: tokens["color/card"],
   },
 ]);
@@ -673,7 +673,7 @@ export const focusUsage = style([
     width: 290,
     maxWidth: "100%",
     padding: "10px 12px",
-    borderRadius: 14,
+    borderRadius: 9,
     background: tokens["color/card"],
   },
 ]);
@@ -721,7 +721,7 @@ export const programPicker = style([
     margin: 0,
     padding: 0,
     border: `1px solid ${tokens["color/card-border"]}`,
-    borderRadius: 12,
+    borderRadius: 9,
     background: tokens["color/card"],
     overflow: "hidden",
   },
@@ -748,7 +748,7 @@ export const focusPanel = style([
     width: 556,
     maxWidth: "100%",
     padding: 20,
-    borderRadius: 24,
+    borderRadius: 9,
     background: `radial-gradient(ellipse at 0% 120%, ${tokens["color/document/backdrop-panel/sky-glow-violet"]}, transparent 62%), radial-gradient(ellipse at 100% -20%, ${tokens["color/document/backdrop-panel/sky-glow-blue"]}, transparent 60%), ${tokens["color/document/backdrop-panel/sky"]}`,
     borderColor: tokens["color/glass-border"],
     boxShadow: `0 4px 12px -2px ${tokens["color/surface-shadow"]}`,
@@ -766,7 +766,7 @@ export const focusChart = style({
 });
 export const focusRecordList = style({
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 16,
+  borderRadius: 9,
   background: tokens["color/card"],
   overflow: "hidden",
   marginTop: 8,
@@ -854,7 +854,7 @@ export const budgetDetail = style([muted, { margin: "10px 0 0" }]);
 export const categoryPercent = style([muted, { width: 36, textAlign: "right" }]);
 export const recurringList = style({
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 20,
+  borderRadius: 9,
   background: tokens["color/card"],
   overflow: "hidden",
 });

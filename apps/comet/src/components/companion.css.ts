@@ -109,7 +109,7 @@ export const balloon = style({
   color: tokens["color/ink"],
   background: tokens["color/glass-panel"],
   border: `1px solid ${tokens["color/glass-border"]}`,
-  borderRadius: tokens["radius/radius-22"],
+  borderRadius: tokens["radius/radius-9"],
   backdropFilter: "blur(12px)",
   boxShadow: `inset 0 1px 0 ${tokens["color/surface-highlight"]}`,
   display: "flex",
@@ -318,7 +318,7 @@ export const conversationItem = style({
   gap: tokens["spacing/space-6"],
   padding: tokens["spacing/space-12"],
   marginBottom: tokens["spacing/space-8"],
-  borderRadius: tokens["radius/radius-12"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card"],
   border: `1px solid ${tokens["color/card-border"]}`,
   textAlign: "left",
@@ -415,7 +415,7 @@ export const historyMessage = style({
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
   padding: tokens["spacing/space-12"],
-  borderRadius: tokens["radius/radius-12"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card"],
   border: `1px solid ${tokens["color/card-border"]}`,
 });
@@ -461,7 +461,7 @@ export const stage = style({
   padding: `${tokens["spacing/space-26"]} 0 ${tokens["spacing/space-40"]}`,
   marginBottom: 20,
   border: `1px solid ${tokens["color/glass-border"]}`,
-  borderRadius: tokens["radius/radius-22"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/document/backdrop-panel/sky"],
 });
 export const stageBalloon = style({

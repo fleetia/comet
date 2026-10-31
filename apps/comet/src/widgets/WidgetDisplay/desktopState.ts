@@ -15,7 +15,7 @@ export type StackStyle = {
   radius: number;
 };
 export const STACK_WIDTH = { min: 280, max: 600, default: 370 } as const;
-export const STACK_RADIUS = { min: 0, max: 24, default: 20 } as const;
+export const STACK_RADIUS = { min: 0, max: 9, default: 9 } as const;
 export const DEFAULT_STACK_STYLE: StackStyle = {
   followTheme: true,
   backgroundColor: "#FFFFFF",

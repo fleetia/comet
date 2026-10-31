@@ -120,7 +120,7 @@ export const canvas = style({
   aspectRatio: "1.5",
   background: tokens["color/card"],
   border: `1px dashed ${tokens["color/chip-border"]}`,
-  borderRadius: 12,
+  borderRadius: 9,
   touchAction: "none",
   cursor: "crosshair",
   color: tokens["color/document-glass-probe"],

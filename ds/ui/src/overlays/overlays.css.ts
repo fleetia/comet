@@ -7,7 +7,7 @@ export const picker = style([
   {
     width: 266,
     padding: "11px 14px 13px",
-    borderRadius: 18,
+    borderRadius: 9,
     display: "flex",
     flexDirection: "column",
     gap: 8,
@@ -138,7 +138,7 @@ export const hex = style({
 });
 export const contextMenu = style([
   glass,
-  { display: "flex", flexDirection: "column", gap: 0, width: 184, padding: 5, borderRadius: 14 },
+  { display: "flex", flexDirection: "column", gap: 0, width: 184, padding: 5, borderRadius: 9 },
 ]);
 export const separator = style({
   height: 1,
@@ -149,7 +149,7 @@ export const notification = style([
   glass,
   {
     width: 290,
-    borderRadius: 18,
+    borderRadius: 9,
     padding: 16,
     display: "flex",
     flexDirection: "column",
@@ -176,7 +176,7 @@ export const notificationAction = style({ flex: 1, minWidth: 0 });
 export const os = style({
   boxSizing: "border-box",
   width: 300,
-  borderRadius: 16,
+  borderRadius: 9,
   padding: 12,
   background: tokens["color/component/os-notification-surface"],
   color: tokens["color/component/os-notification-ink"],

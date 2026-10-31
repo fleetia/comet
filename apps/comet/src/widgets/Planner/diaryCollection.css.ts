@@ -12,7 +12,7 @@ export const layout = style({
 export const main = style({ display: "flex", flexDirection: "column", gap: 10, minWidth: 0 });
 export const group = style({
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-18"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card-2"],
   overflow: "hidden",
 });
@@ -30,7 +30,7 @@ export const info = style({
   gap: 12,
   padding: 18,
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-20"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card-2"],
 });
 export const caption = style({
@@ -53,7 +53,7 @@ export const metric = style({
   gap: 2,
   padding: "10px 12px",
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 14,
+  borderRadius: 9,
   background: tokens["color/card"],
 });
 export const value = style({

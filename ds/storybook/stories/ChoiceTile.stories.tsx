@@ -207,7 +207,7 @@ export const DesktopLayout: Story = {
           alignItems: "center",
           width: 143,
           height: 98,
-          borderRadius: 12,
+          borderRadius: 9,
           background: "#0a0f26",
         }}
       >
@@ -283,7 +283,7 @@ export const WidgetPreview: Story = {
           height: 30,
           gap: 6,
           padding: "0 10px",
-          borderRadius: 15,
+          borderRadius: 9,
           background: "var(--comet-color-glass-widget)",
           border: "1px solid var(--comet-color-glass-border-soft)",
           fontSize: 11.5,

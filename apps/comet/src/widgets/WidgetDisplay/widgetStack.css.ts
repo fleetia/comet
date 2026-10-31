@@ -92,7 +92,7 @@ export const remove = style({
 export const notice = style({
   margin: 0,
   padding: "10px 14px",
-  borderRadius: 16,
+  borderRadius: 9,
   background: tokens["color/glass-panel"],
   color: tokens["color/ink-2"],
   fontSize: 12,
@@ -102,7 +102,7 @@ export const error = style({
   maxWidth: 370,
   margin: 0,
   padding: 8,
-  borderRadius: 12,
+  borderRadius: 9,
   background: tokens["color/glass-panel"],
   color: tokens["color/danger"],
   fontSize: 12,

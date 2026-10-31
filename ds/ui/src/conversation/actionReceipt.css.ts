@@ -10,7 +10,7 @@ export const receipt = style({
   minWidth: 0,
   padding: tokens["spacing/space-12"],
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-14"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card"],
   color: tokens["color/ink"],
   fontFamily: tokens["typography/sans/body/fontFamily"],

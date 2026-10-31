@@ -140,7 +140,7 @@ export const preview = style({
   alignItems: "center",
   gap: 12,
   padding: "16px 20px",
-  borderRadius: 18,
+  borderRadius: 9,
   background: tokens["color/input"],
   border: `1px dashed ${tokens["color/input-border"]}`,
 });
@@ -159,7 +159,7 @@ export const inlineConfirm = style({
   display: "grid",
   gap: 10,
   padding: 14,
-  borderRadius: 16,
+  borderRadius: 9,
   background: tokens["color/glass-panel"],
   border: `1px solid ${tokens["color/glass-border"]}`,
   boxShadow: `0 4px 12px -2px ${tokens["color/surface-shadow"]}`,

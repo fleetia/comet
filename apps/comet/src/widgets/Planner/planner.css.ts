@@ -165,7 +165,7 @@ export const diaryGroupMeta = style({
 export const diaryTaskCard = style({
   minWidth: 0,
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-16"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card"],
   overflow: "hidden",
 });

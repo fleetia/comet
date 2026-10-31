@@ -24,8 +24,8 @@ export const dialog = style({
 globalStyle(`${dialog} *, ${dialog} *::before, ${dialog} *::after`, { boxSizing: "border-box" });
 
 export const variants = styleVariants({
-  sheet: { borderRadius: tokens["radius/radius-22"] },
-  confirm: { maxWidth: 320, borderRadius: tokens["radius/radius-20"] },
+  sheet: { borderRadius: tokens["radius/radius-9"] },
+  confirm: { maxWidth: 320, borderRadius: tokens["radius/radius-9"] },
 });
 
 export const sizes = styleVariants({
