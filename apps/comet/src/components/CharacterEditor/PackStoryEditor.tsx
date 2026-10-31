@@ -558,11 +558,11 @@ function SceneStepFields({
             aria-label={`${label} 입력 종류`}
             value={step.input}
             onChange={(event) =>
-              onChange({
-                ...step,
-                input: event.target.value as "name" | "text",
-                known: event.target.value === "name" ? (step.known ?? "") : null,
-              })
+              onChange(
+                event.target.value === "name"
+                  ? { ...step, input: "name", known: step.known ?? "" }
+                  : { ...step, input: "text", known: null, saved: undefined },
+              )
             }
           >
             <option value="name">이름</option>

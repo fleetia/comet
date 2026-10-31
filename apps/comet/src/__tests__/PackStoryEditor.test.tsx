@@ -255,6 +255,38 @@ it("opens an existing scene for editing and keeps its steps on save", async () =
   );
 });
 
+it.each(["name", "text"] as const)("saves %s input with the matching name dialogue fields", async (input) => {
+  const saved = snapshot("a");
+  const ask = {
+    kind: "ask" as const,
+    id: "name",
+    persona: "a-source-0",
+    expression: "평온",
+    prompt: "이름이 뭐예요?",
+    input: "name" as const,
+    known: "이미 알고 있어요.",
+    saved: { expression: "평온", text: "반가워요!" },
+  };
+  saved.definition.scenarios[0].chapters = [{ id: "first", title: "첫 만남", steps: [ask] }];
+  vi.mocked(command).mockResolvedValue(saved);
+  render(<Harness packId="a" />);
+  fireEvent.change(await screen.findByLabelText("단계 1 입력 종류"), { target: { value: input } });
+  fireEvent.change(screen.getByLabelText("단계 1 질문"), { target: { value: "고친 질문" } });
+  fireEvent.click(screen.getByRole("button", { name: "팩 이야기 저장" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("save_pack_story_definition", expect.anything()),
+  );
+  const call = vi.mocked(command).mock.calls.find(([name]) => name === "save_pack_story_definition");
+  const args = call?.[1] as { definition: PackStorySnapshot["definition"] };
+  expect(args.definition.scenarios[0].chapters?.[0].steps[0]).toEqual({
+    ...ask,
+    prompt: "고친 질문",
+    input,
+    known: input === "name" ? ask.known : null,
+    saved: input === "name" ? ask.saved : undefined,
+  });
+});
+
 it("previews a pack member's unsaved animation bytes without requesting a stored asset URL", async () => {
   const actor = installed[0];
   const pending: AnimationAsset = {
