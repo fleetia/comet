@@ -4,12 +4,15 @@ dist/
 apps/comet/src-tauri/target/
 apps/comet/src-tauri/binaries/*
 !apps/comet/src-tauri/binaries/.gitkeep
+apps/comet/src-tauri/guide/*
+!apps/comet/src-tauri/guide/.gitkeep
 *.tsbuildinfo
 __pycache__/
 .DS_Store
 .idea/
 test-results/
 apps/comet/src-tauri/gen/
+apps/guide/build/
 
 # NLP build cache and local model export artifacts
 apps/comet/crates/comet-nlp/target/

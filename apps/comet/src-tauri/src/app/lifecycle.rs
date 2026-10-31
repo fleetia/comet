@@ -197,6 +197,7 @@ pub fn run() {
         .setup(setup)
         .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
+            crate::guide::open_guide,
             crate::analytics::get_analytics_context,
             crate::analytics::get_analytics_consent,
             crate::analytics::set_analytics_consent,

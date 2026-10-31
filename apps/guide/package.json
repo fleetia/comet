@@ -1,0 +1,13 @@
+{
+  "name": "@comet/guide",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "marked": "^18.1.2"
+  }
+}

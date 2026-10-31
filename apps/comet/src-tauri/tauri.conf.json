@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "corepack pnpm dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "corepack pnpm build",
+    "beforeBuildCommand": "corepack pnpm prepare:guide && corepack pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -24,6 +24,7 @@
       "binaries/comet-nlp"
     ],
     "resources": {
+      "guide/": "guide/",
       "binaries/runtime/": "runtime/",
       "binaries/nlp-runtime/": "nlp-runtime/"
     },

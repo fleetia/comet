@@ -94,6 +94,18 @@ export type ScenarioWidget =
   | "ball"
   | "paper-plane"
   | "bubbles";
+export type GuidePage =
+  | "first-meeting"
+  | "talking"
+  | "friends"
+  | "packs"
+  | "widgets"
+  | "ai"
+  | "rhythm"
+  | "diary-memory"
+  | "glossary"
+  | "troubleshooting"
+  | "privacy";
 export type ScenarioAction =
   | { do: "widget.open"; widget: ScenarioWidget }
   | { do: "focus.start"; minutes: number }
@@ -105,18 +117,7 @@ export type ScenarioAction =
     }
   | {
       do: "guide.open";
-      page:
-        | "first-meeting"
-        | "talking"
-        | "friends"
-        | "packs"
-        | "widgets"
-        | "ai"
-        | "rhythm"
-        | "diary-memory"
-        | "glossary"
-        | "troubleshooting"
-        | "privacy";
+      page: GuidePage;
     };
 export type ScenarioEvent =
   | { event: "body.clicked" | "body.moved" | "focus.started" | "focus.stopped" }

@@ -16,6 +16,7 @@
     "check": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p e2e/tsconfig.json && oxlint src e2e",
     "tauri": "tauri",
     "desktop": "tauri dev",
+    "prepare:guide": "node scripts/prepare-guide.mjs",
     "prepare:sidecar": "node scripts/prepare-sidecar.mjs",
     "build:desktop": "corepack pnpm prepare:sidecar && corepack pnpm prepare:nlp && tauri build",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",

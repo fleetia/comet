@@ -591,11 +591,49 @@ pub(crate) async fn execute_action(
                     .map_err(|error| error.to_string())?;
             }
         }
-        StoryAction::GuideOpen { page } => {
-            eprintln!("guide.open skipped: {page:?}");
+        StoryAction::GuideOpen { .. } => {
+            let _action = lock(&state.action)?;
+            if !is_current(state, run.epoch, cancel)
+                || !current(state, run)?
+                || !available_locked(state, &*lock(&state.db)?, run)?
+            {
+                return Ok(false);
+            }
+            execute_guide_action(action, |page| crate::guide::open_guide(app.clone(), page));
         }
     }
     Ok(true)
+}
+
+fn execute_guide_action<E: std::fmt::Debug>(
+    action: &StoryAction,
+    open: impl FnOnce(crate::pack_stories::GuidePage) -> Result<(), E>,
+) {
+    if let StoryAction::GuideOpen { page } = action {
+        if let Err(error) = open(page.clone()) {
+            eprintln!("guide.open failed: {error:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod guide_tests {
+    use super::*;
+    use crate::pack_stories::GuidePage;
+
+    #[test]
+    fn story_guide_action_opens_requested_page_and_continues_on_failure() {
+        let action: StoryAction = serde_json::from_value(serde_json::json!({
+            "do": "guide.open", "page": "diary-memory"
+        }))
+        .unwrap();
+        let mut opened = None;
+        execute_guide_action(&action, |page| {
+            opened = Some(page);
+            Err("open failed")
+        });
+        assert_eq!(opened, Some(GuidePage::DiaryMemory));
+    }
 }
 
 pub(crate) fn register_window_locked(
