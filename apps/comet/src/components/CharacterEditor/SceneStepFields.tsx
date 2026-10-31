@@ -437,14 +437,6 @@ export function SceneStepFields({
             aria-label={`${label} 입력 종류`}
             value={step.input}
             onChange={(event) => {
-              if (!showSaved) {
-                onChange({
-                  ...step,
-                  input: event.target.value as "name" | "text",
-                  known: event.target.value === "name" ? (step.known ?? "") : null,
-                } as ScenarioStep);
-                return;
-              }
               if (event.target.value === "name") {
                 onChange({ ...step, input: "name", known: step.known ?? "" });
               } else {

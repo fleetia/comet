@@ -7,7 +7,7 @@ import type { ScenarioStep } from "../types";
 afterEach(cleanup);
 
 it.each([false, true])(
-  "handles the saved-name line when changing input kind (panel: %s)",
+  "removes the saved-name line when changing input kind to text (panel: %s)",
   (showSaved) => {
     const actor = PREVIEW_SNAPSHOT.characters.installed[0].definition;
     const saved = { expression: "평온", text: "반가워" };
@@ -34,11 +34,6 @@ it.each([false, true])(
     );
     fireEvent.change(screen.getByLabelText("단계 1 입력 종류"), { target: { value: "text" } });
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ input: "text", known: null }));
-    const result = onChange.mock.calls[0][0];
-    if (showSaved) {
-      expect(result).not.toHaveProperty("saved");
-    } else {
-      expect(result.saved).toEqual(saved);
-    }
+    expect(onChange.mock.calls[0][0]).not.toHaveProperty("saved");
   },
 );
