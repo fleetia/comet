@@ -4,7 +4,7 @@
   "version": "0.23.1",
   "identifier": "space.starlight.comet",
   "build": {
-    "beforeDevCommand": "corepack pnpm dev",
+    "beforeDevCommand": "corepack pnpm prepare:guide && corepack pnpm dev",
     "devUrl": "http://127.0.0.1:1420",
     "beforeBuildCommand": "corepack pnpm prepare:guide && corepack pnpm build",
     "frontendDist": "../dist"
