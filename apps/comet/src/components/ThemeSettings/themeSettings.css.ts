@@ -42,7 +42,7 @@ export const friendList = style({
   display: "grid",
   overflow: "hidden",
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 18,
+  borderRadius: 9,
   background: tokens["color/card"],
 });
 export const friend = style({

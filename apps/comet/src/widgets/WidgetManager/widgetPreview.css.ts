@@ -9,7 +9,7 @@ export const stage = style({
   minHeight: 120,
   padding: 16,
   overflow: "hidden",
-  borderRadius: 18,
+  borderRadius: 9,
   outline: `1px dashed ${tokens["color/card-border"]}`,
   outlineOffset: -1,
   background: tokens["color/sky"],

@@ -8,7 +8,7 @@ export const page = style({
   minWidth: 0,
   width: "100%",
   padding: "20px 22px",
-  borderRadius: tokens["radius/radius-20"],
+  borderRadius: tokens["radius/radius-9"],
   outline: `1px solid ${tokens["color/card-border"]}`,
   outlineOffset: -1,
   background: tokens["color/card-2"],
@@ -80,7 +80,7 @@ export const note = style({
   gap: tokens["spacing/space-8"],
   minWidth: 0,
   padding: tokens["spacing/space-12"],
-  borderRadius: tokens["radius/radius-22"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/glass-panel"],
   selectors: {
     '&[data-location="envelope"]': {
@@ -89,7 +89,7 @@ export const note = style({
       background: tokens["color/card"],
       outline: `1px solid ${tokens["color/card-border"]}`,
       outlineOffset: -1,
-      borderRadius: tokens["radius/radius-16"],
+      borderRadius: tokens["radius/radius-9"],
     },
   },
 });
@@ -203,7 +203,7 @@ export const listCard = style({
   padding: 0,
   overflow: "hidden",
   boxShadow: "none",
-  borderRadius: tokens["radius/radius-16"],
+  borderRadius: tokens["radius/radius-9"],
 });
 export const listItem = style({
   selectors: { "& + &": { borderTop: `1px solid ${tokens["color/divider"]}` } },

@@ -155,7 +155,9 @@ fn validate_birthday_at(birthday: &UserBirthday, today: chrono::NaiveDate) -> Re
     let date = chrono::NaiveDate::from_ymd_opt(year, birthday.month, birthday.day);
     if birthday.year.is_some_and(|year| year < 1900)
         || date.is_none()
-        || birthday.year.is_some_and(|_| date.is_some_and(|date| date > today))
+        || birthday
+            .year
+            .is_some_and(|_| date.is_some_and(|date| date > today))
     {
         return Err("생일을 올바른 날짜로 입력해 주세요. 연도를 입력할 때는 1900년부터 오늘까지 선택할 수 있어요.".into());
     }
@@ -177,8 +179,12 @@ pub fn set_user_birthday(conn: &Connection, birthday: Option<&UserBirthday>) -> 
     if previous_date != next_date {
         tx.execute(
             "DELETE FROM kv WHERE key=?1",
-            [format!("birthday:celebrated:{}", chrono::Local::now().year())],
-        ).map_err(err)?;
+            [format!(
+                "birthday:celebrated:{}",
+                chrono::Local::now().year()
+            )],
+        )
+        .map_err(err)?;
     }
     tx.execute(
         "UPDATE user_identities SET birthday_month=?2,birthday_day=?3,birthday_year=?4 WHERE id=?1",
@@ -201,7 +207,7 @@ pub fn require_user(conn: &Connection) -> Result<UserIdentity> {
 }
 
 pub fn set_user_name(conn: &Connection, name: &str, at: i64) -> Result<bool> {
-    save_user_name(conn, name, at, false, None, None)
+    save_user_name(conn, name, at, false, None, None, None)
 }
 
 pub fn register_user_name(
@@ -210,7 +216,7 @@ pub fn register_user_name(
     at: i64,
     analytics_consent: Option<bool>,
 ) -> Result<bool> {
-    save_user_name(conn, name, at, true, analytics_consent, None)
+    save_user_name(conn, name, at, true, analytics_consent, None, None)
 }
 
 pub fn register_user_profile(
@@ -223,7 +229,34 @@ pub fn register_user_profile(
     if let Some(birthday) = birthday {
         validate_birthday(birthday)?;
     }
-    save_user_name(conn, name, at, true, analytics_consent, birthday)
+    save_user_name(conn, name, at, true, analytics_consent, birthday, None)
+}
+
+#[derive(Clone)]
+pub struct BufferedStoryLine {
+    pub message: crate::types::Message,
+    pub line: crate::types::SceneLine,
+    pub actor: crate::characters::InstalledCharacter,
+}
+
+pub struct StoryRegistration<'a> {
+    pub run: &'a crate::pack_stories::RunTicket,
+    pub chapter: &'a str,
+    pub lines: &'a [BufferedStoryLine],
+    pub characters: &'a [String],
+}
+
+pub fn register_story_user_profile(
+    conn: &Connection,
+    name: &str,
+    birthday: Option<&UserBirthday>,
+    at: i64,
+    story: StoryRegistration<'_>,
+) -> Result<bool> {
+    if let Some(birthday) = birthday {
+        validate_birthday(birthday)?;
+    }
+    save_user_name(conn, name, at, true, None, birthday, Some(story))
 }
 
 fn save_user_name(
@@ -233,6 +266,7 @@ fn save_user_name(
     first_only: bool,
     analytics_consent: Option<bool>,
     birthday: Option<&UserBirthday>,
+    story: Option<StoryRegistration<'_>>,
 ) -> Result<bool> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > 40 || name.chars().any(char::is_control) {
@@ -282,6 +316,60 @@ fn save_user_name(
     }
     put(&tx, "memory_clock", &at)?;
     bump_revision(&tx)?;
+    if let Some(StoryRegistration {
+        run,
+        chapter,
+        lines,
+        characters,
+    }) = story
+    {
+        for character in characters {
+            super::insert_moment(
+                &tx,
+                character,
+                &run.scope.user_id,
+                "first-meeting",
+                "처음 만난 날",
+                at,
+                None,
+                serde_json::json!({}),
+                None,
+                None,
+            )?;
+            if birthday.is_some() {
+                super::insert_moment(
+                    &tx,
+                    character,
+                    &run.scope.user_id,
+                    "birthday-told",
+                    "생일을 알려 준 날",
+                    at,
+                    None,
+                    serde_json::json!({}),
+                    None,
+                    None,
+                )?;
+            }
+        }
+        for item in lines {
+            super::insert_message_with_actor(
+                &tx,
+                &item.message,
+                "tutorial",
+                false,
+                &item.line,
+                &item.actor,
+            )?;
+            super::mark_message_displayed_with_provenance(
+                &tx,
+                &item.message.id,
+                item.message.created_at,
+                Some(true),
+            )?;
+        }
+        crate::pack_stories::resume::record_accepted(&tx, run)?;
+        crate::pack_stories::resume::save_chapter(&tx, run, chapter, at)?;
+    }
     tx.commit().map_err(err)?;
     Ok(true)
 }
@@ -335,10 +423,35 @@ mod birthday_validation_tests {
     #[test]
     fn rejects_future_birth_dates_only_when_year_is_supplied() {
         let today = chrono::NaiveDate::from_ymd_opt(2026, 10, 29).unwrap();
-        let birthday = UserBirthday { year: Some(2026), month: 10, day: 30 };
+        let birthday = UserBirthday {
+            year: Some(2026),
+            month: 10,
+            day: 30,
+        };
         assert!(validate_birthday_at(&birthday, today).is_err());
-        assert!(validate_birthday_at(&UserBirthday { day: 29, ..birthday.clone() }, today).is_ok());
-        assert!(validate_birthday_at(&UserBirthday { year: Some(2025), ..birthday.clone() }, today).is_ok());
-        assert!(validate_birthday_at(&UserBirthday { year: None, ..birthday }, today).is_ok());
+        assert!(validate_birthday_at(
+            &UserBirthday {
+                day: 29,
+                ..birthday.clone()
+            },
+            today
+        )
+        .is_ok());
+        assert!(validate_birthday_at(
+            &UserBirthday {
+                year: Some(2025),
+                ..birthday.clone()
+            },
+            today
+        )
+        .is_ok());
+        assert!(validate_birthday_at(
+            &UserBirthday {
+                year: None,
+                ..birthday
+            },
+            today
+        )
+        .is_ok());
     }
 }

@@ -30,7 +30,7 @@ export const outline = style({
   position: "absolute",
   inset: DISPLAY_MARGIN / 2,
   border: `1.5px dashed ${tokens["color/glass-border"]}`,
-  borderRadius: 18,
+  borderRadius: 9,
   pointerEvents: "none",
 });
 export const selectedOutline = style({
@@ -108,5 +108,5 @@ export const stackCard = style({
   overflow: "hidden",
   background: tokens["color/glass-panel"],
   border: `1px solid ${tokens["color/glass-border"]}`,
-  borderRadius: 20,
+  borderRadius: 9,
 });

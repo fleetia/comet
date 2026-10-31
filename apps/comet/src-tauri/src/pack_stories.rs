@@ -146,6 +146,20 @@ pub struct StoryOption {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StorySavedLine {
+    pub expression: String,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "StoryMotion::is_inherit")]
+    pub motion: StoryMotion,
+}
+
+fn deserialize_saved_line<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<StorySavedLine>, D::Error> {
+    StorySavedLine::deserialize(deserializer).map(Some)
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StoryTimeout {
     pub steps: Vec<StoryStep>,
     pub then: String,
@@ -286,6 +300,8 @@ pub enum StoryStep {
         input: StoryInput,
         #[serde(skip_serializing_if = "Option::is_none")]
         known: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        saved: Option<StorySavedLine>,
         #[serde(default, skip_serializing_if = "StoryMotion::is_inherit")]
         motion: StoryMotion,
     },
@@ -344,6 +360,8 @@ impl<'de> Deserialize<'de> for StoryStep {
                 input: StoryInput,
                 #[serde(default)]
                 known: Option<String>,
+                #[serde(default, deserialize_with = "deserialize_saved_line")]
+                saved: Option<StorySavedLine>,
                 #[serde(default)]
                 motion: StoryMotion,
             },
@@ -415,6 +433,7 @@ impl<'de> Deserialize<'de> for StoryStep {
                     prompt,
                     input,
                     known,
+                    saved,
                     motion,
                 } => Ok(Self::Ask {
                     id,
@@ -423,6 +442,7 @@ impl<'de> Deserialize<'de> for StoryStep {
                     prompt,
                     input,
                     known,
+                    saved,
                     motion,
                 }),
                 Basic::Choice {
@@ -604,6 +624,8 @@ pub struct Runtime {
     pub resume_offered: bool,
     pub pending_resume: Option<(String, Scope, resume::ResumePoint)>,
     pub(crate) interaction: Option<SceneInteraction>,
+    pub(crate) unnamed_lines: Vec<crate::store::BufferedStoryLine>,
+    pub(crate) choice_recorded_text: Option<String>,
 }
 
 #[derive(Clone)]
@@ -748,15 +770,23 @@ fn validate_chapters(
                     prompt,
                     input,
                     known,
+                    saved,
                     motion,
                 } => {
                     actor(persona, Some(expression), Some(motion))?;
                     if !id(ask_id)
                         || !story_text(prompt, 500)
                         || (*input == StoryInput::Name && known.is_none())
+                        || (*input != StoryInput::Name && saved.is_some())
                         || known.as_ref().is_some_and(|text| !story_text(text, 500))
                     {
                         return Err("질문 ID·본문·이름 대사를 확인해 주세요.".into());
+                    }
+                    if let Some(saved) = saved {
+                        actor(persona, Some(&saved.expression), Some(&saved.motion))?;
+                        if !story_text(&saved.text, 500) {
+                            return Err("대사 본문은 1~500자여야 해요.".into());
+                        }
                     }
                 }
                 StoryStep::Choice {
@@ -866,6 +896,7 @@ fn validate_chapters(
                     prompt,
                     input,
                     known,
+                    saved,
                     ..
                 } => {
                     validate_variables(prompt, name_known, &answers)?;
@@ -875,6 +906,9 @@ fn validate_chapters(
                             *input == StoryInput::Name || name_known,
                             &answers,
                         )?;
+                    }
+                    if let Some(saved) = saved {
+                        validate_variables(&saved.text, true, &answers)?;
                     }
                     match input {
                         StoryInput::Name => name_known = true,
@@ -1237,6 +1271,8 @@ pub fn load_plan(db: &Connection, input_id: &str) -> Result<Option<Plan>> {
 pub fn cancel(runtime: &mut Runtime) -> Vec<String> {
     runtime.pending_next = None;
     runtime.interaction = None;
+    runtime.unnamed_lines.clear();
+    runtime.choice_recorded_text = None;
     runtime
         .run
         .take()
@@ -1498,7 +1534,8 @@ pub(crate) fn scene_plan(
     definition: ScenarioDefinition,
     chapter_id: Option<&str>,
 ) -> Result<Plan> {
-    if crate::store::current_user(db)?.is_none()
+    if (crate::store::current_user(db)?.is_none()
+        && definition.purpose != ScenarioPurpose::Tutorial)
         || context.user_id != crate::store::active_user_id(db)?
     {
         return Err("이야기를 시작하려면 이름을 먼저 등록해 주세요.".into());
@@ -2098,7 +2135,14 @@ pub fn trial(
 }
 
 fn record_cancelled(db: &Connection, run: &RunTicket) -> Result<()> {
-    if run.stage == Stage::Defer {
+    if run.stage == Stage::Defer
+        || (run.stage == Stage::Chapter
+            && run
+                .definition
+                .as_ref()
+                .is_some_and(|definition| definition.purpose == ScenarioPurpose::Tutorial)
+            && crate::store::current_user(db)?.is_none())
+    {
         return Ok(());
     }
     transaction(db, |tx| {

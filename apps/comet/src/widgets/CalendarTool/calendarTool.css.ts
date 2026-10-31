@@ -14,7 +14,7 @@ export const dirtyDot = style({ position: "absolute", right: 2, top: 2, width: 5
 export const alertsBody = style({
   position: "absolute", top: 36, right: 0, zIndex: 5, display: "grid", gap: 14,
   width: "min(540px, calc(100vw - 48px))", maxHeight: "min(560px, calc(100dvh - 190px))", overflowY: "auto",
-  padding: 16, border: `1px solid ${tokens["color/card-border"]}`, borderRadius: 18,
+  padding: 16, border: `1px solid ${tokens["color/card-border"]}`, borderRadius: 9,
   background: tokens["color/glass-window"], backdropFilter: "blur(20px)",
 });
 export const menuColorControls = style({ display: "grid", gap: 6, padding: 8 });
@@ -58,7 +58,7 @@ export const connectionCard = style({
   padding: "12px 14px",
   border: 0,
   boxShadow: `inset 0 0 0 1px ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-18"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card"],
   display: "flex",
   flexDirection: "column",
@@ -140,7 +140,7 @@ export const menuActions = style({
   minWidth: 190,
   padding: 6,
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 14,
+  borderRadius: 9,
   background: tokens["color/glass-window"],
 });
 export const connectionForm = style({
@@ -165,7 +165,7 @@ export const providerPanel = style({
 });
 export const group = style({
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 18,
+  borderRadius: 9,
   overflow: "hidden",
   background: tokens["color/card"],
 });
@@ -236,7 +236,7 @@ export const localRow = style({
   gap: 12,
   padding: "11px 16px",
   boxShadow: `inset 0 0 0 1px ${tokens["color/card-border"]}`,
-  borderRadius: 18,
+  borderRadius: 9,
   background: tokens["color/card"],
   fontSize: 14,
   lineHeight: "19px",
@@ -254,7 +254,7 @@ export const readOnlyNotice = style({
   fontSize: 12.5,
   lineHeight: "18px",
   padding: "12px 14px",
-  borderRadius: 16,
+  borderRadius: 9,
   border: `1px solid ${tokens["color/danger-border"]}`,
   background: `color-mix(in srgb, ${tokens["color/danger"]} 8%, transparent)`,
   color: tokens["color/ink"],

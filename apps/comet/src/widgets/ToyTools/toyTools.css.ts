@@ -9,7 +9,7 @@ export const card = style({
   width: 290,
   maxWidth: "100%",
   padding: "14px 16px",
-  borderRadius: tokens["radius/radius-22"],
+  borderRadius: tokens["radius/radius-9"],
   border: 0,
   background: tokens["color/glass-panel"],
   backdropFilter: tokens["backdrop/backdrop-panel"],
@@ -284,7 +284,7 @@ export const fortune = style({
   minHeight: 60,
   padding: "10px 12px",
   boxShadow: `inset 0 0 0 1px ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-14"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card"],
 });
 export const fortuneIcon = style({

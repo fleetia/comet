@@ -20,7 +20,7 @@ export const balloon = style([
     minWidth: 48,
     maxWidth: 400,
     padding: "16px 18px",
-    borderRadius: tokens["radius/radius-22"],
+    borderRadius: tokens["radius/radius-9"],
   },
 ]);
 export const speaker = style({
@@ -89,7 +89,7 @@ export const result = style({
   marginTop: 8,
   minHeight: 46,
   padding: "11px 13px",
-  borderRadius: 14,
+  borderRadius: 9,
   background: tokens["color/card"],
   border: `1px solid ${tokens["color/card-border"]}`,
   color: tokens["color/ink-2"],

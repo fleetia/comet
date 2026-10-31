@@ -15,7 +15,7 @@ export const window = style({
   backgroundRepeat: "no-repeat",
   backdropFilter: tokens["backdrop/backdrop-window"],
   border: `1px solid ${tokens["color/glass-border"]}`,
-  borderRadius: tokens["radius/radius-22"],
+  borderRadius: tokens["radius/radius-9"],
   // WebKit draws the backdrop blur as a square behind rounded corners in the transparent window.
   clipPath: `inset(0 round ${tokens["radius/radius-22"]})`,
   boxSizing: "border-box",
@@ -25,7 +25,7 @@ export const window = style({
   },
 });
 globalStyle(`${window} dialog::backdrop`, {
-  borderRadius: tokens["radius/radius-22"],
+  borderRadius: tokens["radius/radius-9"],
 });
 export const header = style({
   flexShrink: 0,
@@ -60,7 +60,7 @@ export const surface = style({
   minHeight: 0,
   background: tokens["color/card"],
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-18"],
+  borderRadius: tokens["radius/radius-9"],
 });
 export const notes = style({
   minWidth: 0,
@@ -80,7 +80,7 @@ export const notesOpen = style({
       bottom: 12,
       width: 268,
       padding: 12,
-      borderRadius: tokens["radius/radius-18"],
+      borderRadius: tokens["radius/radius-9"],
       background: tokens["color/glass-panel"],
       backdropFilter: tokens["backdrop/backdrop-panel"],
       border: `1px solid ${tokens["color/glass-border"]}`,
@@ -333,7 +333,7 @@ export const calendar = style({
   flexDirection: "column",
   flex: "1 0 auto",
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-22"],
+  borderRadius: tokens["radius/radius-9"],
   overflow: "hidden",
   background: tokens["color/card-2"],
 });
@@ -509,7 +509,7 @@ export const weekReflection = style({
   minHeight: 140,
   width: "100%",
   border: 0,
-  borderRadius: tokens["radius/radius-12"],
+  borderRadius: tokens["radius/radius-9"],
   padding: 12,
   background: tokens["color/card-2"],
   color: tokens["color/ink"],
@@ -605,14 +605,14 @@ export const todaySummary = style({
 export const todayJournal = style({
   minWidth: 0,
   padding: 16,
-  borderRadius: tokens["radius/radius-18"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card-2"],
   border: `1px solid ${tokens["color/card-border"]}`,
 });
 export const summaryCard = style({
   padding: 16,
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-18"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card-2"],
 });
 export const summaryTitle = style({ fontSize: 13, fontWeight: 600, marginBottom: 12 });

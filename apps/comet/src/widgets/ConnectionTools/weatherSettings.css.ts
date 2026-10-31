@@ -29,7 +29,7 @@ export const caption = style({
 });
 export const group = style({
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 18,
+  borderRadius: 9,
   background: tokens["color/card"],
   overflow: "hidden",
 });

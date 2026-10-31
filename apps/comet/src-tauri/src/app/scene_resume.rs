@@ -1,5 +1,8 @@
 use super::{conversation, conversation::scene_story, lock, phase, publish, tasks, AppState};
-use crate::{characters, pack_stories, store, types::RuntimePhase};
+use crate::{
+    characters, pack_stories, store,
+    types::{RuntimePhase, SceneLine},
+};
 use std::sync::{atomic::Ordering, Arc};
 
 pub(crate) fn clear_failed_start(
@@ -87,14 +90,26 @@ pub(crate) fn choose(
         let resolved = pack_stories::resume::resolve(&db, &scope, &point)?
             .ok_or("이어갈 이야기를 찾을 수 없어요.")?;
         if choice_id == "decline" {
+            let line = if resolved.definition.purpose == pack_stories::ScenarioPurpose::Tutorial {
+                Some(decline_line(&db, &scope.center_id)?)
+            } else {
+                None
+            };
             if !pack_stories::resume::decline(&db, &scope, &point)? {
                 return Err("이미 지나간 이야기예요.".into());
             }
-            let (epoch, _) = super::interrupt_with_db(&state, false, &db)?;
+            let (epoch, cancel) = super::interrupt_with_db(&state, false, &db)?;
+            let playback = if let Some(line) = line {
+                let prefix = uuid::Uuid::new_v4().to_string();
+                lock(&state.tasks)?.pack_replay = Some(prefix.clone());
+                Some((cancel, line, prefix))
+            } else {
+                None
+            };
             lock(&state.pack_stories)?.pending_resume = None;
             state.last_input.store(super::now(), Ordering::SeqCst);
             super::schedule_idle(&state, store::settings(&db)?.idle_minutes);
-            Ok((epoch, None))
+            Ok((epoch, None, playback))
         } else {
             let context = pack_stories::InputContext {
                 input_id: uuid::Uuid::new_v4().to_string(),
@@ -129,7 +144,11 @@ pub(crate) fn choose(
             };
             lock(&state.pack_stories)?.pending_resume = None;
             state.last_input.store(super::now(), Ordering::SeqCst);
-            Ok((epoch, Some((run, cancel, admitted, resolved.chapter_title))))
+            Ok((
+                epoch,
+                Some((run, cancel, admitted, resolved.chapter_title)),
+                None,
+            ))
         }
     })();
     let prepared = match result {
@@ -152,9 +171,97 @@ pub(crate) fn choose(
             }
         }
         scene_story::start_resume(app, state, run, cancel, chapter_title);
+    } else if let Some((cancel, line, prefix)) = prepared.2 {
+        let epoch = prepared.0;
+        phase(&app, &state, epoch, RuntimePhase::Playing, None, None);
+        let owner = state.clone();
+        let owner_app = app.clone();
+        tasks::spawn(owner_app, owner, tasks::Kind::Scene, epoch, async move {
+            let Some(_gate) = tasks::acquire_gate(&state, epoch, cancel.clone()).await else {
+                return;
+            };
+            let result = super::scene::run_scene(
+                &app,
+                &state,
+                &[line],
+                "tutorial",
+                &prefix,
+                false,
+                epoch,
+                cancel.clone(),
+            )
+            .await;
+            if super::is_current(&state, epoch, &cancel) {
+                phase(&app, &state, epoch, RuntimePhase::Idle, None, result.err());
+            }
+        })?;
     } else {
         phase(&app, &state, prepared.0, RuntimePhase::Idle, None, None);
         publish(&app, &state);
     }
     Ok(())
+}
+
+fn decline_line(db: &rusqlite::Connection, center_id: &str) -> Result<SceneLine, String> {
+    let actor = characters::get(db, center_id)?;
+    let expression = if actor.definition.expressions.contains_key("평온") {
+        "평온".into()
+    } else {
+        actor
+            .definition
+            .expressions
+            .keys()
+            .next()
+            .cloned()
+            .ok_or("친구의 표정을 찾을 수 없어요.")?
+    };
+    Ok(SceneLine {
+        persona: center_id.into(),
+        expression,
+        text: "알겠어. 설정 → 일반 → 안내서에서 언제든 다시 볼 수 있어.".into(),
+        widget: None,
+        motion: Default::default(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+
+    #[test]
+    fn decline_line_can_be_presented_and_recorded_without_an_active_run() {
+        let state = super::super::tests::state();
+        let line = {
+            let db = lock(&state.db).unwrap();
+            store::set_user_name(&db, "친구", 1000).unwrap();
+            let center = characters::active_ids(&db).unwrap().remove(0);
+            decline_line(&db, &center).unwrap()
+        };
+        lock(&state.tasks).unwrap().pack_replay = Some("decline".into());
+        let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
+        assert!(super::super::scene::present_line(
+            &state,
+            &line,
+            "tutorial",
+            "scene:decline:0",
+            0,
+            1,
+            revision,
+            0,
+            &AtomicBool::new(false),
+            false,
+        )
+        .unwrap());
+        let db = lock(&state.db).unwrap();
+        let (source, text): (String, String) = db.query_row(
+            "SELECT c.source,json_extract(m.data,'$.content') FROM message_context c JOIN messages m ON m.id=c.message_id WHERE m.id='scene:decline:0'",
+            [], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(source, "tutorial");
+        assert_eq!(
+            text,
+            "알겠어. 설정 → 일반 → 안내서에서 언제든 다시 볼 수 있어."
+        );
+    }
 }

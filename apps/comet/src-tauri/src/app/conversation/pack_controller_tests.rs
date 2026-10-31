@@ -2131,3 +2131,115 @@ fn failed_cancellation_write_clears_the_run_and_defers_the_outcome() {
         "first"
     );
 }
+
+#[test]
+fn tutorial_choice_records_only_displayed_current_question_once() {
+    for unnamed in [true, false] {
+        let (state, mut run) = chapter_run_fixture();
+        run.definition.as_mut().unwrap().purpose = pack_stories::ScenarioPurpose::Tutorial;
+        state.epoch.store(run.epoch, Ordering::SeqCst);
+        let request = story::Request {
+            id: "scene-choice:question".into(),
+            display_started_at: Some(10),
+            persona: run.scope.center_id.clone(),
+            expression: Some("평온".into()),
+            motion: None,
+            title: "선택".into(),
+            prompt: "질문".into(),
+            choices: vec![],
+            character_id: run.scope.center_id.clone(),
+            user_id: run.scope.user_id.clone(),
+            scene: story::Scene {
+                id: String::new(),
+                chapter: 0,
+                title: String::new(),
+                prompt: String::new(),
+                choices: vec![],
+            },
+            epoch: run.epoch,
+        };
+        {
+            let db = lock(&state.db).unwrap();
+            if unnamed {
+                db.execute(
+                    "UPDATE user_identities SET name='' WHERE id=?1",
+                    [&run.scope.user_id],
+                )
+                .unwrap();
+            }
+        }
+        {
+            let mut runtime = lock(&state.pack_stories).unwrap();
+            runtime.run = Some(run.clone());
+            runtime.choice_recorded_text = Some("질문".into());
+            runtime.interaction = Some(pack_stories::SceneInteraction {
+                run_id: run.run_id.clone(),
+                epoch: run.epoch,
+                generation: run.phase_generation,
+                request_id: request.id.clone(),
+                persona: request.persona.clone(),
+                choices: Some(vec!["yes".into()]),
+                answer: None,
+            });
+        }
+        let db = lock(&state.db).unwrap();
+        let mut stale = request.clone();
+        stale.epoch += 1;
+        scene_story::record_displayed_choice(&state, &db, &stale).unwrap();
+        let mut hidden = request.clone();
+        hidden.display_started_at = None;
+        scene_story::record_displayed_choice(&state, &db, &hidden).unwrap();
+        assert!(lock(&state.pack_stories).unwrap().unnamed_lines.is_empty());
+        scene_story::record_displayed_choice(&state, &db, &request).unwrap();
+        scene_story::record_displayed_choice(&state, &db, &request).unwrap();
+        let count: i64 = db
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE id=?1",
+                [&request.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, i64::from(!unnamed));
+        assert_eq!(
+            lock(&state.pack_stories).unwrap().unnamed_lines.len(),
+            usize::from(unnamed)
+        );
+        if !unnamed {
+            let source: String = db
+                .query_row(
+                    "SELECT source FROM message_context WHERE message_id=?1",
+                    [&request.id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(source, "tutorial");
+        }
+    }
+}
+#[test]
+fn name_confirmation_only_follows_a_new_name() {
+    let saved = crate::pack_stories::StorySavedLine {
+        expression: "기쁨".into(),
+        text: "{userName}! 좋다. 이제 그렇게 부를게.".into(),
+        motion: Default::default(),
+    };
+    let answers = std::collections::BTreeMap::new();
+    let (line, record) = scene_story::saved_name_line(
+        Some(saved.clone()),
+        true,
+        "character".into(),
+        "별",
+        &answers,
+    )
+    .unwrap();
+    assert_eq!(line.persona, "character");
+    assert_eq!(line.expression, "기쁨");
+    assert_eq!(line.text, "별! 좋다. 이제 그렇게 부를게.");
+    assert_eq!(line.motion, saved.motion);
+    assert!(record.is_none());
+    assert!(
+        scene_story::saved_name_line(Some(saved), false, "character".into(), "별", &answers)
+            .is_none()
+    );
+    assert!(scene_story::saved_name_line(None, true, "character".into(), "별", &answers).is_none());
+}

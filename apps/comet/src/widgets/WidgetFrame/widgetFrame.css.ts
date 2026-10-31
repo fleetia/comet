@@ -9,7 +9,7 @@ const window = style({
   overflow: "hidden",
   color: tokens["color/ink"],
   border: `1px solid ${tokens["color/glass-border"]}`,
-  borderRadius: tokens["radius/radius-18"],
+  borderRadius: tokens["radius/radius-9"],
   backdropFilter: tokens["backdrop/backdrop-panel"],
   boxSizing: "border-box",
 });

@@ -16,7 +16,7 @@ export const item = style({
   display: "grid",
   gap: tokens["spacing/space-4"],
   padding: tokens["spacing/space-8"],
-  borderRadius: tokens["radius/radius-12"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card"],
   border: `1px solid ${tokens["color/card-border"]}`,
 });

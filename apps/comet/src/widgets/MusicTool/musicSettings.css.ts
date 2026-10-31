@@ -29,7 +29,7 @@ export const caption = style({
 export const options = style({
   overflow: "hidden",
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-18"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card"],
 });
 export const optionRow = style({
@@ -68,7 +68,7 @@ export const sectionTitle = style({
 });
 export const rows = style({
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 18,
+  borderRadius: 9,
   overflow: "hidden",
   background: tokens["color/card"],
 });
@@ -109,7 +109,7 @@ export const pairingCode = style({
   gap: 8,
   padding: "12px 16px",
   border: `1px solid ${tokens["color/selected-border"]}`,
-  borderRadius: 16,
+  borderRadius: 9,
   background: tokens["color/selected"],
 });
 globalStyle(`${pairingCode} code`, {
@@ -140,7 +140,7 @@ export const morePanel = style({
   width: "min(340px, calc(100vw - 80px))",
   padding: 14,
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 16,
+  borderRadius: 9,
   background: tokens["color/component/os-notification-surface"],
   backdropFilter: "blur(16px)",
   boxShadow: `0 4px 12px -2px ${tokens["color/component/surface-shadow-alpha-400"]}`,

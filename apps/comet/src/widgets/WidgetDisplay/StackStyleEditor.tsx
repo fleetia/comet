@@ -25,6 +25,7 @@ export function StackStyleEditor({
   const pending = useRef<StackStyle | null>(null);
   const saveRef = useRef(onSave);
   saveRef.current = onSave;
+  const radius = Math.min(draft.radius, STACK_RADIUS.max);
 
   useEffect(() => {
     if (!pending.current) setDraft(value ?? DEFAULT_STACK_STYLE);
@@ -103,12 +104,12 @@ export function StackStyleEditor({
             aria-label="모서리"
             min={STACK_RADIUS.min}
             max={STACK_RADIUS.max}
-            value={draft.radius}
+            value={radius}
             disabled={disabled}
             onChange={(event) => change({ radius: event.currentTarget.valueAsNumber })}
           />
           <span className={shape.rangeValue} aria-hidden="true">
-            {draft.radius}px
+            {radius}px
           </span>
         </span>
       </label>

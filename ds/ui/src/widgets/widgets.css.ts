@@ -14,7 +14,7 @@ export const row = style([
     width: 370,
     height: 56,
     padding: "0 16px",
-    borderRadius: 20,
+    borderRadius: 9,
     textAlign: "left",
     fontSize: 13,
     lineHeight: "18px",
@@ -139,7 +139,7 @@ export const panel = style([
     gap: 12,
     width: 310,
     padding: 16,
-    borderRadius: 22,
+    borderRadius: 9,
     fontSize: 13,
     lineHeight: "18px",
   },
@@ -301,7 +301,7 @@ export const musicCard = style({
   minHeight: 310,
   padding: "16px 18px",
   border: 0,
-  borderRadius: 26,
+  borderRadius: 9,
   boxShadow: `inset 0 0 0 1px ${tokens["color/glass-border"]}, inset 0 1px 0 ${tokens["color/surface-highlight"]}, 0 4px 12px -2px ${tokens["color/surface-shadow"]}`,
 });
 globalStyle(`${musicCard} > header`, { minHeight: 30 });
@@ -446,7 +446,7 @@ export const summary = style([
     alignItems: "center",
     height: 52,
     padding: "8px",
-    borderRadius: 25,
+    borderRadius: 9,
     width: "max-content",
     boxShadow: `inset 0 1px 0 ${tokens["color/surface-highlight"]}`,
   },
@@ -617,7 +617,7 @@ export const picker = style({
   padding: 0,
   margin: 0,
   border: `1px solid ${tokens["color/chip-border"]}`,
-  borderRadius: 14,
+  borderRadius: 9,
   overflow: "hidden",
 });
 export const pickerOption = style({

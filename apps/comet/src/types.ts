@@ -133,16 +133,18 @@ export type ScenarioActionStep = { kind: "action" } & ScenarioAction;
 export type ScenarioStep =
   | ScenarioLineStep
   | { kind: "move"; persona: string; enter: "left" | "right" }
-  | {
+  | ({
       kind: "ask";
       id: string;
       persona: string;
       expression: string;
       prompt: string;
-      input: "name" | "text";
       known?: string | null;
       motion?: MotionOverride;
-    }
+    } & (
+      | { input: "name"; saved?: { expression: string; text: string; motion?: MotionOverride } }
+      | { input: "text"; saved?: never }
+    ))
   | {
       kind: "choice";
       persona: string;

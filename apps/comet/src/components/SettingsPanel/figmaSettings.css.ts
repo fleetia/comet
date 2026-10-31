@@ -24,7 +24,7 @@ export const inspector = style({
   minWidth: 0,
   padding: "18px 20px 20px",
   border: `1px solid ${tokens["color/chip-border"]}`,
-  borderRadius: 24,
+  borderRadius: 9,
   background: `radial-gradient(ellipse at 50% 0, ${tokens["color/preview-glow"]}, ${tokens["color/preview-glow-transparent"]} 70%), ${tokens["color/preview-panel"]}`,
   boxShadow: `0 1px 2px ${tokens["color/card-shadow"]}`,
   selectors: {
@@ -79,7 +79,7 @@ export const group = style({
   minWidth: 0,
   overflow: "hidden",
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-18"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card"],
   boxShadow: `0 1px 2px ${tokens["color/card-shadow"]}`,
 });
@@ -114,7 +114,7 @@ export const summary = style({
   padding: "12px 16px",
   background: tokens["color/card"],
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 18,
+  borderRadius: 9,
   boxShadow: `0 1px 2px ${tokens["color/card-shadow"]}`,
 });
 export const avatar = style({
@@ -142,7 +142,7 @@ export const note = style({
   gap: 12,
   padding: "12px 14px",
   minWidth: 0,
-  borderRadius: 16,
+  borderRadius: 9,
   background: tokens["color/card"],
   border: `1px solid ${tokens["color/card-border"]}`,
   boxShadow: `0 1px 2px ${tokens["color/card-shadow"]}`,
@@ -174,7 +174,7 @@ export const balloon = style({
   width: "100%",
   boxSizing: "border-box",
   padding: "16px 18px",
-  borderRadius: 22,
+  borderRadius: 9,
   border: `1px solid ${tokens["color/glass-border"]}`,
   background: tokens["color/glass-panel"],
 });

@@ -14,7 +14,7 @@ export const pack = style({
   gap: 12,
   padding: 16,
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 18,
+  borderRadius: 9,
   background: tokens["color/card"],
 });
 export const packHeading = style({

@@ -4149,6 +4149,156 @@ mod scene_events_tests {
         assert_eq!(take_event(&state, &run).unwrap(), None);
     }
 
+    fn upcoming_tutorial_wait(state: &AppState, chapter: &str, step: usize) -> RunTicket {
+        let mut run = run(state);
+        run.definition = Some(
+            serde_json::from_str(include_str!("../../content/byulkkori-tutorial.json")).unwrap(),
+        );
+        run.chapter_id = Some(chapter.into());
+        run.step = step;
+        lock(&state.pack_stories).unwrap().run = Some(run.clone());
+        mark_resumed_locked(state, &run).unwrap();
+        run
+    }
+
+    #[test]
+    fn owned_window_events_arriving_during_previous_line_reach_only_the_target_wait() {
+        for close in [false, true] {
+            let state = crate::app::tests::state();
+            let mut run = upcoming_tutorial_wait(&state, "memo", 2);
+            register_window_locked(&state, &run, "memo", "widget:note".into()).unwrap();
+            if close {
+                window_closed(&state, StoryWindow::Memo, "widget:note").unwrap();
+            } else {
+                let _action = lock(&state.action).unwrap();
+                memo_saved_locked(&state, "widget", "note").unwrap();
+            }
+            run.step += 1;
+            run.phase_generation += 1;
+            lock(&state.pack_stories).unwrap().run = Some(run.clone());
+            let saved = StoryEvent::WidgetSaved {
+                widget: crate::pack_stories::SavedWidget::Memo,
+            };
+            let closed = StoryEvent::WindowClosed {
+                window: StoryWindow::Memo,
+            };
+            begin_wait(&state, &run, &saved, &[closed]).unwrap();
+            assert_eq!(
+                take_event(&state, &run).unwrap(),
+                Some(if close {
+                    WaitResult::Cancelled
+                } else {
+                    WaitResult::Matched
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn queued_window_event_rejects_changed_run_or_generation() {
+        for change_run in [false, true] {
+            let state = crate::app::tests::state();
+            let mut run = upcoming_tutorial_wait(&state, "memo", 2);
+            register_window_locked(&state, &run, "memo", "widget:note".into()).unwrap();
+            window_closed(&state, StoryWindow::Memo, "widget:note").unwrap();
+            run.step += 1;
+            run.phase_generation += if change_run { 1 } else { 2 };
+            if change_run {
+                run.run_id = "another".into();
+            }
+            lock(&state.pack_stories).unwrap().run = Some(run.clone());
+            let saved = StoryEvent::WidgetSaved {
+                widget: crate::pack_stories::SavedWidget::Memo,
+            };
+            let closed = StoryEvent::WindowClosed {
+                window: StoryWindow::Memo,
+            };
+            begin_wait(&state, &run, &saved, &[closed]).unwrap();
+            assert_eq!(take_event(&state, &run).unwrap(), None);
+        }
+    }
+
+    #[test]
+    fn settings_closed_during_its_open_action_reaches_the_next_wait() {
+        let state = crate::app::tests::state();
+        let mut run = upcoming_tutorial_wait(&state, "ai-connect", 0);
+        register_window_locked(&state, &run, "settings", "settings".into()).unwrap();
+        closed_label(&state, "settings").unwrap();
+        run.step += 1;
+        run.phase_generation += 1;
+        lock(&state.pack_stories).unwrap().run = Some(run.clone());
+        begin_wait(
+            &state,
+            &run,
+            &StoryEvent::WindowClosed {
+                window: StoryWindow::Settings,
+            },
+            &[],
+        )
+        .unwrap();
+        assert_eq!(take_event(&state, &run).unwrap(), Some(WaitResult::Matched));
+    }
+
+    #[test]
+    fn focus_started_during_previous_line_remains_owned_and_reaches_wait() {
+        let state = crate::app::tests::state();
+        let directory = tempfile::tempdir().unwrap();
+        let timer = {
+            let db = lock(&state.db).unwrap();
+            widgets::storage::verify_packages(&db, directory.path()).unwrap();
+            widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|item| item.kind == "focus-timer")
+                .unwrap()
+        };
+        let mut run = upcoming_tutorial_wait(&state, "focus", 2);
+        register_window_locked(&state, &run, "focus-timer", timer.id.clone()).unwrap();
+        update_focus_in_owned_window(&state, &timer.id, "start");
+        assert!(owned_focus(&state, &run).unwrap());
+        run.step += 1;
+        run.phase_generation += 1;
+        lock(&state.pack_stories).unwrap().run = Some(run.clone());
+        begin_wait(&state, &run, &StoryEvent::FocusStarted {}, &[]).unwrap();
+        assert_eq!(take_event(&state, &run).unwrap(), Some(WaitResult::Matched));
+    }
+
+    #[test]
+    fn focus_start_and_stop_before_wait_reach_their_distinct_steps() {
+        for pause_after_first_wait in [false, true] {
+            let state = crate::app::tests::state();
+            let directory = tempfile::tempdir().unwrap();
+            let timer = {
+                let db = lock(&state.db).unwrap();
+                widgets::storage::verify_packages(&db, directory.path()).unwrap();
+                widgets::storage::instances(&db)
+                    .unwrap()
+                    .into_iter()
+                    .find(|item| item.kind == "focus-timer")
+                    .unwrap()
+            };
+            let mut run = upcoming_tutorial_wait(&state, "focus", 2);
+            register_window_locked(&state, &run, "focus-timer", timer.id.clone()).unwrap();
+            update_focus_in_owned_window(&state, &timer.id, "start");
+            if !pause_after_first_wait {
+                update_focus_in_owned_window(&state, &timer.id, "pause");
+            }
+            run.step = 3;
+            run.phase_generation += 1;
+            lock(&state.pack_stories).unwrap().run = Some(run.clone());
+            begin_wait(&state, &run, &StoryEvent::FocusStarted {}, &[]).unwrap();
+            assert_eq!(take_event(&state, &run).unwrap(), Some(WaitResult::Matched));
+            if pause_after_first_wait {
+                update_focus_in_owned_window(&state, &timer.id, "pause");
+            }
+            run.step = 6;
+            run.phase_generation += 3;
+            lock(&state.pack_stories).unwrap().run = Some(run.clone());
+            begin_wait(&state, &run, &StoryEvent::FocusStopped {}, &[]).unwrap();
+            assert_eq!(take_event(&state, &run).unwrap(), Some(WaitResult::Matched));
+        }
+    }
+
     fn update_focus_in_owned_window(state: &AppState, id: &str, action: &str) {
         let _action = lock(&state.action).unwrap();
         let db = lock(&state.db).unwrap();

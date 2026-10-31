@@ -1,5 +1,7 @@
 use super::{is_current, lock, AppState};
-use crate::pack_stories::{RunTicket, StoryAction, StoryEvent, StoryWidget, StoryWindow};
+use crate::pack_stories::{
+    RunTicket, StoryAction, StoryEvent, StoryStep, StoryWidget, StoryWindow,
+};
 use rusqlite::Connection;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -20,11 +22,20 @@ struct Wait {
     event: StoryEvent,
     cancel_on: Vec<StoryEvent>,
     result: Option<WaitResult>,
+    matched: bool,
+}
+
+struct PendingWait {
+    chapter_id: String,
+    step: usize,
+    generation: u64,
+    result: WaitResult,
 }
 
 #[derive(Default)]
 pub(crate) struct Runtime {
     wait: Option<Wait>,
+    pending_wait: Vec<PendingWait>,
     run_id: Option<String>,
     windows: BTreeMap<String, String>,
     saved_memos: BTreeSet<String>,
@@ -108,15 +119,125 @@ pub(crate) fn begin_wait(
             ..Default::default()
         };
     }
+    events.pending_wait.retain(|pending| {
+        run.chapter_id.as_deref() == Some(pending.chapter_id.as_str())
+            && pending.generation >= run.phase_generation
+    });
+    let pending = events
+        .pending_wait
+        .iter()
+        .position(|pending| run.step == pending.step && run.phase_generation == pending.generation)
+        .map(|index| events.pending_wait.remove(index));
+    let result = pending.map(|pending| pending.result);
     events.wait = Some(Wait {
         run_id: run.run_id.clone(),
         epoch: run.epoch,
         generation: run.phase_generation,
         event: event.clone(),
         cancel_on: cancel_on.to_vec(),
-        result: None,
+        result,
+        matched: result == Some(WaitResult::Matched),
     });
     Ok(true)
+}
+
+fn upcoming_wait(
+    run: &RunTicket,
+    event: &StoryEvent,
+    pending: &[PendingWait],
+    active: Option<&Wait>,
+) -> Option<PendingWait> {
+    let chapter_id = run.chapter_id.as_ref()?;
+    let chapter = run
+        .definition
+        .as_ref()?
+        .chapters
+        .as_ref()?
+        .iter()
+        .find(|chapter| &chapter.id == chapter_id)?;
+    for (step, item) in chapter.steps.iter().enumerate().skip(run.step) {
+        match item {
+            StoryStep::Line { .. } => {}
+            StoryStep::Action { .. } if step == run.step => {}
+            StoryStep::Wait {
+                event: expected,
+                cancel_on,
+                ..
+            } => {
+                let result = if expected == event {
+                    WaitResult::Matched
+                } else if cancel_on.contains(event) {
+                    WaitResult::Cancelled
+                } else if pending.iter().any(|item| {
+                    item.chapter_id == *chapter_id
+                        && item.step == step
+                        && item.generation == run.phase_generation + (step - run.step) as u64
+                        && item.result == WaitResult::Matched
+                }) || active.is_some_and(|wait| {
+                    wait.run_id == run.run_id
+                        && wait.epoch == run.epoch
+                        && wait.generation == run.phase_generation + (step - run.step) as u64
+                        && wait.matched
+                }) {
+                    continue;
+                } else {
+                    return None;
+                };
+                return Some(PendingWait {
+                    chapter_id: chapter_id.clone(),
+                    step,
+                    generation: run.phase_generation.checked_add((step - run.step) as u64)?,
+                    result,
+                });
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+fn deliver_event(
+    runtime: &mut Runtime,
+    run: &RunTicket,
+    event: &StoryEvent,
+    can_queue: bool,
+) -> bool {
+    if let Some(wait) = runtime.wait.as_mut().filter(|wait| {
+        wait.run_id == run.run_id
+            && wait.epoch == run.epoch
+            && wait.generation == run.phase_generation
+            && wait.result.is_none()
+    }) {
+        wait.result = if wait.event == *event {
+            Some(WaitResult::Matched)
+        } else if wait.cancel_on.contains(event) {
+            Some(WaitResult::Cancelled)
+        } else {
+            None
+        };
+        if wait.result == Some(WaitResult::Matched) {
+            wait.matched = true;
+        }
+        if wait.result.is_some() {
+            return true;
+        }
+    }
+    if can_queue {
+        if let Some(pending) =
+            upcoming_wait(run, event, &runtime.pending_wait, runtime.wait.as_ref())
+        {
+            if runtime.pending_wait.iter().any(|item| {
+                item.chapter_id == pending.chapter_id
+                    && item.step == pending.step
+                    && item.generation == pending.generation
+            }) {
+                return false;
+            }
+            runtime.pending_wait.push(pending);
+            return true;
+        }
+    }
+    false
 }
 
 pub(crate) fn take_event(state: &AppState, run: &RunTicket) -> Result<Option<WaitResult>, String> {
@@ -142,7 +263,8 @@ fn send_locked(
     window: Option<(&str, &str)>,
     center: Option<&str>,
 ) -> Result<bool, String> {
-    let active = lock(&state.pack_stories)?.run.clone();
+    let stories = lock(&state.pack_stories)?;
+    let active = stories.run.as_ref();
     let Some(run) = active else {
         return Ok(false);
     };
@@ -160,22 +282,12 @@ fn send_locked(
             return Ok(false);
         }
     }
-    let Some(wait) = runtime.wait.as_mut().filter(|wait| {
-        wait.run_id == run.run_id
-            && wait.epoch == run.epoch
-            && wait.generation == run.phase_generation
-            && wait.result.is_none()
-    }) else {
-        return Ok(false);
-    };
-    wait.result = if wait.event == event {
-        Some(WaitResult::Matched)
-    } else if wait.cancel_on.contains(&event) {
-        Some(WaitResult::Cancelled)
-    } else {
-        None
-    };
-    Ok(wait.result.is_some())
+    let can_queue = window.is_some()
+        || (matches!(
+            event,
+            StoryEvent::FocusStarted {} | StoryEvent::FocusStopped {}
+        ) && runtime.focus.is_some());
+    Ok(deliver_event(&mut runtime, run, &event, can_queue))
 }
 
 pub(crate) fn body_event(state: &AppState, center: &str, moved: bool) -> Result<(), String> {
@@ -244,6 +356,8 @@ pub(crate) fn window_closed_locked(
 }
 
 pub(crate) fn closed_label(state: &AppState, label: &str) -> Result<(), String> {
+    let stories = lock(&state.pack_stories)?;
+    let active = stories.run.as_ref();
     let mut events = lock(&state.scene_events)?;
     let entries: Vec<(String, StoryWindow)> = events
         .windows
@@ -267,16 +381,10 @@ pub(crate) fn closed_label(state: &AppState, label: &str) -> Result<(), String> 
     let epoch = state.epoch.load(std::sync::atomic::Ordering::SeqCst);
     for (kind, window) in entries {
         let event = StoryEvent::WindowClosed { window };
-        if let Some(wait) = events.wait.as_mut().filter(|wait| {
-            Some(&wait.run_id) == run_id.as_ref() && wait.epoch == epoch && wait.result.is_none()
-        }) {
-            wait.result = if wait.event == event {
-                Some(WaitResult::Matched)
-            } else if wait.cancel_on.contains(&event) {
-                Some(WaitResult::Cancelled)
-            } else {
-                None
-            };
+        if let Some(run) =
+            active.filter(|run| Some(&run.run_id) == run_id.as_ref() && run.epoch == epoch)
+        {
+            deliver_event(&mut events, run, &event, true);
         }
         events.windows.remove(&kind);
     }
@@ -338,7 +446,13 @@ pub(crate) fn focus_changed_locked(
                 && wait.epoch == run.epoch
                 && wait.generation == run.phase_generation
                 && wait.event == (StoryEvent::FocusStarted {})
-        });
+        }) || upcoming_wait(
+            &run,
+            &StoryEvent::FocusStarted {},
+            &events.pending_wait,
+            events.wait.as_ref(),
+        )
+        .is_some();
         if waiting
             && focus_window
             && id
@@ -442,7 +556,7 @@ pub(crate) async fn execute_action(
                 state,
                 run,
                 cancel,
-                "start",
+                "start-once",
                 serde_json::json!({"durationMs":u64::from(*minutes)*60_000}),
             )?;
             crate::widgets::commands::publish_widgets(app, state);
@@ -529,7 +643,7 @@ fn focus_action(
         0,
     )?;
     let mut events = lock(&state.scene_events)?;
-    if action == "start" {
+    if action == "start-once" {
         events.focus = Some(instance.id);
     } else {
         events.focus = None;

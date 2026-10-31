@@ -10,7 +10,7 @@ export const window = style({
   overflow: "hidden",
   background: tokens["color/glass-panel"],
   border: `1px solid ${tokens["color/glass-border"]}`,
-  borderRadius: 24,
+  borderRadius: 9,
   backdropFilter: tokens["backdrop/backdrop-window"],
   // WebKit draws the backdrop blur as a square behind rounded corners in the transparent window.
   clipPath: "inset(0 round 24px)",
@@ -166,7 +166,7 @@ export const error = style({
   fontSize: tokens["typography/sans/caption/fontSize"],
   background: tokens["color/component/danger-alpha-100"],
   color: tokens["color/danger"],
-  borderRadius: tokens["radius/radius-10"],
+  borderRadius: tokens["radius/radius-9"],
 });
 export const errorActions = style({ display: "flex", gap: 8, marginTop: 8 });
 

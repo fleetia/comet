@@ -34,7 +34,7 @@ export const catchCell = style({
   alignContent: "center",
   gap: 2,
   height: 64,
-  borderRadius: tokens["radius/radius-12"],
+  borderRadius: tokens["radius/radius-9"],
   border: `1px solid ${tokens["color/glass-border"]}`,
   background: tokens["color/card"],
   color: tokens["color/ink-2"],

@@ -72,3 +72,15 @@ it("registers a selected birthday with the name", async () => {
     }),
   );
 });
+
+it("keeps the scene registration draft after a failed save", async () => {
+  const dispatch: Dispatch = vi.fn().mockRejectedValueOnce(new Error("저장 실패"));
+  render(<NameRegistration greeting="" sceneAskId="name-question" dispatch={dispatch} />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "별" } });
+  fireEvent.submit(screen.getByRole("form", { name: "이름 알려주기" }));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "저장 실패");
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "별");
+  expect(dispatch).toHaveBeenCalledWith("register_user_profile", {
+    name: "별", birthday: null, sceneAskId: "name-question",
+  });
+});

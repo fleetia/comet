@@ -27,7 +27,7 @@ export const inspector = style({
   maxHeight: "100%",
   boxSizing: "border-box",
   padding: "18px 20px 20px",
-  borderRadius: 24,
+  borderRadius: 9,
   border: `1px solid ${tokens["color/chip-border"]}`,
   background: `radial-gradient(ellipse at 50% 0, ${tokens["color/inspector-glow"]}, transparent 70%), ${tokens["color/card-2"]}`,
   boxShadow: `0 1px 2px ${tokens["color/card-shadow"]}`,
@@ -71,7 +71,7 @@ export const listGroupTitle = style({
 export const entryGroup = style({
   overflow: "hidden",
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 16,
+  borderRadius: 9,
   background: tokens["color/card"],
 });
 export const entryRow = style({
@@ -150,7 +150,7 @@ export const sectionTitle = style({
 });
 export const editorCard = style({
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 18,
+  borderRadius: 9,
   background: tokens["color/card"],
   overflow: "hidden",
 });
@@ -204,7 +204,7 @@ globalStyle(`${toggleRows} > div + div`, { borderLeft: `1px solid ${tokens["colo
 export const warning = style({
   margin: 0,
   padding: 12,
-  borderRadius: 12,
+  borderRadius: 9,
   border: `1px solid ${tokens["color/card-border"]}`,
   background: tokens["color/card"],
   fontSize: 12,
@@ -215,7 +215,7 @@ globalStyle(`${previewDetails} > summary`, { cursor: "pointer", padding: "5px 0"
 export const matchTest = style({
   padding: "10px 16px",
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 16,
+  borderRadius: 9,
   background: tokens["color/card"],
 });
 export const testControls = style({ display: "flex", alignItems: "end", gap: 10 });
@@ -235,7 +235,7 @@ export const confirmation = style({
   gap: 10,
   padding: 14,
   marginTop: 10,
-  borderRadius: 16,
+  borderRadius: 9,
   background: tokens["color/card"],
   fontSize: 13,
 });

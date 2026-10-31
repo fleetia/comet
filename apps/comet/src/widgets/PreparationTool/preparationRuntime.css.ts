@@ -40,7 +40,7 @@ export const list = style({
   gap: 6,
   padding: 12,
   minWidth: 0,
-  borderRadius: 20,
+  borderRadius: 9,
   background: tokens["color/card-2"],
   outline: `1px solid ${tokens["color/card-border"]}`,
   outlineOffset: -1,
@@ -61,7 +61,7 @@ export const disclosure = style({
   fontSize: 13,
   lineHeight: "18px",
 });
-export const empty = style({ padding: 22, borderRadius: 20, background: tokens["color/card-2"] });
+export const empty = style({ padding: 22, borderRadius: 9, background: tokens["color/card-2"] });
 export const detailDialog = style({
   width: "min(980px, calc(100vw - 48px))",
   maxWidth: "calc(100vw - 48px)",

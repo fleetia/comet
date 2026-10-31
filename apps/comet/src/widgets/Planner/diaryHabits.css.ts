@@ -62,7 +62,7 @@ export const statistics = style({
 const panel = style({
   border: `1px solid ${tokens["color/card-border"]}`,
   background: tokens["color/card"],
-  borderRadius: tokens["radius/radius-18"],
+  borderRadius: tokens["radius/radius-9"],
 });
 export const stat = style([
   panel,

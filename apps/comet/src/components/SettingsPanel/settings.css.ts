@@ -14,7 +14,7 @@ export const window = style({
   backgroundPosition: "center top",
   backgroundRepeat: "no-repeat",
   border: `1px solid ${tokens["color/glass-border"]}`,
-  borderRadius: tokens["radius/radius-22"],
+  borderRadius: tokens["radius/radius-9"],
   boxSizing: "border-box",
   fontSize: tokens["typography/sans/body/fontSize"],
   selectors: {
@@ -22,7 +22,7 @@ export const window = style({
   },
 });
 globalStyle(`${window} dialog::backdrop`, {
-  borderRadius: tokens["radius/radius-22"],
+  borderRadius: tokens["radius/radius-9"],
 });
 export const preview = style({
   height: 720,
@@ -167,7 +167,7 @@ export const settingsSection = style({
 export const inlineHighlight = style({
   minHeight: 64,
   padding: "16px 24px",
-  borderRadius: "16px 16px 0 0",
+  borderRadius: "9px 9px 0 0",
   background: tokens["color/component/selected-icon-alpha-80"],
   color: tokens["color/ink"],
   display: "flex",
@@ -185,7 +185,7 @@ export const automaticPanel = style({
   gap: 20,
   overflow: "hidden",
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-18"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/card"],
 });
 globalStyle(`${automaticPanel} > .${saveBar}`, { marginInline: 24 });

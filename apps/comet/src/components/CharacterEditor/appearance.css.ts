@@ -22,7 +22,7 @@ export const previewCard = style({
   alignItems: "center",
   padding: "18px 20px 20px",
   border: `1px solid ${tokens["color/chip-border"]}`,
-  borderRadius: 24,
+  borderRadius: 9,
   background: `radial-gradient(ellipse at top, ${tokens["color/icon-tile"]}, transparent 70%), ${tokens["color/card-2"]}`,
 });
 export const previewHeading = style({
@@ -99,7 +99,7 @@ export const motionTile = style({ width: "100%", minHeight: 62 });
 export const expressionInspector = style({
   padding: "12px 16px",
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: 18,
+  borderRadius: 9,
   background: tokens["color/card"],
 });
 export const contentHeading = style({

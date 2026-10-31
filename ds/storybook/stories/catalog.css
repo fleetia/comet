@@ -164,7 +164,7 @@ body.sb-show-main {
 .comet-catalog-motion-sample {
   padding: 16px;
   border: 1px solid var(--comet-color-line);
-  border-radius: var(--comet-radius-radius-18);
+  border-radius: var(--comet-radius-radius-9);
   background: var(--comet-color-card);
   color: var(--comet-color-ink);
 }
