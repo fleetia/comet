@@ -218,6 +218,13 @@ export type AuthoringState = {
 };
 export type AuthoringTrialTrace = {
   blockedReasons: string[];
+  scene?: {
+    status: "wait" | "ask" | "choice" | "completed" | "blocked";
+    chapterId: string | null;
+    prompt: string | null;
+    options: { id: string; label: string }[];
+    history: { text: string; persona: string | null }[];
+  } | null;
   steps: {
     input: string | null;
     source: "registered" | "none";

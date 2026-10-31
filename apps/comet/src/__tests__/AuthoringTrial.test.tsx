@@ -82,7 +82,9 @@ const props = {
   presentIds: [actors[0].id],
 };
 function expand(open = true): void {
-  const details = screen.getByText("찾아오는 친구 등장 시험", { selector: "summary" }).closest("details")!;
+  const details = screen
+    .getByText("찾아오는 친구 등장 시험", { selector: "summary" })
+    .closest("details")!;
   details.open = open;
   fireEvent(details, new Event("toggle"));
 }
@@ -100,7 +102,7 @@ beforeEach(() => {
   });
 });
 
-it("blocks trials of scene stories even when opened directly", () => {
+it("trials scene waits and records both event and timeout paths without executing actions", async () => {
   const sceneDefinition: PackStoryDefinition = {
     ...definition,
     scenarios: [
@@ -125,6 +127,44 @@ it("blocks trials of scene stories even when opened directly", () => {
       },
     ],
   };
+  const sceneTrace: AuthoringTrialTrace = {
+    blockedReasons: [],
+    steps: [],
+    scene: {
+      status: "wait",
+      chapterId: "start",
+      prompt: null,
+      options: [],
+      history: [
+        { persona: actors[0].id, text: "안녕" },
+        { persona: null, text: "(메모 위젯을 엶)" },
+      ],
+    },
+  };
+  vi.mocked(command)
+    .mockResolvedValueOnce(sceneTrace)
+    .mockResolvedValueOnce(sceneTrace)
+    .mockResolvedValueOnce({
+      ...sceneTrace,
+      scene: { ...sceneTrace.scene!, status: "ask", prompt: "이름을 알려줘" },
+    })
+    .mockResolvedValueOnce({
+      ...sceneTrace,
+      scene: {
+        ...sceneTrace.scene!,
+        status: "choice",
+        prompt: "어디로 갈까?",
+        options: [{ id: "home", label: "집" }],
+      },
+    })
+    .mockResolvedValueOnce({
+      ...sceneTrace,
+      scene: {
+        ...sceneTrace.scene!,
+        status: "completed",
+        history: [{ persona: null, text: "끝" }],
+      },
+    });
   render(
     <AuthoringTrial
       {...props}
@@ -133,9 +173,54 @@ it("blocks trials of scene stories even when opened directly", () => {
       subject={{ kind: "scenario", scenarioId: "scene" }}
     />,
   );
-  expect(screen.getByText("아직 시험할 수 없어요.")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "등록 이야기 시험" })).toBeNull();
-  expect(command).not.toHaveBeenCalled();
+  const details = screen.getByText("등록 이야기 시험", { selector: "summary" }).closest("details")!;
+  details.open = true;
+  fireEvent(details, new Event("toggle"));
+  fireEvent.change(screen.getByLabelText("이미 알고 있는 이름 · 시험에만 사용"), {
+    target: { value: "하늘" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "등록 이야기 시험" }));
+  expect(await screen.findByText("기다리는 단계")).toBeTruthy();
+  expect(screen.getByText(`${actors[0].definition.name}: 안녕`)).toBeTruthy();
+  expect(screen.getByText("(메모 위젯을 엶)")).toBeTruthy();
+  expect(screen.queryByLabelText("등록 이야기 시험 입력 · 한 줄에 한 번")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "이벤트 보내기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenLastCalledWith("trial_pack_authoring", {
+      request: expect.objectContaining({
+        sceneKnownName: "하늘",
+        sceneResponses: [{ kind: "event" }],
+      }),
+    }),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "시간 초과" })).toHaveProperty("disabled", false),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "시간 초과" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenLastCalledWith("trial_pack_authoring", {
+      request: expect.objectContaining({
+        sceneResponses: [{ kind: "event" }, { kind: "timeout" }],
+      }),
+    }),
+  );
+  fireEvent.change(await screen.findByLabelText("이름을 알려줘"), { target: { value: "하늘" } });
+  fireEvent.click(screen.getByRole("button", { name: "보내기" }));
+  fireEvent.click(await screen.findByRole("button", { name: "집" }));
+  expect(await screen.findByText("끝")).toBeTruthy();
+  expect(command).toHaveBeenLastCalledWith("trial_pack_authoring", {
+    request: expect.objectContaining({
+      sceneResponses: [
+        { kind: "event" },
+        { kind: "timeout" },
+        { kind: "answer", value: "하늘" },
+        { kind: "choice", optionId: "home" },
+      ],
+    }),
+  });
+  expect(vi.mocked(command).mock.calls.every(([name]) => name === "trial_pack_authoring")).toBe(
+    true,
+  );
 });
 
 it.each(["window-close", "document-hide"])(
@@ -208,7 +293,9 @@ it("trials edited actor IDs with explicit conditions, state changes and raw regi
     target: { value: "  초대  \n계속" },
   });
   fireEvent.click(screen.getByLabelText("invited · 시험 조건"));
-  fireEvent.change(screen.getByLabelText("찾아오는 친구 등장 시험 친밀도"), { target: { value: "37" } });
+  fireEvent.change(screen.getByLabelText("찾아오는 친구 등장 시험 친밀도"), {
+    target: { value: "37" },
+  });
   run();
   const result = await screen.findByLabelText("찾아오는 친구 등장 시험 결과");
   expect(command).toHaveBeenCalledExactlyOnceWith("trial_pack_authoring", {
@@ -434,7 +521,10 @@ it("reloads a pending pack definition for a new baseline and rejects the older r
     });
   });
   expect(screen.getByLabelText("new · 시험 조건")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "찾아오는 친구 등장 시험" })).toHaveProperty("disabled", false);
+  expect(screen.getByRole("button", { name: "찾아오는 친구 등장 시험" })).toHaveProperty(
+    "disabled",
+    false,
+  );
 });
 
 it("wires relationship and NPC trials to the edited definition through their existing editor tabs", async () => {

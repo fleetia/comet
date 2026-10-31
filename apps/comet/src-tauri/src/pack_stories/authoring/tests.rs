@@ -103,6 +103,8 @@ fn fixture(subject: AuthoringSubject) -> AuthoringTrialRequest {
             incomplete_scenario_ids: vec![],
         },
         inputs: vec![],
+        scene_responses: vec![],
+        scene_known_name: String::new(),
     }
 }
 
@@ -113,7 +115,7 @@ fn scenario() -> AuthoringTrialRequest {
 }
 
 #[test]
-fn chapter_scenario_cannot_be_tried() {
+fn chapter_scenario_can_be_tried_without_mutating_the_definition() {
     let mut request = scenario();
     let scene = &mut request.definition.scenarios[0];
     scene.intro.clear();
@@ -132,9 +134,242 @@ fn chapter_scenario_cannot_be_tried() {
         }]))
         .unwrap(),
     );
+    let before = request.definition.clone();
+    let trace = authoring_trial(request.clone()).unwrap();
+    let scene = trace.scene.unwrap();
+    assert_eq!(scene.status, "completed");
     assert_eq!(
-        authoring_trial(request).unwrap_err(),
-        "아직 시험할 수 없어요."
+        scene
+            .history
+            .iter()
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["안녕"]
+    );
+    assert_eq!(request.definition, before);
+}
+
+#[test]
+fn tutorial_trial_does_not_require_affinity_or_wait_but_story_trial_does() {
+    let mut request = scenario();
+    let scene = &mut request.definition.scenarios[0];
+    scene.intro.clear();
+    scene.accept.clear();
+    scene.decline.clear();
+    scene.ending.clear();
+    scene.accept_keywords.clear();
+    scene.decline_keywords.clear();
+    scene.proceed_keywords.clear();
+    scene.cancel_keywords.clear();
+    scene.chapters = Some(
+        serde_json::from_value(serde_json::json!([{
+            "id": "start", "title": "시작", "steps": [{
+                "kind": "line", "persona": scene.center_id, "expression": "평온", "text": "안녕"
+            }]
+        }]))
+        .unwrap(),
+    );
+    request.context.affinity = 0;
+    request.context.wait_turn = 10;
+
+    let story = authoring_trial(request.clone()).unwrap();
+    assert_eq!(story.scene.unwrap().status, "blocked");
+    assert!(story
+        .blocked_reasons
+        .iter()
+        .any(|reason| reason.contains("친밀도")));
+    assert!(story
+        .blocked_reasons
+        .iter()
+        .any(|reason| reason.contains("대기")));
+
+    request.definition.scenarios[0].purpose = ScenarioPurpose::Tutorial;
+    let tutorial = authoring_trial(request).unwrap();
+    assert_eq!(tutorial.scene.unwrap().status, "completed");
+    assert!(tutorial.blocked_reasons.is_empty());
+}
+
+#[test]
+fn scene_trial_replays_wait_branches_without_executing_actions() {
+    let mut request = scenario();
+    let scene = &mut request.definition.scenarios[0];
+    scene.intro.clear();
+    scene.accept.clear();
+    scene.decline.clear();
+    scene.ending.clear();
+    scene.accept_keywords.clear();
+    scene.decline_keywords.clear();
+    scene.proceed_keywords.clear();
+    scene.cancel_keywords.clear();
+    scene.chapters = Some(serde_json::from_value(serde_json::json!([
+        {"id":"start", "title":"시작", "next":"finish", "steps":[
+            {"kind":"action", "do":"widget.open", "widget":"memo"},
+            {"kind":"wait", "event":"widget.saved", "widget":"memo", "timeoutSec":10,
+             "onTimeout":{"steps":[{"kind":"line", "persona":scene.center_id, "expression":"평온", "text":"시간이 지났어요."}], "then":"nextChapter"}},
+            {"kind":"line", "persona":scene.center_id, "expression":"평온", "text":"저장했어요."}
+        ]},
+        {"id":"finish", "title":"끝", "steps":[
+            {"kind":"line", "persona":scene.center_id, "expression":"평온", "text":"마침"}
+        ]}
+    ])).unwrap());
+    let before = request.definition.clone();
+    let initial = authoring_trial(request.clone()).unwrap().scene.unwrap();
+    assert_eq!(initial.status, "wait");
+    assert_eq!(
+        initial
+            .history
+            .iter()
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["(메모 위젯을 엶)"]
+    );
+    request.scene_responses = vec![SceneResponse::Event];
+    let event = authoring_trial(request.clone()).unwrap().scene.unwrap();
+    assert_eq!(event.status, "completed");
+    assert_eq!(
+        event
+            .history
+            .iter()
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["(메모 위젯을 엶)", "(이벤트를 보냄)", "저장했어요.", "마침"]
+    );
+    request.scene_responses = vec![SceneResponse::Timeout];
+    let timeout = authoring_trial(request.clone()).unwrap().scene.unwrap();
+    assert_eq!(timeout.status, "completed");
+    assert_eq!(
+        timeout
+            .history
+            .iter()
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "(메모 위젯을 엶)",
+            "(시간 초과)",
+            "시간이 지났어요.",
+            "마침"
+        ]
+    );
+    assert_eq!(request.definition, before);
+}
+
+#[test]
+fn scene_trial_uses_known_name_without_asking_or_saving_it() {
+    let mut request = scenario();
+    let scene = &mut request.definition.scenarios[0];
+    scene.intro.clear();
+    scene.accept.clear();
+    scene.decline.clear();
+    scene.ending.clear();
+    scene.accept_keywords.clear();
+    scene.decline_keywords.clear();
+    scene.proceed_keywords.clear();
+    scene.cancel_keywords.clear();
+    scene.chapters = Some(serde_json::from_value(serde_json::json!([
+        {"id":"start", "title":"시작", "steps":[
+            {"kind":"ask", "id":"name", "persona":scene.center_id, "expression":"평온", "prompt":"이름은?", "input":"name", "known":"반가워요 {userName}"}
+        ]}
+    ])).unwrap());
+    request.scene_known_name = "하늘".into();
+    let trace = authoring_trial(request).unwrap().scene.unwrap();
+    assert_eq!(trace.status, "completed");
+    assert_eq!(
+        trace
+            .history
+            .iter()
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["반가워요 하늘"]
+    );
+}
+
+#[test]
+fn scene_trial_accepts_answers_and_follows_choice_targets() {
+    let mut request = scenario();
+    let scene = &mut request.definition.scenarios[0];
+    scene.intro.clear();
+    scene.accept.clear();
+    scene.decline.clear();
+    scene.ending.clear();
+    scene.accept_keywords.clear();
+    scene.decline_keywords.clear();
+    scene.proceed_keywords.clear();
+    scene.cancel_keywords.clear();
+    scene.chapters = Some(serde_json::from_value(serde_json::json!([
+        {"id":"start", "title":"시작", "steps":[
+            {"kind":"ask", "id":"topic", "persona":scene.center_id, "expression":"평온", "prompt":"좋아하는 것은?", "input":"text"},
+            {"kind":"choice", "persona":scene.center_id, "expression":"평온", "prompt":"{answer.topic}?", "options":[{"id":"yes", "label":"네", "goto":"finish"}, {"id":"no", "label":"아니요", "goto":"end"}]}
+        ]},
+        {"id":"finish", "title":"끝", "steps":[{"kind":"line", "persona":scene.center_id, "expression":"평온", "text":"반가워요."}]}
+    ])).unwrap());
+    assert_eq!(
+        authoring_trial(request.clone())
+            .unwrap()
+            .scene
+            .unwrap()
+            .status,
+        "ask"
+    );
+    let mut tab = request.clone();
+    tab.scene_responses.push(SceneResponse::Answer {
+        value: "고양이\t강아지".into(),
+    });
+    assert_eq!(
+        authoring_trial(tab)
+            .unwrap()
+            .scene
+            .unwrap()
+            .prompt
+            .as_deref(),
+        Some("고양이\t강아지?")
+    );
+    for invalid in [
+        "\n고양이",
+        "고양이\r강아지",
+        "고양이\u{2028}강아지",
+        "고양이\u{2029}강아지",
+    ] {
+        let mut invalid_request = request.clone();
+        invalid_request.scene_responses.push(SceneResponse::Answer {
+            value: invalid.into(),
+        });
+        assert_eq!(
+            authoring_trial(invalid_request).unwrap_err(),
+            "답변은 한 줄로 입력해 주세요."
+        );
+    }
+    request.scene_responses.push(SceneResponse::Answer {
+        value: "고양이".into(),
+    });
+    let choice = authoring_trial(request.clone()).unwrap().scene.unwrap();
+    assert_eq!(choice.status, "choice");
+    assert_eq!(choice.prompt.as_deref(), Some("고양이?"));
+    request.scene_responses.push(SceneResponse::Choice {
+        option_id: "yes".into(),
+    });
+    let finished = authoring_trial(request).unwrap().scene.unwrap();
+    assert_eq!(
+        finished
+            .history
+            .iter()
+            .map(|item| item.persona.as_deref())
+            .collect::<Vec<_>>(),
+        vec![
+            Some("local-center"),
+            None,
+            Some("local-center"),
+            None,
+            Some("local-center")
+        ]
+    );
+    assert_eq!(finished.status, "completed");
+    assert_eq!(
+        finished
+            .history
+            .iter()
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["좋아하는 것은?", "고양이", "고양이?", "네", "반가워요."]
     );
 }
 
