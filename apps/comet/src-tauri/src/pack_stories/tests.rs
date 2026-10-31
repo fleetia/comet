@@ -1705,6 +1705,38 @@ fn cancelled_chapter_story_waits_three_inputs_while_tutorial_can_restart() {
 }
 
 #[test]
+fn only_the_tutorial_skips_resume_for_a_terminal_name_chapter() {
+    let (db, mut run) = resume_fixture();
+    resume::record_accepted(&db, &run).unwrap();
+    let tutorial: ScenarioDefinition =
+        serde_json::from_str(include_str!("../../content/byulkkori-tutorial.json")).unwrap();
+    let brief = tutorial
+        .chapters
+        .as_ref()
+        .unwrap()
+        .iter()
+        .find(|chapter| chapter.id == "brief")
+        .unwrap()
+        .clone();
+    for (purpose, saved) in [
+        (ScenarioPurpose::Story, true),
+        (ScenarioPurpose::Tutorial, false),
+    ] {
+        let definition = run.definition.as_mut().unwrap();
+        definition.purpose = purpose;
+        let chapter = &mut definition.chapters.as_mut().unwrap()[1];
+        chapter.next = Some("end".into());
+        chapter.steps = brief.steps.clone();
+        db.execute("DELETE FROM pack_story_resume", []).unwrap();
+        resume::save_chapter(&db, &run, "second", 100).unwrap();
+        assert_eq!(
+            !resume::load_for_scope(&db, &run.scope).unwrap().is_empty(),
+            saved
+        );
+    }
+}
+
+#[test]
 fn resume_persists_chapter_and_falls_back_when_pack_removes_it() {
     let (db, run) = resume_fixture();
     resume::record_accepted(&db, &run).unwrap();

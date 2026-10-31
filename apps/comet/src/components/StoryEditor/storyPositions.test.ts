@@ -181,7 +181,7 @@ describe("열린 이야기의 위치", () => {
     expect(result.current.positions.a).toEqual(initial.a);
     expect(result.current.positions.b).toEqual(initial.b);
     expect(result.current.positions.c).toEqual(initial.c);
-    expect(result.current.positions.d.x).toBeGreaterThan(initial.c.x);
+    expect(result.current.positions.d.x).toBe(initial.c.x + 280);
 
     act(() => result.current.savePosition("d", { x: 25, y: 60 }));
     expect(result.current.positions.d).toEqual({ x: 25, y: 60 });

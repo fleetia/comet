@@ -151,11 +151,14 @@ export function useStoryPositions(
     for (const node of graph.nodes) {
       const key = positionKey(graph, node);
       if (next[key]) continue;
-      const rightmost = Math.max(-320, ...Object.values(next).map((position) => position.x));
-      next[key] = { x: rightmost + 320, y: 0 };
+      const rightmost = Math.max(
+        -columnWidth,
+        ...Object.values(next).map((position) => position.x),
+      );
+      next[key] = { x: rightmost + columnWidth, y: 0 };
     }
     return next;
-  }, [graph, rememberedPositions]);
+  }, [columnWidth, graph, rememberedPositions]);
 
   useLayoutEffect(() => {
     setRememberedPositions((current) => {

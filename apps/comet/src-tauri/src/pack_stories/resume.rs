@@ -80,7 +80,8 @@ pub fn save_chapter(db: &Connection, run: &RunTicket, chapter_id: &str, at: i64)
     {
         return Err("이야기 실행이 바뀌었어요.".into());
     }
-    if chapter.next.as_deref() == Some("end")
+    if definition.purpose == ScenarioPurpose::Tutorial
+        && chapter.next.as_deref() == Some("end")
         && chapter.steps.iter().any(|step| {
             matches!(
                 step,
