@@ -466,6 +466,57 @@ describe("장과 이어지는 곳 편집", () => {
     expect(problems).toContainEqual({ chapterId: "a", kind: "missing-chapter", blocking: true });
     expect(problems).toContainEqual({ chapterId: "a", kind: "empty-line", blocking: true });
     expect(problems).toContainEqual({ chapterId: "b", kind: "unreachable", blocking: false });
-    expect(findStoryProblems(scenario(null))).toEqual([]);
+    expect(findStoryProblems(scenario(null))).toEqual([
+      { chapterId: "intro", kind: "empty-line", blocking: true },
+      { chapterId: "accept", kind: "empty-line", blocking: true },
+      { chapterId: "decline", kind: "empty-line", blocking: true },
+      { chapterId: "ending", kind: "empty-line", blocking: true },
+      { chapterId: "intro", kind: "missing-accept-keywords", blocking: false },
+      { chapterId: "intro", kind: "missing-decline-keywords", blocking: false },
+    ]);
+    const line = { persona: "actor", expression: "평온", text: "안녕" };
+    expect(
+      findStoryProblems({
+        ...scenario(null),
+        intro: [line],
+        accept: [line],
+        decline: [line],
+        ending: [line],
+        acceptKeywords: ["좋아"],
+        declineKeywords: ["다음에"],
+      }),
+    ).toEqual([]);
+  });
+
+  it("제안형의 빈 대사와 노출 친밀도는 막고 빈 분기 표현은 경고한다", () => {
+    const line = { persona: "actor", expression: "평온", text: "안녕" };
+    const problems = findStoryProblems({
+      ...scenario(null),
+      intro: [line],
+      accept: [line],
+      decline: [line],
+      ending: [line],
+      defer: [{ ...line, text: "  " }],
+      minAffinity: 20,
+      revealAffinity: 21,
+      acceptKeywords: [],
+      declineKeywords: [],
+    });
+    expect(problems).toContainEqual({ chapterId: "defer", kind: "empty-line", blocking: true });
+    expect(problems).toContainEqual({
+      chapterId: "defer",
+      kind: "invalid-reveal-affinity",
+      blocking: true,
+    });
+    expect(problems).toContainEqual({
+      chapterId: "intro",
+      kind: "missing-accept-keywords",
+      blocking: false,
+    });
+    expect(problems).toContainEqual({
+      chapterId: "intro",
+      kind: "missing-decline-keywords",
+      blocking: false,
+    });
   });
 });

@@ -89,6 +89,21 @@ export const card = style({
   border: `1px solid ${tokens["color/card-border"]}`,
   color: tokens["color/ink"],
 });
+export const storyCard = style({
+  boxSizing: "border-box",
+  width: 180,
+  borderRadius: 12,
+  padding: 12,
+  background: tokens["color/card"],
+  border: `1px dashed ${tokens["color/card-border"]}`,
+  color: tokens["color/ink"],
+});
+export const storyLabel = style({
+  display: "block",
+  marginBottom: 6,
+  color: tokens["color/ink-3"],
+  fontSize: 11,
+});
 export const cardTitle = style({
   display: "flex",
   alignItems: "center",

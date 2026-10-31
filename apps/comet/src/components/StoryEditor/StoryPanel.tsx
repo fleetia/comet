@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import {
   Button,
-  CharacterArtwork,
   Checkbox,
+  ChoiceButton,
+  Dialog,
   FormField,
   Select,
   Textarea,
@@ -21,6 +22,8 @@ import {
   SceneStepFields,
   STEP_NAMES,
 } from "../CharacterEditor/SceneStepFields";
+import { StoryLineInput } from "./StoryLineInput";
+import { changeStoryMode, type StoryMode } from "./storyMode";
 import * as s from "./storyPanel.css";
 
 const entries = (text: string): string[] => (text === "" ? [] : text.split("\n"));
@@ -65,6 +68,7 @@ export function StoryPanel({
 }): JSX.Element {
   const [menuAt, setMenuAt] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [confirmMode, setConfirmMode] = useState<StoryMode | null>(null);
   const focusIndex = useRef<number | null>(null);
   const panelRef = useRef<HTMLElement>(null);
   const chapters = scenario.chapters ?? [];
@@ -216,9 +220,7 @@ export function StoryPanel({
           닫기
         </Button>
       </div>
-      {scenario.chapters == null ? (
-        <p className={s.notice}>제안형 편집은 다음 변경에서 열려요.</p>
-      ) : chapterId == null ? (
+      {chapterId == null ? (
         <div className={s.content}>
           <FormField label="이야기 제목">
             <TextInput
@@ -265,6 +267,31 @@ export function StoryPanel({
               />
             ))}
           </div>
+          <div>
+            <p>이야기 방식</p>
+            <ChoiceButton
+              selected={scenario.chapters != null}
+              onClick={() => {
+                if (scenario.chapters == null) setConfirmMode("scene");
+              }}
+            >
+              장면형
+            </ChoiceButton>
+            <ChoiceButton
+              selected={scenario.chapters == null}
+              disabled={scenario.purpose === "tutorial"}
+              title={
+                scenario.purpose === "tutorial"
+                  ? "튜토리얼은 제안형으로 바꿀 수 없어요."
+                  : undefined
+              }
+              onClick={() => {
+                if (scenario.chapters != null) setConfirmMode("proposal");
+              }}
+            >
+              제안형
+            </ChoiceButton>
+          </div>
           <FormField label="쓰임">
             <Select
               fill
@@ -272,7 +299,9 @@ export function StoryPanel({
               onChange={(event) => patch({ purpose: event.target.value as "story" | "tutorial" })}
             >
               <option value="story">이야기</option>
-              <option value="tutorial">튜토리얼</option>
+              <option value="tutorial" disabled={scenario.chapters == null}>
+                튜토리얼
+              </option>
             </Select>
           </FormField>
           <FormField label="시작 키워드 · 한 줄에 하나">
@@ -337,51 +366,40 @@ export function StoryPanel({
                   {addMenu(index)}
                   <div className={step.kind === "line" ? s.line : s.step}>
                     {step.kind === "line" ? (
-                      <div className={s.lineInput}>
-                        <CharacterArtwork
-                          size="compact"
-                          face={actor?.expressions[step.expression]}
-                          style={{ width: 20, height: 20, fontSize: 8, flexShrink: 0 }}
-                        />
-                        <div className={s.textareaWrapper} data-value={step.text}>
-                          <textarea
-                            className={s.textarea}
-                            aria-label={`단계 ${index + 1} 대사`}
-                            data-line-index={index}
-                            value={step.text}
-                            maxLength={500}
-                            rows={1}
-                            onChange={(event) =>
-                              patchChapter({
-                                steps: chapter.steps.map((value, i) =>
-                                  i === index ? { ...step, text: event.target.value } : value,
-                                ),
-                              })
-                            }
-                            onKeyDown={(event) => {
-                              if (
-                                event.key === "Enter" &&
-                                !event.shiftKey &&
-                                !event.nativeEvent.isComposing
-                              ) {
-                                event.preventDefault();
-                                insert(index + 1, "line", step);
-                              }
-                              if (
-                                event.key === "/" &&
-                                !event.ctrlKey &&
-                                !event.metaKey &&
-                                !event.altKey &&
-                                !step.text &&
-                                !event.nativeEvent.isComposing
-                              ) {
-                                event.preventDefault();
-                                setMenuAt(index);
-                              }
-                            }}
-                          />
-                        </div>
-                      </div>
+                      <StoryLineInput
+                        line={step}
+                        actor={actor}
+                        index={index}
+                        label={`단계 ${index + 1} 대사`}
+                        onChange={(text) =>
+                          patchChapter({
+                            steps: chapter.steps.map((value, i) =>
+                              i === index ? { ...step, text } : value,
+                            ),
+                          })
+                        }
+                        onKeyDown={(event) => {
+                          if (
+                            event.key === "Enter" &&
+                            !event.shiftKey &&
+                            !event.nativeEvent.isComposing
+                          ) {
+                            event.preventDefault();
+                            insert(index + 1, "line", step);
+                          }
+                          if (
+                            event.key === "/" &&
+                            !event.ctrlKey &&
+                            !event.metaKey &&
+                            !event.altKey &&
+                            !step.text &&
+                            !event.nativeEvent.isComposing
+                          ) {
+                            event.preventDefault();
+                            setMenuAt(index);
+                          }
+                        }}
+                      />
                     ) : (
                       <div className={s.stepSummary}>
                         <strong>
@@ -502,6 +520,34 @@ export function StoryPanel({
           </div>
         )
       )}
+      <Dialog
+        isOpen={confirmMode !== null}
+        title="이야기 방식을 바꿀까요?"
+        variant="confirm"
+        onOpenChange={(open) => {
+          if (!open) setConfirmMode(null);
+        }}
+        footer={
+          <>
+            <Button onClick={() => setConfirmMode(null)}>계속 편집</Button>
+            <Button
+              onClick={() => {
+                if (
+                  confirmMode &&
+                  !(confirmMode === "proposal" && scenario.purpose === "tutorial")
+                ) {
+                  onChange(changeStoryMode(scenario, confirmMode));
+                }
+                setConfirmMode(null);
+              }}
+            >
+              방식 바꾸기
+            </Button>
+          </>
+        }
+      >
+        <p>방식을 바꾸면 기존 방식의 내용이 지워져요.</p>
+      </Dialog>
     </aside>
   );
 }

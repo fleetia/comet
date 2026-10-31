@@ -28,7 +28,15 @@ export type StoryExitRef = {
 
 export type StoryProblem = {
   chapterId: string;
-  kind: "missing-exit" | "missing-chapter" | "empty-line" | "unreachable" | "unreachable-cycle";
+  kind:
+    | "missing-exit"
+    | "missing-chapter"
+    | "empty-line"
+    | "unreachable"
+    | "unreachable-cycle"
+    | "missing-accept-keywords"
+    | "missing-decline-keywords"
+    | "invalid-reveal-affinity";
   blocking: boolean;
 };
 
@@ -146,7 +154,28 @@ export function setStoryStart(scenario: ScenarioDefinition, chapterId: string): 
 }
 
 export function findStoryProblems(scenario: ScenarioDefinition): StoryProblem[] {
-  if (!scenario.chapters) return [];
+  if (!scenario.chapters) {
+    const problems: StoryProblem[] = [];
+    for (const stage of ["intro", "accept", "decline", "ending", "defer"] as const) {
+      const lines = scenario[stage] ?? [];
+      if ((stage !== "defer" && lines.length === 0) || lines.some((line) => !line.text.trim())) {
+        problems.push({ chapterId: stage, kind: "empty-line", blocking: true });
+      }
+    }
+    if (!(scenario.acceptKeywords ?? []).some((keyword) => keyword.trim())) {
+      problems.push({ chapterId: "intro", kind: "missing-accept-keywords", blocking: false });
+    }
+    if (!(scenario.declineKeywords ?? []).some((keyword) => keyword.trim())) {
+      problems.push({ chapterId: "intro", kind: "missing-decline-keywords", blocking: false });
+    }
+    if (
+      scenario.revealAffinity != null &&
+      (scenario.revealAffinity < 0 || scenario.revealAffinity > scenario.minAffinity)
+    ) {
+      problems.push({ chapterId: "defer", kind: "invalid-reveal-affinity", blocking: true });
+    }
+    return problems;
+  }
   const chapters = normalizeStoryChapters(scenario.chapters);
   const ids = new Set(chapters.map((chapter) => chapter.id));
   const problems: StoryProblem[] = [];
