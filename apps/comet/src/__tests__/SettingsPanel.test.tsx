@@ -4,6 +4,8 @@ import { openCharacterPage, selectFriend } from "./characterNavigation";
 import { SettingsPanel } from "../components/SettingsPanel/SettingsPanel";
 import { PREVIEW_SNAPSHOT, command, isDesktop } from "../hooks/useSnapshot";
 import { API_DEFAULTS } from "../aiProviders";
+import { listen, type EventCallback } from "@tauri-apps/api/event";
+import * as settingsStyles from "../components/SettingsPanel/settings.css";
 
 vi.mock("../hooks/useSnapshot", async (load) => ({
   ...(await load<typeof import("../hooks/useSnapshot")>()),
@@ -14,11 +16,146 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() =
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({ onFocusChanged: vi.fn().mockResolvedValue(() => {}) }),
 }));
-afterEach(cleanup);
+const idleUpdate = {
+  phase: "idle", version: null, notes: null, downloaded: 0, total: null, message: null,
+};
+afterEach(() => {
+  cleanup();
+  vi.mocked(listen).mockReset().mockResolvedValue(() => {});
+});
 beforeEach(() => {
   vi.mocked(isDesktop).mockReturnValue(false);
   vi.mocked(command).mockReset();
   vi.mocked(command).mockResolvedValue(undefined);
+});
+
+it("restores one pending highlight, replaces it on a new request, and clears it on tab change", async () => {
+  const listeners = new Map<string, EventCallback<unknown>>();
+  vi.mocked(listen).mockImplementation(async (event, callback) => {
+    listeners.set(event, callback as EventCallback<unknown>);
+    return () => listeners.delete(event);
+  });
+  let pending: { id: number; value: string } | null = { id: 1, value: "ai.recommended" };
+  vi.mocked(isDesktop).mockReturnValue(true);
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_update_status") return idleUpdate;
+    if (name === "get_settings_section") return "characters";
+    if (name === "take_settings_highlight") {
+      const value = pending;
+      pending = null;
+      return value;
+    }
+    return undefined;
+  });
+  render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="characters" />);
+  const select = await screen.findByLabelText("대화에 쓸 AI");
+  await waitFor(() => expect(select.classList.contains(settingsStyles.tutorialHighlight)).toBe(true));
+  expect(pending).toBeNull();
+  act(() => listeners.get("story-settings-highlight")?.({ event: "story-settings-highlight", id: 1, payload: { id: 1, value: "ai.recommended" } }));
+  await waitFor(() => expect(vi.mocked(command).mock.calls.filter(([name]) => name === "take_settings_highlight")).toHaveLength(2));
+  expect(select.classList.contains(settingsStyles.tutorialHighlight)).toBe(true);
+  fireEvent.click(screen.getByRole("tab", { name: "일반" }));
+  expect(select.classList.contains(settingsStyles.tutorialHighlight)).toBe(false);
+  pending = { id: 2, value: "general.guide" };
+  act(() => listeners.get("story-settings-highlight")?.({ event: "story-settings-highlight", id: 2, payload: pending }));
+  await waitFor(() => {
+    const target = document.querySelector('[data-settings-highlight="general.guide"]');
+    expect(target?.classList.contains(settingsStyles.tutorialHighlight)).toBe(true);
+  });
+});
+
+it("consumes a pending guide failure once when settings opens", async () => {
+  let pending: { id: number; error: { message: string; path: string } } | null = {
+    id: 1,
+    error: { message: "브라우저를 열지 못했어요.", path: "/example/first-meeting.html" },
+  };
+  vi.mocked(isDesktop).mockReturnValue(true);
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_update_status") return idleUpdate;
+    if (name === "get_settings_section") return "general";
+    if (name === "take_guide_open_error") {
+      const value = pending;
+      pending = null;
+      return value;
+    }
+    return undefined;
+  });
+  const view = render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="general" />);
+  expect(await screen.findByText("브라우저를 열지 못했어요.")).toBeTruthy();
+  expect(screen.getByTitle("/example/first-meeting.html")).toBeTruthy();
+  view.unmount();
+  render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="general" />);
+  await waitFor(() => expect(vi.mocked(command).mock.calls.filter(([name]) => name === "take_guide_open_error")).toHaveLength(2));
+  expect(screen.queryByText("브라우저를 열지 못했어요.")).toBeNull();
+});
+
+it("ignores a pending guide failure received after a successful open", async () => {
+  const listeners = new Map<string, EventCallback<unknown>>();
+  vi.mocked(listen).mockImplementation(async (event, callback) => {
+    listeners.set(event, callback as EventCallback<unknown>);
+    return () => listeners.delete(event);
+  });
+  let finish: (value: { id: number; error: { message: string; path: string } }) => void = () => {};
+  vi.mocked(isDesktop).mockReturnValue(true);
+  vi.mocked(command).mockImplementation((name) => {
+    if (name === "get_update_status") return Promise.resolve(idleUpdate);
+    if (name === "get_settings_section") return Promise.resolve("general");
+    if (name === "take_guide_open_error") {
+      return new Promise((resolve) => { finish = resolve; });
+    }
+    return Promise.resolve();
+  });
+  render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="general" />);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("take_guide_open_error"));
+  act(() => listeners.get("guide-open-succeeded")?.({ event: "guide-open-succeeded", id: 1, payload: 2 }));
+  await act(async () => finish({ id: 1, error: { message: "오래된 오류", path: "/example.html" } }));
+  expect(screen.queryByText("오래된 오류")).toBeNull();
+});
+
+it("does not apply a delayed highlight after manual navigation", async () => {
+  let finish: (value: { id: number; value: string }) => void = () => {};
+  vi.mocked(isDesktop).mockReturnValue(true);
+  vi.mocked(command).mockImplementation((name) => {
+    if (name === "get_update_status") return Promise.resolve(idleUpdate);
+    if (name === "get_settings_section") return Promise.resolve("characters");
+    if (name === "take_settings_highlight") {
+      return new Promise((resolve) => { finish = resolve; });
+    }
+    return Promise.resolve();
+  });
+  render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="characters" />);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("take_settings_highlight"));
+  fireEvent.click(screen.getByRole("tab", { name: "일반" }));
+  await act(async () => finish({ id: 1, value: "ai.recommended" }));
+  expect(screen.getByRole("tab", { name: "일반" }).getAttribute("aria-selected")).toBe("true");
+  expect(screen.queryByLabelText("대화에 쓸 AI")).toBeNull();
+});
+
+it("keeps a new highlight when an older pending read returns the same request", async () => {
+  const listeners = new Map<string, EventCallback<unknown>>();
+  vi.mocked(listen).mockImplementation(async (event, callback) => {
+    listeners.set(event, callback as EventCallback<unknown>);
+    return () => listeners.delete(event);
+  });
+  let finish: (value: { id: number; value: string }) => void = () => {};
+  let reads = 0;
+  vi.mocked(isDesktop).mockReturnValue(true);
+  vi.mocked(command).mockImplementation((name) => {
+    if (name === "get_update_status") return Promise.resolve(idleUpdate);
+    if (name === "get_settings_section") return Promise.resolve("characters");
+    if (name === "take_settings_highlight" && reads++ === 0) {
+      return new Promise((resolve) => { finish = resolve; });
+    }
+    return Promise.resolve();
+  });
+  render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="characters" />);
+  await waitFor(() => expect(reads).toBe(1));
+  fireEvent.click(screen.getByRole("tab", { name: "일반" }));
+  const request = { id: 2, value: "ai.recommended" };
+  act(() => listeners.get("story-settings-highlight")?.({ event: "story-settings-highlight", id: 2, payload: request }));
+  await act(async () => finish(request));
+  const select = await screen.findByLabelText("대화에 쓸 AI");
+  await waitFor(() => expect(select.classList.contains(settingsStyles.tutorialHighlight)).toBe(true));
 });
 
 it.each([

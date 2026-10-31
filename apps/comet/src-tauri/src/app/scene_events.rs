@@ -517,6 +517,32 @@ pub(crate) fn clear_run(state: &AppState, db: &Connection, run_id: &str) -> Resu
     Ok(())
 }
 
+pub(crate) fn queue_settings_highlight_locked(
+    state: &AppState,
+    run: &RunTicket,
+    cancel: &AtomicBool,
+    highlight: Option<crate::pack_stories::SettingsHighlight>,
+) -> Result<bool, String> {
+    if !is_current(state, run.epoch, cancel)
+        || !current(state, run)?
+        || !available_locked(state, &*lock(&state.db)?, run)?
+    {
+        return Ok(false);
+    }
+    *lock(&state.settings_highlight)? = highlight.map(|value| {
+        let id = state
+            .settings_highlight_sequence
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+        (
+            run.epoch,
+            run.run_id.clone(),
+            super::windows::SettingsHighlightRequest { id, value },
+        )
+    });
+    Ok(true)
+}
+
 pub(crate) async fn execute_action(
     app: &tauri::AppHandle,
     state: &AppState,
@@ -576,18 +602,15 @@ pub(crate) async fn execute_action(
                 SettingsTab::General => super::windows::SettingsSection::General,
             };
             let _action = lock(&state.action)?;
-            if !is_current(state, run.epoch, cancel)
-                || !current(state, run)?
-                || !available_locked(state, &*lock(&state.db)?, run)?
-            {
+            if !queue_settings_highlight_locked(state, run, cancel, highlight.clone())? {
                 return Ok(false);
             }
             super::windows::show_settings_section(app.clone(), section)?;
             lock(&state.scene_events)?
                 .windows
                 .insert("settings".into(), "settings".into());
-            if let Some(highlight) = highlight {
-                app.emit_to("settings", "story-settings-highlight", highlight)
+            if let Some((_, _, request)) = &*lock(&state.settings_highlight)? {
+                app.emit_to("settings", "story-settings-highlight", request)
                     .map_err(|error| error.to_string())?;
             }
         }

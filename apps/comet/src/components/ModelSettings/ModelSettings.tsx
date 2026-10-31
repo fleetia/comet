@@ -105,6 +105,7 @@ export function ModelSettings({
         대화에 쓸 AI
       </h1>
       <Select
+        data-settings-highlight="ai.recommended"
         aria-label="대화에 쓸 AI"
         value={provider}
         onChange={(event) => selectProvider(event.target.value as AiProvider)}

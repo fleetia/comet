@@ -521,6 +521,8 @@ pub(crate) struct ExecuteRequest {
     rename_all_fields = "camelCase"
 )]
 pub(crate) enum LauncherAction {
+    Guide,
+    Tutorial,
     Settings {
         section: Option<windows::SettingsSection>,
         widget_kind: Option<String>,
@@ -568,6 +570,11 @@ pub(crate) fn accept_execution(state: &AppState, session_id: u64) -> Result<(), 
     Ok(())
 }
 
+fn accept_direct_execution(state: &AppState, session_id: u64) -> Result<(), String> {
+    let _action = lock(&state.action)?;
+    accept_execution(state, session_id)
+}
+
 fn accept_settings_execution(
     state: &AppState,
     session_id: u64,
@@ -593,17 +600,30 @@ pub(crate) async fn execute_launcher(
     let _gate = state.launcher_gate.lock().await;
     claim_execution(&state, request.session_id)?;
     let restore = match &request.action {
-        LauncherAction::Chat { .. } | LauncherAction::AddTodo { .. } => true,
+        LauncherAction::Chat { .. } | LauncherAction::AddTodo { .. } | LauncherAction::Tutorial => {
+            true
+        }
         LauncherAction::Widget { id, .. } => lock(&state.db)
             .and_then(|db| widgets::storage::get(&db, id))
             .map(|widget| crate::behavior::DESKTOP_TOYS.contains(&widget.kind.as_str()))
             .unwrap_or(false),
-        LauncherAction::Settings { .. }
+        LauncherAction::Guide
+        | LauncherAction::Settings { .. }
         | LauncherAction::Travel { .. }
         | LauncherAction::Image { .. } => false,
     };
     let result = async {
         match request.action {
+            LauncherAction::Guide | LauncherAction::Tutorial => {
+                accept_direct_execution(&state, request.session_id)?;
+                match request.action {
+                    LauncherAction::Guide => crate::guide::open_from_navigation(app.clone()),
+                    LauncherAction::Tutorial => {
+                        conversation::start_tutorial(app.clone(), app.state::<Arc<AppState>>())
+                    }
+                    _ => unreachable!(),
+                }
+            }
             LauncherAction::Settings {
                 section,
                 widget_kind,
@@ -642,8 +662,7 @@ pub(crate) async fn execute_launcher(
                     let current = widgets::storage::instances(&*lock(&state.db)?)?
                         .into_iter()
                         .find(|widget| widget.kind == "image");
-                    if current.as_ref().map(|widget| widget.revision) != expected_revision
-                    {
+                    if current.as_ref().map(|widget| widget.revision) != expected_revision {
                         return Err("위젯이 변경됐어요. 다시 확인해 주세요.".into());
                     }
                     accept_execution(&state, request.session_id)?;
@@ -827,6 +846,32 @@ mod native_focus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guide_and_tutorial_actions_require_the_current_launcher_session() {
+        for (kind, is_guide) in [("guide", true), ("tutorial", false)] {
+            let action: LauncherAction =
+                serde_json::from_value(serde_json::json!({"type": kind})).unwrap();
+            assert_eq!(matches!(action, LauncherAction::Guide), is_guide);
+            assert_eq!(matches!(action, LauncherAction::Tutorial), !is_guide);
+            let state = crate::app::tests::state();
+            let session = {
+                let _action = lock(&state.action).unwrap();
+                begin_session(&state).unwrap()
+            };
+            claim_execution(&state, session).unwrap();
+            state.launcher_open.store(false, Ordering::SeqCst);
+            assert!(accept_direct_execution(&state, session).is_err());
+            let next = {
+                let _action = lock(&state.action).unwrap();
+                begin_session(&state).unwrap()
+            };
+            claim_execution(&state, next).unwrap();
+            assert!(accept_direct_execution(&state, session).is_err());
+            accept_direct_execution(&state, next).unwrap();
+            assert!(!lock(&state.launcher).unwrap().cancellable);
+        }
+    }
 
     #[test]
     fn settings_actions_keep_legacy_navigation_and_optional_widget_targets() {

@@ -43,6 +43,9 @@ pub(crate) fn state() -> AppState {
         launcher_session: AtomicU64::new(0),
         launcher_gate: tokio::sync::Mutex::new(()),
         settings_section: Mutex::new(windows::SettingsSection::default()),
+        guide_open_error: Mutex::new(crate::guide::GuideOpenPending::default()),
+        settings_highlight: Mutex::new(None),
+        settings_highlight_sequence: AtomicU64::new(0),
         story_editor_target: Mutex::new(None),
         settings_character: Mutex::new(None),
         settings_dirty: AtomicBool::new(false),
@@ -3910,6 +3913,76 @@ mod scene_events_tests {
         };
         lock(&state.pack_stories).unwrap().run = Some(run.clone());
         run
+    }
+
+    #[test]
+    fn cancelled_and_stale_story_actions_do_not_queue_settings_highlights() {
+        use crate::pack_stories::SettingsHighlight;
+        let state = crate::app::tests::state();
+        let run = run(&state);
+        let cancel = AtomicBool::new(true);
+        let _action = lock(&state.action).unwrap();
+        assert!(!queue_settings_highlight_locked(
+            &state,
+            &run,
+            &cancel,
+            Some(SettingsHighlight::AiRecommended)
+        )
+        .unwrap());
+        cancel.store(false, Ordering::SeqCst);
+        state.epoch.store(run.epoch + 1, Ordering::SeqCst);
+        assert!(!queue_settings_highlight_locked(
+            &state,
+            &run,
+            &cancel,
+            Some(SettingsHighlight::GeneralGuide)
+        )
+        .unwrap());
+        assert!(lock(&state.settings_highlight).unwrap().is_none());
+    }
+
+    #[test]
+    fn settings_highlights_are_read_once_and_discarded_after_cancellation() {
+        use crate::pack_stories::SettingsHighlight;
+        let state = crate::app::tests::state();
+        let run = run(&state);
+        *lock(&state.settings_highlight).unwrap() = Some((
+            run.epoch,
+            run.run_id.clone(),
+            crate::app::windows::SettingsHighlightRequest {
+                id: 1,
+                value: SettingsHighlight::AiRecommended,
+            },
+        ));
+        assert_eq!(
+            crate::app::windows::take_current_settings_highlight(&state, Some(2)).unwrap(),
+            None
+        );
+        assert_eq!(
+            crate::app::windows::take_current_settings_highlight(&state, None).unwrap(),
+            Some(crate::app::windows::SettingsHighlightRequest {
+                id: 1,
+                value: SettingsHighlight::AiRecommended
+            })
+        );
+        assert_eq!(
+            crate::app::windows::take_current_settings_highlight(&state, None).unwrap(),
+            None
+        );
+        *lock(&state.settings_highlight).unwrap() = Some((
+            run.epoch,
+            run.run_id.clone(),
+            crate::app::windows::SettingsHighlightRequest {
+                id: 2,
+                value: SettingsHighlight::GeneralGuide,
+            },
+        ));
+        state.epoch.store(run.epoch + 1, Ordering::SeqCst);
+        assert_eq!(
+            crate::app::windows::take_current_settings_highlight(&state, None).unwrap(),
+            None
+        );
+        assert!(lock(&state.settings_highlight).unwrap().is_none());
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { ExitIcon, HideIcon, MemoryIcon } from "@comet/icon";
+import { ExitIcon, ExternalIcon, HideIcon, MemoryIcon, UndoIcon } from "@comet/icon";
 import { Button, Dialog, SettingControlRow, SettingsSummary, Switch } from "@comet/ui";
 import type { Snapshot } from "../../types";
 import { command, errorText } from "../../hooks/useSnapshot";
@@ -9,6 +9,7 @@ import { LauncherSettings } from "../Launcher/LauncherSettings";
 import { UpdatePanel } from "../UpdatePanel/UpdatePanel";
 import { appearanceSummary } from "../ThemeSettings/ThemeSettings";
 import { useAppearance } from "../../hooks/useAppearance";
+import { openGuide, type GuideOpenError } from "../../guide";
 import * as styles from "./figmaSettings.css";
 
 type Props = {
@@ -23,6 +24,7 @@ type Props = {
   onQuit: () => void;
   quitDisabled?: boolean;
   onToggleCharacters: () => void;
+  guideOpenResult?: { error: GuideOpenError | null };
 };
 function fileManagerLabel(): string {
   const agent = navigator.userAgent;
@@ -53,9 +55,66 @@ export function GeneralSettings({
   onQuit,
   quitDisabled = false,
   onToggleCharacters,
+  guideOpenResult,
 }: Props): JSX.Element {
   const name = snapshot.user?.name || "여행자";
   const { appearance } = useAppearance();
+  const [tutorialError, setTutorialError] = useState<string | null>(null);
+  const [guideError, setGuideError] = useState<GuideOpenError | null>(null);
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (guideOpenResult) {
+      setGuideError(guideOpenResult.error);
+      setCopied(false);
+    }
+  }, [guideOpenResult]);
+  useEffect(
+    () => () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+    },
+    [],
+  );
+  async function startTutorial(): Promise<void> {
+    setTutorialError(null);
+    try {
+      await command("start_tutorial");
+    } catch (cause) {
+      setTutorialError(errorText(cause));
+    }
+  }
+  async function openFirstMeeting(): Promise<void> {
+    try {
+      await openGuide("first-meeting");
+      setGuideError(null);
+      setCopied(false);
+    } catch (cause) {
+      if (
+        typeof cause === "object" &&
+        cause !== null &&
+        "message" in cause &&
+        "path" in cause &&
+        typeof cause.message === "string" &&
+        typeof cause.path === "string"
+      ) {
+        setGuideError({ message: cause.message, path: cause.path });
+      } else {
+        setGuideError({ message: errorText(cause), path: "" });
+      }
+      setCopied(false);
+    }
+  }
+  async function copyGuidePath(): Promise<void> {
+    if (!guideError) return;
+    try {
+      await navigator.clipboard.writeText(guideError.path);
+      setCopied(true);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // 경로는 화면에 남아 있어 직접 복사할 수 있다.
+    }
+  }
   const [consentPending, setConsentPending] = useState(false);
   const [consentError, setConsentError] = useState<string | null>(null);
   const consentSaving = useRef(false);
@@ -180,6 +239,57 @@ export function GeneralSettings({
                 </Button>
               }
             />
+          </div>
+        </section>
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>안내서</h2>
+          <div className={styles.group} data-settings-highlight="general.guide">
+            <div className={styles.nested}>
+              <SettingControlRow
+                className={styles.row}
+                title="튜토리얼 다시 보기"
+                description="별꼬리와 처음 만나기를 처음부터 다시 해요"
+                control={
+                  <Button variant="ghost" size="small" onClick={() => void startTutorial()}>
+                    <UndoIcon size={15} />
+                    다시 보기
+                  </Button>
+                }
+              />
+              {tutorialError && (
+                <p role="alert" className={`${errorStyle} ${styles.guideError}`}>
+                  {tutorialError}
+                </p>
+              )}
+            </div>
+            <div className={styles.nested}>
+              <SettingControlRow
+                className={styles.row}
+                title="안내서"
+                description="사용법·용어·문제 해결을 기본 브라우저로 열어요"
+                control={
+                  <Button variant="ghost" size="small" onClick={() => void openFirstMeeting()}>
+                    <ExternalIcon size={15} />
+                    안내서 열기
+                  </Button>
+                }
+              />
+              {guideError && (
+                <div className={styles.guideFailure}>
+                  <p role="alert" className={styles.guideFailureMessage}>
+                    {guideError.message}
+                  </p>
+                  <div className={styles.guidePathRow}>
+                    <span className={styles.guidePath} title={guideError.path}>
+                      <bdi dir="ltr">{guideError.path}</bdi>
+                    </span>
+                    <Button variant="ghost" size="small" onClick={() => void copyGuidePath()}>
+                      {copied ? "복사했어요" : "경로 복사"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </section>
         <section className={styles.section}>

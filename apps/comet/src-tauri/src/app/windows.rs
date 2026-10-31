@@ -473,6 +473,48 @@ pub(crate) async fn get_settings_section(
     Ok(*lock(&state.settings_section)?)
 }
 
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub(crate) struct SettingsHighlightRequest {
+    pub(crate) id: u64,
+    pub(crate) value: crate::pack_stories::SettingsHighlight,
+}
+
+#[tauri::command]
+pub(crate) fn take_settings_highlight(
+    state: tauri::State<'_, Arc<AppState>>,
+    expected_id: Option<u64>,
+) -> Result<Option<SettingsHighlightRequest>, String> {
+    take_current_settings_highlight(&state, expected_id)
+}
+
+pub(crate) fn take_current_settings_highlight(
+    state: &AppState,
+    expected_id: Option<u64>,
+) -> Result<Option<SettingsHighlightRequest>, String> {
+    let _action = lock(&state.action)?;
+    let mut slot = lock(&state.settings_highlight)?;
+    if expected_id.is_some_and(|id| {
+        slot.as_ref()
+            .is_some_and(|(_, _, request)| request.id != id)
+    }) {
+        return Ok(None);
+    }
+    let pending = slot.take();
+    drop(slot);
+    match pending {
+        Some((epoch, run_id, highlight))
+            if state.epoch.load(Ordering::SeqCst) == epoch
+                && lock(&state.pack_stories)?
+                    .run
+                    .as_ref()
+                    .is_some_and(|run| run.run_id == run_id && run.epoch == epoch) =>
+        {
+            Ok(Some(highlight))
+        }
+        _ => Ok(None),
+    }
+}
+
 #[tauri::command]
 pub(crate) fn set_settings_section(
     state: tauri::State<'_, Arc<AppState>>,

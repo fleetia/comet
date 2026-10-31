@@ -195,6 +195,30 @@ export const form = style({
 });
 export const save = style({ paddingTop: 4 });
 export const nested = style({ minWidth: 0 });
+export const guideFailure = style({ padding: "0 16px 11px", minWidth: 0 });
+export const guideError = style({ margin: 0 });
+export const guideFailureMessage = style({
+  margin: 0,
+  fontSize: 12,
+  lineHeight: "17px",
+  color: tokens["color/danger"],
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+});
+globalStyle(`${nested} > ${guideError}`, { padding: "0 16px 11px" });
+export const guidePathRow = style({ display: "flex", alignItems: "center", gap: 12, minWidth: 0 });
+export const guidePath = style({
+  flex: 1,
+  minWidth: 0,
+  direction: "rtl",
+  textAlign: "left",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  fontSize: 12,
+  color: tokens["color/ink-3"],
+});
 globalStyle(`${group} > .${nested} + .${nested}`, {
   borderTop: `1px solid ${tokens["color/divider"]}`,
 });

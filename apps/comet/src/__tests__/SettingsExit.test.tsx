@@ -61,8 +61,16 @@ it("synchronizes unsaved state to native quit protection and retains edits when 
   );
   fireEvent.click(screen.getByRole("button", { name: "변경을 버리고 종료" }));
   await waitFor(() => expect(command).toHaveBeenLastCalledWith("quit_app", { force: true }));
+  await waitFor(() => expect(listeners.has("guide-open-failed")).toBe(true));
+  expect([...listeners.keys()].sort()).toEqual([
+    "confirm-settings-exit",
+    "guide-open-failed",
+    "guide-open-succeeded",
+    "open-settings-section",
+    "story-settings-highlight",
+  ]);
   unmount();
-  expect(unlisten).toHaveBeenCalledTimes(2);
+  expect(unlisten).toHaveBeenCalledTimes(5);
 });
 
 it("clears native unsaved state when settings are restored or another menu is opened", async () => {

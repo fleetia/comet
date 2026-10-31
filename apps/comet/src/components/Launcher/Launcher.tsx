@@ -3,11 +3,13 @@ import {
   PlaneIcon,
   ChatIcon,
   EnterIcon,
+  ExternalIcon,
   GearIcon,
   GridIcon,
   PlusIcon,
   SearchIcon,
   TogetherIcon,
+  UndoIcon,
   WarnIcon,
 } from "@comet/icon";
 import { Button, Keycap } from "@comet/ui";
@@ -41,6 +43,7 @@ const RESULT_ICONS = {
   chat: ChatIcon,
   target: TogetherIcon,
   notice: WarnIcon,
+  help: SearchIcon,
   todo: PlusIcon,
   travel: PlaneIcon,
 };
@@ -303,31 +306,48 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
         aria-busy={pending}
       >
         {results.map((result, index) => {
-          const ResultIcon = RESULT_ICONS[result.kind];
+          const ResultIcon = result.id === "guide" ? ExternalIcon : result.id === "tutorial" ? UndoIcon : RESULT_ICONS[result.kind];
           return (
             <Fragment key={result.id}>
-            {!query.trim() && (index === 0 || (result.kind !== "target" && results[index - 1]?.kind === "target")) && <li role="presentation" className={styles.groupLabel}>{result.kind === "target" ? "말 걸기" : "자주 쓰는 것"}</li>}
-            <li
-              id={`launcher-${result.id}`}
-              role="option"
-              aria-selected={result.id === selected?.id}
-              aria-disabled={!result.action && result.kind !== "target"}
-              className={styles.result}
-              onPointerMove={() => {
-                if (!pending && selected?.id !== result.id) setSelectedId(result.id);
-              }}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => void execute(result)}
-            >
-              <span className={styles.glyph} aria-hidden="true">
-                <ResultIcon size={20} />
-              </span>
-              <span className={styles.resultText}>
-                <span className={styles.title}>{result.title}</span>
-                <span className={styles.detail}>{result.detail}</span>
-              </span>
-              {result.id === selected?.id && <Keycap><EnterIcon size={12} /></Keycap>}
-            </li>
+              {result.kind === "help" && results[index - 1]?.kind !== "help" && (
+                <li role="presentation" className={styles.groupLabel}>
+                  도움
+                </li>
+              )}
+              {!query.trim() &&
+                (index === 0 ||
+                  (result.kind !== "target" &&
+                    result.kind !== "help" &&
+                    results[index - 1]?.kind === "target")) && (
+                  <li role="presentation" className={styles.groupLabel}>
+                    {result.kind === "target" ? "말 걸기" : "자주 쓰는 것"}
+                  </li>
+                )}
+              <li
+                id={`launcher-${result.id}`}
+                role="option"
+                aria-selected={result.id === selected?.id}
+                aria-disabled={!result.action && result.kind !== "target"}
+                className={styles.result}
+                onPointerMove={() => {
+                  if (!pending && selected?.id !== result.id) setSelectedId(result.id);
+                }}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => void execute(result)}
+              >
+                <span className={styles.glyph} aria-hidden="true">
+                  <ResultIcon size={20} />
+                </span>
+                <span className={styles.resultText}>
+                  <span className={styles.title}>{result.title}</span>
+                  <span className={styles.detail}>{result.detail}</span>
+                </span>
+                {result.id === selected?.id && (
+                  <Keycap>
+                    <EnterIcon size={12} />
+                  </Keycap>
+                )}
+              </li>
             </Fragment>
           );
         })}

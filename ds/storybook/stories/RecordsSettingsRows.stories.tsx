@@ -3,6 +3,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Icon, iconNames } from "@comet/icon";
 import { ManageListRow, Select, SettingControlRow, SettingsRow, Stepper, Switch } from "@comet/ui";
 import { RecordsStack } from "./RecordsAssets";
+import { GeneralSettings } from "../../../apps/comet/src/components/SettingsPanel/GeneralSettings";
+import { PREVIEW_SNAPSHOT } from "../../../apps/comet/src/previewSnapshot";
 const meta = {
   title: "UI/records/SettingsRows",
   component: SettingsRow,
@@ -25,6 +27,32 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Default: Story = {};
+export const GuideOpenFailure: Story = {
+  name: "일반 설정 · 안내서 열기 실패",
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div style={{ width: 1040, maxWidth: "100%", height: 1000 }}>
+      <GeneralSettings
+        snapshot={PREVIEW_SNAPSHOT}
+        active={false}
+        onOpenUser={() => {}}
+        onOpenOrganizer={() => {}}
+        onOpenTheme={() => {}}
+        onBusyChange={() => {}}
+        hasChanges={false}
+        onShortcutDirtyChange={() => {}}
+        onQuit={() => {}}
+        onToggleCharacters={() => {}}
+        guideOpenResult={{
+          error: {
+            message: "안내서를 열지 못했어요. 기본 브라우저에서 아래 경로를 열어 주세요.",
+            path: "/Applications/comet.app/Contents/Resources/guide/first-meeting.html",
+          },
+        }}
+      />
+    </div>
+  ),
+};
 export const Disabled: Story = { args: { disabled: true } };
 export const SwitchControl: Story = {
   parameters: { controls: { disable: true } },

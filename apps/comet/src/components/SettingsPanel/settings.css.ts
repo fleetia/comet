@@ -1,8 +1,18 @@
-import { globalStyle, style } from "@vanilla-extract/css";
+import { globalStyle, keyframes, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 import settingsNight from "../../assets/figma/settings-night.svg";
 import * as common from "../../common.css";
 import * as windowHeader from "../WindowHeader/windowHeader.css";
+const highlightBlink = keyframes({
+  "0%, 49%, 100%": { outlineColor: tokens["color/primary"] },
+  "50%, 99%": { outlineColor: "transparent" },
+});
+export const tutorialHighlight = style({
+  outline: `2px solid ${tokens["color/primary"]}`,
+  outlineOffset: 2,
+  animation: `${highlightBlink} 1s 2`,
+  "@media": { "(prefers-reduced-motion: reduce)": { animation: "none" } },
+});
 export const window = style({
   height: "100dvh",
   display: "flex",
