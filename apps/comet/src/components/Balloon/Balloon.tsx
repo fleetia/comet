@@ -719,7 +719,9 @@ export function Balloon({
       {mode === "name" && !snapshot.user && (
         <NameRegistration
           key={persona}
-          greeting={character?.definition.greeting[0]?.text ?? "안녕! 만나서 반가워."}
+          greeting={snapshot.sceneAskId ? "" : (character?.definition.greeting[0]?.text ?? "안녕! 만나서 반가워.")}
+          sceneAskId={snapshot.sceneAskId}
+          prompt={snapshot.sceneAskId ? snapshot.playback?.text : undefined}
           dispatch={dispatch}
         />
       )}

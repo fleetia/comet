@@ -1688,6 +1688,7 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
     drop(layout);
     let mut first_display = false;
     let mut displayed_message = None;
+    let mut displayed_choice = None;
     if let Some(line) = playback.as_mut() {
         if target.key == format!("playback:{}", line.id)
             || target
@@ -1737,10 +1738,14 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
     if let Some(request) = story.as_mut() {
         if target.key == format!("story:{}", request.id) && request.display_started_at.is_none() {
             request.display_started_at = Some(chrono::Utc::now().timestamp_millis());
+            displayed_choice = Some(request.clone());
             first_display = true;
         }
     }
     drop((playback, story));
+    if let Some(request) = displayed_choice.as_ref() {
+        crate::app::conversation::scene_story::record_displayed_choice(&state, &db, request)?;
+    }
     if let Some((_, at, source)) = displayed_message.as_ref() {
         if source == "talk" && crate::talk::host::activity_in_playback(&state)? {
             crate::talk::host::record_recall_displayed(&state, &db, *at)?;
@@ -1758,8 +1763,10 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         if source == "talk" && store::message_displayed(&db, &id)? {
             crate::talk::host::record_recall_displayed(&state, &db, at)?;
         }
-        if let Some(ticket) = super::lock(&state.tasks)?.participants.clone() {
-            crate::characters::guests::hear_displayed_locked(&state, &db, &ticket, &id, at)?;
+        if !(source == "tutorial" && store::current_user(&db)?.is_none()) {
+            if let Some(ticket) = super::lock(&state.tasks)?.participants.clone() {
+                crate::characters::guests::hear_displayed_locked(&state, &db, &ticket, &id, at)?;
+            }
         }
     }
     drop((db, _action));
