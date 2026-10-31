@@ -19,6 +19,206 @@ export function normalizeStoryChapters(
   ];
 }
 
+export type StoryExitRef = {
+  chapterId: string;
+  kind: "next" | "choice" | "timeout";
+  stepIndex?: number;
+  optionIndex?: number;
+};
+
+export type StoryProblem = {
+  chapterId: string;
+  kind: "missing-exit" | "missing-chapter" | "empty-line" | "unreachable" | "unreachable-cycle";
+  blocking: boolean;
+};
+
+export const STORY_CHAPTER_LIMIT = 99;
+
+function exitId(ref: StoryExitRef): string {
+  return `exit:${encodeURIComponent(ref.chapterId)}:${ref.kind}:${ref.stepIndex ?? -1}:${ref.optionIndex ?? -1}`;
+}
+
+function chapterExits(chapter: ScenarioChapter): { ref: StoryExitRef; target: string }[] {
+  const exits: { ref: StoryExitRef; target: string }[] = [
+    { ref: { chapterId: chapter.id, kind: "next" }, target: chapter.next ?? "end" },
+  ];
+  chapter.steps.forEach((step, stepIndex) => {
+    if (step.kind === "choice") {
+      step.options.forEach((option, optionIndex) => {
+        exits.push({
+          ref: { chapterId: chapter.id, kind: "choice", stepIndex, optionIndex },
+          target: option.goto,
+        });
+      });
+    } else if (step.kind === "wait") {
+      exits.push({
+        ref: { chapterId: chapter.id, kind: "timeout", stepIndex },
+        target: step.onTimeout.then,
+      });
+    }
+  });
+  return exits;
+}
+
+export function setStoryExit(
+  scenario: ScenarioDefinition,
+  ref: StoryExitRef,
+  target: string,
+): ScenarioDefinition {
+  if (!scenario.chapters) return scenario;
+  return {
+    ...scenario,
+    chapters: scenario.chapters.map((chapter) => {
+      if (chapter.id !== ref.chapterId) return chapter;
+      if (ref.kind === "next") return { ...chapter, next: target };
+      return {
+        ...chapter,
+        steps: chapter.steps.map((step, index) => {
+          if (index !== ref.stepIndex) return step;
+          if (ref.kind === "choice" && step.kind === "choice") {
+            return {
+              ...step,
+              options: step.options.map((option, optionIndex) =>
+                optionIndex === ref.optionIndex ? { ...option, goto: target } : option,
+              ),
+            };
+          }
+          if (ref.kind === "timeout" && step.kind === "wait") {
+            return { ...step, onTimeout: { ...step.onTimeout, then: target } };
+          }
+          return step;
+        }),
+      };
+    }),
+  };
+}
+
+export function createStoryChapter(
+  scenario: ScenarioDefinition,
+  chapter: ScenarioChapter,
+): ScenarioDefinition {
+  if (!scenario.chapters || scenario.chapters.length >= STORY_CHAPTER_LIMIT) return scenario;
+  return { ...scenario, chapters: [...scenario.chapters, chapter] };
+}
+
+export function incomingStoryExits(
+  scenario: ScenarioDefinition,
+  chapterId: string,
+): StoryExitRef[] {
+  return normalizeStoryChapters(scenario.chapters ?? [])
+    .filter((chapter) => chapter.id !== chapterId)
+    .flatMap((chapter) =>
+      chapterExits(chapter)
+        .filter(
+          ({ target }) =>
+            target === chapterId || (target === "nextChapter" && chapter.next === chapterId),
+        )
+        .map(({ ref }) => ref),
+    );
+}
+
+export function deleteStoryChapter(
+  scenario: ScenarioDefinition,
+  chapterId: string,
+): ScenarioDefinition {
+  if (
+    !scenario.chapters ||
+    scenario.chapters.length <= 1 ||
+    !scenario.chapters.some((chapter) => chapter.id === chapterId)
+  )
+    return scenario;
+  const normalized = { ...scenario, chapters: normalizeStoryChapters(scenario.chapters) };
+  const refs = incomingStoryExits(normalized, chapterId);
+  const disconnected = refs.reduce<ScenarioDefinition>(
+    (current, ref) => setStoryExit(current, ref, ""),
+    normalized,
+  );
+  return {
+    ...disconnected,
+    chapters: disconnected.chapters?.filter((chapter) => chapter.id !== chapterId),
+  };
+}
+
+export function setStoryStart(scenario: ScenarioDefinition, chapterId: string): ScenarioDefinition {
+  if (!scenario.chapters || !scenario.chapters.some((chapter) => chapter.id === chapterId))
+    return scenario;
+  return { ...scenario, chapters: normalizeStoryChapters(scenario.chapters, chapterId) };
+}
+
+export function findStoryProblems(scenario: ScenarioDefinition): StoryProblem[] {
+  if (!scenario.chapters) return [];
+  const chapters = normalizeStoryChapters(scenario.chapters);
+  const ids = new Set(chapters.map((chapter) => chapter.id));
+  const problems: StoryProblem[] = [];
+  for (const chapter of chapters) {
+    for (const { ref, target } of chapterExits(chapter)) {
+      if (target === "")
+        problems.push({ chapterId: chapter.id, kind: "missing-exit", blocking: true });
+      else if (
+        target !== "end" &&
+        !(ref.kind !== "next" && target === "next") &&
+        !(ref.kind === "timeout" && target === "nextChapter") &&
+        !ids.has(target)
+      ) {
+        problems.push({ chapterId: chapter.id, kind: "missing-chapter", blocking: true });
+      }
+    }
+    for (const step of chapter.steps) {
+      if (
+        (step.kind === "line" && !step.text.trim()) ||
+        (step.kind === "ask" && step.input === "name" && step.saved && !step.saved.text.trim())
+      ) {
+        problems.push({ chapterId: chapter.id, kind: "empty-line", blocking: true });
+      }
+      if (step.kind === "wait") {
+        for (const child of step.onTimeout.steps) {
+          if (child.kind === "line" && !child.text.trim())
+            problems.push({ chapterId: chapter.id, kind: "empty-line", blocking: true });
+        }
+      }
+    }
+  }
+  const graph = buildStoryGraph({ ...scenario, chapters }, []);
+  const outgoing = new Map<string, string[]>();
+  const incoming = new Map<string, string[]>();
+  for (const { source, target } of graph.edges) {
+    outgoing.set(source, [...(outgoing.get(source) ?? []), target]);
+    incoming.set(target, [...(incoming.get(target) ?? []), source]);
+  }
+  function traverse(startId: string | undefined, edges: Map<string, string[]>): Set<string> {
+    const visited = new Set<string>();
+    const pending = startId ? [startId] : [];
+    while (pending.length > 0) {
+      const id = pending.pop();
+      if (!id || visited.has(id)) continue;
+      visited.add(id);
+      pending.push(...(edges.get(id) ?? []));
+    }
+    return visited;
+  }
+  const reachable = traverse(graph.startId, outgoing);
+  const grouped = new Set<string>();
+  for (const chapter of chapters) {
+    const id = `chapter:${chapter.id}`;
+    if (reachable.has(id) || grouped.has(id)) continue;
+    const forward = traverse(id, outgoing);
+    const backward = traverse(id, incoming);
+    const component = new Set([...forward].filter((nodeId) => backward.has(nodeId)));
+    for (const nodeId of component) grouped.add(nodeId);
+    const hasExternalIncoming = [...component].some((nodeId) =>
+      (incoming.get(nodeId) ?? []).some((source) => !component.has(source)),
+    );
+    if (hasExternalIncoming) continue;
+    const isCycle = component.size > 1 || (outgoing.get(id) ?? []).includes(id);
+    problems.push({
+      chapterId: chapter.id,
+      kind: isCycle ? "unreachable-cycle" : "unreachable",
+      blocking: false,
+    });
+  }
+  return problems;
+}
+
 export type StoryGraphNode = {
   id: string;
   kind: "chapter" | "end" | "story";
@@ -35,6 +235,8 @@ export type StoryGraphExit = {
   source: string;
   kind: "next" | "choice" | "timeout";
   label: string;
+  ref?: StoryExitRef;
+  targetState?: "local" | "missing" | "invalid";
 };
 
 export type StoryGraphEdge = StoryGraphExit & { target: string };
@@ -57,13 +259,26 @@ export function buildStoryGraph(
     target: string,
     kind: StoryGraphEdge["kind"],
     label: string,
+    ref?: StoryExitRef,
   ): void => {
-    edges.push({ id: `edge:${edges.length}`, source, target, kind, label });
+    edges.push({
+      id: ref ? exitId(ref) : `edge:${edges.length}`,
+      source,
+      target,
+      kind,
+      label,
+      ref,
+    });
   };
-  const addEnd = (source: string, kind: StoryGraphEdge["kind"], label: string): void => {
+  const addEnd = (
+    source: string,
+    kind: StoryGraphEdge["kind"],
+    label: string,
+    ref?: StoryExitRef,
+  ): void => {
     const id = `end:${edges.length}`;
     nodes.push({ id, kind: "end", title: "끝" });
-    addEdge(source, id, kind, label);
+    addEdge(source, id, kind, label, ref);
   };
 
   if (scenario.chapters != null) {
@@ -83,42 +298,48 @@ export function buildStoryGraph(
     for (const [index, chapter] of chapters.entries()) {
       const source = chapterId(chapter.id);
       const next = chapter.next ?? chapters[index + 1]?.id ?? "end";
-      const connect = (target: string, kind: StoryGraphEdge["kind"], label: string): void => {
+      const localExits: StoryGraphExit[] = [];
+      const connect = (target: string, ref: StoryExitRef, label: string): void => {
         const resolved = target === "nextChapter" ? next : target;
-        if (resolved === "next") {
-          return;
-        }
-        if (resolved === "end") {
-          addEnd(source, kind, label);
-        } else if (ids.has(resolved)) {
-          addEdge(source, chapterId(resolved), kind, label);
+        if (resolved === "next" || resolved === "" || (resolved !== "end" && !ids.has(resolved))) {
+          localExits.push({
+            id: exitId(ref),
+            source,
+            kind: ref.kind,
+            label: resolved === "next" ? `${label || "선택지"} · 다음 단계` : label,
+            ref,
+            targetState: resolved === "next" ? "local" : resolved === "" ? "missing" : "invalid",
+          });
+        } else if (resolved === "end") {
+          addEnd(source, ref.kind, label, ref);
+        } else {
+          addEdge(source, chapterId(resolved), ref.kind, label, ref);
         }
       };
       let canContinue = true;
-      const localExits: StoryGraphExit[] = [];
       for (const [stepIndex, step] of chapter.steps.entries()) {
         if (step.kind === "choice") {
           for (const [optionIndex, option] of step.options.entries()) {
-            if (option.goto === "next") {
-              localExits.push({
-                id: `local:${chapter.id}:${stepIndex}:${optionIndex}`,
-                source,
-                kind: "choice",
-                label: `${option.label || "선택지"} · 다음 단계`,
-              });
-            }
-            connect(option.goto, "choice", option.label);
+            connect(
+              option.goto,
+              { chapterId: chapter.id, kind: "choice", stepIndex, optionIndex },
+              option.label,
+            );
           }
           if (!step.options.some((option) => option.goto === "next")) {
             canContinue = false;
             break;
           }
         } else if (step.kind === "wait") {
-          connect(step.onTimeout.then, "timeout", "시간이 지나면");
+          connect(
+            step.onTimeout.then,
+            { chapterId: chapter.id, kind: "timeout", stepIndex },
+            "시간이 지나면",
+          );
         }
       }
       if (canContinue) {
-        connect(next, "next", "다음 장");
+        connect(next, { chapterId: chapter.id, kind: "next" }, "다음 장");
       }
       const node = nodes[index];
       if (localExits.length > 0) {

@@ -1162,6 +1162,9 @@ pub fn validate_pack(
         }
         check_flags(&scene.required_flags)?;
         check_flags(&scene.completion.set_flags)?;
+        if is_scene && serde_json::to_vec(scene).map_or(true, |bytes| bytes.len() > 128 * 1024) {
+            return Err("이야기는 128 KiB 이하여야 해요.".into());
+        }
         if scene
             .completion
             .memory_template
@@ -1173,8 +1176,6 @@ pub fn validate_pack(
                     .count()
                     > 500
             })
-            || (is_scene
-                && serde_json::to_vec(scene).map_or(true, |bytes| bytes.len() > 128 * 1024))
             || [
                 &scene.intro,
                 &scene.accept,

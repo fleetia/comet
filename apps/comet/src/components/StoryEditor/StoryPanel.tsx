@@ -25,6 +25,11 @@ import * as s from "./storyPanel.css";
 
 const entries = (text: string): string[] => (text === "" ? [] : text.split("\n"));
 
+export type ChapterExit =
+  | { kind: "next" }
+  | { kind: "choice"; stepIndex: number; optionIndex: number }
+  | { kind: "timeout"; stepIndex: number };
+
 function stepSummary(step: Exclude<ScenarioStep, { kind: "line" }>): string {
   switch (step.kind) {
     case "ask":
@@ -45,12 +50,18 @@ export function StoryPanel({
   actors,
   onChange,
   onClose,
+  onCreateChapter,
+  onDeleteChapter,
+  onSetStart,
 }: {
   scenario: ScenarioDefinition;
   chapterId: string | null;
   actors: CharacterDefinition[];
   onChange: (scenario: ScenarioDefinition) => void;
   onClose: () => void;
+  onCreateChapter: (exit: ChapterExit) => void;
+  onDeleteChapter: () => void;
+  onSetStart: () => void;
 }): JSX.Element {
   const [menuAt, setMenuAt] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -137,6 +148,63 @@ export function StoryPanel({
             ))}
           </div>
         )}
+      </div>
+    );
+  }
+  function targetField(
+    label: string,
+    value: string,
+    exit: ChapterExit,
+    onTargetChange: (target: string) => void,
+  ): JSX.Element {
+    const special =
+      exit.kind === "choice"
+        ? [["next", "다음 단계"]]
+        : exit.kind === "timeout"
+          ? [
+              ["next", "다음 단계"],
+              ["nextChapter", "다음 장"],
+            ]
+          : [];
+    const known =
+      value === "" ||
+      value === "end" ||
+      special.some(([id]) => id === value) ||
+      chapters.some((item) => item.id === value);
+    return (
+      <div className={s.fields}>
+        <FormField label={label}>
+          <Select
+            fill
+            aria-label={label}
+            className={value === "" || !known ? s.missingTarget : undefined}
+            value={value}
+            onChange={(event) => onTargetChange(event.target.value)}
+          >
+            <option value="">이어질 곳 없음</option>
+            {special.map(([id, title]) => (
+              <option key={id} value={id}>
+                {title}
+              </option>
+            ))}
+            <option value="end">끝</option>
+            {!known && <option value={value}>없는 장</option>}
+            {chapters.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.title || "새 장"}
+              </option>
+            ))}
+          </Select>
+        </FormField>
+        <Button
+          variant="ghost"
+          disabled={chapters.length >= 99}
+          title={chapters.length >= 99 ? "장은 99개까지 만들 수 있어요." : undefined}
+          onClick={() => onCreateChapter(exit)}
+        >
+          새 장으로 잇기
+        </Button>
+        {chapters.length >= 99 && <p className={s.notice}>장은 99개까지 만들 수 있어요.</p>}
       </div>
     );
   }
@@ -247,6 +315,18 @@ export function StoryPanel({
                 onChange={(event) => patchChapter({ title: event.target.value })}
               />
             </FormField>
+            <div className={s.actions}>
+              <Button
+                variant="ghost"
+                disabled={chapters[0]?.id === chapter.id}
+                onClick={onSetStart}
+              >
+                시작 장으로
+              </Button>
+              <Button variant="ghost" disabled={chapters.length <= 1} onClick={onDeleteChapter}>
+                장 지우기
+              </Button>
+            </div>
             {chapter.steps.map((step, index) => {
               const actor =
                 step.kind === "line"
@@ -320,6 +400,43 @@ export function StoryPanel({
                         </span>
                       </div>
                     )}
+                    {step.kind === "choice" &&
+                      step.options.map((option, optionIndex) => (
+                        <div key={option.id}>
+                          {targetField(
+                            `${option.label || `선택지 ${optionIndex + 1}`} 이어질 장`,
+                            option.goto,
+                            { kind: "choice", stepIndex: index, optionIndex },
+                            (goto) =>
+                              patchChapter({
+                                steps: chapter.steps.map((value, i) =>
+                                  i === index
+                                    ? {
+                                        ...step,
+                                        options: step.options.map((item, j) =>
+                                          j === optionIndex ? { ...item, goto } : item,
+                                        ),
+                                      }
+                                    : value,
+                                ),
+                              }),
+                          )}
+                        </div>
+                      ))}
+                    {step.kind === "wait" &&
+                      targetField(
+                        "시간이 지나면 이어질 장",
+                        step.onTimeout.then,
+                        { kind: "timeout", stepIndex: index },
+                        (then) =>
+                          patchChapter({
+                            steps: chapter.steps.map((value, i) =>
+                              i === index
+                                ? { ...step, onTimeout: { ...step.onTimeout, then } }
+                                : value,
+                            ),
+                          }),
+                      )}
                     <button
                       type="button"
                       className={s.expand}
@@ -378,6 +495,9 @@ export function StoryPanel({
             {addMenu(chapter.steps.length)}
             {chapter.steps.length >= 32 && (
               <p className={s.notice}>한 장에는 단계를 32개까지 넣을 수 있어요.</p>
+            )}
+            {targetField("다음 장", chapter.next ?? "end", { kind: "next" }, (next) =>
+              patchChapter({ next }),
             )}
           </div>
         )
