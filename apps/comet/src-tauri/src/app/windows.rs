@@ -26,6 +26,58 @@ pub(crate) enum SettingsSection {
     Organizer,
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StoryEditorTarget {
+    pack_id: String,
+    scenario_id: String,
+}
+
+#[tauri::command]
+pub(crate) fn get_story_editor_target(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<Option<StoryEditorTarget>, String> {
+    Ok(lock(&state.story_editor_target)?.clone())
+}
+
+#[tauri::command]
+pub(crate) fn open_story_editor(
+    app: tauri::AppHandle,
+    pack_id: String,
+    scenario_id: String,
+) -> Result<(), String> {
+    let state = app.state::<Arc<AppState>>();
+    let mut current = lock(&state.story_editor_target)?;
+    let target = StoryEditorTarget {
+        pack_id,
+        scenario_id,
+    };
+    *current = Some(target.clone());
+    if let Some(window) = app.get_webview_window("story-editor") {
+        window
+            .emit("open-story-editor", &target)
+            .map_err(|e| e.to_string())?;
+        window.unminimize().map_err(|e| e.to_string())?;
+        window.show().map_err(|e| e.to_string())?;
+        return window.set_focus().map_err(|e| e.to_string());
+    }
+    let mut url = tauri::Url::parse("https://comet.local/index.html").map_err(|e| e.to_string())?;
+    url.query_pairs_mut()
+        .append_pair("view", "story-editor")
+        .append_pair("packId", &target.pack_id)
+        .append_pair("scenarioId", &target.scenario_id);
+    let path = format!("index.html?{}", url.query().unwrap_or_default());
+    tauri::WebviewWindowBuilder::new(&app, "story-editor", tauri::WebviewUrl::App(path.into()))
+        .title("comet · 장면 편집기")
+        .inner_size(1280.0, 800.0)
+        .min_inner_size(1120.0, 720.0)
+        .decorations(false)
+        .transparent(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 impl SettingsSection {
     fn key(self) -> &'static str {
         match self {

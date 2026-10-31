@@ -809,10 +809,10 @@ function SceneChapters({
             {value.title || "새 장"}
           </ChoiceButton>
         ))}{" "}
-        <span>장 12개 · 장마다 단계 32개까지</span>
+        <span>장 99개 · 장마다 단계 32개까지</span>
       </div>
       <Button
-        disabled={chapters.length >= 12 || !definitions[0]}
+        disabled={chapters.length >= 99 || !definitions[0]}
         onClick={() => {
           const id = crypto.randomUUID();
           onChange([
@@ -1093,7 +1093,7 @@ export function PackStoryEditor({
       }
     }
   }
-  if (!packId) return <p className={s.small}>캐릭터를 저장한 뒤 팩 이야기를 작성할 수 있어요.</p>;
+  if (!packId) return <><Button disabled>장면 편집기 열기</Button><p className={s.small}>캐릭터를 저장한 뒤 팩 이야기를 작성할 수 있어요.</p></>;
   if (!editor)
     return (
       <section aria-label="팩 이야기">
@@ -1278,6 +1278,16 @@ export function PackStoryEditor({
             ))}
           </Select>
         </FormField>
+        <Button
+          disabled={!isDesktop() || Boolean(selectedScenario && !editor.saved.definition.scenarios.some((scenario) => scenario.id === selectedScenario.id))}
+          onClick={() => {
+            void command("open_story_editor", { packId, scenarioId: selectedScenario?.id ?? "" })
+              .catch((cause: unknown) => setError(errorText(cause)));
+          }}
+        >
+          장면 편집기 열기
+        </Button>
+        {dirty && <p className={s.small}>장면 편집기에는 저장된 이야기가 보여요. 새 이야기는 먼저 저장해 주세요.</p>}
         <Button
           disabled={!definitions[0]}
           onClick={() => {

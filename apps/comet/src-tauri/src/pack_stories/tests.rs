@@ -1292,6 +1292,33 @@ fn chapter_schema_rejects_unconditional_cycles_and_name_bypasses() {
 }
 
 #[test]
+fn chapter_schema_accepts_99_chapters_and_rejects_100() {
+    let (characters, mut extras) = scene_schema_fixture();
+    let scene = &mut extras.scenarios[0];
+    let line = StoryStep::Line {
+        persona: scene.center_id.clone(),
+        expression: "평온".into(),
+        text: "안녕".into(),
+        motion: Default::default(),
+    };
+    let chapters: Vec<Chapter> = (0..100)
+        .map(|index| Chapter {
+            id: format!("chapter-{index}"),
+            title: "장".into(),
+            next: None,
+            steps: vec![line.clone()],
+        })
+        .collect();
+    scene.chapters = Some(chapters[..99].to_vec());
+    validate_pack(&characters, &extras).unwrap();
+    extras.scenarios[0].chapters = Some(chapters);
+    assert_eq!(
+        validate_pack(&characters, &extras).unwrap_err().to_string(),
+        "장은 1~99개여야 해요."
+    );
+}
+
+#[test]
 fn chapter_schema_enforces_count_limits_and_story_size() {
     let (characters, extras) = scene_schema_fixture();
     let mut value = serde_json::to_value(&extras).unwrap();

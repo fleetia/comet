@@ -29,6 +29,7 @@ import { useAnalyticsConsent } from "./hooks/useAnalyticsConsent";
 import * as s from "./common.css";
 import { PlanningWindow } from "./components/PlanningWindow";
 import { LazySurface } from "./components/LazySurface";
+import StoryEditorWindow from "./components/StoryEditor/StoryEditorWindow";
 
 // Keep these identities stable across snapshot updates, preserving mounted drafts.
 const SettingsPanel = lazy(() =>
@@ -46,6 +47,9 @@ const DesktopPreview = lazy(() =>
 // Independent tools own their own data subscriptions; they do not need app history.
 function standaloneRoute(query: URLSearchParams): JSX.Element | null {
   const view = query.get("view");
+  if (view === "story-editor") {
+    return <StoryEditorWindow initialPackId={query.get("packId") ?? ""} initialScenarioId={query.get("scenarioId") ?? ""} />;
+  }
   if (view === "generated-widget-executor")
     return <GeneratedWidgetExecutor token={query.get("token") ?? ""} />;
   if (view === "widget-workshop") return <WidgetWorkshop />;

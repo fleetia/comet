@@ -122,6 +122,25 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it("opens the selected saved story in the story editor", async () => {
+  render(<Harness packId="a" />);
+  await screen.findByLabelText("이야기 제목");
+  fireEvent.click(screen.getByRole("button", { name: "장면 편집기 열기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("open_story_editor", {
+    packId: "a",
+    scenarioId: "a-story",
+  }));
+  fireEvent.click(screen.getByRole("button", { name: "등록 이야기 추가" }));
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "장면 편집기 열기" }).disabled).toBe(true);
+  expect(screen.getByText(/새 이야기는 먼저 저장해 주세요/)).toBeTruthy();
+});
+
+it("requires a saved character to open the story editor", () => {
+  render(<PackStoryEditor packId={null} visible installed={installed} drafts={{}} onDraftsChange={() => {}} onPendingChange={() => {}} characterDirty={false} />);
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "장면 편집기 열기" }).disabled).toBe(true);
+  expect(screen.getByText(/캐릭터를 저장한 뒤/)).toBeTruthy();
+});
+
 it("confirms switching formats and saves edited scene chapters", async () => {
   const saved = snapshot("a");
   vi.mocked(command).mockImplementation(async (name, args) =>
