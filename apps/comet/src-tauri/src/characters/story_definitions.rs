@@ -16,7 +16,17 @@ fn remap_chapter_step(
                 .cloned()
                 .ok_or("이야기·지식의 참가자를 함께 선택해 내보내 주세요.")?;
         }
-        StoryStep::Wait { on_timeout, .. } => {
+        StoryStep::Wait {
+            on_timeout,
+            appearance,
+            ..
+        } => {
+            if let Some(appearance) = appearance {
+                appearance.persona = mapping
+                    .get(&appearance.persona)
+                    .cloned()
+                    .ok_or("이야기·지식의 참가자를 함께 선택해 내보내 주세요.")?;
+            }
             for step in &mut on_timeout.steps {
                 remap_chapter_step(step, mapping)?;
             }

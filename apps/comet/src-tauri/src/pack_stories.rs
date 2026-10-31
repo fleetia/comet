@@ -274,6 +274,15 @@ pub enum StoryInput {
 }
 
 type StoryMotion = crate::characters::reactions::MotionOverride;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StoryAppearance {
+    pub persona: String,
+    pub expression: String,
+    #[serde(default, skip_serializing_if = "StoryMotion::is_inherit")]
+    pub motion: StoryMotion,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(
     tag = "kind",
@@ -321,6 +330,8 @@ pub enum StoryStep {
         #[serde(flatten)]
         event: StoryEvent,
         timeout_sec: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        appearance: Option<StoryAppearance>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         cancel_on: Vec<StoryEvent>,
         on_timeout: StoryTimeout,
@@ -405,10 +416,16 @@ impl<'de> Deserialize<'de> for StoryStep {
                     .transpose()
                     .map_err(D::Error::custom)?
                     .unwrap_or_default();
+                let appearance = object
+                    .remove("appearance")
+                    .map(serde_json::from_value)
+                    .transpose()
+                    .map_err(D::Error::custom)?;
                 let event = serde_json::from_value(value).map_err(D::Error::custom)?;
                 Ok(Self::Wait {
                     event,
                     timeout_sec,
+                    appearance,
                     cancel_on,
                     on_timeout,
                 })
@@ -815,8 +832,16 @@ fn validate_chapters(
                 StoryStep::Wait {
                     timeout_sec,
                     on_timeout,
+                    appearance,
                     ..
                 } => {
+                    if let Some(appearance) = appearance {
+                        actor(
+                            &appearance.persona,
+                            Some(&appearance.expression),
+                            Some(&appearance.motion),
+                        )?;
+                    }
                     if !(10..=900).contains(timeout_sec) || on_timeout.steps.len() > 4 {
                         return Err("대기 시간과 시간 초과 단계를 확인해 주세요.".into());
                     }

@@ -1111,6 +1111,31 @@ fn chapter_schema_validates_and_round_trips_all_step_types() {
 }
 
 #[test]
+fn wait_appearance_round_trips_and_validates_actor_expression_and_motion() {
+    let (characters, extras) = scene_schema_fixture();
+    let mut input = serde_json::to_value(&extras).unwrap();
+    let persona = extras.scenarios[0].center_id.clone();
+    input["scenarios"][0]["chapters"][0]["steps"][4]["appearance"] =
+        serde_json::json!({"persona":persona, "expression":"평온", "motion":{"mode":"static"}});
+    let parsed: PackStoryDefinition = serde_json::from_value(input.clone()).unwrap();
+    validate_pack(&characters, &parsed).unwrap();
+    assert_eq!(serde_json::to_value(&parsed).unwrap(), input);
+    for (field, value) in [
+        ("persona", serde_json::json!("missing")),
+        ("expression", serde_json::json!("없는 표정")),
+        (
+            "motion",
+            serde_json::json!({"mode":"clip", "clipId":"missing", "repeat":false, "intervalMs":0}),
+        ),
+    ] {
+        let mut invalid = input.clone();
+        invalid["scenarios"][0]["chapters"][0]["steps"][4]["appearance"][field] = value;
+        let parsed: PackStoryDefinition = serde_json::from_value(invalid).unwrap();
+        assert!(validate_pack(&characters, &parsed).is_err(), "{field}");
+    }
+}
+
+#[test]
 fn name_ask_saved_line_validates_and_round_trips() {
     let (characters, extras) = scene_schema_fixture();
     let mut input = serde_json::to_value(&extras).unwrap();
@@ -1676,6 +1701,38 @@ fn cancelled_chapter_story_waits_three_inputs_while_tutorial_can_restart() {
             let context = input(&db, &run.scope.center_id, "이야기", 3);
             assert!(select(&db, &runtime, &context, "이야기").unwrap().is_some());
         }
+    }
+}
+
+#[test]
+fn only_the_tutorial_skips_resume_for_a_terminal_name_chapter() {
+    let (db, mut run) = resume_fixture();
+    resume::record_accepted(&db, &run).unwrap();
+    let tutorial: ScenarioDefinition =
+        serde_json::from_str(include_str!("../../content/byulkkori-tutorial.json")).unwrap();
+    let brief = tutorial
+        .chapters
+        .as_ref()
+        .unwrap()
+        .iter()
+        .find(|chapter| chapter.id == "brief")
+        .unwrap()
+        .clone();
+    for (purpose, saved) in [
+        (ScenarioPurpose::Story, true),
+        (ScenarioPurpose::Tutorial, false),
+    ] {
+        let definition = run.definition.as_mut().unwrap();
+        definition.purpose = purpose;
+        let chapter = &mut definition.chapters.as_mut().unwrap()[1];
+        chapter.next = Some("end".into());
+        chapter.steps = brief.steps.clone();
+        db.execute("DELETE FROM pack_story_resume", []).unwrap();
+        resume::save_chapter(&db, &run, "second", 100).unwrap();
+        assert_eq!(
+            !resume::load_for_scope(&db, &run.scope).unwrap().is_empty(),
+            saved
+        );
     }
 }
 

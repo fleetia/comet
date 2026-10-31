@@ -324,6 +324,7 @@ it("locks character and dialogue edits during an unresolved pack switch", async 
   );
   finish();
   await waitFor(() => expect(screen.queryByRole("button", { name: "전환 중…" })).toBeNull());
+  await screen.findByRole("heading", { name: "모래", level: 1 });
   openCharacterPage("프로필");
   await waitFor(() => expect(screen.getByLabelText("이름")).toHaveProperty("value", "모래"));
 });

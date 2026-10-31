@@ -158,6 +158,7 @@ export type ScenarioStep =
   | ({
       kind: "wait";
       timeoutSec: number;
+      appearance?: { persona: string; expression: string; motion?: MotionOverride };
       cancelOn?: ScenarioEvent[];
       onTimeout: { steps: (ScenarioLineStep | ScenarioActionStep)[]; then: string };
     } & ScenarioEvent);
@@ -708,6 +709,7 @@ export type Snapshot = {
   settings: Settings;
   playback: Playback | null;
   story: StoryRequest | null;
+  sceneWaitAppearance?: { id: string; persona: string; expression: string; motion?: MotionOverride };
   sceneAskId?: string;
   followUps?: FollowUpRequest | null;
   panel: PanelState | null;

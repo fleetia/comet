@@ -132,12 +132,17 @@ export function useCharacterAnimation(
     snapshot.story?.displayStartedAt != null &&
     activeCharacter(snapshot, snapshot.story.persona)?.id === character?.id;
   const speaking = Boolean(speakingLine || speakingStory);
+  const waitAppearance =
+    character && !speaking && activeCharacter(snapshot, snapshot.sceneWaitAppearance?.persona ?? "")?.id === character?.id
+      ? snapshot.sceneWaitAppearance
+      : undefined;
   const running =
     available && !reduced && (!snapshot.runtime.paused || speaking || Boolean(activeReaction));
-  const lineKey = JSON.stringify([definitionKey, speakingStory ? snapshot.story?.id : playback?.id]);
+  const lineKey = JSON.stringify([definitionKey, speakingStory ? snapshot.story?.id : speakingLine ? playback?.id : waitAppearance?.id]);
   const lineMotion = speakingLine && finishedLine !== lineKey ? playback?.motion : undefined;
   const storyMotion = speakingStory && finishedLine !== lineKey ? snapshot.story?.motion : undefined;
-  const motion = activeReaction ? activeReaction.motion : (lineMotion ?? storyMotion);
+  const waitMotion = finishedLine !== lineKey ? waitAppearance?.motion : undefined;
+  const motion = activeReaction ? activeReaction.motion : (lineMotion ?? storyMotion ?? waitMotion);
   let binding = motionBinding(motion);
   const explicit = binding !== undefined;
   let trigger = activeReaction ? `reaction:${activeReaction.id}` : "idle";
@@ -145,7 +150,7 @@ export function useCharacterAnimation(
   let sustainedKey: string | null = null;
   if (binding === undefined && speaking)
     binding = animationBinding(animation, expression, "speaking");
-  if (binding === undefined && !speaking && !activeReaction && !snapshot.runtime.paused) {
+  if (binding === undefined && !speaking && !waitAppearance && !activeReaction && !snapshot.runtime.paused) {
     // Only opt-in bindings participate; an unassigned higher-priority state falls through.
     for (const state of SUSTAINED_STATES) {
       if (
@@ -167,6 +172,7 @@ export function useCharacterAnimation(
   const idleExpression =
     available &&
     !speaking &&
+    !waitAppearance &&
     !reaction &&
     (conditions.moodHigh || conditions.moodLow) &&
     (!sustainedState || sustainedState === "moodHigh" || sustainedState === "moodLow")
@@ -175,6 +181,7 @@ export function useCharacterAnimation(
   if (binding === undefined) binding = animationBinding(animation, idleExpression, "idle");
   if (!activeReaction && speaking)
     trigger = `speaking:${speakingLine ? playback?.id : snapshot.story?.id}`;
+  if (!activeReaction && waitAppearance) trigger = `wait:${waitAppearance.id}`;
   const clip = animation?.clips.find((value) => value.id === binding?.clipId);
   const key = JSON.stringify([
     definitionKey,
@@ -239,11 +246,11 @@ export function useCharacterAnimation(
     if (
       !activeReaction &&
       explicit &&
-      (lineMotion ?? storyMotion)?.mode === "clip" &&
+      (lineMotion ?? storyMotion ?? waitMotion)?.mode === "clip" &&
       (progress.finished || loaded.error)
     )
       setFinishedLine(lineKey);
-  }, [activeReaction, explicit, lineMotion?.mode, storyMotion?.mode, progress.finished, loaded.error, lineKey]);
+  }, [activeReaction, explicit, lineMotion?.mode, storyMotion?.mode, waitMotion?.mode, progress.finished, loaded.error, lineKey]);
 
   const acknowledgement = useRef({ id: "", ready: false, readyAt: 0, finished: false });
   useEffect(() => {

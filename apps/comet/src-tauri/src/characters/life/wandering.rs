@@ -162,6 +162,20 @@ pub(crate) struct Runtime {
     preferences: BTreeMap<String, (usize, bool)>,
     scene_entries: BTreeMap<String, SceneEntry>,
     scene_revisions: BTreeMap<String, u64>,
+    scene_cancellations: BTreeMap<String, ScenePhase>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct ScenePhase {
+    run_id: String,
+    epoch: u64,
+    generation: u64,
+}
+
+impl From<&crate::pack_stories::RunTicket> for ScenePhase {
+    fn from(run: &crate::pack_stories::RunTicket) -> Self {
+        Self { run_id: run.run_id.clone(), epoch: run.epoch, generation: run.phase_generation }
+    }
 }
 
 #[derive(Clone)]
@@ -170,6 +184,7 @@ struct SceneEntry {
     identity: usize,
     home: Point,
     bounds: Bounds,
+    revision: u64,
     cancelling: bool,
     moved: bool,
 }
@@ -178,13 +193,20 @@ impl Runtime {
     fn scene_revision(&self, id: &str) -> u64 {
         *self.scene_revisions.get(id).unwrap_or(&0)
     }
-    fn invalidate_scene(&mut self, id: &str) {
+    fn invalidate_scene(&mut self, id: &str, phase: Option<ScenePhase>) {
         let revision = self.scene_revisions.entry(id.into()).or_default();
         *revision = revision.wrapping_add(1);
+        if let Some(phase) = phase {
+            self.scene_cancellations.insert(id.into(), phase);
+        }
+    }
+    fn scene_permitted(&self, id: &str, revision: u64, phase: &ScenePhase) -> bool {
+        self.scene_revision(id) == revision && self.scene_cancellations.get(id) != Some(phase)
     }
     pub(crate) fn scene_current(&self, id: &str, token: &str, identity: usize) -> bool {
         self.scene_entries.get(id).is_some_and(|entry| {
             entry.token == token && entry.identity == identity && !entry.cancelling
+                && entry.revision == self.scene_revision(id)
         })
     }
     fn begin_scene_cancel(&mut self, id: &str, token: Option<&str>) -> Option<SceneEntry> {
@@ -326,7 +348,7 @@ pub(crate) async fn scene_entry(
     let Some((observed, bounds)) = bounds(&window, definition.sprite_size) else { return Ok(false) };
     let home = placement_anchor(bounds, observed, saved_position(state, id)?);
     let edge = entry_edge(bounds, home, enter);
-    let entry = SceneEntry { token: uuid::Uuid::new_v4().to_string(), identity, home, bounds, cancelling: false, moved: false };
+    let entry = SceneEntry { token: uuid::Uuid::new_v4().to_string(), identity, home, bounds, revision, cancelling: false, moved: false };
     {
         let _action = lock(&state.action)?;
         let db = lock(&state.db)?;
@@ -334,7 +356,7 @@ pub(crate) async fn scene_entry(
         if lock(&state.reactions)?.blocks_character(id) { return Ok(false); }
         let mut life = lock(&state.life)?;
         if life.wandering.scene_entries.contains_key(id) || life.wandering.reduced_motion(id, identity)
-            || life.wandering.scene_revision(id) != revision
+            || !life.wandering.scene_permitted(id, revision, &ScenePhase::from(run))
         { return Ok(false); }
         life.wandering.scene_entries.insert(id.into(), entry.clone());
     }
@@ -549,8 +571,11 @@ fn same_geometry(window: &WebviewWindow, bounds: Bounds) -> bool {
 pub(crate) fn cancel(app: &AppHandle, state: &Arc<AppState>, id: &str) -> Result<()> {
     {
         let _action = lock(&state.action)?;
+        let current = lock(&state.pack_stories)?.run.as_ref()
+            .filter(|run| run.epoch == state.epoch.load(Ordering::SeqCst))
+            .map(ScenePhase::from);
         let mut life = lock(&state.life)?;
-        life.wandering.invalidate_scene(id);
+        life.wandering.invalidate_scene(id, current);
     }
     cancel_scene(app, state, id, None)?;
     cancel_ambient(app, state, id)
@@ -1581,10 +1606,10 @@ mod tests {
     fn scene_contact_revokes_frames_and_old_restoration_cannot_replace_a_new_entry() {
         let mut runtime = Runtime::default();
         let before_contact = runtime.scene_revision("local");
-        runtime.invalidate_scene("local");
+        runtime.invalidate_scene("local", None);
         assert_ne!(runtime.scene_revision("local"), before_contact);
         let home = Point { x: -850.0, y: 700.0 };
-        let entry = SceneEntry { token: "old".into(), identity: 11, home, bounds: bounds(), cancelling: false, moved: true };
+        let entry = SceneEntry { token: "old".into(), identity: 11, home, bounds: bounds(), revision: runtime.scene_revision("local"), cancelling: false, moved: true };
         runtime.scene_entries.insert("local".into(), entry.clone());
         assert!(runtime.scene_current("local", "old", 11));
         let pending = runtime.begin_scene_cancel("local", None).unwrap();
@@ -1595,6 +1620,29 @@ mod tests {
         assert!(runtime.begin_scene_cancel("local", Some("old")).is_none());
         assert!(runtime.scene_current("local", "new", 11));
         assert!(!runtime.scene_current("local", "new", 12));
+    }
+
+    #[test]
+    fn contact_rejects_in_flight_frames_and_registration_until_the_scene_phase_changes() {
+        let mut runtime = Runtime::default();
+        let phase = ScenePhase { run_id: "run".into(), epoch: 5, generation: 2 };
+        let before_contact = runtime.scene_revision("local");
+        let entry = SceneEntry {
+            token: "entry".into(), identity: 11, home: Point { x: -850.0, y: 700.0 },
+            bounds: bounds(), revision: before_contact, cancelling: false, moved: true,
+        };
+        runtime.scene_entries.insert("local".into(), entry);
+        assert!(runtime.scene_current("local", "entry", 11));
+        assert!(runtime.scene_permitted("local", before_contact, &phase));
+
+        runtime.invalidate_scene("local", Some(phase.clone()));
+        assert!(!runtime.scene_current("local", "entry", 11));
+        assert!(!runtime.scene_permitted("local", before_contact, &phase));
+        let after_contact = runtime.scene_revision("local");
+        assert!(!runtime.scene_permitted("local", after_contact, &phase));
+        assert!(runtime.scene_permitted("local", after_contact, &ScenePhase { generation: 3, ..phase.clone() }));
+        assert!(runtime.scene_permitted("local", after_contact, &ScenePhase { epoch: 6, ..phase.clone() }));
+        assert!(runtime.scene_permitted("local", after_contact, &ScenePhase { run_id: "new".into(), ..phase }));
     }
 
     #[test]

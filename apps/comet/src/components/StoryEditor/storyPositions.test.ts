@@ -69,6 +69,72 @@ describe("열린 이야기의 위치", () => {
     ],
   };
 
+  it("저장 위치와 줄바꿈된 자동 위치가 겹치면 저장 위치를 유지하고 정돈은 새 배치를 쓴다", () => {
+    const ids = ["a", "b", "c", "d", "e", "f", "g"];
+    const longStory: StoryGraph = {
+      startId: ids[0],
+      nodes: ids.map((id) => ({ id, title: id, kind: "chapter" })),
+      edges: ids.slice(1).map((id, index) => ({
+        id, source: ids[index], target: id, kind: "next", label: "",
+      })),
+    };
+    writeStoryPositions("pack", "story", { f: { x: 0, y: 0 } }, 280);
+    const { result } = renderHook(() => useStoryPositions(longStory, "pack", "story"));
+
+    expect(result.current.positions.f).toEqual({ x: 0, y: 0 });
+    expect(result.current.positions.a).toEqual({ x: 0, y: 180 });
+    expect(readStoryPositions("pack", "story")).toEqual({ f: { x: 0, y: 0 } });
+
+    act(() => result.current.tidy());
+    expect(result.current.positions.a).toEqual({ x: 0, y: 0 });
+    expect(result.current.positions.f).toEqual({ x: 0, y: 180 });
+    expect(readStoryPositions("pack", "story")).toEqual({});
+  });
+
+  it("저장된 끝 노드도 그대로 두고 자동 노드 사이의 연쇄 충돌을 피한다", () => {
+    const ids = Array.from({ length: 11 }, (_, index) => String(index));
+    const longStory: StoryGraph = {
+      startId: ids[0],
+      nodes: [
+        ...ids.map((id) => ({ id, title: id, kind: "chapter" as const })),
+        { id: "end:0", title: "끝", kind: "end" },
+      ],
+      edges: [
+        ...ids.slice(1).map((id, index) => ({
+          id, source: ids[index], target: id, kind: "next" as const, label: "",
+        })),
+        { id: "end-edge", source: "10", target: "end:0", kind: "next", label: "" },
+      ],
+    };
+    writeStoryPositions("pack", "story", { "end:0": { x: 0, y: 0 } }, 280);
+    const { result } = renderHook(() => useStoryPositions(longStory, "pack", "story"));
+
+    expect(result.current.positions["end:0"]).toEqual({ x: 0, y: 0 });
+    expect(result.current.positions["0"]).toEqual({ x: 0, y: 96 });
+    expect(result.current.positions["5"]).toEqual({ x: 0, y: 276 });
+    expect(result.current.positions["10"]).toEqual({ x: 0, y: 456 });
+  });
+
+  it("자동 배치 간격이 바뀌어도 저장한 위치를 그대로 불러온다", () => {
+    const saved = { b: { x: 320, y: 42 } };
+    writeStoryPositions("pack", "story", saved);
+    const { result } = renderHook(() => useStoryPositions(connected, "pack", "story"));
+
+    expect(result.current.positions.b).toEqual(saved.b);
+    expect(result.current.positions.c).toEqual({ x: 640, y: 0 });
+    expect(readStoryPositions("pack", "story")).toEqual(saved);
+  });
+
+  it("새 자동 배치에서 위치를 저장해도 다시 열 때 나머지 간격을 유지한다", () => {
+    const first = renderHook(() => useStoryPositions(connected, "pack", "story"));
+    act(() => first.result.current.savePosition("b", { x: 290, y: 42 }));
+    first.unmount();
+
+    const reopened = renderHook(() => useStoryPositions(connected, "pack", "story"));
+    expect(reopened.result.current.positions.b).toEqual({ x: 290, y: 42 });
+    expect(reopened.result.current.positions.c).toEqual({ x: 560, y: 0 });
+  });
+
   it("연결 끊기와 장 삭제 후에도 위치를 유지하고 되돌린 장은 원래 자리에 놓는다", () => {
     const { result, rerender } = renderHook(
       ({ graph }) => useStoryPositions(graph, "pack", "story"),
@@ -115,7 +181,7 @@ describe("열린 이야기의 위치", () => {
     expect(result.current.positions.a).toEqual(initial.a);
     expect(result.current.positions.b).toEqual(initial.b);
     expect(result.current.positions.c).toEqual(initial.c);
-    expect(result.current.positions.d.x).toBeGreaterThan(initial.c.x);
+    expect(result.current.positions.d.x).toBe(initial.c.x + 280);
 
     act(() => result.current.savePosition("d", { x: 25, y: 60 }));
     expect(result.current.positions.d).toEqual({ x: 25, y: 60 });

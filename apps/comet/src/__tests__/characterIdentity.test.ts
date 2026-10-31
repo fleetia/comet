@@ -69,3 +69,15 @@ it("uses a displayed choice's expression only for its speaker", () => {
   expect(currentExpression(displayed, "builtin-a")).toBe("기쁨");
   expect(currentExpression(displayed, "builtin-b")).toBe("평온");
 });
+
+it("uses the wait expression only for its character and clears it with the wait", () => {
+  const waiting: Snapshot = {
+    ...PREVIEW_SNAPSHOT,
+    playback: null,
+    story: null,
+    sceneWaitAppearance: { id: "run:1", persona: "builtin-a", expression: "생각중" },
+  };
+  expect(currentExpression(waiting, "builtin-a")).toBe("생각중");
+  expect(currentExpression(waiting, "builtin-b")).toBe("평온");
+  expect(currentExpression({ ...waiting, sceneWaitAppearance: undefined }, "builtin-a")).toBe("평온");
+});

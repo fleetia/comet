@@ -40,6 +40,13 @@ export function currentExpression(snapshot: Snapshot, persona: Persona | null): 
   ) {
     return snapshot.story.expression;
   }
+  if (
+    persona !== null &&
+    snapshot.sceneWaitAppearance &&
+    activeCharacter(snapshot, snapshot.sceneWaitAppearance.persona)?.id === persona
+  ) {
+    return snapshot.sceneWaitAppearance.expression;
+  }
   return persona !== null &&
     snapshot.playback &&
     activeCharacter(snapshot, snapshot.playback.persona)?.id === persona

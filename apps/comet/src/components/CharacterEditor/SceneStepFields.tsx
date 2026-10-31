@@ -580,6 +580,27 @@ export function SceneStepFields({
       {step.kind === "action" && <ActionFields value={step} label={label} onChange={onChange} />}
       {step.kind === "wait" && (
         <>
+          <Select
+            aria-label={`${label} 대기 표정 화자`}
+            value={step.appearance?.persona ?? ""}
+            onChange={(event) => {
+              const actor = definitions.find((value) => value.sourceId === event.target.value);
+              onChange({ ...step, appearance: actor ? { persona: actor.sourceId, expression: Object.keys(actor.expressions)[0] ?? "평온" } : undefined });
+            }}
+          >
+            <option value="">표정 지정 안 함</option>
+            {definitions.map((value) => <option key={value.sourceId} value={value.sourceId}>{value.name}</option>)}
+          </Select>
+          {step.appearance && (() => {
+            const appearance = step.appearance;
+            const actor = definitions.find((value) => value.sourceId === appearance.persona);
+            return <>
+              <Select aria-label={`${label} 표정`} value={appearance.expression} onChange={(event) => onChange({ ...step, appearance: { ...appearance, expression: event.target.value } })}>
+                {[...new Set([appearance.expression, ...Object.keys(actor?.expressions ?? {})])].map((value) => <option key={value}>{value}</option>)}
+              </Select>
+              <MotionSelect label={label} clips={actor?.animation?.clips ?? []} value={appearance.motion} onChange={(motion) => onChange({ ...step, appearance: { ...appearance, motion } })} />
+            </>;
+          })()}
           <EventFields
             label={`${label} 기다릴 이벤트`}
             value={step}
@@ -588,6 +609,7 @@ export function SceneStepFields({
                 kind: "wait",
                 ...event,
                 timeoutSec: step.timeoutSec,
+                appearance: step.appearance,
                 cancelOn: step.cancelOn,
                 onTimeout: step.onTimeout,
               })
