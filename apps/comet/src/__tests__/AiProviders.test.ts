@@ -1,5 +1,10 @@
 import { expect, it } from "vitest";
-import { getAiProviders, getRecommendedAiProvider, selectAiProvider } from "../aiProviders";
+import {
+  getAiProviders,
+  getAiRecommendationNote,
+  getRecommendedAiProvider,
+  selectAiProvider,
+} from "../aiProviders";
 import { PREVIEW_SNAPSHOT } from "../previewSnapshot";
 
 it.each([
@@ -34,4 +39,17 @@ it("switches to Apple without losing the API profile or changing automatic gener
     apiModel: "saved-model",
     baseUrl: "https://api.anthropic.com/v1",
   });
+});
+
+it.each([
+  ["macos", "Apple 온디바이스 AI를 추천해요"],
+  ["windows", "ChatGPT를 추천해요"],
+] as const)("explains the %s recommendation with the free path", (platform, text) => {
+  const note = getAiRecommendationNote(platform);
+  expect(note).toContain(text);
+  expect(note).toContain("이 기기의 모델(2.7GB, 무료)");
+});
+
+it("has no recommendation note on other platforms", () => {
+  expect(getAiRecommendationNote("linux")).toBeNull();
 });
