@@ -985,7 +985,7 @@ pub fn validate_pack(
         .iter()
         .any(|scene| scene.purpose == ScenarioPurpose::Tutorial && scene.chapters.is_none())
     {
-        return Err("튜토리얼은 장면형 이야기로만 만들 수 있어요.".into());
+        return Err("튜토리얼은 장을 이어 가는 이야기로만 만들 수 있어요.".into());
     }
     if extras.world_rules.chars().count() > 2000
         || extras.knowledge.len() > 32
@@ -1107,7 +1107,10 @@ pub fn validate_pack(
                 || scene.accept_next_id.is_some()
                 || scene.decline_next_id.is_some())
         {
-            return Err("장면형에는 제안형 단계를 사용할 수 없어요.".into());
+            return Err(
+                "장을 이어 가는 이야기에는 친구가 제안하는 짧은 이야기의 단계를 사용할 수 없어요."
+                    .into(),
+            );
         }
         if is_scene {
             validate_chapters(scene, &sources)?;
@@ -1259,11 +1262,17 @@ pub fn load_plan(db: &Connection, input_id: &str) -> Result<Option<Plan>> {
     let mut plan: Plan = serde_json::from_str(&value).map_err(|e| e.to_string())?;
     if plan.run.stage == Stage::Chapter {
         if plan.source == "expired-chapter" {
-            return Err("지난 장면형 이야기는 재시도할 수 없어요. 새로 시작해 주세요.".into());
+            return Err(
+                "이전에 진행한 장을 이어 가는 이야기는 재시도할 수 없어요. 새로 시작해 주세요."
+                    .into(),
+            );
         }
         let started: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pack_story_outcomes WHERE run_id=?1 AND kind='accepted')", [&plan.run_id], |row| row.get(0)).map_err(|e| e.to_string())?;
         if started {
-            return Err("지난 장면형 이야기는 재시도할 수 없어요. 새로 시작해 주세요.".into());
+            return Err(
+                "이전에 진행한 장을 이어 가는 이야기는 재시도할 수 없어요. 새로 시작해 주세요."
+                    .into(),
+            );
         }
     }
     plan.retry = true;
@@ -1544,7 +1553,7 @@ pub(crate) fn scene_plan(
     let chapters = definition
         .chapters
         .as_ref()
-        .ok_or("장면형 이야기가 아니에요.")?;
+        .ok_or("장을 이어 가는 이야기가 아니에요.")?;
     let chapter = chapter_id
         .and_then(|id| chapters.iter().find(|chapter| chapter.id == id))
         .or_else(|| chapters.first())

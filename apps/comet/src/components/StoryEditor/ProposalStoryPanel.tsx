@@ -22,6 +22,7 @@ export function ProposalStoryPanel({
   scenarios,
   onChange,
   onClose,
+  stepFocus,
 }: {
   scenario: ScenarioDefinition;
   stage: ProposalStage;
@@ -29,6 +30,7 @@ export function ProposalStoryPanel({
   scenarios: ScenarioDefinition[];
   onChange: (scenario: ScenarioDefinition) => void;
   onClose: () => void;
+  stepFocus?: { index: number; sequence: number } | null;
 }): JSX.Element {
   const [expanded, setExpanded] = useState<number | null>(null);
   const panelRef = useRef<HTMLElement>(null);
@@ -43,6 +45,15 @@ export function ProposalStoryPanel({
     setExpanded(null);
     panelRef.current?.querySelector<HTMLTextAreaElement>("[data-line-index]")?.focus();
   }, [scenario.id, stage]);
+  useEffect(() => {
+    if (stepFocus) setExpanded(stepFocus.index);
+  }, [stepFocus]);
+  useEffect(() => {
+    if (!stepFocus || expanded !== stepFocus.index) return;
+    panelRef.current
+      ?.querySelector<HTMLElement>(`[data-step-index="${stepFocus.index}"]`)
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [stepFocus, expanded]);
   useEffect(() => {
     if (focusIndex.current == null) return;
     panelRef.current
@@ -95,11 +106,11 @@ export function ProposalStoryPanel({
         </Button>
       </div>
       <div className={s.content}>
-        <p>제안형은 네 단계가 정해져 있어서 장을 더하거나 잇는 곳을 바꿀 수 없어요.</p>
+        <p>친구가 제안하는 짧은 이야기는 네 단계가 정해져 있어서 장을 더하거나 잇는 곳을 바꿀 수 없어요.</p>
         {lines.map((line, index) => {
           const actor = actors.find((value) => value.sourceId === line.persona);
           return (
-            <div key={index} className={s.stepRow}>
+            <div key={index} className={s.stepRow} data-step-index={index}>
               <div className={s.line}>
                 <StoryLineInput
                   line={line}

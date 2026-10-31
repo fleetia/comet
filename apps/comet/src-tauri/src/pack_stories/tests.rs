@@ -1226,7 +1226,7 @@ fn tutorial_rejects_proposal_story_without_chapters() {
         let parsed: PackStoryDefinition = serde_json::from_value(input).unwrap();
         assert_eq!(
             validate_pack(&pack.characters, &parsed).unwrap_err(),
-            "튜토리얼은 장면형 이야기로만 만들 수 있어요."
+            "튜토리얼은 장을 이어 가는 이야기로만 만들 수 있어요."
         );
     }
 
@@ -1238,7 +1238,7 @@ fn tutorial_rejects_proposal_story_without_chapters() {
     extras.scenarios.push(invalid);
     assert_eq!(
         validate_pack(&characters, &extras).unwrap_err(),
-        "튜토리얼은 장면형 이야기로만 만들 수 있어요."
+        "튜토리얼은 장을 이어 가는 이야기로만 만들 수 있어요."
     );
 }
 

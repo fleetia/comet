@@ -56,6 +56,7 @@ export function StoryPanel({
   onCreateChapter,
   onDeleteChapter,
   onSetStart,
+  stepFocus,
 }: {
   scenario: ScenarioDefinition;
   chapterId: string | null;
@@ -65,6 +66,7 @@ export function StoryPanel({
   onCreateChapter: (exit: ChapterExit) => void;
   onDeleteChapter: () => void;
   onSetStart: () => void;
+  stepFocus?: { index: number; sequence: number } | null;
 }): JSX.Element {
   const [menuAt, setMenuAt] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -91,6 +93,16 @@ export function StoryPanel({
       panelRef.current?.querySelector<HTMLTextAreaElement>("[data-line-index]")?.focus();
     }
   }, [chapterId, scenario.id]);
+  useEffect(() => {
+    if (!stepFocus || !chapterId) return;
+    setExpanded(stepFocus.index);
+  }, [stepFocus, chapterId]);
+  useEffect(() => {
+    if (!stepFocus || expanded !== stepFocus.index) return;
+    panelRef.current
+      ?.querySelector<HTMLElement>(`[data-step-index="${stepFocus.index}"]`)
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [stepFocus, expanded]);
   useEffect(() => {
     if (focusIndex.current == null) return;
     panelRef.current
@@ -275,21 +287,21 @@ export function StoryPanel({
                 if (scenario.chapters == null) setConfirmMode("scene");
               }}
             >
-              장면형
+              장을 이어 가는 이야기
             </ChoiceButton>
             <ChoiceButton
               selected={scenario.chapters == null}
               disabled={scenario.purpose === "tutorial"}
               title={
                 scenario.purpose === "tutorial"
-                  ? "튜토리얼은 제안형으로 바꿀 수 없어요."
+                  ? "튜토리얼은 친구가 제안하는 짧은 이야기로 바꿀 수 없어요."
                   : undefined
               }
               onClick={() => {
                 if (scenario.chapters != null) setConfirmMode("proposal");
               }}
             >
-              제안형
+              친구가 제안하는 짧은 이야기
             </ChoiceButton>
           </div>
           <FormField label="쓰임">
@@ -362,7 +374,7 @@ export function StoryPanel({
                   ? actors.find((value) => value.sourceId === step.persona)
                   : undefined;
               return (
-                <div key={index} className={s.stepRow}>
+                <div key={index} className={s.stepRow} data-step-index={index}>
                   {addMenu(index)}
                   <div className={step.kind === "line" ? s.line : s.step}>
                     {step.kind === "line" ? (
@@ -546,7 +558,10 @@ export function StoryPanel({
           </>
         }
       >
-        <p>방식을 바꾸면 기존 방식의 내용이 지워져요.</p>
+        <p>
+          {confirmMode === "scene" ? "장을 이어 가는 이야기로" : "친구가 제안하는 짧은 이야기로"}{" "}
+          바꾸면 기존 방식의 내용이 지워져요.
+        </p>
       </Dialog>
     </aside>
   );

@@ -2,12 +2,8 @@ import { useEffect, useRef, useState, type JSX } from "react";
 import {
   Button,
   Checkbox,
-  CharacterArtwork,
-  ChoiceButton,
-  ContextMenu,
   Dialog,
   FormField,
-  Select,
   Textarea,
   TextInput,
 } from "@comet/ui";
@@ -15,298 +11,19 @@ import { ActionBar } from "../../primitives";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type {
   AnimationAsset,
-  CharacterDefinition,
   InstalledCharacter,
   PackStoryDefinition,
   PackStorySnapshot,
-  ScenarioDefinition,
-  ScenarioChapter,
-  ScenarioStep,
-  SceneLine,
 } from "../../types";
-import { MotionSelect } from "../MotionSelect/MotionSelect";
-import { AuthoringTrial } from "./AuthoringTrial";
-import { newStep, SceneStepFields, STEP_NAMES, TargetSelect } from "./SceneStepFields";
 import * as s from "../characters.css";
 
 export type PackStoryDraft = { saved: PackStorySnapshot; definition: PackStoryDefinition };
 const entries = (text: string): string[] => (text === "" ? [] : text.split("\n"));
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
-function StageLines({
-  label,
-  lines,
-  definitions,
-  onChange,
-  maxLines = 32,
-}: {
-  label: string;
-  lines: SceneLine[];
-  definitions: CharacterDefinition[];
-  onChange: (lines: SceneLine[]) => void;
-  maxLines?: number;
-}): JSX.Element {
-  const first = definitions[0];
-  return (
-    <details>
-      <summary>
-        {label} · {lines.length} / {maxLines}줄
-      </summary>
-      {lines.map((line, index) => {
-        const actor = definitions.find((definition) => definition.sourceId === line.persona);
-        const update = (patch: Partial<SceneLine>): void =>
-          onChange(lines.map((value, i) => (i === index ? { ...value, ...patch } : value)));
-        return (
-          <div className={s.relationshipRow} key={index}>
-            <Select
-              fill
-              aria-label={`${label} ${index + 1} 화자`}
-              leading={
-                actor && (
-                  <CharacterArtwork
-                    size="compact"
-                    face={actor.expressions[line.expression]}
-                    style={{ width: 14, height: 14, fontSize: 7 }}
-                  />
-                )
-              }
-              value={line.persona}
-              onChange={(event) => update({ persona: event.target.value })}
-            >
-              {!actor && <option value={line.persona}>확인할 화자</option>}
-              {definitions.map((definition) => (
-                <option key={definition.sourceId} value={definition.sourceId}>
-                  {definition.name}
-                </option>
-              ))}
-            </Select>
-            <Textarea
-              layout="flexible"
-              fill
-              aria-label={`${label} ${index + 1} 본문`}
-              value={line.text}
-              rows={2}
-              maxLength={500}
-              onChange={(event) => update({ text: event.target.value })}
-            />
-            <Select
-              fill
-              aria-label={`${label} ${index + 1} 표정`}
-              value={line.expression}
-              onChange={(event) => update({ expression: event.target.value })}
-            >
-              {[...new Set([line.expression, ...Object.keys(actor?.expressions ?? {})])].map(
-                (value) => (
-                  <option key={value}>{value}</option>
-                ),
-              )}
-            </Select>
-            <MotionSelect
-              label={`${label} ${index + 1}`}
-              clips={actor?.animation?.clips ?? []}
-              value={line.motion}
-              onChange={(motion) => update({ motion })}
-            />
-            <div className={s.compactActions}>
-              <Button
-                variant="ghost"
-                disabled={index === 0}
-                onClick={() => {
-                  const next = [...lines];
-                  [next[index - 1], next[index]] = [next[index], next[index - 1]];
-                  onChange(next);
-                }}
-              >
-                {label} {index + 1} 위로
-              </Button>
-              <Button variant="ghost" onClick={() => onChange(lines.filter((_, i) => i !== index))}>
-                {label} {index + 1} 삭제
-              </Button>
-            </div>
-          </div>
-        );
-      })}
-      <Button
-        variant="ghost"
-        disabled={!first || lines.length >= maxLines}
-        onClick={() =>
-          onChange([...lines, { persona: first.sourceId, expression: "평온", text: "" }])
-        }
-      >
-        {label} 대사 추가
-      </Button>
-    </details>
-  );
-}
-
-function SceneChapters({
-  chapters,
-  definitions,
-  onChange,
-}: {
-  chapters: ScenarioChapter[];
-  definitions: CharacterDefinition[];
-  onChange: (chapters: ScenarioChapter[]) => void;
-}): JSX.Element {
-  const [selectedId, setSelectedId] = useState(chapters[0]?.id ?? "");
-  const [addingStep, setAddingStep] = useState(false);
-  const chapter = chapters.find((value) => value.id === selectedId) ?? chapters[0];
-  const index = chapter ? chapters.indexOf(chapter) : -1;
-  const patch = (changes: Partial<ScenarioChapter>): void =>
-    onChange(
-      chapters.map((value) => (value.id === chapter?.id ? { ...value, ...changes } : value)),
-    );
-  return (
-    <section aria-label="장면 단계">
-      <div>
-        {chapters.map((value) => (
-          <ChoiceButton
-            key={value.id}
-            selected={value.id === chapter?.id}
-            onClick={() => setSelectedId(value.id)}
-          >
-            {value.title || "새 장"}
-          </ChoiceButton>
-        ))}{" "}
-        <span>장 99개 · 장마다 단계 32개까지</span>
-      </div>
-      <Button
-        disabled={chapters.length >= 99 || !definitions[0]}
-        onClick={() => {
-          const id = crypto.randomUUID();
-          onChange([
-            ...chapters,
-            { id, title: "새 장", steps: [newStep("line", definitions[0].sourceId)] },
-          ]);
-          setSelectedId(id);
-        }}
-      >
-        장 추가
-      </Button>
-      {chapter && (
-        <>
-          <TextInput
-            aria-label="장 제목"
-            value={chapter.title}
-            maxLength={40}
-            onChange={(event) => patch({ title: event.target.value })}
-          />
-          <Button
-            disabled={index === 0}
-            onClick={() => {
-              const next = [...chapters];
-              [next[index - 1], next[index]] = [next[index], next[index - 1]];
-              onChange(next);
-            }}
-          >
-            장 위로
-          </Button>
-          <Button
-            disabled={index === chapters.length - 1}
-            onClick={() => {
-              const next = [...chapters];
-              [next[index + 1], next[index]] = [next[index], next[index + 1]];
-              onChange(next);
-            }}
-          >
-            장 아래로
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => onChange(chapters.filter((value) => value.id !== chapter.id))}
-          >
-            장 삭제
-          </Button>
-          {chapter.steps.map((step, stepIndex) => (
-            <div key={stepIndex}>
-              <p>{STEP_NAMES[step.kind]}</p>
-              <SceneStepFields
-                step={step}
-                label={`단계 ${stepIndex + 1}`}
-                definitions={definitions}
-                chapters={chapters}
-                onChange={(next) =>
-                  patch({
-                    steps: chapter.steps.map((value, i) => (i === stepIndex ? next : value)),
-                  })
-                }
-              />
-              <Button
-                variant="ghost"
-                disabled={stepIndex === 0}
-                onClick={() => {
-                  const next = [...chapter.steps];
-                  [next[stepIndex - 1], next[stepIndex]] = [next[stepIndex], next[stepIndex - 1]];
-                  patch({ steps: next });
-                }}
-              >
-                단계 {stepIndex + 1} 위로
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => patch({ steps: chapter.steps.filter((_, i) => i !== stepIndex) })}
-              >
-                단계 {stepIndex + 1} 삭제
-              </Button>
-            </div>
-          ))}
-          <Button
-            disabled={chapter.steps.length >= 32 || !definitions[0]}
-            aria-haspopup="menu"
-            aria-expanded={addingStep}
-            onClick={() => setAddingStep((open) => !open)}
-          >
-            단계 추가
-          </Button>
-          {addingStep && (
-            <ContextMenu
-              label="추가할 단계 종류"
-              actions={Object.entries(STEP_NAMES).map(([id, label]) => ({ id, label }))}
-              onDismiss={() => setAddingStep(false)}
-              onAction={(kind) => {
-                const first = definitions[0];
-                if (first)
-                  patch({
-                    steps: [
-                      ...chapter.steps,
-                      newStep(kind as ScenarioStep["kind"], first.sourceId),
-                    ],
-                  });
-                setAddingStep(false);
-              }}
-            />
-          )}
-          <details>
-            <summary>
-              이 장이 끝나면 · 다음 장:{" "}
-              {chapter.next === "end"
-                ? "끝"
-                : chapter.next
-                  ? (chapters.find((value) => value.id === chapter.next)?.title ?? chapter.next)
-                  : (chapters[index + 1]?.title ?? "끝")}
-            </summary>
-            <TargetSelect
-              label="이 장이 끝나면"
-              value={chapter.next ?? ""}
-              chapters={chapters}
-              targets={[
-                ["", "다음 장"],
-                ["end", "끝내기"],
-              ]}
-              onChange={(next) => patch({ next: next || null })}
-            />
-          </details>
-        </>
-      )}
-    </section>
-  );
-}
-
 export function PackStoryEditor({
   packId,
   installed,
-  presentIds,
-  trialAssets,
   visible,
   drafts,
   onDraftsChange,
@@ -326,13 +43,7 @@ export function PackStoryEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [selected, setSelected] = useState("");
   const [confirmReload, setConfirmReload] = useState(false);
-  const [confirmMode, setConfirmMode] = useState<{
-    mode: "scene" | "proposal";
-    packId: string;
-    scenarioId: string;
-  } | null>(null);
   const mounted = useRef(true);
   const request = useRef(0);
   const lock = useRef(false);
@@ -344,17 +55,7 @@ export function PackStoryEditor({
   const editor = packId ? drafts[packId] : undefined;
   const dirty = Boolean(editor && !same(editor.definition, editor.saved.definition));
   const members = installed.filter((member) => member.packId === packId);
-  const center = installed.find(
-    (member) => member.definition.presenceRole !== "npc" && presentIds?.includes(member.id),
-  );
-  const actors =
-    members.some((member) => member.definition.presenceRole !== "npc") || !center
-      ? members
-      : [...members, center];
   const definitions = members.map((member) => member.definition);
-  const selectedScenario =
-    editor?.definition.scenarios.find((value) => value.id === selected) ??
-    editor?.definition.scenarios[0];
   function current(version: number, generation: number): boolean {
     return mounted.current && scope.current.version === version && request.current === generation;
   }
@@ -395,8 +96,6 @@ export function PackStoryEditor({
     setError(null);
     setNotice(null);
     setConfirmReload(false);
-    setConfirmMode(null);
-    setSelected("");
     onDraftsChange(
       Object.fromEntries(
         Object.entries(currentDrafts.current).map(([id, value]) => [
@@ -416,15 +115,6 @@ export function PackStoryEditor({
     if (lock.current || !editor) return;
     setEditor({ ...editor, definition });
     setNotice(null);
-  }
-  function updateScenario(patch: Partial<ScenarioDefinition>): void {
-    if (editor && selectedScenario)
-      update({
-        ...editor.definition,
-        scenarios: editor.definition.scenarios.map((value) =>
-          value.id === selectedScenario.id ? { ...value, ...patch } : value,
-        ),
-      });
   }
   async function save(): Promise<void> {
     if (lock.current || !packId || !editor || characterDirty) return;
@@ -455,8 +145,7 @@ export function PackStoryEditor({
   if (!packId)
     return (
       <>
-        <Button disabled>이야기 만들기</Button>
-        <Button disabled>장면 편집기 열기</Button>
+        <Button disabled>장면 편집기에서 이야기 만들기 →</Button>
         <p className={s.small}>캐릭터를 저장한 뒤 팩 이야기를 작성할 수 있어요.</p>
       </>
     );
@@ -625,437 +314,22 @@ export function PackStoryEditor({
             조건부 지식 추가
           </Button>
         </details>
-        <FormField label="등록 이야기">
-          <Select
-            fill
-            aria-label="편집할 이야기"
-            value={selectedScenario?.id ?? ""}
-            onChange={(event) => {
-              if (event.target.value === selectedScenario?.id) return;
-              setSelected(event.target.value);
-              setError(null);
-              setNotice(null);
+        <section aria-label="이야기">
+          <h4>이야기</h4>
+          <Button
+            disabled={!isDesktop() || characterDirty}
+            onClick={() => {
+              void command("open_story_editor", { packId, scenarioId: "" }).catch(
+                (cause: unknown) => setError(errorText(cause)),
+              );
             }}
           >
-            {editor.definition.scenarios.map((value) => (
-              <option key={value.id} value={value.id}>
-                {value.title || "새 이야기"}
-              </option>
-            ))}
-          </Select>
-        </FormField>
-        <Button
-          disabled={!isDesktop() || !definitions.some((value) => value.presenceRole !== "npc")}
-          onClick={() => {
-            void command("open_story_editor", {
-              packId,
-              scenarioId: crypto.randomUUID(),
-              createNew: true,
-            }).catch((cause: unknown) => setError(errorText(cause)));
-          }}
-        >
-          이야기 만들기
-        </Button>
-        {!definitions.some((value) => value.presenceRole !== "npc") && (
-          <p className={s.small}>이야기의 중심이 될 친구를 먼저 저장해 주세요.</p>
-        )}
-        <Button
-          disabled={
-            !isDesktop() ||
-            Boolean(
-              selectedScenario &&
-              !editor.saved.definition.scenarios.some(
-                (scenario) => scenario.id === selectedScenario.id,
-              ),
-            )
-          }
-          onClick={() => {
-            void command("open_story_editor", {
-              packId,
-              scenarioId: selectedScenario?.id ?? "",
-            }).catch((cause: unknown) => setError(errorText(cause)));
-          }}
-        >
-          장면 편집기 열기
-        </Button>
-        {dirty && (
-          <p className={s.small}>
-            장면 편집기에는 저장된 이야기가 보여요. 새 이야기는 먼저 저장해 주세요.
-          </p>
-        )}
-        <Button
-          disabled={!definitions[0]}
-          onClick={() => {
-            const first = definitions[0];
-            if (!first) return;
-            const id = crypto.randomUUID();
-            const line = { persona: first.sourceId, expression: "평온", text: "" };
-            update({
-              ...editor.definition,
-              scenarios: [
-                ...editor.definition.scenarios,
-                {
-                  id,
-                  title: "",
-                  centerId: first.sourceId,
-                  participants: [first.sourceId],
-                  keywords: [],
-                  requiredFlags: [],
-                  minAffinity: 0,
-                  intro: [{ ...line }],
-                  accept: [{ ...line }],
-                  decline: [{ ...line }],
-                  ending: [{ ...line }],
-                  acceptKeywords: ["좋아"],
-                  declineKeywords: ["다음에"],
-                  proceedKeywords: ["계속하자"],
-                  cancelKeywords: ["그만하자"],
-                  acceptNextId: null,
-                  declineNextId: null,
-                  allowIncompleteRepeat: true,
-                  allowRepeat: false,
-                  completion: { setFlags: [], memoryTemplate: null },
-                },
-              ],
-            });
-            setSelected(id);
-          }}
-        >
-          등록 이야기 추가
-        </Button>
-        {selectedScenario && (
-          <section aria-label="선택한 이야기">
-            <FormField label="이야기 제목">
-              <TextInput
-                fill
-                value={selectedScenario.title}
-                onChange={(event) => updateScenario({ title: event.target.value })}
-              />
-            </FormField>
-            <FormField label="중심 인물">
-              <Select
-                fill
-                value={selectedScenario.centerId}
-                onChange={(event) =>
-                  updateScenario({
-                    centerId: event.target.value,
-                    participants: [
-                      ...new Set([...selectedScenario.participants, event.target.value]),
-                    ],
-                  })
-                }
-              >
-                {definitions
-                  .filter((value) => value.presenceRole !== "npc")
-                  .map((value) => (
-                    <option key={value.sourceId} value={value.sourceId}>
-                      {value.name}
-                    </option>
-                  ))}
-              </Select>
-            </FormField>
-            <p className={s.small}>참가할 인물</p>
-            {definitions.map((value) => (
-              <Checkbox
-                key={value.sourceId}
-                checked={selectedScenario.participants.includes(value.sourceId)}
-                disabled={value.sourceId === selectedScenario.centerId}
-                onChange={(event) =>
-                  updateScenario({
-                    participants: event.target.checked
-                      ? [...selectedScenario.participants, value.sourceId]
-                      : selectedScenario.participants.filter((source) => source !== value.sourceId),
-                  })
-                }
-                label={value.name}
-              />
-            ))}
-            <div>
-              <p>이야기 방식</p>
-              <p className={s.small}>제안형은 수락·거절로, 장면형은 장을 따라 진행해요</p>
-              <ChoiceButton
-                selected={selectedScenario.chapters == null}
-                onClick={() => {
-                  if (selectedScenario.chapters != null)
-                    setConfirmMode({ mode: "proposal", packId, scenarioId: selectedScenario.id });
-                }}
-              >
-                제안형
-              </ChoiceButton>
-              <ChoiceButton
-                selected={selectedScenario.chapters != null}
-                onClick={() => {
-                  if (selectedScenario.chapters == null)
-                    setConfirmMode({ mode: "scene", packId, scenarioId: selectedScenario.id });
-                }}
-              >
-                장면형
-              </ChoiceButton>
-            </div>
-            {selectedScenario.chapters != null ? (
-              <>
-                <div>
-                  <p>쓰임</p>
-                  <p className={s.small}>튜토리얼은 첫 실행에 자동 시작해요. 팩당 하나</p>
-                  <ChoiceButton
-                    selected={selectedScenario.purpose !== "tutorial"}
-                    onClick={() => updateScenario({ purpose: "story" })}
-                  >
-                    이야기
-                  </ChoiceButton>
-                  <ChoiceButton
-                    selected={selectedScenario.purpose === "tutorial"}
-                    onClick={() => updateScenario({ purpose: "tutorial" })}
-                  >
-                    튜토리얼
-                  </ChoiceButton>
-                </div>
-                <FormField label="시작 키워드 · 한 줄에 하나">
-                  <Textarea
-                    layout="flexible"
-                    fill
-                    rows={2}
-                    value={selectedScenario.keywords.join("\n")}
-                    onChange={(event) => updateScenario({ keywords: entries(event.target.value) })}
-                  />
-                </FormField>
-                <FormField label="시작에 필요한 조건">
-                  <Textarea
-                    layout="flexible"
-                    fill
-                    rows={2}
-                    value={selectedScenario.requiredFlags.join("\n")}
-                    onChange={(event) =>
-                      updateScenario({ requiredFlags: entries(event.target.value) })
-                    }
-                  />
-                </FormField>
-                <FormField label="최소 친밀도">
-                  <TextInput
-                    fill
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={selectedScenario.minAffinity}
-                    onChange={(event) =>
-                      updateScenario({ minAffinity: Number(event.target.value) })
-                    }
-                  />
-                </FormField>
-                <p className={s.small}>이 친밀도부터 시작할 수 있어요</p>
-                <SceneChapters
-                  key={selectedScenario.id}
-                  chapters={selectedScenario.chapters}
-                  definitions={definitions.filter((value) =>
-                    selectedScenario.participants.includes(value.sourceId),
-                  )}
-                  onChange={(chapters) => updateScenario({ chapters })}
-                />
-              </>
-            ) : (
-              <>
-                <FormField label="제안 키워드 · 한 줄에 하나">
-                  <Textarea
-                    layout="flexible"
-                    fill
-                    rows={2}
-                    value={selectedScenario.keywords.join("\n")}
-                    onChange={(event) => updateScenario({ keywords: entries(event.target.value) })}
-                  />
-                </FormField>
-                <StageLines
-                  label="유보"
-                  lines={selectedScenario.defer ?? []}
-                  maxLines={8}
-                  definitions={definitions.filter((value) =>
-                    selectedScenario.participants.includes(value.sourceId),
-                  )}
-                  onChange={(lines) => updateScenario({ defer: lines })}
-                />
-                <details>
-                  <summary>이야기 저작 진단</summary>
-                  <p>
-                    노출 친밀도 ≤ 최소 친밀도:{" "}
-                    {selectedScenario.revealAffinity == null ||
-                    selectedScenario.revealAffinity <= selectedScenario.minAffinity
-                      ? "통과"
-                      : "확인 필요"}
-                  </p>
-                  <p>
-                    유보 대사 화자가 참가자 안에 있음:{" "}
-                    {(selectedScenario.defer ?? []).every((line) =>
-                      selectedScenario.participants.includes(line.persona),
-                    )
-                      ? "통과"
-                      : "확인 필요"}
-                  </p>
-                </details>
-                {(
-                  [
-                    ["intro", "제안"],
-                    ["accept", "수락"],
-                    ["decline", "거절"],
-                    ["ending", "마무리"],
-                  ] as const
-                ).map(([key, label]) => (
-                  <StageLines
-                    key={key}
-                    label={label}
-                    lines={selectedScenario[key] ?? []}
-                    definitions={definitions.filter((value) =>
-                      selectedScenario.participants.includes(value.sourceId),
-                    )}
-                    onChange={(lines) => updateScenario({ [key]: lines })}
-                  />
-                ))}
-                <details>
-                  <summary>선택 표현·조건·분기·완료 효과</summary>
-                  {(
-                    [
-                      ["acceptKeywords", "수락 표현"],
-                      ["declineKeywords", "거절 표현"],
-                      ["proceedKeywords", "계속할 표현"],
-                      ["cancelKeywords", "중단 표현"],
-                      ["requiredFlags", "제안에 필요한 조건"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <FormField key={key} label={`${label} · 한 줄에 하나`}>
-                      <Textarea
-                        layout="flexible"
-                        fill
-                        rows={2}
-                        value={(selectedScenario[key] ?? []).join("\n")}
-                        onChange={(event) => updateScenario({ [key]: entries(event.target.value) })}
-                      />
-                    </FormField>
-                  ))}
-                  <FormField label="최소 친밀도">
-                    <TextInput
-                      fill
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={selectedScenario.minAffinity}
-                      onChange={(event) =>
-                        updateScenario({ minAffinity: Number(event.target.value) })
-                      }
-                    />
-                  </FormField>
-                  <FormField label="노출 친밀도 · 선택 사항">
-                    <TextInput
-                      fill
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={selectedScenario.revealAffinity ?? ""}
-                      onChange={(event) =>
-                        updateScenario({
-                          revealAffinity:
-                            event.target.value === "" ? null : Number(event.target.value),
-                        })
-                      }
-                    />
-                  </FormField>
-                  <p className={s.small}>
-                    최소 친밀도보다 낮게 정하면 이야기를 시작하기 전 유보 대사를 말해요. 비워 두면
-                    최소 친밀도에 도달할 때까지 이야기가 나오지 않아요. 유보 대사가 없으면 기본
-                    문구를 사용해요.
-                  </p>
-                  {(
-                    [
-                      ["acceptNextId", "마친 뒤 다음 이야기"],
-                      ["declineNextId", "거절한 뒤 다음 이야기"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <FormField key={key} label={label}>
-                      <Select
-                        fill
-                        value={selectedScenario[key] ?? ""}
-                        onChange={(event) => updateScenario({ [key]: event.target.value || null })}
-                      >
-                        <option value="">일상으로 돌아가기</option>
-                        {editor.definition.scenarios.map((value) => (
-                          <option key={value.id} value={value.id}>
-                            {value.title || "새 이야기"}
-                          </option>
-                        ))}
-                      </Select>
-                    </FormField>
-                  ))}
-                  <Checkbox
-                    checked={selectedScenario.allowIncompleteRepeat}
-                    onChange={(event) =>
-                      updateScenario({ allowIncompleteRepeat: event.target.checked })
-                    }
-                    label="중단한 이야기는 나중에 다시 제안"
-                  />
-                  <Checkbox
-                    checked={selectedScenario.allowRepeat}
-                    onChange={(event) => updateScenario({ allowRepeat: event.target.checked })}
-                    label="완료한 이야기도 다시 제안"
-                  />
-                  <FormField label="마무리 뒤 남길 조건">
-                    <Textarea
-                      layout="flexible"
-                      fill
-                      rows={2}
-                      value={selectedScenario.completion.setFlags.join("\n")}
-                      onChange={(event) =>
-                        updateScenario({
-                          completion: {
-                            ...selectedScenario.completion,
-                            setFlags: entries(event.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </FormField>
-                  <FormField label="함께한 경험으로 남길 문장 · 선택 사항">
-                    <Textarea
-                      layout="flexible"
-                      fill
-                      rows={2}
-                      maxLength={500}
-                      value={selectedScenario.completion.memoryTemplate ?? ""}
-                      onChange={(event) =>
-                        updateScenario({
-                          completion: {
-                            ...selectedScenario.completion,
-                            memoryTemplate: event.target.value || null,
-                          },
-                        })
-                      }
-                    />
-                  </FormField>
-                </details>
-              </>
-            )}
-            <Button
-              variant="ghost"
-              onClick={() =>
-                update({
-                  ...editor.definition,
-                  scenarios: editor.definition.scenarios.filter(
-                    (value) => value.id !== selectedScenario.id,
-                  ),
-                })
-              }
-            >
-              선택한 이야기 삭제
-            </Button>
-            <AuthoringTrial
-              title="등록 이야기 시험"
-              actors={actors}
-              subject={{ kind: "scenario", scenarioId: selectedScenario.id }}
-              packId={packId}
-              definition={editor.definition}
-              baseline={editor.saved.baseline}
-              presentIds={presentIds}
-              assets={trialAssets}
-              visible={visible && !busy}
-            />
-          </section>
-        )}
+            장면 편집기에서 이야기 만들기 →
+          </Button>
+          <p className={s.small}>장을 잇고 대사를 써요 · 별도 창에서 열려요</p>
+          {characterDirty && <p className={s.small}>캐릭터를 저장한 뒤 열 수 있어요.</p>}
+          <p className={s.small}>이야기 {editor.definition.scenarios.length}개</p>
+        </section>
       </fieldset>
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
@@ -1087,77 +361,6 @@ export function PackStoryEditor({
           팩 이야기 저장
         </Button>
       </ActionBar>
-      <Dialog
-        isOpen={
-          confirmMode != null &&
-          confirmMode.packId === packId &&
-          confirmMode.scenarioId === selectedScenario?.id
-        }
-        title="이야기 방식을 바꿀까요?"
-        variant="confirm"
-        onOpenChange={(open) => {
-          if (!open) setConfirmMode(null);
-        }}
-        footer={
-          <>
-            <Button onClick={() => setConfirmMode(null)}>계속 편집</Button>
-            <Button
-              onClick={() => {
-                if (
-                  !selectedScenario ||
-                  !confirmMode ||
-                  confirmMode.packId !== packId ||
-                  confirmMode.scenarioId !== selectedScenario.id
-                )
-                  return;
-                const line = { persona: selectedScenario.centerId, expression: "평온", text: "" };
-                if (confirmMode.mode === "scene") {
-                  updateScenario({
-                    chapters: [
-                      {
-                        id: crypto.randomUUID(),
-                        title: "첫 장",
-                        steps: [{ kind: "line", ...line }],
-                      },
-                    ],
-                    purpose: "story",
-                    revealAffinity: null,
-                    defer: [],
-                    intro: [],
-                    accept: [],
-                    decline: [],
-                    ending: [],
-                    acceptKeywords: [],
-                    declineKeywords: [],
-                    proceedKeywords: [],
-                    cancelKeywords: [],
-                    acceptNextId: null,
-                    declineNextId: null,
-                  });
-                } else {
-                  updateScenario({
-                    chapters: null,
-                    purpose: "story",
-                    intro: [{ ...line }],
-                    accept: [{ ...line }],
-                    decline: [{ ...line }],
-                    ending: [{ ...line }],
-                    acceptKeywords: ["좋아"],
-                    declineKeywords: ["다음에"],
-                    proceedKeywords: ["계속하자"],
-                    cancelKeywords: ["그만하자"],
-                  });
-                }
-                setConfirmMode(null);
-              }}
-            >
-              방식 바꾸기
-            </Button>
-          </>
-        }
-      >
-        <p>방식을 바꾸면 기존 방식의 내용이 지워져요.</p>
-      </Dialog>
       <Dialog
         isOpen={confirmReload}
         title="팩 이야기 초안을 버릴까요?"

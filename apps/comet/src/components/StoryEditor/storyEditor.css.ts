@@ -194,6 +194,8 @@ globalStyle(`.${canvas} .react-flow__attribution`, { background: "transparent" }
 globalStyle(`.${canvas} .react-flow__attribution a`, { color: tokens["color/ink-3"] });
 
 export const problemCard = style({ borderColor: tokens["color/danger"] });
+export const trialCurrent = style({ borderColor: tokens["color/primary"], boxShadow: `0 0 0 2px ${tokens["color/primary"]}` });
+export const trialVisited = style({ borderColor: tokens["color/primary"] });
 export const missingExit = style({ color: tokens["color/danger"] });
 export const limitNotice = style({
   alignSelf: "center",

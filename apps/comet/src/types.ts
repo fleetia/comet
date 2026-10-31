@@ -225,7 +225,14 @@ export type AuthoringTrialTrace = {
     chapterId: string | null;
     prompt: string | null;
     options: { id: string; label: string }[];
-    history: { text: string; persona: string | null }[];
+    history: { text: string; persona: string | null; line?: SceneLine; durationMs?: number }[];
+    chapterPath?: string[];
+    exits?: {
+      chapterId: string;
+      kind: "next" | "choice" | "timeout";
+      stepIndex: number | null;
+      optionIndex: number | null;
+    }[];
   } | null;
   steps: {
     input: string | null;

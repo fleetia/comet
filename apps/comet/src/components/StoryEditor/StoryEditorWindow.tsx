@@ -30,7 +30,9 @@ import "@xyflow/react/dist/base.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type {
   CharacterDefinition,
+  InstalledCharacter,
   InstalledCharacterPack,
+  AuthoringTrialTrace,
   PackStorySnapshot,
   PackStoryDefinition,
   ScenarioDefinition,
@@ -38,6 +40,8 @@ import type {
 } from "../../types";
 import { useWindowCloseGuard } from "../../widgets/useWindowCloseGuard";
 import { StoryPanel } from "./StoryPanel";
+import { StorySearchPanel } from "./StorySearchPanel";
+import { StoryTrialPanel } from "./StoryTrialPanel";
 import { ProposalStoryPanel, type ProposalStage } from "./ProposalStoryPanel";
 import { WindowHeader } from "../WindowHeader/WindowHeader";
 import {
@@ -74,11 +78,12 @@ type CardData = Record<string, unknown> & {
   openStory: (id: string) => void;
   editable: boolean;
   hasProblem: boolean;
+  trialState: "current" | "visited" | null;
 };
 type CardNode = Node<CardData, "card">;
 
 function StoryCard({ id, data }: NodeProps<CardNode>): JSX.Element {
-  const { item, exits, actors, openStory, editable, hasProblem } = data;
+  const { item, exits, actors, openStory, editable, hasProblem, trialState } = data;
   const updateNodeInternals = useUpdateNodeInternals();
   const exitIds = exits.map((exit) => exit.id).join("|");
   useEffect(() => {
@@ -93,7 +98,7 @@ function StoryCard({ id, data }: NodeProps<CardNode>): JSX.Element {
   const actor = actors.find((value) => value.sourceId === item.firstLine?.persona);
   return (
     <div
-      className={`${item.kind === "story" ? s.storyCard : s.card} ${hasProblem ? s.problemCard : ""}`}
+      className={`${item.kind === "story" ? s.storyCard : s.card} ${hasProblem ? s.problemCard : ""} ${trialState === "current" ? s.trialCurrent : trialState === "visited" ? s.trialVisited : ""}`}
     >
       <Handle type="target" position={Position.Left} className={s.target} />
       {item.kind === "story" && item.storyId ? (
@@ -176,6 +181,10 @@ function StoryCanvas({
   onAddChapter,
   onDisconnect,
   openProblems,
+  openSearch,
+  openTrial,
+  trialActive,
+  trialTrace,
   atLimit,
   focusRequest,
 }: {
@@ -195,17 +204,26 @@ function StoryCanvas({
   onAddChapter: () => void;
   onDisconnect: (ref: StoryExitRef) => void;
   openProblems: () => void;
+  openSearch: () => void;
+  openTrial: () => void;
+  trialActive: boolean;
+  trialTrace: AuthoringTrialTrace | null;
   atLimit: boolean;
   focusRequest: { id: string; sequence: number } | null;
 }): JSX.Element {
   const { positions, savePosition, tidy } = useStoryPositions(graph, packId, scenarioId);
+  const path = trialTrace?.scene?.chapterPath?.map((id) => `chapter:${id}`) ??
+    trialTrace?.steps.flatMap((step) => step.stage && step.stage !== "entry" ? [`proposal:${step.stage}`] : []) ?? [];
+  const currentNode = trialTrace?.scene
+    ? trialTrace.scene.chapterId && `chapter:${trialTrace.scene.chapterId}`
+    : path.at(-1);
   const initialNodes = useMemo<CardNode[]>(
     () =>
       graph.nodes.map((item) => ({
         id: item.id,
         type: "card",
         position: positions[item.id],
-        draggable: item.kind === "chapter",
+        draggable: !trialActive && item.kind === "chapter",
         deletable: false,
         data: {
           item,
@@ -215,13 +233,14 @@ function StoryCanvas({
           ],
           actors,
           openStory,
-          editable,
+          editable: editable && !trialActive,
+          trialState: item.id === currentNode ? "current" : path.includes(item.id) ? "visited" : null,
           hasProblem: problems.some(
             (problem) => `${editable ? "chapter" : "proposal"}:${problem.chapterId}` === item.id,
           ),
         },
       })),
-    [graph, positions, actors, openStory, editable, problems],
+    [graph, positions, actors, openStory, editable, problems, trialActive, trialTrace],
   );
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   useEffect(() => {
@@ -230,21 +249,29 @@ function StoryCanvas({
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const edges = useMemo<Edge[]>(
     () =>
-      graph.edges.map((edge) => ({
+      graph.edges.map((edge) => {
+        const visited = trialTrace?.scene
+          ? trialTrace.scene.exits?.some((exit) => edge.ref &&
+              exit.chapterId === edge.ref.chapterId && exit.kind === edge.ref.kind &&
+              (exit.stepIndex ?? undefined) === ("stepIndex" in edge.ref ? edge.ref.stepIndex : undefined) &&
+              (exit.optionIndex ?? undefined) === ("optionIndex" in edge.ref ? edge.ref.optionIndex : undefined))
+          : path.some((id, index) => id === edge.source && path[index + 1] === edge.target);
+        return {
         id: edge.id,
         source: edge.source,
         target: edge.target,
         sourceHandle: edge.id,
-        selectable: editable && !!edge.ref,
-        deletable: editable && !!edge.ref,
+        selectable: editable && !trialActive && !!edge.ref,
+        deletable: editable && !trialActive && !!edge.ref,
         selected: selectedEdge === edge.id,
         style: {
-          stroke: edge.kind === "choice" ? tokens["color/primary"] : tokens["color/ink-3"],
-          strokeWidth: selectedEdge === edge.id ? 3 : 1.5,
+          stroke: visited || edge.kind === "choice" ? tokens["color/primary"] : tokens["color/ink-3"],
+          strokeWidth: selectedEdge === edge.id || visited ? 3 : 1.5,
           strokeDasharray: edge.kind === "timeout" ? "4 4" : undefined,
         },
-      })),
-    [graph, editable, selectedEdge],
+        };
+      }),
+    [graph, editable, selectedEdge, trialActive, trialTrace],
   );
   const {
     fitView,
@@ -271,12 +298,12 @@ function StoryCanvas({
     void setCenter(
       position.x + 112 + Math.min(400, window.innerWidth) / (2 * zoom),
       position.y + 50,
-      { duration: 0 },
+      { duration: 0, zoom },
     );
   }, [focusRequest, nodes, getViewport, setCenter, editable]);
   useEffect(() => {
     function keydown(event: KeyboardEvent): void {
-      if (!selectedEdge || (event.key !== "Delete" && event.key !== "Backspace")) return;
+      if (trialActive || !selectedEdge || (event.key !== "Delete" && event.key !== "Backspace")) return;
       const active = document.activeElement;
       if (
         active instanceof HTMLInputElement ||
@@ -294,7 +321,7 @@ function StoryCanvas({
     }
     document.addEventListener("keydown", keydown);
     return () => document.removeEventListener("keydown", keydown);
-  }, [selectedEdge, graph, onDisconnect]);
+  }, [selectedEdge, graph, onDisconnect, trialActive]);
   const startPosition = graph.startId ? positions[graph.startId] : undefined;
   return (
     <div
@@ -315,10 +342,10 @@ function StoryCanvas({
         edges={edges}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
-        nodesConnectable={editable}
+        nodesConnectable={editable && !trialActive}
         connectionLineStyle={{ strokeDasharray: "4 4" }}
-        elementsSelectable={editable}
-        nodesDraggable
+        elementsSelectable={editable && !trialActive}
+        nodesDraggable={!trialActive}
         onNodeDragStop={(_, node) => savePosition(node.id, node.position)}
         onConnectStart={(_, params) => {
           if (params.handleType === "source") setDraggingExit(true);
@@ -326,7 +353,7 @@ function StoryCanvas({
         onConnectEnd={(event, state) => {
           setDraggingExit(false);
           setDropPoint(null);
-          if (!editable || !state.fromHandle) return;
+          if (!editable || trialActive || !state.fromHandle) return;
           const exit = [
             ...graph.edges,
             ...graph.nodes.flatMap((node) => node.localExits ?? []),
@@ -354,7 +381,7 @@ function StoryCanvas({
         }}
         onPaneClick={() => {
           setSelectedEdge(null);
-          closePanel();
+          if (!trialActive) closePanel();
         }}
         onNodeClick={(_, node) => {
           setSelectedEdge(null);
@@ -391,15 +418,15 @@ function StoryCanvas({
         </div>
       )}
       <div className={s.toolbar}>
-        <Button variant="ghost" onClick={openSettings}>
+        <Button variant="ghost" disabled={trialActive} onClick={openSettings}>
           이야기 설정
         </Button>
         <Button
           variant="ghost"
-          disabled={!editable || atLimit}
+          disabled={!editable || atLimit || trialActive}
           title={
             !editable
-              ? "제안형은 네 단계가 정해져 있어서 장을 더할 수 없어요."
+              ? "친구가 제안하는 짧은 이야기는 네 단계가 정해져 있어서 장을 더할 수 없어요."
               : atLimit
                 ? "장은 99개까지 만들 수 있어요."
                 : undefined
@@ -411,10 +438,16 @@ function StoryCanvas({
         {editable && atLimit && (
           <span className={s.limitNotice}>장은 99개까지 만들 수 있어요.</span>
         )}
-        <Button variant="ghost" onClick={openProblems}>
+        <Button variant="ghost" disabled={trialActive} onClick={openProblems}>
           확인할 곳 {problems.length}
         </Button>
-        <Button variant="ghost" onClick={tidy}>
+        <Button variant="ghost" disabled={trialActive} onClick={openSearch}>
+          찾기
+        </Button>
+        <Button variant="ghost" disabled={trialActive} onClick={openTrial}>
+          시험
+        </Button>
+        <Button variant="ghost" disabled={trialActive} onClick={tidy}>
           정돈
         </Button>
         <Button variant="ghost" onClick={() => void fitView({ duration: 0 })}>
@@ -447,6 +480,7 @@ export default function StoryEditorWindow({
   });
   const [packs, setPacks] = useState<InstalledCharacterPack[] | null>(null);
   const [actors, setActors] = useState<CharacterDefinition[]>([]);
+  const [installedActors, setInstalledActors] = useState<InstalledCharacter[]>([]);
   const [actorsPack, setActorsPack] = useState<string | null>(null);
   const created = useRef(new Set<string>());
   type Draft = {
@@ -459,10 +493,14 @@ export default function StoryEditorWindow({
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
   const [panel, setPanel] = useState<string | null>(null);
+  const [trialTrace, setTrialTrace] = useState<AuthoringTrialTrace | null>(null);
+  const [trialStart, setTrialStart] = useState<string | null>(null);
+  const trialActive = panel === "trial";
   const [deleting, setDeleting] = useState<string | null>(null);
   const [newStory, setNewStory] = useState<Target | null>(null);
-  const [newMode, setNewMode] = useState<StoryMode>("scene");
+  const previousStory = useRef<Target | null>(null);
   const [focusRequest, setFocusRequest] = useState<{ id: string; sequence: number } | null>(null);
+  const [stepFocus, setStepFocus] = useState<{ index: number; sequence: number } | null>(null);
   const [pendingProblems, setPendingProblems] = useState<Target | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
@@ -480,6 +518,9 @@ export default function StoryEditorWindow({
   );
   const closeGuard = useWindowCloseGuard(dirty, busy, () => getCurrentWindow().destroy());
   function receiveTarget(value: Target): void {
+    if (value.createNew && value.packId === targetRef.current.packId) {
+      previousStory.current = { ...targetRef.current, createNew: false };
+    }
     if (lock.current) pendingTarget.current = value;
     else setTarget(value);
   }
@@ -546,6 +587,7 @@ export default function StoryEditorWindow({
         if (!active) return;
         setPacks(available);
         setActorsPack(target.packId);
+        setInstalledActors(snapshot.characters.installed.filter((actor) => actor.packId === target.packId));
         setActors(
           snapshot.characters.installed
             .filter((actor) => actor.packId === target.packId)
@@ -593,10 +635,9 @@ export default function StoryEditorWindow({
       return;
     }
     created.current.add(target.scenarioId);
-    setNewMode("scene");
     setNewStory(target);
   }, [loading, target.packId, target.scenarioId, target.createNew, draft, actors, actorsPack]);
-  function createNewStory(): void {
+  function createNewStory(mode: StoryMode): void {
     if (
       !newStory ||
       !draft ||
@@ -628,7 +669,7 @@ export default function StoryEditorWindow({
       completion: { setFlags: [], memoryTemplate: null },
     };
     const createdScenario =
-      newMode === "proposal" ? changeStoryMode(scenario, "proposal") : scenario;
+      mode === "proposal" ? changeStoryMode(scenario, "proposal") : scenario;
     const definition = {
       ...draft.definition,
       scenarios: [...draft.definition.scenarios, createdScenario],
@@ -647,6 +688,7 @@ export default function StoryEditorWindow({
       };
     });
     setNewStory(null);
+    previousStory.current = null;
   }
   const scenarios = draft?.definition.scenarios ?? [];
   const selected = scenarios.find((value) => value.id === target.scenarioId) ?? scenarios[0];
@@ -657,6 +699,7 @@ export default function StoryEditorWindow({
   );
   useLayoutEffect(() => {
     setFocusRequest(null);
+    setTrialTrace(null);
     if (selected?.chapters?.length === 1) setPanel(`chapter:${selected.chapters[0].id}`);
     else setPanel(null);
   }, [target.packId, selected?.id]);
@@ -677,7 +720,7 @@ export default function StoryEditorWindow({
     setTarget((current) => ({ ...current, scenarioId }));
   }, []);
   function updateScenario(scenario: ScenarioDefinition): void {
-    if (lock.current || !draft) return;
+    if (lock.current || trialActive || !draft) return;
     const definition = {
       ...draft.definition,
       scenarios: scenarios.map((value) => (value.id === scenario.id ? scenario : value)),
@@ -709,6 +752,7 @@ export default function StoryEditorWindow({
     if (ref) next = setStoryExit(next, ref, id);
     group.current = null;
     updateScenario(next);
+    setStepFocus(null);
     setPanel(`chapter:${id}`);
     return id;
   }
@@ -718,7 +762,7 @@ export default function StoryEditorWindow({
     updateScenario(setStoryExit(selected, ref, destination));
   }
   function travel(redo: boolean): void {
-    if (lock.current) return;
+    if (lock.current || trialActive) return;
     const from = redo ? history.current.future : history.current.past;
     const to = redo ? history.current.past : history.current.future;
     const change = from.pop();
@@ -735,7 +779,7 @@ export default function StoryEditorWindow({
   }
   useEffect(() => {
     function keydown(event: KeyboardEvent): void {
-      if (event.key === "Escape") setPanel(null);
+      if (event.key === "Escape") { setPanel(null); setTrialTrace(null); }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z" && !event.altKey) {
         event.preventDefault();
         travel(event.shiftKey);
@@ -835,7 +879,7 @@ export default function StoryEditorWindow({
           <div className={s.selectors}>
             <Select
               aria-label="팩 선택"
-              disabled={busy}
+              disabled={busy || trialActive}
               value={target.packId}
               onChange={(event) => setTarget({ packId: event.target.value, scenarioId: "" })}
             >
@@ -848,7 +892,7 @@ export default function StoryEditorWindow({
             <Select
               aria-label="이야기 선택"
               value={selected?.id ?? ""}
-              disabled={!selected || busy}
+              disabled={!selected || busy || trialActive}
               onChange={(event) => openStory(event.target.value)}
             >
               {scenarios.map((scenario) => (
@@ -862,6 +906,7 @@ export default function StoryEditorWindow({
               disabled={
                 loading ||
                 busy ||
+                trialActive ||
                 !target.packId ||
                 !draft ||
                 !packs?.some((pack) => pack.id === target.packId)
@@ -869,6 +914,7 @@ export default function StoryEditorWindow({
               onClick={() => {
                 group.current = null;
                 setPanel(null);
+                previousStory.current = { packId: target.packId, scenarioId: selected?.id ?? "" };
                 setTarget({
                   packId: target.packId,
                   scenarioId: crypto.randomUUID(),
@@ -884,7 +930,7 @@ export default function StoryEditorWindow({
                 variant="ghost"
                 disabled={
                   !draft ||
-                  busy ||
+                  busy || trialActive ||
                   JSON.stringify(draft.definition) === JSON.stringify(draft.saved.definition)
                 }
                 onClick={() => {
@@ -905,7 +951,7 @@ export default function StoryEditorWindow({
               <Button
                 disabled={
                   !draft ||
-                  busy ||
+                  busy || trialActive ||
                   JSON.stringify(draft.definition) === JSON.stringify(draft.saved.definition)
                 }
                 onClick={() => void save()}
@@ -949,8 +995,8 @@ export default function StoryEditorWindow({
             <StoryCanvas
               graph={graph}
               actors={actors}
-              openStory={openStory}
-              openChapter={(id) => setPanel(id)}
+              openStory={(id) => { if (!trialActive) openStory(id); }}
+              openChapter={(id) => { setTrialTrace(null); setStepFocus(null); setPanel(id); }}
               closePanel={() => setPanel(null)}
               openSettings={() => setPanel("settings")}
               panelOpen={panel !== null}
@@ -965,6 +1011,14 @@ export default function StoryEditorWindow({
                 addChapter();
               }}
               openProblems={() => setPanel("problems")}
+              openSearch={() => setPanel("search")}
+              openTrial={() => {
+                setTrialStart(panel?.startsWith("chapter:") ? panel.slice(8) : null);
+                setTrialTrace(null);
+                setPanel("trial");
+              }}
+              trialActive={trialActive}
+              trialTrace={trialTrace}
               atLimit={(selected.chapters?.length ?? 0) >= STORY_CHAPTER_LIMIT}
               focusRequest={focusRequest}
             />
@@ -1007,6 +1061,7 @@ export default function StoryEditorWindow({
                       <button
                         type="button"
                         onClick={() => {
+                          setStepFocus(null);
                           setPanel(
                             `${selected.chapters ? "chapter" : "proposal"}:${problem.chapterId}`,
                           );
@@ -1027,22 +1082,46 @@ export default function StoryEditorWindow({
               </ul>
             </aside>
           )}
+          {panel === "search" && (
+            <StorySearchPanel
+              scenario={selected}
+              onClose={() => setPanel(null)}
+              onSelect={(result) => {
+                setPanel(`${selected.chapters != null ? "chapter" : "proposal"}:${result.chapterId}`);
+                setFocusRequest((current) => ({ id: result.chapterId, sequence: (current?.sequence ?? 0) + 1 }));
+                setStepFocus((current) => result.stepIndex == null ? null : ({ index: result.stepIndex, sequence: (current?.sequence ?? 0) + 1 }));
+              }}
+            />
+          )}
+          {panel === "trial" && draft && (
+            <StoryTrialPanel
+              actors={installedActors}
+              definition={draft.definition}
+              scenario={selected}
+              startChapterId={trialStart}
+              visible
+              onTrace={setTrialTrace}
+              onClose={() => { setTrialTrace(null); setPanel(null); }}
+            />
+          )}
           {panel?.startsWith("proposal:") && selected.chapters == null && (
             <ProposalStoryPanel
               key={`${selected.id}:${panel}`}
               scenario={selected}
               stage={panel.slice("proposal:".length) as ProposalStage}
+              stepFocus={stepFocus}
               actors={actors}
               scenarios={scenarios}
               onChange={updateScenario}
               onClose={() => setPanel(null)}
             />
           )}
-          {panel && panel !== "problems" && !panel.startsWith("proposal:") && (
+          {panel && panel !== "problems" && panel !== "search" && panel !== "trial" && !panel.startsWith("proposal:") && (
             <StoryPanel
               key={`${selected.id}:${panel}`}
               scenario={selected}
               chapterId={panel === "settings" ? null : panel.replace(/^chapter:/, "")}
+              stepFocus={stepFocus}
               actors={actors}
               onChange={updateScenario}
               onCreateChapter={(exit) => {
@@ -1068,47 +1147,46 @@ export default function StoryEditorWindow({
           newStory.packId === target.packId &&
           newStory.scenarioId === target.scenarioId
         }
-        title="어떤 이야기를 만들까요?"
-        variant="confirm"
+        title="새 이야기 만들기"
+        style={{ maxWidth: 460 }}
         onOpenChange={(open) => {
           if (!open) {
             setNewStory(null);
-            setTarget((current) => ({ ...current, createNew: false }));
+            setTarget(previousStory.current ?? { ...target, scenarioId: scenarios[0]?.id ?? "", createNew: false });
+            previousStory.current = null;
           }
         }}
-        footer={
-          <>
-            <Button
-              onClick={() => {
-                setNewStory(null);
-                setTarget((current) => ({ ...current, createNew: false }));
-              }}
-            >
-              취소
-            </Button>
-            <Button onClick={createNewStory}>만들기</Button>
-          </>
-        }
       >
-        <div className={modeStyles.choices}>
-          <button
-            type="button"
-            className={modeStyles.choice}
-            aria-pressed={newMode === "scene"}
-            onClick={() => setNewMode("scene")}
-          >
-            <strong>장면형</strong>
-            <span>장을 이어 가며 선택과 기다리기를 넣어요. 튜토리얼도 이 방식이에요.</span>
-          </button>
-          <button
-            type="button"
-            className={modeStyles.choice}
-            aria-pressed={newMode === "proposal"}
-            onClick={() => setNewMode("proposal")}
-          >
-            <strong>제안형</strong>
-            <span>친구가 먼저 제안하고 수락·거절로 나뉘어요. 네 단계가 정해져 있어요.</span>
-          </button>
+        <div className={modeStyles.card}>
+          <svg className={modeStyles.diagram} viewBox="0 0 120 56" fill="none" aria-hidden="true">
+            <path
+              d="M28 28H39L51 12H65M39 28L51 44H65M85 12H94L104 28M85 44H94L104 28"
+              stroke={tokens["color/ink-3"]}
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <rect x="4" y="19" width="24" height="18" rx="4" fill={tokens["color/primary"]} />
+            <rect x="65" y="4" width="20" height="16" rx="4" stroke={tokens["color/primary"]} strokeWidth="2" />
+            <rect x="65" y="36" width="20" height="16" rx="4" stroke={tokens["color/primary"]} strokeWidth="2" />
+            <circle cx="108" cy="28" r="4" fill={tokens["color/primary"]} />
+          </svg>
+          <strong className={modeStyles.title}>장을 이어 가는 이야기</strong>
+          <p className={modeStyles.description}>
+            선택에 따라 갈라지고, 사용자가 뭔가 해 주길 기다릴 수 있어요. 대부분의 이야기는 이걸로 만들어요.
+          </p>
+          <Button className={modeStyles.primaryButton} onClick={() => createNewStory("scene")}>
+            이 방식으로 만들기
+          </Button>
+        </div>
+        <div className={modeStyles.alternative}>
+          <div className={modeStyles.alternativeText}>
+            <strong>친구가 제안하는 짧은 이야기</strong>
+            <span className={modeStyles.alternativeDescription}>수락·거절로 끝나요</span>
+          </div>
+          <Button variant="ghost" onClick={() => createNewStory("proposal")}>
+            만들기
+          </Button>
         </div>
       </Dialog>
       <Dialog
