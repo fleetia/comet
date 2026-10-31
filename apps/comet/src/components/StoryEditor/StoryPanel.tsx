@@ -56,6 +56,7 @@ export function StoryPanel({
   onCreateChapter,
   onDeleteChapter,
   onSetStart,
+  stepFocus,
 }: {
   scenario: ScenarioDefinition;
   chapterId: string | null;
@@ -65,6 +66,7 @@ export function StoryPanel({
   onCreateChapter: (exit: ChapterExit) => void;
   onDeleteChapter: () => void;
   onSetStart: () => void;
+  stepFocus?: { index: number; sequence: number } | null;
 }): JSX.Element {
   const [menuAt, setMenuAt] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -91,6 +93,16 @@ export function StoryPanel({
       panelRef.current?.querySelector<HTMLTextAreaElement>("[data-line-index]")?.focus();
     }
   }, [chapterId, scenario.id]);
+  useEffect(() => {
+    if (!stepFocus || !chapterId) return;
+    setExpanded(stepFocus.index);
+  }, [stepFocus, chapterId]);
+  useEffect(() => {
+    if (!stepFocus || expanded !== stepFocus.index) return;
+    panelRef.current
+      ?.querySelector<HTMLElement>(`[data-step-index="${stepFocus.index}"]`)
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [stepFocus, expanded]);
   useEffect(() => {
     if (focusIndex.current == null) return;
     panelRef.current
@@ -362,7 +374,7 @@ export function StoryPanel({
                   ? actors.find((value) => value.sourceId === step.persona)
                   : undefined;
               return (
-                <div key={index} className={s.stepRow}>
+                <div key={index} className={s.stepRow} data-step-index={index}>
                   {addMenu(index)}
                   <div className={step.kind === "line" ? s.line : s.step}>
                     {step.kind === "line" ? (

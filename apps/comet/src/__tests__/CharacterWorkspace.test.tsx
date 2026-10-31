@@ -11,16 +11,17 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { CharacterManager } from "../components/CharacterManager/CharacterManager";
 import { CharacterEditor } from "../components/CharacterEditor/CharacterEditor";
 import { CharacterLinePreview } from "../components/CharacterEditor/CharacterLinePreview";
-import { command, PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
+import { command, isDesktop, PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
 import type { InstalledCharacter, Snapshot } from "../types";
 
 vi.mock("../hooks/useSnapshot", async (load) => ({
   ...(await load<typeof import("../hooks/useSnapshot")>()),
   command: vi.fn(),
-  isDesktop: () => false,
+  isDesktop: vi.fn(() => false),
 }));
 afterEach(cleanup);
 beforeEach(() => {
+  vi.mocked(isDesktop).mockReturnValue(false);
   vi.mocked(command).mockReset();
   vi.mocked(command).mockImplementation(async (name) =>
     name === "get_character_dialogue" ? { pairScenes: [], wordbook: [] } : undefined,
@@ -44,6 +45,58 @@ function choose(name: RegExp): void {
 function selectTab(name: string): void {
   openCharacterPage(name);
 }
+
+it("blocks the story editor until character changes are saved or discarded", async () => {
+  vi.mocked(isDesktop).mockReturnValue(true);
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_pack_story_definition") {
+      return {
+        packId: "story-pack",
+        baseline: "1",
+        sourceToLocal: {},
+        definition: { worldRules: "", storyFlags: [], knowledge: [], scenarios: [] },
+      };
+    }
+    if (name === "get_character_dialogue") return { pairScenes: [], wordbook: [] };
+    if (name === "get_character_pack_attribution") return { author: "", sourceUrl: "" };
+    return undefined;
+  });
+  const character = { ...snapshot.characters.installed[0], packId: "story-pack" };
+  render(
+    <CharacterManager
+      embedded
+      snapshot={{
+        ...snapshot,
+        characters: { ...snapshot.characters, installed: [character] },
+      }}
+    />,
+  );
+
+  openCharacterPage("등장·이야기");
+  const entry = await screen.findByRole<HTMLButtonElement>("button", {
+    name: "장면 편집기에서 이야기 만들기 →",
+  });
+  await waitFor(() => expect(entry.disabled).toBe(false));
+  openCharacterPage("프로필");
+  fireEvent.change(screen.getByLabelText("이름"), { target: { value: "저장 전 이름" } });
+  openCharacterPage("등장·이야기");
+  const disabledEntry = await screen.findByRole<HTMLButtonElement>("button", {
+    name: "장면 편집기에서 이야기 만들기 →",
+  });
+  expect(disabledEntry.disabled).toBe(true);
+  expect(screen.getByText("캐릭터를 저장한 뒤 열 수 있어요.")).toBeTruthy();
+  fireEvent.click(disabledEntry);
+  expect(command).not.toHaveBeenCalledWith("open_story_editor", expect.anything());
+
+  openCharacterPage("프로필");
+  fireEvent.change(screen.getByLabelText("이름"), { target: { value: character.definition.name } });
+  openCharacterPage("등장·이야기");
+  expect(
+    (await screen.findByRole<HTMLButtonElement>("button", { name: "장면 편집기에서 이야기 만들기 →" }))
+      .disabled,
+  ).toBe(false);
+  expect(screen.queryByText("캐릭터를 저장한 뒤 열 수 있어요.")).toBeNull();
+});
 
 it("requires a new authored preview after hiding or changing its selected draft", () => {
   const character = structuredClone(PREVIEW_SNAPSHOT.characters.installed[0]);

@@ -289,6 +289,77 @@ it("편집기에서 이야기를 추가해도 기존 초안을 유지한다", as
   expect(command).not.toHaveBeenCalledWith("save_pack_story_definition", expect.anything());
 });
 
+it("선택한 이야기와 새 제안형 초안을 모두 보존해 저장한다", async () => {
+  const saved = { ...pack("a"), baseline: "1" };
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_character_packs") return packs;
+    if (name === "get_snapshot") {
+      return {
+        ...PREVIEW_SNAPSHOT,
+        characters: {
+          ...PREVIEW_SNAPSHOT.characters,
+          installed: PREVIEW_SNAPSHOT.characters.installed.map((actor) => ({ ...actor, packId: "a" })),
+        },
+      };
+    }
+    if (name === "get_pack_story_definition") return saved;
+    if (name === "save_pack_story_definition") {
+      return { ...saved, baseline: "2", definition: (args as { definition: PackStorySnapshot["definition"] }).definition };
+    }
+    return null;
+  });
+  render(<StoryEditorWindow initialPackId="a" initialScenarioId="two" />);
+  await screen.findByText("two 장", { selector: "span" });
+  expect(screen.getByLabelText<HTMLSelectElement>("이야기 선택").value).toBe("two");
+  await editStoryTitle("두 번째 초안");
+  fireEvent.change(screen.getByLabelText("이야기 선택"), { target: { value: "one" } });
+  await editStoryTitle("첫 이야기 초안");
+  fireEvent.click(screen.getByRole("button", { name: "이야기 추가" }));
+  const dialog = await screen.findByRole("dialog", { name: "어떤 이야기를 만들까요?" });
+  expect(command).not.toHaveBeenCalledWith("save_pack_story_definition", expect.anything());
+  fireEvent.click(within(dialog).getByRole("button", { name: /제안형/ }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "만들기" }));
+  await screen.findByText("제안", { selector: ".react-flow__node" });
+  const newId = screen.getByLabelText<HTMLSelectElement>("이야기 선택").value;
+  await editStoryTitle("새 이야기 초안");
+  for (const [stage, value] of [["제안", "함께 갈래?"], ["수락", "같이 가자."], ["거절", "다음에 가자."], ["마무리", "즐거웠어."]] as const) {
+    fireEvent.click(screen.getByText(stage, { selector: ".react-flow__node" }));
+    fireEvent.change(screen.getByLabelText(`${stage} 1 대사`), { target: { value } });
+  }
+  fireEvent.change(screen.getByLabelText("이야기 선택"), { target: { value: "one" } });
+  fireEvent.click(screen.getByRole("button", { name: "이야기 설정" }));
+  expect(screen.getByLabelText<HTMLInputElement>("이야기 제목").value).toBe("첫 이야기 초안");
+  fireEvent.change(screen.getByLabelText("이야기 선택"), { target: { value: newId } });
+  fireEvent.click(screen.getByRole("button", { name: "이야기 설정" }));
+  expect(screen.getByLabelText<HTMLInputElement>("이야기 제목").value).toBe("새 이야기 초안");
+  expect(command).not.toHaveBeenCalledWith("save_pack_story_definition", expect.anything());
+  fireEvent.click(screen.getByRole("button", { name: "저장" }));
+  const persona = PREVIEW_SNAPSHOT.characters.installed[0].definition.sourceId;
+  await waitFor(() => expect(command).toHaveBeenCalledWith("save_pack_story_definition", {
+    packId: "a",
+    expectedBaseline: "1",
+    definition: expect.objectContaining({
+      worldRules: saved.definition.worldRules,
+      storyFlags: saved.definition.storyFlags,
+      knowledge: saved.definition.knowledge,
+      scenarios: [
+        expect.objectContaining({ id: "one", title: "첫 이야기 초안" }),
+        expect.objectContaining({ id: "two", title: "두 번째 초안" }),
+        expect.objectContaining({
+          id: newId,
+          title: "새 이야기 초안",
+          intro: [{ persona, expression: "평온", text: "함께 갈래?" }],
+          accept: [{ persona, expression: "평온", text: "같이 가자." }],
+          decline: [{ persona, expression: "평온", text: "다음에 가자." }],
+          ending: [{ persona, expression: "평온", text: "즐거웠어." }],
+        }),
+      ],
+    }),
+  }));
+  await waitFor(() => expect(screen.queryByText("바뀐 내용")).toBeNull());
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "저장" }).disabled).toBe(true);
+});
+
 it("팩이 없거나 불러오는 동안 이야기 추가를 비활성화한다", async () => {
   let finish: (value: InstalledCharacterPack[]) => void = () => {};
   vi.mocked(command).mockImplementation(async (name) => {
@@ -302,10 +373,14 @@ it("팩이 없거나 불러오는 동안 이야기 추가를 비활성화한다"
     return null;
   });
   render(<StoryEditorWindow initialPackId="a" initialScenarioId="one" />);
-  expect(screen.getByRole<HTMLButtonElement>("button", { name: "이야기 추가" }).disabled).toBe(true);
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "이야기 추가" }).disabled).toBe(
+    true,
+  );
   await act(async () => finish([]));
   await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
-  expect(screen.getByRole<HTMLButtonElement>("button", { name: "이야기 추가" }).disabled).toBe(true);
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "이야기 추가" }).disabled).toBe(
+    true,
+  );
 });
 
 it("새 이야기에서 제안형을 고르면 선택한 방식의 초안이 생긴다", async () => {
@@ -913,4 +988,115 @@ it("제안형 필수 대사는 저장을 막지만 빈 수락·거절 표현은 
       }),
     ),
   );
+});
+
+it("초안에서 장 제목, 대사, 선택지와 입력 질문을 찾아 해당 단계를 펼친다", async () => {
+  useChapterFixture([
+    { id: "first", title: "첫 장", next: "second", steps: [writtenLine] },
+    {
+      id: "second",
+      title: "비밀 정원",
+      next: "end",
+      steps: [
+        { ...writtenLine, text: "달빛 아래" },
+        {
+          kind: "choice",
+          persona: "a",
+          expression: "평온",
+          prompt: "어디로 갈까?",
+          options: [
+            { id: "yes", label: "정원으로", goto: "next" },
+            { id: "no", label: "집으로", goto: "end" },
+          ],
+        },
+        {
+          kind: "ask",
+          id: "name",
+          persona: "a",
+          expression: "평온",
+          input: "name",
+          prompt: "이름이 뭐야?",
+          known: "이미 알고 있어요",
+        },
+      ],
+    },
+  ]);
+  render(<StoryEditorWindow initialPackId="a" initialScenarioId="one" />);
+  fireEvent.click(await screen.findByText("비밀 정원", { selector: "span" }));
+  fireEvent.change(screen.getByLabelText("단계 1 대사"), { target: { value: "바뀐 달빛" } });
+
+  for (const [query, label] of [
+    ["비밀 정원", "장 제목"],
+    ["바뀐 달빛", "단계 1 대사"],
+    ["정원으로", "단계 2 질문"],
+    ["이름이 뭐야", "단계 3 질문"],
+    ["이미 알고 있어요", "단계 3 이름을 알 때 대사"],
+  ]) {
+    fireEvent.click(screen.getByRole("button", { name: "찾기" }));
+    const search = screen.getByRole("complementary", { name: "찾기" });
+    fireEvent.change(within(search).getByLabelText("이야기에서 찾기"), {
+      target: { value: query },
+    });
+    expect(within(search).getByText("1곳")).toBeTruthy();
+    fireEvent.click(within(search).getByRole("button", { name: new RegExp(query) }));
+    expect(screen.getByLabelText(label)).toBeTruthy();
+    if (label !== "장 제목") expect(screen.getByRole("button", { name: "접기" })).toBeTruthy();
+  }
+  expect(command).not.toHaveBeenCalledWith("save_pack_story_definition", expect.anything());
+});
+
+it("이야기 추가를 취소하면 보던 이야기를 유지한다", async () => {
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_character_packs") return packs;
+    if (name === "get_snapshot")
+      return {
+        ...PREVIEW_SNAPSHOT,
+        characters: {
+          ...PREVIEW_SNAPSHOT.characters,
+          installed: PREVIEW_SNAPSHOT.characters.installed.map((actor) => ({
+            ...actor,
+            packId: "a",
+          })),
+        },
+      };
+    if (name === "get_pack_story_definition") return pack("a");
+    return null;
+  });
+  render(<StoryEditorWindow initialPackId="a" initialScenarioId="one" />);
+  await screen.findByText("one 장", { selector: "span" });
+  fireEvent.change(screen.getByLabelText("이야기 선택"), { target: { value: "two" } });
+  fireEvent.click(screen.getByRole("button", { name: "이야기 추가" }));
+  const dialog = await screen.findByRole("dialog", { name: "어떤 이야기를 만들까요?" });
+  fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
+  expect(screen.getByLabelText<HTMLSelectElement>("이야기 선택").value).toBe("two");
+  expect(screen.getByText("two 장", { selector: "span" })).toBeTruthy();
+});
+
+it("제안형 대사도 찾아 해당 단계의 대사를 펼친다", async () => {
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_character_packs") return packs;
+    if (name === "get_snapshot") return PREVIEW_SNAPSHOT;
+    if (name === "get_pack_story_definition") {
+      const saved = pack("a");
+      saved.definition.scenarios[0] = {
+        ...scenario("one"),
+        chapters: null,
+        intro: [{ persona: "a", expression: "평온", text: "같이 갈래?" }],
+        accept: [{ persona: "a", expression: "평온", text: "좋아" }],
+        decline: [{ persona: "a", expression: "평온", text: "괜찮아" }],
+        ending: [{ persona: "a", expression: "평온", text: "다음에 또 만나" }],
+      };
+      return saved;
+    }
+    return null;
+  });
+  render(<StoryEditorWindow initialPackId="a" initialScenarioId="one" />);
+  fireEvent.click(await screen.findByRole("button", { name: "찾기" }));
+  const search = screen.getByRole("complementary", { name: "찾기" });
+  fireEvent.change(within(search).getByLabelText("이야기에서 찾기"), {
+    target: { value: "또 만나" },
+  });
+  fireEvent.click(within(search).getByRole("button", { name: /또 만나/ }));
+  expect(screen.getByLabelText("마무리 1 대사")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "접기" })).toBeTruthy();
 });

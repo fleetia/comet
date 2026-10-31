@@ -257,7 +257,6 @@ async function addDraftAsset(): Promise<void> {
 it.each([
   ["relation", "관계 1 시험"],
   ["npc", "찾아오는 친구 등장 시험"],
-  ["scenario", "등록 이야기 시험"],
 ])(
   "replays %s trials with the current friend's draft bytes and other friends' saved bytes",
   async (kind, title) => {
@@ -267,7 +266,7 @@ it.each([
     await addDraftAsset();
     chooseCharacter(actors[1].definition.name);
     await addDraftAsset();
-    if (kind === "relation" || kind === "scenario") chooseCharacter(actors[0].definition.name);
+    if (kind === "relation") chooseCharacter(actors[0].definition.name);
     selectTab(kind === "relation" ? "다른 친구와의 관계" : "등장·이야기");
     const summary = await screen.findByText(title, { selector: "summary" });
     const details = summary.closest("details")!;
@@ -306,19 +305,6 @@ it.each([
       ),
     );
     expect(within(preview).getByText(actors[1].definition.expressions.기쁨)).toBeTruthy();
-    if (kind === "scenario") {
-      const world = screen.getByLabelText("세계와 공통 규칙");
-      fireEvent.change(world, { target: { value: "  유지할 세계 초안\n원문  " } });
-      fireEvent.click(trial.getByRole("button", { name: title }));
-      await trial.findByLabelText(`${title} 결과`);
-      openCharacterPage("프로필");
-      openCharacterPage("등장·이야기");
-      expect(screen.queryByLabelText(`${title} 결과`)).toBeNull();
-      expect(await screen.findByLabelText("세계와 공통 규칙")).toHaveProperty(
-        "value",
-        pack.definition.worldRules,
-      );
-    }
     expect(snapshot).toEqual(original);
     expect(
       vi

@@ -55,6 +55,8 @@ pub(crate) struct AuthoringTrialRequest {
     pub scene_responses: Vec<SceneResponse>,
     #[serde(default)]
     pub scene_known_name: String,
+    #[serde(default)]
+    pub scene_start_chapter_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -125,12 +127,28 @@ struct SceneTrial {
     prompt: Option<String>,
     options: Vec<SceneTrialOption>,
     history: Vec<SceneHistory>,
+    chapter_path: Vec<String>,
+    exits: Vec<SceneTrialExit>,
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SceneTrialExit {
+    chapter_id: String,
+    kind: &'static str,
+    step_index: Option<usize>,
+    option_index: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SceneHistory {
     text: String,
     persona: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    line: Option<SceneLine>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    duration_ms: Option<i64>,
 }
 
 fn record_scene_history(
@@ -142,7 +160,38 @@ fn record_scene_history(
     let persona = persona
         .map(|id| source_actor(request, id).map(|actor| actor.id.clone()))
         .transpose()?;
-    scene.history.push(SceneHistory { text, persona });
+    scene.history.push(SceneHistory {
+        text,
+        persona,
+        line: None,
+        duration_ms: None,
+    });
+    Ok(())
+}
+
+fn record_scene_line(
+    request: &AuthoringTrialRequest,
+    scene: &mut SceneTrial,
+    text: String,
+    persona: &str,
+    expression: &str,
+    motion: &StoryMotion,
+) -> Result<()> {
+    let actor = source_actor(request, persona)?;
+    let duration_ms =
+        crate::playback::line_duration_millis(&text, actor.definition.balloon_style.text_speed);
+    scene.history.push(SceneHistory {
+        text: text.clone(),
+        persona: Some(actor.id.clone()),
+        line: Some(SceneLine {
+            persona: actor.id.clone(),
+            expression: expression.into(),
+            text,
+            widget: None,
+            motion: motion.clone(),
+        }),
+        duration_ms: Some(duration_ms),
+    });
     Ok(())
 }
 
@@ -761,6 +810,8 @@ fn scene_trial(
         prompt: None,
         options: vec![],
         history: vec![],
+        chapter_path: vec![],
+        exits: vec![],
     };
     if !eligible {
         return Ok(AuthoringTrialTrace {
@@ -769,7 +820,14 @@ fn scene_trial(
             scene: Some(result),
         });
     }
-    let mut chapter_index = 0usize;
+    let mut chapter_index = match &request.scene_start_chapter_id {
+        Some(id) => chapters
+            .iter()
+            .position(|chapter| chapter.id == *id)
+            .ok_or("시험을 시작할 장을 찾을 수 없어요.")?,
+        None => 0,
+    };
+    result.chapter_path.push(chapters[chapter_index].id.clone());
     let mut step_index = 0usize;
     let mut responses = request.scene_responses.iter();
     let mut answers = BTreeMap::new();
@@ -778,14 +836,22 @@ fn scene_trial(
         let chapter = &chapters[chapter_index];
         result.chapter_id = Some(chapter.id.clone());
         let mut target = "next".to_owned();
+        let mut exit = None;
         if let Some(current) = chapter.steps.get(step_index) {
             match current {
-                StoryStep::Line { text, persona, .. } => {
-                    record_scene_history(
+                StoryStep::Line {
+                    text,
+                    persona,
+                    expression,
+                    motion,
+                } => {
+                    record_scene_line(
                         request,
                         &mut result,
                         scene_render(text, &name, &answers),
-                        Some(persona),
+                        persona,
+                        expression,
+                        motion,
                     )?;
                 }
                 StoryStep::Move { persona, .. } => {
@@ -806,18 +872,29 @@ fn scene_trial(
                     input,
                     known,
                     persona,
+                    expression,
+                    motion,
                     ..
                 } => {
                     if *input == StoryInput::Name && !name.is_empty() {
-                        record_scene_history(
+                        record_scene_line(
                             request,
                             &mut result,
                             scene_render(known.as_deref().unwrap_or(prompt), &name, &answers),
-                            Some(persona),
+                            persona,
+                            expression,
+                            motion,
                         )?;
                     } else {
                         let prompt = scene_render(prompt, &name, &answers);
-                        record_scene_history(request, &mut result, prompt.clone(), Some(persona))?;
+                        record_scene_line(
+                            request,
+                            &mut result,
+                            prompt.clone(),
+                            persona,
+                            expression,
+                            motion,
+                        )?;
                         match responses.next() {
                             None => {
                                 result.status = "ask";
@@ -861,10 +938,19 @@ fn scene_trial(
                     prompt,
                     options,
                     persona,
+                    expression,
+                    motion,
                     ..
                 } => {
                     let prompt = scene_render(prompt, &name, &answers);
-                    record_scene_history(request, &mut result, prompt.clone(), Some(persona))?;
+                    record_scene_line(
+                        request,
+                        &mut result,
+                        prompt.clone(),
+                        persona,
+                        expression,
+                        motion,
+                    )?;
                     match responses.next() {
                         None => {
                             result.status = "choice";
@@ -879,10 +965,17 @@ fn scene_trial(
                             break;
                         }
                         Some(SceneResponse::Choice { option_id }) => {
-                            let option = options
+                            let (option_index, option) = options
                                 .iter()
-                                .find(|option| option.id == *option_id)
+                                .enumerate()
+                                .find(|(_, option)| option.id == *option_id)
                                 .ok_or("선택지를 찾을 수 없어요.")?;
+                            exit = Some(SceneTrialExit {
+                                chapter_id: chapter.id.clone(),
+                                kind: "choice",
+                                step_index: Some(step_index),
+                                option_index: Some(option_index),
+                            });
                             record_scene_history(
                                 request,
                                 &mut result,
@@ -903,15 +996,28 @@ fn scene_trial(
                         record_scene_history(request, &mut result, "(이벤트를 보냄)".into(), None)?
                     }
                     Some(SceneResponse::Timeout) => {
+                        exit = Some(SceneTrialExit {
+                            chapter_id: chapter.id.clone(),
+                            kind: "timeout",
+                            step_index: Some(step_index),
+                            option_index: None,
+                        });
                         record_scene_history(request, &mut result, "(시간 초과)".into(), None)?;
                         for item in &on_timeout.steps {
                             match item {
-                                StoryStep::Line { text, persona, .. } => {
-                                    record_scene_history(
+                                StoryStep::Line {
+                                    text,
+                                    persona,
+                                    expression,
+                                    motion,
+                                } => {
+                                    record_scene_line(
                                         request,
                                         &mut result,
                                         scene_render(text, &name, &answers),
-                                        Some(persona),
+                                        persona,
+                                        expression,
+                                        motion,
                                     )?;
                                 }
                                 StoryStep::Action { action } => {
@@ -932,6 +1038,15 @@ fn scene_trial(
             }
         } else {
             target = "nextChapter".into();
+            exit = Some(SceneTrialExit {
+                chapter_id: chapter.id.clone(),
+                kind: "next",
+                step_index: None,
+                option_index: None,
+            });
+        }
+        if let Some(exit) = exit {
+            result.exits.push(exit);
         }
         if target == "next" {
             step_index += 1;
@@ -957,6 +1072,7 @@ fn scene_trial(
         if chapter_index != next_index {
             answers.clear();
         }
+        result.chapter_path.push(chapters[next_index].id.clone());
         chapter_index = next_index;
         step_index = 0;
     }

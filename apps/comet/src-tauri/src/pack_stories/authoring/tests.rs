@@ -105,6 +105,7 @@ fn fixture(subject: AuthoringSubject) -> AuthoringTrialRequest {
         inputs: vec![],
         scene_responses: vec![],
         scene_known_name: String::new(),
+        scene_start_chapter_id: None,
     }
 }
 
@@ -129,7 +130,7 @@ fn chapter_scenario_can_be_tried_without_mutating_the_definition() {
     scene.chapters = Some(
         serde_json::from_value(serde_json::json!([{
             "id": "start", "title": "시작", "steps": [{
-                "kind": "line", "persona": scene.center_id, "expression": "평온", "text": "안녕"
+                "kind": "line", "persona": scene.center_id, "expression": "평온", "text": "안녕", "motion": {"mode":"static"}
             }]
         }]))
         .unwrap(),
@@ -138,6 +139,14 @@ fn chapter_scenario_can_be_tried_without_mutating_the_definition() {
     let trace = authoring_trial(request.clone()).unwrap();
     let scene = trace.scene.unwrap();
     assert_eq!(scene.status, "completed");
+    let line = scene.history[0].line.as_ref().unwrap();
+    assert_eq!(line.persona, "local-center");
+    assert_eq!(line.expression, "평온");
+    assert_eq!(line.motion, StoryMotion::Static);
+    assert_eq!(
+        scene.history[0].duration_ms,
+        Some(crate::playback::line_duration_millis("안녕", 2))
+    );
     assert_eq!(
         scene
             .history
@@ -147,6 +156,39 @@ fn chapter_scenario_can_be_tried_without_mutating_the_definition() {
         vec!["안녕"]
     );
     assert_eq!(request.definition, before);
+}
+
+#[test]
+fn scene_trial_starts_at_selected_chapter_and_reports_the_path() {
+    let mut request = scenario();
+    let scene = &mut request.definition.scenarios[0];
+    scene.intro.clear();
+    scene.accept.clear();
+    scene.decline.clear();
+    scene.ending.clear();
+    scene.accept_keywords.clear();
+    scene.decline_keywords.clear();
+    scene.proceed_keywords.clear();
+    scene.cancel_keywords.clear();
+    scene.chapters = Some(
+        serde_json::from_value(serde_json::json!([
+            {"id":"first", "title":"첫 장", "steps":[
+                {"kind":"line", "persona":scene.center_id, "expression":"평온", "text":"첫 대사"}
+            ]},
+            {"id":"second", "title":"둘째 장", "steps":[
+                {"kind":"line", "persona":scene.center_id, "expression":"평온", "text":"둘째 대사"}
+            ]}
+        ]))
+        .unwrap(),
+    );
+    let from_start = authoring_trial(request.clone()).unwrap().scene.unwrap();
+    assert_eq!(from_start.chapter_path, vec!["first", "second"]);
+    request.scene_start_chapter_id = Some("second".into());
+    let selected = authoring_trial(request.clone()).unwrap().scene.unwrap();
+    assert_eq!(selected.chapter_path, vec!["second"]);
+    assert_eq!(selected.history[0].text, "둘째 대사");
+    request.scene_start_chapter_id = Some("missing".into());
+    assert!(authoring_trial(request).is_err());
 }
 
 #[test]
@@ -205,7 +247,7 @@ fn scene_trial_replays_wait_branches_without_executing_actions() {
         {"id":"start", "title":"시작", "next":"finish", "steps":[
             {"kind":"action", "do":"widget.open", "widget":"memo"},
             {"kind":"wait", "event":"widget.saved", "widget":"memo", "timeoutSec":10,
-             "onTimeout":{"steps":[{"kind":"line", "persona":scene.center_id, "expression":"평온", "text":"시간이 지났어요."}], "then":"nextChapter"}},
+             "onTimeout":{"steps":[{"kind":"line", "persona":scene.center_id, "expression":"평온", "text":"시간이 지났어요.", "motion":{"mode":"static"}}], "then":"nextChapter"}},
             {"kind":"line", "persona":scene.center_id, "expression":"평온", "text":"저장했어요."}
         ]},
         {"id":"finish", "title":"끝", "steps":[
@@ -237,6 +279,12 @@ fn scene_trial_replays_wait_branches_without_executing_actions() {
     request.scene_responses = vec![SceneResponse::Timeout];
     let timeout = authoring_trial(request.clone()).unwrap().scene.unwrap();
     assert_eq!(timeout.status, "completed");
+    assert_eq!(timeout.exits[0].kind, "timeout");
+    assert_eq!(timeout.exits[0].step_index, Some(1));
+    assert_eq!(
+        timeout.history[2].line.as_ref().unwrap().motion,
+        StoryMotion::Static
+    );
     assert_eq!(
         timeout
             .history
@@ -297,8 +345,8 @@ fn scene_trial_accepts_answers_and_follows_choice_targets() {
     scene.cancel_keywords.clear();
     scene.chapters = Some(serde_json::from_value(serde_json::json!([
         {"id":"start", "title":"시작", "steps":[
-            {"kind":"ask", "id":"topic", "persona":scene.center_id, "expression":"평온", "prompt":"좋아하는 것은?", "input":"text"},
-            {"kind":"choice", "persona":scene.center_id, "expression":"평온", "prompt":"{answer.topic}?", "options":[{"id":"yes", "label":"네", "goto":"finish"}, {"id":"no", "label":"아니요", "goto":"end"}]}
+            {"kind":"ask", "id":"topic", "persona":scene.center_id, "expression":"평온", "prompt":"좋아하는 것은?", "input":"text", "motion":{"mode":"static"}},
+            {"kind":"choice", "persona":scene.center_id, "expression":"평온", "prompt":"{answer.topic}?", "motion":{"mode":"static"}, "options":[{"id":"yes", "label":"네", "goto":"finish"}, {"id":"no", "label":"아니요", "goto":"end"}]}
         ]},
         {"id":"finish", "title":"끝", "steps":[{"kind":"line", "persona":scene.center_id, "expression":"평온", "text":"반가워요."}]}
     ])).unwrap());
@@ -344,10 +392,23 @@ fn scene_trial_accepts_answers_and_follows_choice_targets() {
     let choice = authoring_trial(request.clone()).unwrap().scene.unwrap();
     assert_eq!(choice.status, "choice");
     assert_eq!(choice.prompt.as_deref(), Some("고양이?"));
+    assert_eq!(
+        choice.history[0].line.as_ref().unwrap().motion,
+        StoryMotion::Static
+    );
+    assert!(choice.history[1].line.is_none());
+    assert_eq!(choice.history[2].line.as_ref().unwrap().text, "고양이?");
+    assert_eq!(
+        choice.history[2].line.as_ref().unwrap().motion,
+        StoryMotion::Static
+    );
     request.scene_responses.push(SceneResponse::Choice {
         option_id: "yes".into(),
     });
     let finished = authoring_trial(request).unwrap().scene.unwrap();
+    assert_eq!(finished.exits[0].kind, "choice");
+    assert_eq!(finished.exits[0].step_index, Some(1));
+    assert_eq!(finished.exits[0].option_index, Some(0));
     assert_eq!(
         finished
             .history
