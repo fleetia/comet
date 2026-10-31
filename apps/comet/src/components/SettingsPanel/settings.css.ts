@@ -307,7 +307,9 @@ export const settingsWorkspace = style({
 });
 export const settingsPage = style({
   flex: 1,
-  height: "100%",
+  // Stretches into the workspace padding so edge controls keep their focus rings.
+  margin: -6,
+  padding: 6,
   minWidth: 0,
   minHeight: 0,
   overflow: "hidden",
@@ -334,6 +336,8 @@ export const dialogueSubview = style({
   flex: 1,
   minHeight: 0,
   minWidth: 0,
+  margin: -6,
+  padding: 6,
   overflowY: "auto",
   selectors: { "&[hidden]": { display: "none" } },
 });

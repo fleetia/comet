@@ -9,9 +9,13 @@ export const split = style({
   alignItems: "start",
   minWidth: 0,
   minHeight: 0,
-  height: "100%",
+  // The negative margin keeps the layout while leaving room for focus rings at the scroll edges.
+  height: "calc(100% + 12px)",
+  margin: -6,
+  padding: "6px 8px 6px 6px",
   overflowY: "auto",
-  paddingRight: 2,
+  // Chromium makes scrollers keyboard-focusable; keep that ring inside the clipped page.
+  outlineOffset: -1,
   "@media": {
     "(max-width: 1150px)": { gridTemplateColumns: "300px minmax(0, 1fr)", gap: 24 },
     "(max-width: 850px)": { gridTemplateColumns: "minmax(0, 1fr)" },
@@ -59,6 +63,8 @@ export const right = style({
   gap: 20,
   minWidth: 0,
   minHeight: 0,
+  // The grid scroller drops its own end padding from the scroll range.
+  paddingBottom: 6,
 });
 export const section = style({
   selectors: { "&[hidden]": { display: "none" } },
@@ -88,6 +94,11 @@ export const row = style({
   padding: "11px 16px",
   gap: 14,
   selectors: { "& + &": { borderTop: `1px solid ${tokens["color/divider"]}` } },
+});
+export const groupMessage = style({
+  margin: 0,
+  padding: "18px 16px",
+  overflowWrap: "anywhere",
 });
 export const caption = style({
   margin: 0,
@@ -232,3 +243,5 @@ export const groupLink = style({
   selectors: { "& + &": { borderTop: `1px solid ${tokens["color/divider"]}` } },
 });
 globalStyle(`${groupLink} + ${row}`, { borderTop: `1px solid ${tokens["color/divider"]}` });
+// The group clips its children, so a full-width link draws its focus ring inside.
+globalStyle(`${group} ${groupLink}:focus-visible`, { outlineOffset: -2 });

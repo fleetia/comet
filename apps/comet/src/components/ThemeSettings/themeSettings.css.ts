@@ -54,3 +54,5 @@ export const friend = style({
   background: "transparent",
   selectors: { "& + &": { borderTop: `1px solid ${tokens["color/divider"]}` } },
 });
+// The list clips its rows, so each row draws its focus ring inside.
+globalStyle(`${friendList} > ${friend}:focus-visible`, { outlineOffset: -2 });

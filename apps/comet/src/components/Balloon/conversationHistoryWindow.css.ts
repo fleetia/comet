@@ -69,6 +69,8 @@ export const sessions = style({
   overflowY: "auto",
   minHeight: 0,
   flex: 1,
+  margin: "0 -6px",
+  padding: "0 6px",
 });
 export const day = style({
   margin: 0,

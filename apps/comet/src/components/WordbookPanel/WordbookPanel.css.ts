@@ -130,7 +130,8 @@ export const editorBody = style({
   display: "flex",
   flexDirection: "column",
   gap: 18,
-  paddingRight: 2,
+  margin: -6,
+  padding: "6px 8px 6px 6px",
 });
 export const legend = style({
   position: "absolute",

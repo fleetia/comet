@@ -20,6 +20,10 @@ globalStyle(`${documentRoot}::-webkit-scrollbar, ${documentRoot} *::-webkit-scro
   display: "none",
 });
 
+// Focus and scrollIntoView stop short of the edge so 2px focus rings drawn outside stay visible.
+// Text fields keep caret scrolling flush; a one-row field has no room for the padding.
+globalStyle(`${documentRoot}, ${documentRoot} :not(textarea, input)`, { scrollPadding: 6 });
+
 globalStyle(`${documentRoot} body`, { WebkitFontSmoothing: "antialiased" });
 globalStyle(`${documentRoot} body, ${documentRoot} #root`, {
   margin: 0,
