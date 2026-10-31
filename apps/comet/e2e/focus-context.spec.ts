@@ -1,6 +1,6 @@
 import { expect, test } from "./tauri";
 
-const now = Date.now();
+const now = Date.parse("2026-10-07T12:00:00Z");
 const previousSession = {
   id: "s1",
   title: "이전 집중",
@@ -73,6 +73,7 @@ test("a focus the organizer starts for a task replaces the open window's context
   page,
   tauri,
 }) => {
+  await page.clock.setFixedTime(new Date(now));
   tauri.handle("get_widgets", () => ({ catalog, onboardingDone: true, widgets: [before, todo] }));
   await tauri.open("widget", { id: "focus" });
   const timer = page.getByRole("region", { name: "타이머 조작" });

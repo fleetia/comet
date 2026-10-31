@@ -44,15 +44,9 @@ fn save_profile(
     let at = chrono::Utc::now().timestamp_millis();
     let changed = if first_only {
         if birthday.is_some() {
-            store::register_user_profile(
-                &db,
-                name,
-                birthday,
-                at,
-                analytics_consent.unwrap_or(false),
-            )?
+            store::register_user_profile(&db, name, birthday, at, analytics_consent)?
         } else {
-            store::register_user_name(&db, name, at, analytics_consent.unwrap_or(false))?
+            store::register_user_name(&db, name, at, analytics_consent)?
         }
     } else {
         store::set_user_name(&db, name, at)?
@@ -109,10 +103,14 @@ pub(crate) async fn register_user_profile(
     birthday: Option<UserBirthday>,
     analytics_consent: Option<bool>,
 ) -> Result<(), String> {
-    crate::analytics::commit_consent_change(&app, &state, || {
-        save_profile(&state, &name, true, analytics_consent, birthday.as_ref())
-    })
-    .await?;
+    if analytics_consent.is_some() {
+        crate::analytics::commit_consent_change(&app, &state, || {
+            save_profile(&state, &name, true, analytics_consent, birthday.as_ref())
+        })
+        .await?;
+    } else {
+        save_profile(&state, &name, true, None, birthday.as_ref())?;
+    }
     publish(&app, &state);
     Ok(())
 }
@@ -131,7 +129,10 @@ pub(crate) fn set_user_birthday(
             return Err("앱을 정리하고 있어요.".into());
         }
         let db = lock(&state.db)?;
-        if store::current_user(&db)?.as_ref().map(|user| user.id.as_str()) != Some(user_id.as_str())
+        if store::current_user(&db)?
+            .as_ref()
+            .map(|user| user.id.as_str())
+            != Some(user_id.as_str())
             || store::current_user_birthday(&db)? != expected
         {
             return Err("사용자 정보가 변경되었어요. 최신 정보를 확인해 주세요.".into());
@@ -184,10 +185,14 @@ pub(crate) async fn register_user_name(
     name: String,
     analytics_consent: Option<bool>,
 ) -> Result<(), String> {
-    crate::analytics::commit_consent_change(&app, &state, || {
-        save_name(&state, &name, true, analytics_consent)
-    })
-    .await?;
+    if analytics_consent.is_some() {
+        crate::analytics::commit_consent_change(&app, &state, || {
+            save_name(&state, &name, true, analytics_consent)
+        })
+        .await?;
+    } else {
+        save_name(&state, &name, true, None)?;
+    }
     publish(&app, &state);
     Ok(())
 }
@@ -352,6 +357,11 @@ mod tests {
             .unwrap();
         assert_eq!(first.id, original);
         assert_eq!(first.name, "민수");
+        assert!(
+            store::settings(&lock(&state.db).unwrap())
+                .unwrap()
+                .analytics_consent
+        );
         assert!(state.next_idle.load(Ordering::SeqCst) > now());
         assert!(save_name(&state, "다른 사람", true, None).is_err());
         let current = store::current_user(&lock(&state.db).unwrap())
@@ -359,6 +369,23 @@ mod tests {
             .unwrap();
         assert_eq!(current.id, first.id);
         assert_eq!(current.name, first.name);
+    }
+
+    #[test]
+    fn initial_registration_preserves_disabled_analytics_consent() {
+        let state = super::super::tests::state();
+        {
+            let db = lock(&state.db).unwrap();
+            let mut settings = store::settings(&db).unwrap();
+            settings.analytics_consent = false;
+            store::save_settings(&db, &settings).unwrap();
+        }
+        save_name(&state, "민수", true, None).unwrap();
+        assert!(
+            !store::settings(&lock(&state.db).unwrap())
+                .unwrap()
+                .analytics_consent
+        );
     }
 
     #[test]

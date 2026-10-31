@@ -1111,6 +1111,40 @@ fn chapter_schema_validates_and_round_trips_all_step_types() {
 }
 
 #[test]
+fn choice_option_ids_are_unique_within_each_choice() {
+    let (characters, mut extras) = scene_schema_fixture();
+    let steps = &mut extras.scenarios[0].chapters.as_mut().unwrap()[0].steps;
+    let choice = steps.last().unwrap().clone();
+    if let StoryStep::Choice { options, .. } = &choice {
+        assert_eq!((&options[0].id[..], &options[0].goto[..]), ("a", "next"));
+        assert_eq!((&options[1].id[..], &options[1].goto[..]), ("b", "end"));
+    } else {
+        panic!("fixture must end with a choice");
+    }
+    validate_pack(&characters, &extras).unwrap();
+
+    let mut duplicate = extras.clone();
+    if let StoryStep::Choice { options, .. } = duplicate.scenarios[0].chapters.as_mut().unwrap()[0]
+        .steps
+        .last_mut()
+        .unwrap()
+    {
+        options[1].id = options[0].id.clone();
+    } else {
+        panic!("fixture must end with a choice");
+    }
+    assert_eq!(
+        validate_pack(&characters, &duplicate).unwrap_err(),
+        "선택지 ID·표시 문구를 확인해 주세요."
+    );
+
+    extras.scenarios[0].chapters.as_mut().unwrap()[0]
+        .steps
+        .push(choice);
+    validate_pack(&characters, &extras).unwrap();
+}
+
+#[test]
 fn tutorial_rejects_proposal_story_without_chapters() {
     let (db, _, center, guest) = fixture();
     let pack = characters::export_pack(&db, &[center, guest], &[]).unwrap();

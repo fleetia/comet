@@ -348,7 +348,7 @@ mod tests {
         };
         let state = crate::lifecycle_tests::state();
         let db = crate::lock(&state.db).unwrap();
-        crate::store::register_user_name(&db, "테스트 친구", 1, false).unwrap();
+        crate::store::register_user_name(&db, "테스트 친구", 1, None).unwrap();
         let message = crate::types::Message {
             id: "apple-short-request".into(),
             role: "user".into(),

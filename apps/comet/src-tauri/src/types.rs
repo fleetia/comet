@@ -169,7 +169,7 @@ pub struct ApiKeyInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
-    #[serde(default)]
+    #[serde(default = "default_analytics_consent")]
     pub analytics_consent: bool,
     pub mode: String,
     #[serde(default)]
@@ -204,6 +204,10 @@ pub struct Settings {
     pub idle_minutes: u32,
     #[serde(default)]
     pub quiet_hours: QuietHours,
+}
+
+fn default_analytics_consent() -> bool {
+    true
 }
 
 fn default_autonomous_enabled() -> bool {

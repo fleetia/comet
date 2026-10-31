@@ -145,8 +145,6 @@ fn put<T: Serialize>(conn: &Connection, key: &str, value: &T) -> Result<()> {
 pub fn settings(conn: &Connection) -> Result<Settings> {
     let mut settings: Settings = get(conn, "settings")?.unwrap_or_default();
     settings.remember_api_profile();
-    // Consent is collected before install for test log collection; the app cannot withdraw it.
-    settings.analytics_consent = true;
     Ok(settings)
 }
 pub fn save_settings(conn: &Connection, value: &Settings) -> Result<()> {
