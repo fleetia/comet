@@ -38,6 +38,7 @@ import type {
 } from "../../types";
 import { useWindowCloseGuard } from "../../widgets/useWindowCloseGuard";
 import { StoryPanel } from "./StoryPanel";
+import { ProposalStoryPanel, type ProposalStage } from "./ProposalStoryPanel";
 import { WindowHeader } from "../WindowHeader/WindowHeader";
 import {
   buildStoryGraph,
@@ -56,6 +57,8 @@ import {
   type StoryGraphNode,
 } from "./storyGraph";
 import { useStoryPositions } from "./storyPositions";
+import { changeStoryMode, type StoryMode } from "./storyMode";
+import * as modeStyles from "./storyMode.css";
 import * as s from "./storyEditor.css";
 
 type Target = { packId: string; scenarioId: string; createNew?: boolean };
@@ -89,7 +92,9 @@ function StoryCard({ id, data }: NodeProps<CardNode>): JSX.Element {
     );
   const actor = actors.find((value) => value.sourceId === item.firstLine?.persona);
   return (
-    <div className={`${s.card} ${hasProblem ? s.problemCard : ""}`}>
+    <div
+      className={`${item.kind === "story" ? s.storyCard : s.card} ${hasProblem ? s.problemCard : ""}`}
+    >
       <Handle type="target" position={Position.Left} className={s.target} />
       {item.kind === "story" && item.storyId ? (
         <button
@@ -99,7 +104,8 @@ function StoryCard({ id, data }: NodeProps<CardNode>): JSX.Element {
             if (item.storyId) openStory(item.storyId);
           }}
         >
-          {item.title} →
+          <span className={s.storyLabel}>다음 이야기</span>
+          <strong>{item.title}</strong>
         </button>
       ) : (
         <>
@@ -199,7 +205,7 @@ function StoryCanvas({
         id: item.id,
         type: "card",
         position: positions[item.id],
-        draggable: editable && item.kind === "chapter",
+        draggable: item.kind === "chapter",
         deletable: false,
         data: {
           item,
@@ -210,7 +216,9 @@ function StoryCanvas({
           actors,
           openStory,
           editable,
-          hasProblem: problems.some((problem) => `chapter:${problem.chapterId}` === item.id),
+          hasProblem: problems.some(
+            (problem) => `${editable ? "chapter" : "proposal"}:${problem.chapterId}` === item.id,
+          ),
         },
       })),
     [graph, positions, actors, openStory, editable, problems],
@@ -254,7 +262,9 @@ function StoryCanvas({
   const handledFocus = useRef<number | null>(null);
   useEffect(() => {
     if (!focusRequest || handledFocus.current === focusRequest.sequence) return;
-    const position = nodes.find((node) => node.id === `chapter:${focusRequest.id}`)?.position;
+    const position = nodes.find(
+      (node) => node.id === `${editable ? "chapter" : "proposal"}:${focusRequest.id}`,
+    )?.position;
     if (!position) return;
     handledFocus.current = focusRequest.sequence;
     const zoom = getViewport().zoom;
@@ -263,7 +273,7 @@ function StoryCanvas({
       position.y + 50,
       { duration: 0 },
     );
-  }, [focusRequest, nodes, getViewport, setCenter]);
+  }, [focusRequest, nodes, getViewport, setCenter, editable]);
   useEffect(() => {
     function keydown(event: KeyboardEvent): void {
       if (!selectedEdge || (event.key !== "Delete" && event.key !== "Backspace")) return;
@@ -308,10 +318,8 @@ function StoryCanvas({
         nodesConnectable={editable}
         connectionLineStyle={{ strokeDasharray: "4 4" }}
         elementsSelectable={editable}
-        nodesDraggable={editable}
-        onNodeDragStop={(_, node) =>
-          savePosition(node.id, node.position)
-        }
+        nodesDraggable
+        onNodeDragStop={(_, node) => savePosition(node.id, node.position)}
         onConnectStart={(_, params) => {
           if (params.handleType === "source") setDraggingExit(true);
         }}
@@ -386,28 +394,27 @@ function StoryCanvas({
         <Button variant="ghost" onClick={openSettings}>
           이야기 설정
         </Button>
-        {editable && (
-          <Button
-            variant="ghost"
-            disabled={atLimit}
-            title={atLimit ? "장은 99개까지 만들 수 있어요." : undefined}
-            onClick={onAddChapter}
-          >
-            장 추가
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          disabled={!editable || atLimit}
+          title={
+            !editable
+              ? "제안형은 네 단계가 정해져 있어서 장을 더할 수 없어요."
+              : atLimit
+                ? "장은 99개까지 만들 수 있어요."
+                : undefined
+          }
+          onClick={onAddChapter}
+        >
+          장 추가
+        </Button>
         {editable && atLimit && (
           <span className={s.limitNotice}>장은 99개까지 만들 수 있어요.</span>
         )}
-        {editable && (
-          <Button variant="ghost" onClick={openProblems}>
-            확인할 곳 {problems.length}
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          onClick={tidy}
-        >
+        <Button variant="ghost" onClick={openProblems}>
+          확인할 곳 {problems.length}
+        </Button>
+        <Button variant="ghost" onClick={tidy}>
           정돈
         </Button>
         <Button variant="ghost" onClick={() => void fitView({ duration: 0 })}>
@@ -453,6 +460,8 @@ export default function StoryEditorWindow({
   draftsRef.current = drafts;
   const [panel, setPanel] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [newStory, setNewStory] = useState<Target | null>(null);
+  const [newMode, setNewMode] = useState<StoryMode>("scene");
   const [focusRequest, setFocusRequest] = useState<{ id: string; sequence: number } | null>(null);
   const [pendingProblems, setPendingProblems] = useState<Target | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -584,6 +593,19 @@ export default function StoryEditorWindow({
       return;
     }
     created.current.add(target.scenarioId);
+    setNewMode("scene");
+    setNewStory(target);
+  }, [loading, target.packId, target.scenarioId, target.createNew, draft, actors, actorsPack]);
+  function createNewStory(): void {
+    if (
+      !newStory ||
+      !draft ||
+      newStory.packId !== target.packId ||
+      newStory.scenarioId !== target.scenarioId
+    )
+      return;
+    const first = actors.find((actor) => actor.presenceRole !== "npc");
+    if (!first) return;
     const scenario: ScenarioDefinition = {
       id: target.scenarioId,
       title: "",
@@ -605,9 +627,11 @@ export default function StoryEditorWindow({
       allowRepeat: false,
       completion: { setFlags: [], memoryTemplate: null },
     };
+    const createdScenario =
+      newMode === "proposal" ? changeStoryMode(scenario, "proposal") : scenario;
     const definition = {
       ...draft.definition,
-      scenarios: [...draft.definition.scenarios, scenario],
+      scenarios: [...draft.definition.scenarios, createdScenario],
     };
     recordChange(target.packId, draft.definition, definition);
     setDrafts((current) => {
@@ -622,7 +646,8 @@ export default function StoryEditorWindow({
         },
       };
     });
-  }, [loading, target.packId, target.scenarioId, target.createNew, draft, actors, actorsPack]);
+    setNewStory(null);
+  }
   const scenarios = draft?.definition.scenarios ?? [];
   const selected = scenarios.find((value) => value.id === target.scenarioId) ?? scenarios[0];
   const problems = useMemo(() => (selected ? findStoryProblems(selected) : []), [selected]);
@@ -832,6 +857,27 @@ export default function StoryEditorWindow({
                 </option>
               ))}
             </Select>
+            <Button
+              variant="ghost"
+              disabled={
+                loading ||
+                busy ||
+                !target.packId ||
+                !draft ||
+                !packs?.some((pack) => pack.id === target.packId)
+              }
+              onClick={() => {
+                group.current = null;
+                setPanel(null);
+                setTarget({
+                  packId: target.packId,
+                  scenarioId: crypto.randomUUID(),
+                  createNew: true,
+                });
+              }}
+            >
+              이야기 추가
+            </Button>
             <div className={s.saveActions}>
               {dirty && <span>바뀐 내용</span>}
               <Button
@@ -945,20 +991,34 @@ export default function StoryEditorWindow({
                     "empty-line": "빈 대사가 있어요",
                     unreachable: "어디서도 오지 못해요",
                     "unreachable-cycle": "시작 장에서 닿지 않는 순환이에요",
+                    "missing-accept-keywords": "수락 표현이 없어서 이 갈래로 갈 수 없어요.",
+                    "missing-decline-keywords": "거절 표현이 없어서 이 갈래로 갈 수 없어요.",
+                    "invalid-reveal-affinity": "노출 친밀도는 0 이상 최소 친밀도 이하여야 해요.",
                   }[problem.kind];
+                  const proposalTitles: Record<string, string> = {
+                    intro: "제안",
+                    accept: "수락",
+                    decline: "거절",
+                    ending: "마무리",
+                    defer: "유보",
+                  };
                   return (
                     <li key={`${problem.chapterId}:${problem.kind}:${index}`}>
                       <button
                         type="button"
                         onClick={() => {
-                          setPanel(`chapter:${problem.chapterId}`);
+                          setPanel(
+                            `${selected.chapters ? "chapter" : "proposal"}:${problem.chapterId}`,
+                          );
                           setFocusRequest((current) => ({
                             id: problem.chapterId,
                             sequence: (current?.sequence ?? 0) + 1,
                           }));
                         }}
                       >
-                        <strong>{chapter?.title || "새 장"}</strong>
+                        <strong>
+                          {chapter?.title || proposalTitles[problem.chapterId] || "새 장"}
+                        </strong>
                         <span>{reason}</span>
                       </button>
                     </li>
@@ -967,7 +1027,18 @@ export default function StoryEditorWindow({
               </ul>
             </aside>
           )}
-          {panel && panel !== "problems" && (
+          {panel?.startsWith("proposal:") && selected.chapters == null && (
+            <ProposalStoryPanel
+              key={`${selected.id}:${panel}`}
+              scenario={selected}
+              stage={panel.slice("proposal:".length) as ProposalStage}
+              actors={actors}
+              scenarios={scenarios}
+              onChange={updateScenario}
+              onClose={() => setPanel(null)}
+            />
+          )}
+          {panel && panel !== "problems" && !panel.startsWith("proposal:") && (
             <StoryPanel
               key={`${selected.id}:${panel}`}
               scenario={selected}
@@ -991,6 +1062,55 @@ export default function StoryEditorWindow({
           )}
         </div>
       )}
+      <Dialog
+        isOpen={
+          newStory !== null &&
+          newStory.packId === target.packId &&
+          newStory.scenarioId === target.scenarioId
+        }
+        title="어떤 이야기를 만들까요?"
+        variant="confirm"
+        onOpenChange={(open) => {
+          if (!open) {
+            setNewStory(null);
+            setTarget((current) => ({ ...current, createNew: false }));
+          }
+        }}
+        footer={
+          <>
+            <Button
+              onClick={() => {
+                setNewStory(null);
+                setTarget((current) => ({ ...current, createNew: false }));
+              }}
+            >
+              취소
+            </Button>
+            <Button onClick={createNewStory}>만들기</Button>
+          </>
+        }
+      >
+        <div className={modeStyles.choices}>
+          <button
+            type="button"
+            className={modeStyles.choice}
+            aria-pressed={newMode === "scene"}
+            onClick={() => setNewMode("scene")}
+          >
+            <strong>장면형</strong>
+            <span>장을 이어 가며 선택과 기다리기를 넣어요. 튜토리얼도 이 방식이에요.</span>
+          </button>
+          <button
+            type="button"
+            className={modeStyles.choice}
+            aria-pressed={newMode === "proposal"}
+            onClick={() => setNewMode("proposal")}
+          >
+            <strong>제안형</strong>
+            <span>친구가 먼저 제안하고 수락·거절로 나뉘어요. 네 단계가 정해져 있어요.</span>
+          </button>
+        </div>
+      </Dialog>
       <Dialog
         isOpen={deleting !== null}
         title={`${selected?.chapters?.find((chapter) => chapter.id === deleting)?.title || "새 장"} 장을 지울까요?`}
