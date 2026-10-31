@@ -1,7 +1,7 @@
 use super::super::{is_current, lock, phase, publish, scene, scene_events, AppState};
 use crate::{
     characters, models,
-    pack_stories::{self, RunTicket, SceneInteraction, StoryInput, StoryStep},
+    pack_stories::{self, RunTicket, SceneInteraction, StoryInput, StorySavedLine, StoryStep},
     store, story,
     types::{PanelState, RuntimePhase, SceneLine},
 };
@@ -72,6 +72,27 @@ pub(super) fn render_record(
         }
     }
     redacted.then_some(output)
+}
+
+pub(super) fn saved_name_line(
+    saved: Option<StorySavedLine>,
+    needs_name: bool,
+    persona: String,
+    name: &str,
+    answers: &BTreeMap<String, String>,
+) -> Option<(SceneLine, Option<String>)> {
+    let saved = saved.filter(|_| needs_name)?;
+    let recorded_text = render_record(&saved.text, name, answers);
+    Some((
+        SceneLine {
+            persona,
+            expression: saved.expression,
+            text: render(&saved.text, name, answers),
+            widget: None,
+            motion: saved.motion,
+        },
+        recorded_text,
+    ))
 }
 
 fn local_persona(
@@ -207,12 +228,14 @@ pub(super) fn checkpoint_before_step(
     {
         return Ok(false);
     }
-    pack_stories::resume::save_chapter(
-        &db,
-        run,
-        run.chapter_id.as_deref().ok_or("이야기의 장이 없어요.")?,
-        chrono::Utc::now().timestamp_millis(),
-    )?;
+    if store::current_user(&db)?.is_some() {
+        pack_stories::resume::save_chapter(
+            &db,
+            run,
+            run.chapter_id.as_deref().ok_or("이야기의 장이 없어요.")?,
+            chrono::Utc::now().timestamp_millis(),
+        )?;
+    }
     *chapter_saved = true;
     Ok(true)
 }
@@ -253,7 +276,7 @@ async fn show_line(
     else {
         return Ok(false);
     };
-    if save_chapter {
+    if save_chapter && store::current_user(&*lock(&state.db)?)?.is_some() {
         let _action = lock(&state.action)?;
         let db = lock(&state.db)?;
         if !is_current(state, run.epoch, &cancel)
@@ -382,6 +405,84 @@ where
     }
 }
 
+pub(crate) fn record_displayed_choice(
+    state: &AppState,
+    db: &rusqlite::Connection,
+    request: &story::Request,
+) -> Result<(), String> {
+    let Some(at) = request.display_started_at else {
+        return Ok(());
+    };
+    let mut runtime = lock(&state.pack_stories)?;
+    let Some(run) = runtime.run.clone() else {
+        return Ok(());
+    };
+    if !run
+        .definition
+        .as_ref()
+        .is_some_and(|definition| definition.purpose == pack_stories::ScenarioPurpose::Tutorial)
+        || request.epoch != run.epoch
+        || state.epoch.load(std::sync::atomic::Ordering::SeqCst) != run.epoch
+        || !runtime.interaction.as_ref().is_some_and(|item| {
+            item.run_id == run.run_id
+                && item.generation == run.phase_generation
+                && item.epoch == run.epoch
+                && item.request_id == request.id
+                && item.persona == request.persona
+                && request.user_id == run.scope.user_id
+                && item.choices.is_some()
+                && item.answer.is_none()
+        })
+        || !pack_stories::current(db, &run)?
+        || !scene_events::available_locked(state, db, &run)?
+    {
+        return Ok(());
+    }
+    let Some(text) = runtime.choice_recorded_text.clone() else {
+        return Ok(());
+    };
+    let line = SceneLine {
+        persona: request.persona.clone(),
+        expression: request.expression.clone().unwrap_or_default(),
+        text: text.clone(),
+        widget: None,
+        motion: request.motion.clone().unwrap_or_default(),
+    };
+    let message = crate::types::Message {
+        id: request.id.clone(),
+        role: "assistant".into(),
+        persona: Some(request.persona.clone()),
+        content: text,
+        expression: request.expression.clone(),
+        created_at: at,
+        status: "complete".into(),
+    };
+    if store::current_user(db)?.is_none() {
+        if !runtime
+            .unnamed_lines
+            .iter()
+            .any(|item| item.message.id == message.id)
+        {
+            let actor = characters::guests::actor(state, db, &request.persona)?;
+            runtime.unnamed_lines.push(store::BufferedStoryLine {
+                message,
+                line,
+                actor,
+            });
+        }
+    } else {
+        let actor = characters::guests::actor(state, db, &request.persona)?;
+        store::insert_message_with_actor(db, &message, "tutorial", false, &line, &actor)?;
+        store::mark_message_displayed_with_provenance(
+            db,
+            &message.id,
+            at,
+            Some(state.automatic.load(std::sync::atomic::Ordering::SeqCst)),
+        )?;
+    }
+    Ok(())
+}
+
 pub(crate) fn answer_choice(
     state: &AppState,
     request_id: &str,
@@ -422,12 +523,14 @@ pub(crate) fn answer_choice(
     {
         return Err("선택지를 확인해 주세요.".into());
     }
-    pack_stories::resume::save_chapter(
-        &db,
-        &run,
-        run.chapter_id.as_deref().ok_or("이야기의 장이 없어요.")?,
-        displayed,
-    )?;
+    if store::current_user(&db)?.is_some() {
+        pack_stories::resume::save_chapter(
+            &db,
+            &run,
+            run.chapter_id.as_deref().ok_or("이야기의 장이 없어요.")?,
+            displayed,
+        )?;
+    }
     interaction.answer = Some(choice_id.into());
     *lock(&state.story)? = None;
     Ok(true)
@@ -504,9 +607,8 @@ async fn execute(
     cancel: Arc<AtomicBool>,
     resumed: Option<String>,
 ) -> Result<(), String> {
-    let name = store::current_user(&*lock(&state.db)?)?
-        .ok_or("이름을 먼저 등록해 주세요.")?
-        .name;
+    let mut name =
+        store::current_user(&*lock(&state.db)?)?.map_or_else(String::new, |user| user.name);
     let mut answers = BTreeMap::new();
     let mut chapter_saved = false;
     if let Some(title) = resumed {
@@ -616,10 +718,12 @@ async fn execute(
                 prompt,
                 input,
                 known,
+                saved,
                 motion,
             } => {
                 let persona = local_persona(&*lock(&state.db)?, &run, &persona)?;
-                let text = if input == StoryInput::Name {
+                let needs_name = input == StoryInput::Name && name.is_empty();
+                let text = if input == StoryInput::Name && !needs_name {
                     known.ok_or("이름 대사를 찾을 수 없어요.")?
                 } else {
                     prompt
@@ -638,14 +742,14 @@ async fn execute(
                     cancel.clone(),
                     (line, render_record(&text, &name, &answers)),
                     source,
-                    (!chapter_saved, input == StoryInput::Text),
+                    (!chapter_saved, input == StoryInput::Text || needs_name),
                 )
                 .await?
                 {
                     return Ok(());
                 }
                 chapter_saved = true;
-                if input == StoryInput::Text {
+                if input == StoryInput::Text || needs_name {
                     {
                         let _action = lock(&state.action)?;
                         let db = lock(&state.db)?;
@@ -673,8 +777,8 @@ async fn execute(
                             answer: None,
                         });
                         *lock(&state.panel)? = Some(PanelState {
-                            persona,
-                            mode: "input".into(),
+                            persona: persona.clone(),
+                            mode: if needs_name { "name" } else { "input" }.into(),
                         });
                         lock(&state.runtime)?.phase = RuntimePhase::Waiting;
                     }
@@ -686,10 +790,29 @@ async fn execute(
                             return Ok(());
                         }
                         if let Some(answer) = take_answer(state, &run)? {
+                            if needs_name {
+                                name = answer.clone();
+                            }
                             answers.insert(id, answer);
                             break;
                         }
                         tokio::select! { _ = models::cancelled(cancel.clone()) => return Ok(()), _ = tokio::time::sleep(Duration::from_millis(50)) => {} }
+                    }
+                    if let Some(line) = saved_name_line(saved, needs_name, persona, &name, &answers)
+                    {
+                        if !show_line(
+                            app,
+                            state,
+                            &run,
+                            cancel.clone(),
+                            line,
+                            source,
+                            (false, false),
+                        )
+                        .await?
+                        {
+                            return Ok(());
+                        }
                     }
                 }
             }
@@ -723,6 +846,10 @@ async fn execute(
                     {
                         return Ok(());
                     }
+                    runtime.choice_recorded_text = Some(
+                        render_record(&prompt, &name, &answers)
+                            .unwrap_or_else(|| render(&prompt, &name, &answers)),
+                    );
                     runtime.interaction = Some(SceneInteraction {
                         run_id: run.run_id.clone(),
                         epoch: run.epoch,
@@ -771,10 +898,11 @@ async fn execute(
                             if !scene_events::available_locked(state, &db, &run)? {
                                 return Ok(());
                             }
-                            if lock(&state.pack_stories)?
-                                .run
-                                .as_ref()
-                                .is_some_and(|active| matches_run(active, &run))
+                            if store::current_user(&db)?.is_some()
+                                && lock(&state.pack_stories)?
+                                    .run
+                                    .as_ref()
+                                    .is_some_and(|active| matches_run(active, &run))
                             {
                                 pack_stories::resume::save_chapter(
                                     &db,
@@ -919,6 +1047,17 @@ pub(super) fn cleanup(state: &AppState, run: &RunTicket) -> bool {
         }
     }
     blocked
+}
+
+pub(crate) async fn run_automatic(
+    app: &tauri::AppHandle,
+    state: &Arc<AppState>,
+    run: RunTicket,
+    cancel: Arc<AtomicBool>,
+) -> Result<(), String> {
+    let result = execute(app, state, run.clone(), cancel, None).await;
+    cleanup(state, &run);
+    result
 }
 
 fn spawn(

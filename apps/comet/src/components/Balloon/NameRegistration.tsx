@@ -8,9 +8,13 @@ import * as s from "../companion.css";
 export function NameRegistration({
   greeting,
   dispatch,
+  sceneAskId,
+  prompt = "뭐라고 부를까?",
 }: {
   greeting: string;
   dispatch: Dispatch;
+  sceneAskId?: string;
+  prompt?: string;
 }): JSX.Element {
   const [name, setName] = useState("");
   const [birthday, setBirthday] = useState(() => birthdayDraft(null));
@@ -33,6 +37,7 @@ export function NameRegistration({
       await dispatch("register_user_profile", {
         name: trimmed,
         birthday: selectedBirthday,
+        ...(sceneAskId ? { sceneAskId } : {}),
       });
     } catch (cause: unknown) {
       setError(errorText(cause));
@@ -51,8 +56,8 @@ export function NameRegistration({
         void save();
       }}
     >
-      <p className={s.conversationMeta}>{greeting}</p>
-      <label htmlFor="first-user-name">뭐라고 부를까?</label>
+      {greeting && <p className={s.conversationMeta}>{greeting}</p>}
+      <label htmlFor="first-user-name">{prompt}</label>
       <TextInput
         fill
         id="first-user-name"

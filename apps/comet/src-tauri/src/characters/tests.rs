@@ -1997,6 +1997,100 @@ fn official_byulkkori_attribution_uses_requested_display_label_without_a_source_
 }
 
 #[test]
+fn bundled_tutorial_validates_and_upgrades_only_unchanged_installs_once() {
+    let tutorial_pack = byulkkori_tutorial_pack();
+    let parsed = parse_pack(&pack_json(&tutorial_pack).unwrap()).unwrap();
+    assert_eq!(parsed.scenarios.len(), 1);
+    assert_eq!(
+        parsed.scenarios[0].purpose,
+        crate::pack_stories::ScenarioPurpose::Tutorial
+    );
+    assert_eq!(parsed.scenarios[0].keywords, ["튜토리얼", "사용법 알려 줘"]);
+
+    let fresh = Connection::open_in_memory().unwrap();
+    initialize(&fresh).unwrap();
+    let active = get(&fresh, &active_ids(&fresh).unwrap()[0]).unwrap();
+    let seeded = get_pack_story_definition(&fresh, active.pack_id.as_deref().unwrap()).unwrap();
+    assert_eq!(seeded.definition.scenarios, parsed.scenarios);
+
+    let conn = database();
+    conn.execute(
+        "DELETE FROM kv WHERE key='character:byulkkori-tutorial:v1'",
+        [],
+    )
+    .unwrap();
+    let stock = import_pack(&conn, &byulkkori_pack()).unwrap();
+    let stock_pack = stock[0].pack_id.as_ref().unwrap();
+    let edited = import_pack(&conn, &byulkkori_pack()).unwrap();
+    let edited_pack = edited[0].pack_id.as_ref().unwrap();
+    let mut definition = edited[0].definition.clone();
+    definition.greeting[0].text = "고친 인사".into();
+    save(&conn, &edited[0].id, &definition).unwrap();
+    let deleted = import_pack(&conn, &byulkkori_pack()).unwrap();
+    let deleted_pack = deleted[0].pack_id.as_ref().unwrap();
+    remove(&conn, &deleted[0].id).unwrap();
+
+    migrate_byulkkori_tutorial(&conn).unwrap();
+    let snapshot = get_pack_story_definition(&conn, stock_pack).unwrap();
+    assert_eq!(snapshot.definition.scenarios, parsed.scenarios);
+    assert!(get_pack_story_definition(&conn, edited_pack)
+        .unwrap()
+        .definition
+        .scenarios
+        .is_empty());
+    assert!(pack_record(&conn, deleted_pack).is_err());
+    let mut removed = snapshot.definition;
+    removed.scenarios.clear();
+    save_pack_story_definition_expected(&conn, stock_pack, &removed, &snapshot.baseline).unwrap();
+    migrate_byulkkori_tutorial(&conn).unwrap();
+    assert!(get_pack_story_definition(&conn, stock_pack)
+        .unwrap()
+        .definition
+        .scenarios
+        .is_empty());
+    assert_eq!(get(&conn, &edited[0].id).unwrap().definition, definition);
+}
+
+#[test]
+fn bundled_tutorial_keywords_select_chapter_story_after_registration() {
+    let db = crate::store::open(std::path::Path::new(":memory:")).unwrap();
+    let installed = import_pack(&db, &byulkkori_tutorial_pack()).unwrap();
+    let center = installed[0].id.clone();
+    apply_roster(&db, vec![center.clone()]).unwrap();
+    crate::store::set_user_name(&db, "사용자", 1000).unwrap();
+    for keyword in ["튜토리얼", "사용법 알려 줘"] {
+        let input_id = uuid::Uuid::new_v4().to_string();
+        crate::store::insert_user_input(
+            &db,
+            &crate::types::Message {
+                id: input_id.clone(),
+                role: "user".into(),
+                persona: Some(center.clone()),
+                content: keyword.into(),
+                expression: None,
+                created_at: 1000,
+                status: "complete".into(),
+            },
+            false,
+        )
+        .unwrap();
+        let context = crate::pack_stories::InputContext {
+            input_id,
+            user_id: crate::store::active_user_id(&db).unwrap(),
+            targets: vec![center.clone()],
+            epoch: 1,
+        };
+        let plan = crate::pack_stories::select(&db, &Default::default(), &context, keyword)
+            .unwrap()
+            .unwrap();
+        assert_eq!(plan.run.stage, crate::pack_stories::Stage::Chapter);
+        assert_eq!(plan.run.scenario_id.as_deref(), Some("first-meeting"));
+        assert_eq!(plan.run.chapter_id.as_deref(), Some("start"));
+        assert_eq!(plan.source, "tutorial");
+    }
+}
+
+#[test]
 fn bundled_dialogue_expansion_keeps_the_frozen_original_and_authored_greeting_contract() {
     let previous = previous_dialogue_packs();
     assert_eq!(previous[0].characters[0].greeting.len(), 1);

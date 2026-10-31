@@ -1111,6 +1111,71 @@ fn chapter_schema_validates_and_round_trips_all_step_types() {
 }
 
 #[test]
+fn name_ask_saved_line_validates_and_round_trips() {
+    let (characters, extras) = scene_schema_fixture();
+    let mut input = serde_json::to_value(&extras).unwrap();
+    input["scenarios"][0]["chapters"][0]["steps"][0]["saved"] =
+        serde_json::json!({"expression":"평온", "text":"{userName}, 반가워요!"});
+    let parsed: PackStoryDefinition = serde_json::from_value(input.clone()).unwrap();
+    validate_pack(&characters, &parsed).unwrap();
+    assert_eq!(serde_json::to_value(&parsed).unwrap(), input);
+
+    for (field, value) in [
+        ("expression", serde_json::json!("없는 표정")),
+        ("text", serde_json::json!("")),
+        ("text", serde_json::json!("{answer.missing}")),
+        (
+            "motion",
+            serde_json::json!({"mode":"clip", "clipId":"missing", "repeat":false, "intervalMs":0}),
+        ),
+    ] {
+        let mut invalid = input.clone();
+        invalid["scenarios"][0]["chapters"][0]["steps"][0]["saved"][field] = value;
+        let parsed: PackStoryDefinition = serde_json::from_value(invalid).unwrap();
+        assert!(validate_pack(&characters, &parsed).is_err(), "{field}");
+    }
+    input["scenarios"][0]["chapters"][0]["steps"][0]["input"] = serde_json::json!("text");
+    let parsed: PackStoryDefinition = serde_json::from_value(input).unwrap();
+    assert!(validate_pack(&characters, &parsed).is_err());
+}
+
+#[test]
+fn bundled_tutorial_name_confirmation_is_only_in_saved_line() {
+    let scenario: ScenarioDefinition =
+        serde_json::from_str(include_str!("../../content/byulkkori-tutorial.json")).unwrap();
+    let chapters: Vec<_> = scenario
+        .chapters
+        .unwrap()
+        .into_iter()
+        .filter(|chapter| chapter.id == "brief" || chapter.id == "name")
+        .collect();
+    assert_eq!(chapters.len(), 2);
+    for chapter in chapters {
+        let confirmations: Vec<_> = chapter
+            .steps
+            .iter()
+            .filter_map(|step| match step {
+                StoryStep::Ask {
+                    input: StoryInput::Name,
+                    known,
+                    saved,
+                    ..
+                } => {
+                    assert!(known.is_some());
+                    saved.as_ref().map(|line| line.text.as_str())
+                }
+                StoryStep::Line { text, .. } => {
+                    assert_ne!(text, "{userName}! 좋다. 이제 그렇게 부를게.");
+                    None
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(confirmations, ["{userName}! 좋다. 이제 그렇게 부를게."]);
+    }
+}
+
+#[test]
 fn choice_option_ids_are_unique_within_each_choice() {
     let (characters, mut extras) = scene_schema_fixture();
     let steps = &mut extras.scenarios[0].chapters.as_mut().unwrap()[0].steps;
@@ -1180,6 +1245,8 @@ fn tutorial_rejects_proposal_story_without_chapters() {
 #[test]
 fn chapter_schema_rejects_wrong_shapes_and_unsupported_targets() {
     for value in [
+        serde_json::json!({"kind":"ask", "id":"topic", "persona":"p", "expression":"e", "prompt":"x", "input":"text", "saved":null}),
+        serde_json::json!({"kind":"ask", "id":"name", "persona":"p", "expression":"e", "prompt":"x", "input":"name", "saved":null}),
         serde_json::json!({"kind":"line", "persona":"p", "expression":"e", "text":"x", "extra":true}),
         serde_json::json!({"kind":"action", "do":"widget.open", "widget":"unknown"}),
         serde_json::json!({"kind":"action", "do":"focus.stop", "minutes":5}),
@@ -1771,4 +1838,114 @@ fn tutorial_completion_retains_declared_effects_once() {
         1
     );
     assert_eq!(db.query_row("SELECT COUNT(*) FROM memories WHERE source LIKE 'moment:story-complete:%' AND content='작은 이야기를 마쳤다.'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+}
+
+#[test]
+fn first_story_profile_and_resume_checkpoint_commit_together() {
+    let (db, run) = resume_fixture();
+    let definition = run.definition.as_ref().unwrap();
+    let guest_source = definition
+        .participants
+        .iter()
+        .find(|id| **id != definition.center_id)
+        .unwrap();
+    let snapshot = characters::get_pack_story_definition(&db, &run.scope.pack_id).unwrap();
+    let guest_id = snapshot.source_to_local.get(guest_source).unwrap();
+    assert!(characters::active_character(&db, guest_id).is_err());
+    let actor = characters::get(&db, guest_id).unwrap();
+    let line = SceneLine {
+        persona: guest_id.clone(),
+        expression: "평온".into(),
+        text: "반가워".into(),
+        widget: None,
+        motion: Default::default(),
+    };
+    let message = Message {
+        id: "guest-first-line".into(),
+        role: "assistant".into(),
+        persona: Some(guest_id.clone()),
+        content: line.text.clone(),
+        expression: Some(line.expression.clone()),
+        created_at: 1000,
+        status: "complete".into(),
+    };
+    let lines = [store::BufferedStoryLine {
+        message,
+        line,
+        actor,
+    }];
+    db.execute(
+        "UPDATE user_identities SET name='' WHERE id=?1",
+        [&run.scope.user_id],
+    )
+    .unwrap();
+    db.execute_batch("CREATE TRIGGER fail_story_resume BEFORE INSERT ON pack_story_resume BEGIN SELECT RAISE(ABORT, 'checkpoint failure'); END;").unwrap();
+    assert!(store::register_story_user_profile(
+        &db,
+        "별",
+        None,
+        1001,
+        store::StoryRegistration {
+            run: &run,
+            chapter: "second",
+            lines: &lines,
+            characters: &[]
+        }
+    )
+    .is_err());
+    assert!(store::current_user(&db).unwrap().is_none());
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM messages WHERE id='guest-first-line'",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
+    let count: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM pack_story_outcomes WHERE run_id=?1",
+            [&run.run_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
+    db.execute_batch("DROP TRIGGER fail_story_resume;").unwrap();
+    store::register_story_user_profile(
+        &db,
+        "별",
+        None,
+        1001,
+        store::StoryRegistration {
+            run: &run,
+            chapter: "second",
+            lines: &lines,
+            characters: &[],
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        store::current_user(&db).unwrap().unwrap().id,
+        run.scope.user_id
+    );
+    let source: String = db
+        .query_row(
+            "SELECT source FROM message_context WHERE message_id='guest-first-line'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(source, "tutorial");
+    let points = resume::load_for_scope(&db, &run.scope).unwrap();
+    assert_eq!(points.len(), 1);
+    assert_eq!(points[0].chapter_id, "second");
+    let accepted: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM pack_story_outcomes WHERE run_id=?1 AND kind='accepted'",
+            [&run.run_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(accepted, 1);
 }

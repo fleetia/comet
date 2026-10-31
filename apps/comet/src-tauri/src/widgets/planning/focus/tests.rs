@@ -16,6 +16,39 @@ fn reject(data: &Value, action: &str, input: Value, now: i64) {
 }
 
 #[test]
+fn one_time_focus_preserves_saved_duration_and_settings_for_the_next_start() {
+    for legacy in [false, true] {
+        let configured = run(&manual_timer(), "configure", json!({"durationMs":1800000}), 0);
+        let mut data = configured.data;
+        if legacy {
+            data.as_object_mut().unwrap().remove("focusDurationMs");
+        }
+        let settings = data["settings"].clone();
+        let started = run(&data, "start-once", json!({"durationMs":300000}), 1000);
+        assert_eq!(started.data["durationMs"], 300000);
+        assert_eq!(started.data["remainingMs"], 300000);
+        assert_eq!(started.data["activeSession"]["durationMs"], 300000);
+        assert_eq!(started.data["focusDurationMs"], 1800000);
+        assert_eq!(started.data["settings"], settings);
+
+        let finished = tick(&started.data, 301000).unwrap().unwrap();
+        assert_eq!(finished.data["focusDurationMs"], 1800000);
+        assert_eq!(finished.data["settings"], settings);
+        let continued = run(&finished.data, "continue", json!({}), 302000);
+        assert_eq!(continued.data["durationMs"], 1800000);
+
+        let stopped = run(&started.data, "cancel", json!({}), 2000);
+        assert_eq!(stopped.data["durationMs"], 1800000);
+        assert_eq!(stopped.data["remainingMs"], 1800000);
+        assert_eq!(stopped.data["focusDurationMs"], 1800000);
+        assert_eq!(stopped.data["settings"], settings);
+        let manual = run(&stopped.data, "start", json!({}), 3000);
+        assert_eq!(manual.data["durationMs"], 1800000);
+        assert_eq!(manual.data["focusDurationMs"], 1800000);
+    }
+}
+
+#[test]
 fn legacy_rest_queues_and_continues_with_the_focus_default() {
     let mut data = initial();
     data.as_object_mut().unwrap().remove("focusDurationMs");

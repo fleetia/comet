@@ -353,10 +353,70 @@ pub(crate) fn byulkkori_pack() -> CharacterPack {
 fn seed_byulkkori(conn: &Connection) -> Result<Vec<String>> {
     // New installs start with Byulkkori alone; the text-only A/B definitions stay available
     // for older databases that already hold them.
-    Ok(import_pack(conn, &byulkkori_pack())?
+    Ok(import_pack(conn, &byulkkori_tutorial_pack())?
         .into_iter()
         .map(|character| character.id)
         .collect())
+}
+
+fn byulkkori_tutorial_pack() -> CharacterPack {
+    let mut pack = byulkkori_pack();
+    let tutorial = serde_json::from_str(include_str!("../content/byulkkori-tutorial.json"))
+        .expect("bundled tutorial must be valid");
+    pack.scenarios.push(tutorial);
+    pack.format_version = 14;
+    crate::pack_stories::validate_pack(&pack.characters, &pack.story_definition())
+        .expect("bundled tutorial must pass pack validation");
+    pack
+}
+
+fn migrate_byulkkori_tutorial(conn: &Connection) -> Result<()> {
+    let done: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM kv WHERE key='character:byulkkori-tutorial:v1')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if done {
+        return Ok(());
+    }
+    let mut original = byulkkori_pack();
+    original.sprites.clear();
+    original.animation_assets.clear();
+    original.archive = None;
+    let tutorial = byulkkori_tutorial_pack().scenarios.remove(0);
+    for installed in installed_packs(conn)? {
+        let (mut pack, members) = pack_record(conn, &installed.id)?;
+        if serde_json::to_value(&pack).map_err(|error| error.to_string())?
+            != serde_json::to_value(&original).map_err(|error| error.to_string())?
+            || members.len() != original.characters.len()
+            || members
+                .iter()
+                .zip(&original.characters)
+                .any(|(id, definition)| {
+                    !get(conn, id).is_ok_and(|character| character.definition == *definition)
+                })
+        {
+            continue;
+        }
+        pack.format_version = 14;
+        pack.scenarios.push(tutorial.clone());
+        conn.execute(
+            "UPDATE character_packs SET data=?1 WHERE id=?2",
+            params![
+                serde_json::to_string(&pack).map_err(|error| error.to_string())?,
+                installed.id
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    conn.execute(
+        "INSERT INTO kv(key,value) VALUES('character:byulkkori-tutorial:v1','1')",
+        [],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 /// Test-only seed: the pre-0.6 factory roster (A/B) that the regression suite addresses as
@@ -694,6 +754,7 @@ fn initialize_with(
     bundled_motions::migrate(&tx)?;
     migrate_factory_dialogue(&tx)?;
     migrate_official_birthdays(&tx)?;
+    migrate_byulkkori_tutorial(&tx)?;
     tx.commit().map_err(|e| e.to_string())
 }
 #[cfg(test)]
@@ -1235,9 +1296,15 @@ pub fn export_pack(
 fn strip_chapter_step_images(step: &mut crate::pack_stories::StoryStep) {
     use crate::pack_stories::StoryStep;
     match step {
-        StoryStep::Line { motion, .. }
-        | StoryStep::Ask { motion, .. }
-        | StoryStep::Choice { motion, .. } => *motion = motion.without_images(),
+        StoryStep::Line { motion, .. } | StoryStep::Choice { motion, .. } => {
+            *motion = motion.without_images();
+        }
+        StoryStep::Ask { motion, saved, .. } => {
+            *motion = motion.without_images();
+            if let Some(saved) = saved {
+                saved.motion = saved.motion.without_images();
+            }
+        }
         StoryStep::Wait { on_timeout, .. } => {
             for step in &mut on_timeout.steps {
                 strip_chapter_step_images(step);

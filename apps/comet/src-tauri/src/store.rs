@@ -51,9 +51,7 @@ pub use messages::{
     single_bundle_selected, single_bundle_targets, MessageIdentity,
 };
 use messages::{initialize_identities, initialize_message_context};
-pub(crate) use messages::{
-    insert_message_with_actor, save_generated_bundle,
-};
+pub(crate) use messages::{insert_message_with_actor, save_generated_bundle};
 #[cfg(test)]
 pub use messages::{insert_message_with_source, insert_message_with_talk};
 pub use search::{
@@ -67,8 +65,9 @@ pub use search::{current_user_facts_for, memory_page, revalidate_search_hits, se
 pub use users::require_user;
 pub use users::{
     active_user_id, current_user, current_user_birthday, effective_memory_time, expire_memories,
-    message_user_id, message_user_names, register_user_name, register_user_profile,
-    set_user_birthday, set_user_name, user_identity, MEMORY_LIFETIME_MILLIS,
+    message_user_id, message_user_names, register_story_user_profile, register_user_name,
+    register_user_profile, set_user_birthday, set_user_name, user_identity, BufferedStoryLine,
+    StoryRegistration, MEMORY_LIFETIME_MILLIS,
 };
 
 use crate::types::*;

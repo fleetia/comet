@@ -768,15 +768,16 @@ pub(super) fn act(
             }
             state.completed_focus_pending = false;
         }
-        "start" | "rest" | "continue" => {
-            if action == "start" && matches!(state.status.as_str(), "running" | "paused") {
+        "start" | "start-once" | "rest" | "continue" => {
+            let starting = matches!(action, "start" | "start-once");
+            if starting && matches!(state.status.as_str(), "running" | "paused") {
                 return Err("진행 중인 타이머를 먼저 마쳐 주세요.".into());
             }
             let continuing_rest = action == "continue" && state.mode == "rest";
-            if action != "start" && state.status != "finished" && !continuing_rest {
+            if !starting && state.status != "finished" && !continuing_rest {
                 return Err("타이머 종료 후 선택할 수 있습니다.".into());
             }
-            if action != "start" && input.get("memo").is_some() {
+            if !starting && input.get("memo").is_some() {
                 update_memo(&mut state, input)?;
             }
             if action == "continue" && !state.queue.is_empty() {
@@ -805,14 +806,21 @@ pub(super) fn act(
                     state.status = "finished".into();
                 }
                 let mut configuration = input.clone();
-                if action != "start" {
-                    if let Some(values) = configuration.as_object_mut() {
+                if let Some(values) = configuration.as_object_mut() {
+                    if action == "start-once" {
+                        values.remove("durationMs");
+                    } else if !starting {
                         values.remove("memo");
                         values.remove("expectedMemo");
                     }
                 }
+                let saved_duration = focus_duration(&state);
                 configure(&mut state, &configuration, related)?;
-                state.focus_duration_ms = Some(value);
+                state.focus_duration_ms = Some(if action == "start-once" {
+                    saved_duration
+                } else {
+                    value
+                });
             }
             state.completed_focus_pending = false;
             state.duration_ms = value;

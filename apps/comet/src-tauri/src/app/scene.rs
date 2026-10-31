@@ -214,7 +214,16 @@ pub(crate) fn present_line(
     direct_reply: bool,
 ) -> Result<bool, String> {
     present_line_with_record(
-        state, line, source, id, line_index, line_count, revision, epoch, cancel, direct_reply,
+        state,
+        line,
+        source,
+        id,
+        line_index,
+        line_count,
+        revision,
+        epoch,
+        cancel,
+        direct_reply,
         None,
     )
 }
@@ -283,7 +292,9 @@ pub(crate) fn present_line_with_record(
     let line = &resolved[0];
     lock(&state.reactions)?.clear_ambient(&line.persona);
     if crate::characters::life::sleeping(state, &line.persona)? {
-        let chapter = lock(&state.pack_stories)?.run.as_ref().is_some_and(|run| run.epoch == epoch && run.stage == crate::pack_stories::Stage::Chapter);
+        let chapter = lock(&state.pack_stories)?.run.as_ref().is_some_and(|run| {
+            run.epoch == epoch && run.stage == crate::pack_stories::Stage::Chapter
+        });
         if chapter || state.automatic.load(Ordering::SeqCst) {
             return Ok(false);
         }
@@ -356,9 +367,24 @@ pub(crate) fn present_line_with_record(
                 .activity
                 .record_private_scene(key.to_owned(), message.created_at);
         }
+    } else if source == "tutorial" && store::current_user(&db)?.is_none() {
+        lock(&state.pack_stories)?
+            .unnamed_lines
+            .push(store::BufferedStoryLine {
+                message: message.clone(),
+                line: recorded_line.clone(),
+                actor: actor.clone(),
+            });
     } else {
         if ticket.is_some() {
-            store::insert_message_with_actor(&db, &message, source, direct_reply, &recorded_line, &actor)?;
+            store::insert_message_with_actor(
+                &db,
+                &message,
+                source,
+                direct_reply,
+                &recorded_line,
+                &actor,
+            )?;
         } else {
             store::insert_message_with_playback(
                 &db,
@@ -785,7 +811,9 @@ async fn wait_for_valid_line(
         if matches!(line.source.as_str(), "tutorial" | "scenario") {
             let _action = lock(&state.action)?;
             let db = lock(&state.db)?;
-            if !chapter_available_locked(state, &db, epoch)? { return Ok(false); }
+            if !chapter_available_locked(state, &db, epoch)? {
+                return Ok(false);
+            }
         }
         if matches!(line.source.as_str(), "llm" | "question") {
             let db = lock(&state.db)?;
@@ -868,7 +896,11 @@ pub(crate) async fn run_scene_completed(
             return Ok(None);
         }
         let db = lock(&state.db)?;
-        let saved = if direct_reply && matches!(source, "wordbook" | "story" | "scenario" | "npc" | "tutorial") {
+        let saved = if direct_reply
+            && matches!(
+                source,
+                "wordbook" | "story" | "scenario" | "npc" | "tutorial"
+            ) {
             super::conversation::ensure_current_user_message(&db, prefix)?;
             store::save_reply_scene_with_source(&db, prefix, lines, source)?;
             if generic {

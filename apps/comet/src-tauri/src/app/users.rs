@@ -95,6 +95,79 @@ fn save_profile(
     Ok((changed, first))
 }
 
+fn save_story_profile(
+    state: &AppState,
+    name: &str,
+    birthday: Option<&UserBirthday>,
+    request_id: &str,
+) -> Result<(), String> {
+    let _action = lock(&state.action)?;
+    let db = lock(&state.db)?;
+    let mut runtime = lock(&state.pack_stories)?;
+    let run = runtime.run.clone().ok_or("이야기 실행이 끝났어요.")?;
+    if state.epoch.load(Ordering::SeqCst) != run.epoch
+        || !super::scene_events::available_locked(state, &db, &run)?
+        || !crate::pack_stories::current(&db, &run)?
+        || !runtime.interaction.as_ref().is_some_and(|item| {
+            item.request_id == request_id
+                && item.run_id == run.run_id
+                && item.epoch == run.epoch
+                && item.generation == run.phase_generation
+                && item.answer.is_none()
+        })
+        || !lock(&state.panel)?
+            .as_ref()
+            .is_some_and(|panel| panel.mode == "name")
+    {
+        return Err("이름을 묻던 이야기가 끝났어요.".into());
+    }
+    let chapters = run
+        .definition
+        .as_ref()
+        .and_then(|d| d.chapters.as_ref())
+        .ok_or("이야기의 장이 없어요.")?;
+    let index = chapters
+        .iter()
+        .position(|c| Some(&c.id) == run.chapter_id.as_ref())
+        .ok_or("이야기의 장이 바뀌었어요.")?;
+    if !matches!(
+        chapters[index].steps.get(run.step),
+        Some(crate::pack_stories::StoryStep::Ask {
+            input: crate::pack_stories::StoryInput::Name,
+            ..
+        })
+    ) {
+        return Err("이름을 묻던 이야기가 끝났어요.".into());
+    }
+    let next = match chapters[index].next.as_deref() {
+        Some("end") => chapters[index].id.as_str(),
+        Some(id) => id,
+        None => chapters
+            .get(index + 1)
+            .map_or(chapters[index].id.as_str(), |chapter| chapter.id.as_str()),
+    };
+    let characters = presence::present_ids(state, &characters::active_ids(&db)?)?;
+    let idle_minutes = store::settings(&db)?.idle_minutes;
+    store::register_story_user_profile(
+        &db,
+        name,
+        birthday,
+        chrono::Utc::now().timestamp_millis(),
+        store::StoryRegistration {
+            run: &run,
+            chapter: next,
+            lines: &runtime.unnamed_lines,
+            characters: &characters,
+        },
+    )?;
+    schedule_idle(state, idle_minutes);
+    runtime.unnamed_lines.clear();
+    runtime.interaction.as_mut().unwrap().answer = Some(name.trim().into());
+    *lock(&state.panel)? = None;
+    *lock(&state.playback)? = None;
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) async fn register_user_profile(
     app: tauri::AppHandle,
@@ -102,8 +175,11 @@ pub(crate) async fn register_user_profile(
     name: String,
     birthday: Option<UserBirthday>,
     analytics_consent: Option<bool>,
+    scene_ask_id: Option<String>,
 ) -> Result<(), String> {
-    if analytics_consent.is_some() {
+    if let Some(request_id) = scene_ask_id {
+        save_story_profile(&state, &name, birthday.as_ref(), &request_id)?;
+    } else if analytics_consent.is_some() {
         crate::analytics::commit_consent_change(&app, &state, || {
             save_profile(&state, &name, true, analytics_consent, birthday.as_ref())
         })

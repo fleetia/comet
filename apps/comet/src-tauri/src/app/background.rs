@@ -469,7 +469,7 @@ pub(crate) fn begin_background(state: &AppState) -> Result<Option<(u64, Arc<Atom
 
 pub(crate) async fn run_background(
     app: &tauri::AppHandle,
-    state: &AppState,
+    state: &Arc<AppState>,
     epoch: u64,
     cancel: Arc<AtomicBool>,
 ) -> Result<(), String> {
@@ -690,11 +690,26 @@ pub(crate) async fn run_background(
 /// prepared scene.
 async fn run_idle_scene(
     app: &tauri::AppHandle,
-    state: &AppState,
+    state: &Arc<AppState>,
     settings: &Settings,
     epoch: u64,
     cancel: Arc<AtomicBool>,
 ) -> Result<(), String> {
+    match begin_first_tutorial(state, epoch, &cancel)? {
+        FirstTutorial::Started(run, admitted) => {
+            if !admitted.is_empty() {
+                if let Err(error) = characters::guests::create_admitted(app, state, &admitted) {
+                    let _action = lock(&state.action)?;
+                    let db = lock(&state.db)?;
+                    super::scene_resume::clear_failed_start(state, &db, &run.run_id, epoch, &error);
+                    return Err(error);
+                }
+            }
+            return super::conversation::scene_story::run_automatic(app, state, *run, cancel).await;
+        }
+        FirstTutorial::Deferred => return Ok(()),
+        FirstTutorial::Unavailable => {}
+    }
     if super::users::begin_name_prompt(state, epoch, &cancel)? {
         super::publish(app, state);
         return Ok(());
@@ -750,6 +765,84 @@ async fn run_idle_scene(
         cancel,
     )
     .await
+}
+
+enum FirstTutorial {
+    Started(Box<crate::pack_stories::RunTicket>, Vec<String>),
+    Deferred,
+    Unavailable,
+}
+
+fn begin_first_tutorial(
+    state: &AppState,
+    epoch: u64,
+    cancel: &AtomicBool,
+) -> Result<FirstTutorial, String> {
+    let _action = lock(&state.action)?;
+    if unavailable(state) || !is_current(state, epoch, cancel) {
+        return Ok(FirstTutorial::Unavailable);
+    }
+    let db = lock(&state.db)?;
+    let settings = store::settings(&db)?;
+    let status = lock(&state.runtime)?.clone();
+    if store::current_user(&db)?.is_some()
+        || status.hidden
+        || status.paused
+        || state.launcher_open.load(Ordering::SeqCst)
+        || lock(&state.panel)?.is_some()
+        || lock(&state.pack_stories)?.run.is_some()
+        || !settings.autonomous_enabled
+        || now() < state.next_idle.load(Ordering::SeqCst)
+        || super::quiet_hours::automatic_blocked(state, &settings)?
+        || storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
+    {
+        return Ok(FirstTutorial::Unavailable);
+    }
+    let user_id = store::active_user_id(&db)?;
+    let mut deferred = false;
+    for center in presence::present_ids(state, &characters::active_ids(&db)?)? {
+        let Some(pack_id) = characters::get(&db, &center)?.pack_id else {
+            continue;
+        };
+        let snapshot = characters::get_pack_story_definition(&db, &pack_id)?;
+        let Some(definition) = snapshot.definition.scenarios.iter().find(|definition| {
+            definition.purpose == crate::pack_stories::ScenarioPurpose::Tutorial
+                && definition.chapters.is_some()
+                && snapshot.source_to_local.get(&definition.center_id) == Some(&center)
+        }) else {
+            continue;
+        };
+        if characters::life::sleeping(state, &center)? {
+            deferred = true;
+            continue;
+        }
+        let scope = crate::pack_stories::Scope {
+            user_id: user_id.clone(),
+            pack_id,
+            center_id: center.clone(),
+        };
+        let context = crate::pack_stories::InputContext {
+            input_id: uuid::Uuid::new_v4().to_string(),
+            user_id,
+            targets: vec![center],
+            epoch,
+        };
+        let plan = crate::pack_stories::scene_plan(&db, &context, scope, definition.clone(), None)?;
+        let admitted = super::conversation::bind_pack_plan_locked(state, &db, &plan, epoch)?;
+        let run = lock(&state.pack_stories)?
+            .run
+            .clone()
+            .ok_or("이야기 실행을 시작하지 못했어요.")?;
+        schedule_idle(state, settings.idle_minutes);
+        state.last_scene.store(now(), Ordering::SeqCst);
+        return Ok(FirstTutorial::Started(Box::new(run), admitted));
+    }
+    if deferred {
+        schedule_idle(state, settings.idle_minutes);
+        Ok(FirstTutorial::Deferred)
+    } else {
+        Ok(FirstTutorial::Unavailable)
+    }
 }
 
 fn offer_scene_resume(state: &AppState, epoch: u64, cancel: &AtomicBool) -> Result<bool, String> {
@@ -1078,6 +1171,104 @@ pub(crate) fn reserve_api_idle(db: &Connection, at: i64) -> Result<bool, String>
 #[cfg(test)]
 mod recall_opportunity_tests {
     use super::*;
+
+    fn install_first_tutorial(state: &AppState) {
+        let db = lock(&state.db).unwrap();
+        let mut pack = characters::factory_pack();
+        let center = pack.characters[0].source_id.clone();
+        pack.format_version = 14;
+        pack.scenarios = vec![serde_json::from_value(serde_json::json!({
+            "id":"tutorial", "title":"안내", "purpose":"tutorial", "centerId":center,
+            "participants":[center], "chapters":[{"id":"first", "title":"첫 장", "steps":[
+                {"kind":"line", "persona":center, "expression":"평온", "text":"안녕"}
+            ]}]
+        }))
+        .unwrap()];
+        let installed = characters::import_pack(&db, &pack).unwrap();
+        characters::apply_roster(&db, vec![installed[0].id.clone()]).unwrap();
+    }
+
+    #[test]
+    fn first_tutorial_starts_once_and_restarts_from_first_chapter_after_interrupt() {
+        let state = super::super::tests::state();
+        install_first_tutorial(&state);
+        let cancel = AtomicBool::new(false);
+        let FirstTutorial::Started(first, _) = begin_first_tutorial(&state, 0, &cancel).unwrap()
+        else {
+            panic!("튜토리얼이 시작되어야 해요");
+        };
+        assert_eq!(first.chapter_id.as_deref(), Some("first"));
+        assert!(matches!(
+            begin_first_tutorial(&state, 0, &cancel).unwrap(),
+            FirstTutorial::Unavailable
+        ));
+        {
+            let db = lock(&state.db).unwrap();
+            crate::pack_stories::cancel_with_progress(&db, &mut lock(&state.pack_stories).unwrap())
+                .unwrap();
+            assert_eq!(
+                db.query_row("SELECT COUNT(*) FROM pack_story_outcomes", [], |row| row
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+            assert_eq!(
+                db.query_row("SELECT COUNT(*) FROM pack_story_resume", [], |row| row
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+        }
+        state.next_idle.store(0, Ordering::SeqCst);
+        let FirstTutorial::Started(second, _) = begin_first_tutorial(&state, 0, &cancel).unwrap()
+        else {
+            panic!("튜토리얼이 다시 시작되어야 해요");
+        };
+        assert_ne!(first.run_id, second.run_id);
+        assert_eq!(second.chapter_id.as_deref(), Some("first"));
+        assert_eq!(second.step, 0);
+    }
+
+    #[test]
+    fn pack_without_tutorial_keeps_legacy_name_prompt() {
+        let state = super::super::tests::state();
+        {
+            let db = lock(&state.db).unwrap();
+            let mut pack = characters::factory_pack();
+            pack.scenarios.clear();
+            let installed = characters::import_pack(&db, &pack).unwrap();
+            characters::apply_roster(&db, vec![installed[0].id.clone()]).unwrap();
+        }
+        let cancel = AtomicBool::new(false);
+        assert!(matches!(
+            begin_first_tutorial(&state, 0, &cancel).unwrap(),
+            FirstTutorial::Unavailable
+        ));
+        assert!(super::super::users::begin_name_prompt(&state, 0, &cancel).unwrap());
+        assert_eq!(lock(&state.panel).unwrap().as_ref().unwrap().mode, "name");
+    }
+
+    #[test]
+    fn first_tutorial_waits_for_sleeping_character_instead_of_falling_back_to_name_prompt() {
+        let state = super::super::tests::state();
+        install_first_tutorial(&state);
+        let center = characters::active_ids(&lock(&state.db).unwrap())
+            .unwrap()
+            .remove(0);
+        characters::life::set_sleep(&state, &center, true).unwrap();
+        let cancel = AtomicBool::new(false);
+        assert!(matches!(
+            begin_first_tutorial(&state, 0, &cancel).unwrap(),
+            FirstTutorial::Deferred
+        ));
+        assert!(lock(&state.panel).unwrap().is_none());
+        characters::life::set_sleep(&state, &center, false).unwrap();
+        state.next_idle.store(0, Ordering::SeqCst);
+        assert!(matches!(
+            begin_first_tutorial(&state, 0, &cancel).unwrap(),
+            FirstTutorial::Started(_, _)
+        ));
+    }
 
     #[test]
     fn scene_resume_is_offered_only_once_per_runtime() {
