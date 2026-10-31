@@ -1359,6 +1359,40 @@ fn chapter_schema_rejects_unconditional_cycles_and_name_bypasses() {
 }
 
 #[test]
+fn chapter_schema_accepts_99_chapters_and_rejects_100() {
+    let (characters, mut extras) = scene_schema_fixture();
+    let scene = &mut extras.scenarios[0];
+    let line = StoryStep::Line {
+        persona: scene.center_id.clone(),
+        expression: "평온".into(),
+        text: "안녕".into(),
+        motion: Default::default(),
+    };
+    scene.chapters = Some(
+        (0..99)
+            .map(|index| Chapter {
+                id: format!("chapter-{index}"),
+                title: "장".into(),
+                next: None,
+                steps: vec![line.clone()],
+            })
+            .collect(),
+    );
+    validate_pack(&characters, &extras).unwrap();
+
+    extras.scenarios[0].chapters.as_mut().unwrap().push(Chapter {
+        id: "chapter-99".into(),
+        title: "장".into(),
+        next: None,
+        steps: vec![line],
+    });
+    assert_eq!(
+        validate_pack(&characters, &extras).unwrap_err(),
+        "장은 1~99개여야 해요."
+    );
+}
+
+#[test]
 fn chapter_schema_enforces_count_limits_and_story_size() {
     let (characters, extras) = scene_schema_fixture();
     let mut value = serde_json::to_value(&extras).unwrap();
@@ -1367,7 +1401,7 @@ fn chapter_schema_enforces_count_limits_and_story_size() {
         let scene = serde_json::from_value::<PackStoryDefinition>(candidate).unwrap();
         assert!(validate_pack(&characters, &scene).is_err());
     };
-    value["scenarios"][0]["chapters"] = serde_json::json!(vec![chapter.clone(); 13]);
+    value["scenarios"][0]["chapters"] = serde_json::json!(vec![chapter.clone(); 100]);
     check(value.clone());
     value = serde_json::to_value(&extras).unwrap();
     value["scenarios"][0]["chapters"][0]["steps"] =
