@@ -417,7 +417,7 @@ export const recordsPanel = style({
   borderRadius: 24,
   color: tokens["color/ink"],
   background: tokens["color/glass-panel"],
-  boxShadow: `0 22px 48px ${tokens["color/surface-shadow"]}, inset 0 1px rgba(255,255,255,.1)`,
+  boxShadow: `0 4px 12px -2px ${tokens["color/surface-shadow"]}, inset 0 1px rgba(255,255,255,.1)`,
   backdropFilter: "blur(12px)",
 });
 export const panelTail = style({
@@ -453,7 +453,7 @@ export const timerCard = style({
   borderRadius: 26,
   background: tokens["color/glass-panel"],
   backdropFilter: "blur(12px)",
-  boxShadow: `0 22px 48px ${tokens["color/surface-shadow"]}, inset 0 1px rgba(255,255,255,.1)`,
+  boxShadow: `0 4px 12px -2px ${tokens["color/surface-shadow"]}, inset 0 1px rgba(255,255,255,.1)`,
   selectors: { '&[data-wide="true"]': { width: 370, padding: "18px 20px" } },
 });
 export const compactTimer = style({
@@ -600,7 +600,7 @@ export const completeSymbol = style({
   border: `7px solid ${tokens["color/focus-ring"]}`,
   borderRadius: "50%",
   color: tokens["color/focus-ring"],
-  boxShadow: `0 0 26px ${tokens["color/component/focus-ring-alpha-500"]}`,
+  boxShadow: `0 0 12px ${tokens["color/component/focus-ring-alpha-500"]}`,
   selectors: {
     '&[data-rest-complete="true"]': {
       borderColor: tokens["color/cat-record"],

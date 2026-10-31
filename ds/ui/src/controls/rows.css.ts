@@ -49,7 +49,7 @@ globalStyle(`${radioLayouts.date} label:has(input:checked)`, {
 });
 globalStyle(`${radioLayouts["date-light"]} label:has(input:checked)`, {
   background: tokens["color/component/nav-badge"],
-  boxShadow: "0 2px 4px rgba(32, 44, 96, 0.16)",
+  boxShadow: "0 2px 4px rgba(32, 44, 96, 0.08)",
   color: tokens["color/component/calendar-block-ink"],
 });
 globalStyle(`${radioLayouts["date-light"]} input:checked + span[aria-hidden="true"]`, {

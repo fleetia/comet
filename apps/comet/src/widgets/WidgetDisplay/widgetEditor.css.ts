@@ -19,7 +19,7 @@ export const panel = style({
   overflow: "hidden",
   borderRadius: 22,
   background: tokens["color/glass-window"],
-  boxShadow: `inset 0 0 0 1px ${tokens["color/glass-border"]}, 0 16px 36px ${tokens["color/surface-shadow"]}`,
+  boxShadow: `inset 0 0 0 1px ${tokens["color/glass-border"]}, 0 4px 12px -2px ${tokens["color/surface-shadow"]}`,
   backdropFilter: tokens["backdrop/backdrop-panel"],
 });
 export const header = style({

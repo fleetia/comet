@@ -23,7 +23,7 @@ export const counter = style({
   border: `1px solid ${tokens["color/pill-border"]}`,
   background: tokens["color/glass-pill"],
   backdropFilter: "blur(8px)",
-  boxShadow: "0 8px 10px rgba(0,0,0,0.26)",
+  boxShadow: "0 2px 6px rgba(0,0,0,0.13)",
   color: tokens["color/ink"],
   padding: 0,
   cursor: "pointer",

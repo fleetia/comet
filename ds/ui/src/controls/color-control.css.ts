@@ -22,7 +22,7 @@ export const control = style({
       border: `2px solid ${tokens["color/document-star"]}`,
       borderRadius: 7,
       background: "hsl(var(--comet-color-control-hue) 100% 50%)",
-      boxShadow: "0 2px 6px rgba(0,0,0,0.35)",
+      boxShadow: "0 2px 6px rgba(0,0,0,0.175)",
     },
     "&::-moz-range-thumb": {
       width: 10,
@@ -30,7 +30,7 @@ export const control = style({
       border: `2px solid ${tokens["color/document-star"]}`,
       borderRadius: 7,
       background: "hsl(var(--comet-color-control-hue) 100% 50%)",
-      boxShadow: "0 2px 6px rgba(0,0,0,0.35)",
+      boxShadow: "0 2px 6px rgba(0,0,0,0.175)",
     },
   },
 });

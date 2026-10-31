@@ -1,6 +1,8 @@
 ---
 "comet": patch
 "@comet/storybook": patch
+"@comet/token": patch
+"@comet/ui": patch
 ---
 
-교감 등 작은 카드의 그림자를 줄여 창 가장자리에서 넓게 잘려 보이는 문제를 개선했습니다. Storybook에서 실제 교감 창 크기로 확인할 수 있습니다.
+앱 전체의 창·팝업·알림·위젯 그림자를 작고 옅게 조정했습니다. 모든 테마와 사용자 스킨에 반영하고 Storybook에서 표면별 그림자와 실제 교감 창 크기를 비교할 수 있습니다.

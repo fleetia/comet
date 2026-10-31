@@ -28,7 +28,7 @@ export const appTile = style({
   placeItems: "center",
   borderRadius: 30,
   background: `linear-gradient(160deg, #fff7de, #eee8ff)`,
-  boxShadow: `0 18px 40px ${tokens["color/window-shadow"]}`,
+  boxShadow: `0 4px 12px -2px ${tokens["color/window-shadow"]}`,
 });
 export const identityCopy = style({ display: "grid", gap: 2, textAlign: "center" });
 export const appName = style({

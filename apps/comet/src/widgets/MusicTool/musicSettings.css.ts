@@ -143,7 +143,7 @@ export const morePanel = style({
   borderRadius: 16,
   background: tokens["color/component/os-notification-surface"],
   backdropFilter: "blur(16px)",
-  boxShadow: `0 14px 34px ${tokens["color/component/surface-shadow-alpha-400"]}`,
+  boxShadow: `0 4px 12px -2px ${tokens["color/component/surface-shadow-alpha-400"]}`,
   color: tokens["color/ink-2"],
   fontSize: 12,
   lineHeight: "18px",

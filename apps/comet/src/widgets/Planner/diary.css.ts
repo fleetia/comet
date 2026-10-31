@@ -84,7 +84,7 @@ export const notesOpen = style({
       background: tokens["color/glass-panel"],
       backdropFilter: tokens["backdrop/backdrop-panel"],
       border: `1px solid ${tokens["color/glass-border"]}`,
-      boxShadow: `0 8px 32px ${tokens["color/surface-shadow"]}`,
+      boxShadow: `0 4px 12px -2px ${tokens["color/surface-shadow"]}`,
     },
   },
 });

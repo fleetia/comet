@@ -224,8 +224,8 @@
   --comet-color-component-cat-work-alpha-750: rgb(110 139 255 / 0.75);
   --comet-color-component-cat-work-alpha-80: rgb(110 139 255 / 0.08);
   --comet-color-component-cat-work-alpha-900: rgb(110 139 255 / 0.9);
-  --comet-color-component-control-shadow-250: rgb(0 0 0 / 0.25);
-  --comet-color-component-control-shadow-300: rgb(0 0 0 / 0.3);
+  --comet-color-component-control-shadow-250: rgb(0 0 0 / 0.125);
+  --comet-color-component-control-shadow-300: rgb(0 0 0 / 0.15);
   --comet-color-component-danger-alpha-100: rgb(255 159 133 / 0.1);
   --comet-color-component-event-apple-alpha-150: rgb(119 217 202 / 0.15);
   --comet-color-component-event-comet-alpha-220: rgb(255 139 196 / 0.22);
@@ -324,14 +324,14 @@
   --comet-color-component-sky-alpha-550: rgb(10 15 38 / 0.55);
   --comet-color-component-sky-glow-violet-alpha-900: rgb(118 92 214 / 0.26);
   --comet-color-component-star-alpha-140: rgb(255 255 255 / 0.14);
-  --comet-color-component-surface-shadow-alpha-160: rgb(0 0 0 / 0.38);
-  --comet-color-component-surface-shadow-alpha-240: rgb(0 0 0 / 0.24);
-  --comet-color-component-surface-shadow-alpha-250: rgb(0 0 0 / 0.25);
-  --comet-color-component-surface-shadow-alpha-280: rgb(0 0 0 / 0.28);
-  --comet-color-component-surface-shadow-alpha-300: rgb(0 0 0 / 0.3);
-  --comet-color-component-surface-shadow-alpha-350: rgb(0 0 0 / 0.35);
-  --comet-color-component-surface-shadow-alpha-400: rgb(0 0 0 / 0.4);
-  --comet-color-component-window-shadow-alpha-350: rgb(0 0 0 / 0.35);
+  --comet-color-component-surface-shadow-alpha-160: rgb(0 0 0 / 0.19);
+  --comet-color-component-surface-shadow-alpha-240: rgb(0 0 0 / 0.12);
+  --comet-color-component-surface-shadow-alpha-250: rgb(0 0 0 / 0.125);
+  --comet-color-component-surface-shadow-alpha-280: rgb(0 0 0 / 0.14);
+  --comet-color-component-surface-shadow-alpha-300: rgb(0 0 0 / 0.15);
+  --comet-color-component-surface-shadow-alpha-350: rgb(0 0 0 / 0.175);
+  --comet-color-component-surface-shadow-alpha-400: rgb(0 0 0 / 0.2);
+  --comet-color-component-window-shadow-alpha-350: rgb(0 0 0 / 0.175);
   --comet-color-connector: rgb(255 204 51 / 0.55);
   --comet-color-danger: rgb(255 159 133);
   --comet-color-danger-border: rgb(255 159 133 / 0.4);
@@ -345,7 +345,7 @@
   --comet-color-document-glass-probe-blurred: rgb(50.558601 236.758592 208.258602);
   --comet-color-document-highlight: rgb(255 255 255 / 0.09);
   --comet-color-document-panel: rgb(18 26 62 / 0.38);
-  --comet-color-document-shadow: rgb(0 0 0 / 0.26);
+  --comet-color-document-shadow: rgb(0 0 0 / 0.13);
   --comet-color-document-star: rgb(255 255 255);
   --comet-color-document-star-warm: rgb(255 230 166);
   --comet-color-document-backdrop-panel-accent: rgb(255 204.137692 0);
@@ -418,7 +418,7 @@
   --comet-color-orbit: rgb(166 178 230 / 0.3);
   --comet-color-orbit-fill: rgb(119 217 202 / 0.035);
   --comet-color-pill-border: rgb(166 178 230 / 0.36);
-  --comet-color-pill-shadow: rgb(0 0 0 / 0.26);
+  --comet-color-pill-shadow: rgb(0 0 0 / 0.13);
   --comet-color-pressed: rgb(255 255 255 / 0.1);
   --comet-color-preview-glow: rgb(182 160 234 / 0.2);
   --comet-color-preview-glow-transparent: rgb(182 160 234 / 0);
@@ -448,7 +448,7 @@
   --comet-color-star-warm: rgb(255 230 166);
   --comet-color-surface-halo: rgb(182 160 234 / 0.06);
   --comet-color-surface-highlight: rgb(255 255 255 / 0.1);
-  --comet-color-surface-shadow: rgb(0 0 0 / 0.38);
+  --comet-color-surface-shadow: rgb(0 0 0 / 0.19);
   --comet-color-switch-on: rgb(119 217 202);
   --comet-color-track: rgb(255 255 255 / 0.08);
   --comet-color-traffic-green: rgb(40 200 64);
@@ -458,7 +458,7 @@
   --comet-color-window-close-ink: rgb(255 255 255);
   --comet-color-window-close-pressed: rgb(165 36 24);
   --comet-color-window-highlight: rgb(255 255 255 / 0.1);
-  --comet-color-window-shadow: rgb(0 0 0 / 0.45);
+  --comet-color-window-shadow: rgb(0 0 0 / 0.225);
   --comet-text-error-helper-weight: 400;
   --comet-text-skin-font-family: IBM Plex Sans KR;
 }
@@ -469,7 +469,7 @@
   --comet-color-card: rgb(255 255 255 / 0.72);
   --comet-color-card-2: rgb(255 255 255 / 0.72);
   --comet-color-card-border: rgb(36 46 77 / 0.14);
-  --comet-color-card-shadow: rgb(36 45 79 / 0.08);
+  --comet-color-card-shadow: rgb(36 45 79 / 0.04);
   --comet-color-cat-exercise: rgb(46 158 123);
   --comet-color-cat-focus: rgb(43 143 163);
   --comet-color-cat-life: rgb(226 122 82);
@@ -506,8 +506,8 @@
   --comet-color-component-cat-work-alpha-750: rgb(79 111 219 / 0.75);
   --comet-color-component-cat-work-alpha-80: rgb(79 111 219 / 0.08);
   --comet-color-component-cat-work-alpha-900: rgb(79 111 219 / 0.9);
-  --comet-color-component-control-shadow-250: rgb(0 0 0 / 0.25);
-  --comet-color-component-control-shadow-300: rgb(0 0 0 / 0.3);
+  --comet-color-component-control-shadow-250: rgb(0 0 0 / 0.125);
+  --comet-color-component-control-shadow-300: rgb(0 0 0 / 0.15);
   --comet-color-component-danger-alpha-100: rgb(178 58 26 / 0.1);
   --comet-color-component-event-apple-alpha-150: rgb(23 126 110 / 0.15);
   --comet-color-component-event-comet-alpha-220: rgb(194 37 92 / 0.22);
@@ -606,14 +606,14 @@
   --comet-color-component-sky-alpha-550: rgb(187 199 226 / 0.55);
   --comet-color-component-sky-glow-violet-alpha-900: rgb(226 232 246 / 0.9);
   --comet-color-component-star-alpha-140: rgb(255 255 255 / 0.14);
-  --comet-color-component-surface-shadow-alpha-160: rgb(36 45 79 / 0.16);
-  --comet-color-component-surface-shadow-alpha-240: rgb(36 45 79 / 0.22);
-  --comet-color-component-surface-shadow-alpha-250: rgb(36 45 79 / 0.22);
-  --comet-color-component-surface-shadow-alpha-280: rgb(36 45 79 / 0.22);
-  --comet-color-component-surface-shadow-alpha-300: rgb(36 45 79 / 0.22);
-  --comet-color-component-surface-shadow-alpha-350: rgb(36 45 79 / 0.22);
-  --comet-color-component-surface-shadow-alpha-400: rgb(36 45 79 / 0.22);
-  --comet-color-component-window-shadow-alpha-350: rgb(36 45 79 / 0.32);
+  --comet-color-component-surface-shadow-alpha-160: rgb(36 45 79 / 0.08);
+  --comet-color-component-surface-shadow-alpha-240: rgb(36 45 79 / 0.11);
+  --comet-color-component-surface-shadow-alpha-250: rgb(36 45 79 / 0.11);
+  --comet-color-component-surface-shadow-alpha-280: rgb(36 45 79 / 0.11);
+  --comet-color-component-surface-shadow-alpha-300: rgb(36 45 79 / 0.11);
+  --comet-color-component-surface-shadow-alpha-350: rgb(36 45 79 / 0.11);
+  --comet-color-component-surface-shadow-alpha-400: rgb(36 45 79 / 0.11);
+  --comet-color-component-window-shadow-alpha-350: rgb(36 45 79 / 0.16);
   --comet-color-connector: rgb(36 46 77 / 0.4);
   --comet-color-danger: rgb(178 58 26);
   --comet-color-danger-border: rgb(178 58 26 / 0.35);
@@ -627,7 +627,7 @@
   --comet-color-document-glass-probe-blurred: rgb(50.558601 236.758592 208.258602);
   --comet-color-document-highlight: rgb(255 255 255 / 0.65);
   --comet-color-document-panel: rgb(255 255 255 / 0.4);
-  --comet-color-document-shadow: rgb(24 33 56 / 0.12);
+  --comet-color-document-shadow: rgb(24 33 56 / 0.06);
   --comet-color-document-star: rgb(255 255 255 / 0);
   --comet-color-document-star-warm: rgb(255 225 194 / 0);
   --comet-color-document-backdrop-panel-accent: rgb(36 46 77);
@@ -700,7 +700,7 @@
   --comet-color-orbit: rgb(24 33 56 / 0.22);
   --comet-color-orbit-fill: rgb(255 255 255 / 0.22);
   --comet-color-pill-border: rgb(255 255 255 / 0.8);
-  --comet-color-pill-shadow: rgb(36 45 79 / 0.18);
+  --comet-color-pill-shadow: rgb(36 45 79 / 0.09);
   --comet-color-pressed: rgb(24 33 56 / 0.09);
   --comet-color-preview-glow: rgb(255 255 255 / 0.7);
   --comet-color-preview-glow-transparent: rgb(255 255 255 / 0);
@@ -730,7 +730,7 @@
   --comet-color-star-warm: rgb(255 225 194);
   --comet-color-surface-halo: rgb(182 160 234 / 0);
   --comet-color-surface-highlight: rgb(255 255 255 / 0.7);
-  --comet-color-surface-shadow: rgb(36 45 79 / 0.22);
+  --comet-color-surface-shadow: rgb(36 45 79 / 0.11);
   --comet-color-switch-on: rgb(36 46 77);
   --comet-color-track: rgb(24 33 56 / 0.12);
   --comet-color-traffic-green: rgb(40 200 64);
@@ -740,7 +740,7 @@
   --comet-color-window-close-ink: rgb(255 255 255);
   --comet-color-window-close-pressed: rgb(165 36 24);
   --comet-color-window-highlight: rgb(255 255 255 / 0.8);
-  --comet-color-window-shadow: rgb(36 45 79 / 0.32);
+  --comet-color-window-shadow: rgb(36 45 79 / 0.16);
   --comet-text-error-helper-weight: 600;
   --comet-text-skin-font-family: IBM Plex Sans KR;
 }
@@ -788,8 +788,8 @@
   --comet-color-component-cat-work-alpha-750: rgb(79 111 219 / 0.75);
   --comet-color-component-cat-work-alpha-80: rgb(79 111 219 / 0.08);
   --comet-color-component-cat-work-alpha-900: rgb(79 111 219 / 0.9);
-  --comet-color-component-control-shadow-250: rgb(0 0 0 / 0.25);
-  --comet-color-component-control-shadow-300: rgb(0 0 0 / 0.3);
+  --comet-color-component-control-shadow-250: rgb(0 0 0 / 0.125);
+  --comet-color-component-control-shadow-300: rgb(0 0 0 / 0.15);
   --comet-color-component-danger-alpha-100: rgb(178 58 26 / 0.1);
   --comet-color-component-event-apple-alpha-150: rgb(23 126 110 / 0.15);
   --comet-color-component-event-comet-alpha-220: rgb(194 37 92 / 0.22);
@@ -888,14 +888,14 @@
   --comet-color-component-sky-alpha-550: rgb(230 220 203 / 0.55);
   --comet-color-component-sky-glow-violet-alpha-900: rgb(251 247 238 / 0.9);
   --comet-color-component-star-alpha-140: rgb(255 255 255 / 0.14);
-  --comet-color-component-surface-shadow-alpha-160: rgb(80 58 24 / 0.16);
-  --comet-color-component-surface-shadow-alpha-240: rgb(80 58 24 / 0.22);
-  --comet-color-component-surface-shadow-alpha-250: rgb(80 58 24 / 0.22);
-  --comet-color-component-surface-shadow-alpha-280: rgb(80 58 24 / 0.22);
-  --comet-color-component-surface-shadow-alpha-300: rgb(80 58 24 / 0.22);
-  --comet-color-component-surface-shadow-alpha-350: rgb(80 58 24 / 0.22);
-  --comet-color-component-surface-shadow-alpha-400: rgb(80 58 24 / 0.22);
-  --comet-color-component-window-shadow-alpha-350: rgb(80 58 24 / 0.32);
+  --comet-color-component-surface-shadow-alpha-160: rgb(80 58 24 / 0.08);
+  --comet-color-component-surface-shadow-alpha-240: rgb(80 58 24 / 0.11);
+  --comet-color-component-surface-shadow-alpha-250: rgb(80 58 24 / 0.11);
+  --comet-color-component-surface-shadow-alpha-280: rgb(80 58 24 / 0.11);
+  --comet-color-component-surface-shadow-alpha-300: rgb(80 58 24 / 0.11);
+  --comet-color-component-surface-shadow-alpha-350: rgb(80 58 24 / 0.11);
+  --comet-color-component-surface-shadow-alpha-400: rgb(80 58 24 / 0.11);
+  --comet-color-component-window-shadow-alpha-350: rgb(80 58 24 / 0.16);
   --comet-color-connector: rgb(180 67 43 / 0.4);
   --comet-color-danger: rgb(178 58 26);
   --comet-color-danger-border: rgb(178 58 26 / 0.35);
@@ -909,7 +909,7 @@
   --comet-color-document-glass-probe-blurred: rgb(50.558601 236.758592 208.258602);
   --comet-color-document-highlight: rgb(251 247 238 / 0.65);
   --comet-color-document-panel: rgb(251 247 238 / 0.4);
-  --comet-color-document-shadow: rgb(80 58 24 / 0.12);
+  --comet-color-document-shadow: rgb(80 58 24 / 0.06);
   --comet-color-document-star: rgb(255 255 255 / 0);
   --comet-color-document-star-warm: rgb(255 225 194 / 0);
   --comet-color-document-backdrop-panel-accent: rgb(180 67 43);
@@ -982,7 +982,7 @@
   --comet-color-orbit: rgb(43 38 32 / 0.22);
   --comet-color-orbit-fill: rgb(251 247 238 / 0.22);
   --comet-color-pill-border: rgb(226 214 193);
-  --comet-color-pill-shadow: rgb(80 58 24 / 0.18);
+  --comet-color-pill-shadow: rgb(80 58 24 / 0.09);
   --comet-color-pressed: rgb(43 38 32 / 0.09);
   --comet-color-preview-glow: rgb(251 247 238 / 0.7);
   --comet-color-preview-glow-transparent: rgb(251 247 238 / 0);
@@ -1012,7 +1012,7 @@
   --comet-color-star-warm: rgb(255 225 194);
   --comet-color-surface-halo: rgb(182 160 234 / 0);
   --comet-color-surface-highlight: rgb(251 247 238 / 0.7);
-  --comet-color-surface-shadow: rgb(80 58 24 / 0.22);
+  --comet-color-surface-shadow: rgb(80 58 24 / 0.11);
   --comet-color-switch-on: rgb(180 67 43);
   --comet-color-track: rgb(43 38 32 / 0.12);
   --comet-color-traffic-green: rgb(40 200 64);
@@ -1022,7 +1022,7 @@
   --comet-color-window-close-ink: rgb(255 255 255);
   --comet-color-window-close-pressed: rgb(165 36 24);
   --comet-color-window-highlight: rgb(251 247 238 / 0.8);
-  --comet-color-window-shadow: rgb(80 58 24 / 0.32);
+  --comet-color-window-shadow: rgb(80 58 24 / 0.16);
   --comet-text-error-helper-weight: 600;
   --comet-text-skin-font-family: Gowun Dodum;
 }
@@ -1070,8 +1070,8 @@
   --comet-color-component-cat-work-alpha-750: rgb(79 111 219 / 0.75);
   --comet-color-component-cat-work-alpha-80: rgb(79 111 219 / 0.08);
   --comet-color-component-cat-work-alpha-900: rgb(79 111 219 / 0.9);
-  --comet-color-component-control-shadow-250: rgb(0 0 0 / 0.25);
-  --comet-color-component-control-shadow-300: rgb(0 0 0 / 0.3);
+  --comet-color-component-control-shadow-250: rgb(0 0 0 / 0.125);
+  --comet-color-component-control-shadow-300: rgb(0 0 0 / 0.15);
   --comet-color-component-danger-alpha-100: rgb(178 58 26 / 0.1);
   --comet-color-component-event-apple-alpha-150: rgb(23 126 110 / 0.15);
   --comet-color-component-event-comet-alpha-220: rgb(194 37 92 / 0.22);
@@ -1170,14 +1170,14 @@
   --comet-color-component-sky-alpha-550: rgb(255 231 163 / 0.55);
   --comet-color-component-sky-glow-violet-alpha-900: rgb(255 255 255 / 0.9);
   --comet-color-component-star-alpha-140: rgb(255 255 255 / 0.14);
-  --comet-color-component-surface-shadow-alpha-160: rgb(42 35 64 / 0.16);
-  --comet-color-component-surface-shadow-alpha-240: rgb(42 35 64 / 0.22);
-  --comet-color-component-surface-shadow-alpha-250: rgb(42 35 64 / 0.22);
-  --comet-color-component-surface-shadow-alpha-280: rgb(42 35 64 / 0.22);
-  --comet-color-component-surface-shadow-alpha-300: rgb(42 35 64 / 0.22);
-  --comet-color-component-surface-shadow-alpha-350: rgb(42 35 64 / 0.22);
-  --comet-color-component-surface-shadow-alpha-400: rgb(42 35 64 / 0.22);
-  --comet-color-component-window-shadow-alpha-350: rgb(42 35 64 / 0.32);
+  --comet-color-component-surface-shadow-alpha-160: rgb(42 35 64 / 0.08);
+  --comet-color-component-surface-shadow-alpha-240: rgb(42 35 64 / 0.11);
+  --comet-color-component-surface-shadow-alpha-250: rgb(42 35 64 / 0.11);
+  --comet-color-component-surface-shadow-alpha-280: rgb(42 35 64 / 0.11);
+  --comet-color-component-surface-shadow-alpha-300: rgb(42 35 64 / 0.11);
+  --comet-color-component-surface-shadow-alpha-350: rgb(42 35 64 / 0.11);
+  --comet-color-component-surface-shadow-alpha-400: rgb(42 35 64 / 0.11);
+  --comet-color-component-window-shadow-alpha-350: rgb(42 35 64 / 0.16);
   --comet-color-connector: rgb(42 35 64 / 0.4);
   --comet-color-danger: rgb(178 58 26);
   --comet-color-danger-border: rgb(178 58 26 / 0.35);
@@ -1191,7 +1191,7 @@
   --comet-color-document-glass-probe-blurred: rgb(50.558601 236.758592 208.258602);
   --comet-color-document-highlight: rgb(255 255 255 / 0.65);
   --comet-color-document-panel: rgb(255 255 255 / 0.4);
-  --comet-color-document-shadow: rgb(42 35 64 / 0.12);
+  --comet-color-document-shadow: rgb(42 35 64 / 0.06);
   --comet-color-document-star: rgb(255 255 255 / 0);
   --comet-color-document-star-warm: rgb(255 225 194 / 0);
   --comet-color-document-backdrop-panel-accent: rgb(42 35 64);
@@ -1264,7 +1264,7 @@
   --comet-color-orbit: rgb(42 35 64 / 0.22);
   --comet-color-orbit-fill: rgb(255 255 255 / 0.22);
   --comet-color-pill-border: rgb(42 35 64);
-  --comet-color-pill-shadow: rgb(42 35 64 / 0.18);
+  --comet-color-pill-shadow: rgb(42 35 64 / 0.09);
   --comet-color-pressed: rgb(42 35 64 / 0.09);
   --comet-color-preview-glow: rgb(255 255 255 / 0.7);
   --comet-color-preview-glow-transparent: rgb(255 255 255 / 0);
@@ -1294,7 +1294,7 @@
   --comet-color-star-warm: rgb(255 225 194);
   --comet-color-surface-halo: rgb(182 160 234 / 0);
   --comet-color-surface-highlight: rgb(255 255 255 / 0.7);
-  --comet-color-surface-shadow: rgb(42 35 64 / 0.22);
+  --comet-color-surface-shadow: rgb(42 35 64 / 0.11);
   --comet-color-switch-on: rgb(42 35 64);
   --comet-color-track: rgb(42 35 64 / 0.12);
   --comet-color-traffic-green: rgb(40 200 64);
@@ -1304,7 +1304,7 @@
   --comet-color-window-close-ink: rgb(255 255 255);
   --comet-color-window-close-pressed: rgb(165 36 24);
   --comet-color-window-highlight: rgb(255 255 255 / 0.8);
-  --comet-color-window-shadow: rgb(42 35 64 / 0.32);
+  --comet-color-window-shadow: rgb(42 35 64 / 0.16);
   --comet-text-error-helper-weight: 600;
   --comet-text-skin-font-family: Jua;
 }
