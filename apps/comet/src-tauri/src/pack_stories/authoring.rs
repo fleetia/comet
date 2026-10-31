@@ -228,13 +228,14 @@ fn validate(request: &AuthoringTrialRequest) -> Result<()> {
             }
         }
         AuthoringSubject::Scenario { scenario_id } => {
-            if !request
+            let scene = request
                 .definition
                 .scenarios
                 .iter()
-                .any(|item| item.id == *scenario_id)
-            {
-                return Err("시험할 이야기를 찾을 수 없어요.".into());
+                .find(|item| item.id == *scenario_id)
+                .ok_or("시험할 이야기를 찾을 수 없어요.")?;
+            if scene.chapters.is_some() {
+                return Err("아직 시험할 수 없어요.".into());
             }
         }
     }
@@ -490,6 +491,10 @@ fn scenario_conditions(
     deferred: &BTreeSet<String>,
     output: &mut AuthoringTrialStep,
 ) -> Result<bool> {
+    if scene.chapters.is_some() {
+        output.blocked_reasons.push("아직 시험할 수 없어요.".into());
+        return Ok(false);
+    }
     let center = actor(request, &request.context.center_id)?;
     let participants = scene
         .participants
@@ -775,12 +780,14 @@ pub(crate) fn authoring_trial(request: AuthoringTrialRequest) -> Result<Authorin
                                 }
                                 if stage == Stage::Intro {
                                     if let Some(npc) = &actor.definition.npc {
-                                        entries.extend(npc.entry_lines.iter().map(|line| SceneLine {
-                                            persona: actor.id.clone(),
-                                            expression: line.expression.clone(),
-                                            text: line.text.clone(),
-                                            widget: None,
-                                            motion: line.motion.clone(),
+                                        entries.extend(npc.entry_lines.iter().map(|line| {
+                                            SceneLine {
+                                                persona: actor.id.clone(),
+                                                expression: line.expression.clone(),
+                                                text: line.text.clone(),
+                                                widget: None,
+                                                motion: line.motion.clone(),
+                                            }
                                         }));
                                     }
                                 }

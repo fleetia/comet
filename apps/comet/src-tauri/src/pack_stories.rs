@@ -114,9 +114,341 @@ fn strict_lines<'de, D: serde::Deserializer<'de>>(
 fn yes() -> bool {
     true
 }
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ScenarioPurpose {
+    #[default]
+    Story,
+    Tutorial,
+}
+impl ScenarioPurpose {
+    fn is_story(&self) -> bool {
+        *self == Self::Story
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Chapter {
+    pub id: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<String>,
+    pub steps: Vec<StoryStep>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StoryOption {
+    pub id: String,
+    pub label: String,
+    pub goto: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StoryTimeout {
+    pub steps: Vec<StoryStep>,
+    pub then: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StoryWidget {
+    Memo,
+    FocusTimer,
+    Todo,
+    Calendar,
+    Music,
+    Ball,
+    PaperPlane,
+    Bubbles,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SettingsTab {
+    Friends,
+    Dialogue,
+    Desktop,
+    Widgets,
+    Ai,
+    General,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SettingsHighlight {
+    #[serde(rename = "ai.recommended")]
+    AiRecommended,
+    #[serde(rename = "general.guide")]
+    GeneralGuide,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GuidePage {
+    FirstMeeting,
+    Talking,
+    Friends,
+    Packs,
+    Widgets,
+    Ai,
+    Rhythm,
+    DiaryMemory,
+    Glossary,
+    Troubleshooting,
+    Privacy,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "do", deny_unknown_fields)]
+pub enum StoryAction {
+    #[serde(rename = "widget.open")]
+    WidgetOpen { widget: StoryWidget },
+    #[serde(rename = "focus.start")]
+    FocusStart { minutes: u32 },
+    #[serde(rename = "focus.stop")]
+    FocusStop {},
+    #[serde(rename = "settings.open")]
+    SettingsOpen {
+        tab: SettingsTab,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        highlight: Option<SettingsHighlight>,
+    },
+    #[serde(rename = "guide.open")]
+    GuideOpen { page: GuidePage },
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StoryWindow {
+    Settings,
+    Memo,
+    FocusTimer,
+    Todo,
+    Calendar,
+    Music,
+    Ball,
+    PaperPlane,
+    Bubbles,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SavedWidget {
+    Memo,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "event", deny_unknown_fields)]
+pub enum StoryEvent {
+    #[serde(rename = "body.clicked")]
+    BodyClicked {},
+    #[serde(rename = "body.moved")]
+    BodyMoved {},
+    #[serde(rename = "widget.saved")]
+    WidgetSaved { widget: SavedWidget },
+    #[serde(rename = "focus.started")]
+    FocusStarted {},
+    #[serde(rename = "focus.stopped")]
+    FocusStopped {},
+    #[serde(rename = "window.closed")]
+    WindowClosed { window: StoryWindow },
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StoryEnter {
+    Left,
+    Right,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StoryInput {
+    Name,
+    Text,
+}
+
+type StoryMotion = crate::characters::reactions::MotionOverride;
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum StoryStep {
+    Line {
+        persona: String,
+        expression: String,
+        text: String,
+        #[serde(default, skip_serializing_if = "StoryMotion::is_inherit")]
+        motion: StoryMotion,
+    },
+    Move {
+        persona: String,
+        enter: StoryEnter,
+    },
+    Ask {
+        id: String,
+        persona: String,
+        expression: String,
+        prompt: String,
+        input: StoryInput,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        known: Option<String>,
+        #[serde(default, skip_serializing_if = "StoryMotion::is_inherit")]
+        motion: StoryMotion,
+    },
+    Choice {
+        persona: String,
+        expression: String,
+        prompt: String,
+        options: Vec<StoryOption>,
+        #[serde(default, skip_serializing_if = "StoryMotion::is_inherit")]
+        motion: StoryMotion,
+    },
+    Action {
+        #[serde(flatten)]
+        action: StoryAction,
+    },
+    Wait {
+        #[serde(flatten)]
+        event: StoryEvent,
+        timeout_sec: u32,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        cancel_on: Vec<StoryEvent>,
+        on_timeout: StoryTimeout,
+    },
+}
+
+// Action and event each have their own discriminator and strict field set.
+impl<'de> Deserialize<'de> for StoryStep {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        use serde::de::Error;
+        #[derive(Deserialize)]
+        #[serde(
+            tag = "kind",
+            rename_all = "camelCase",
+            rename_all_fields = "camelCase",
+            deny_unknown_fields
+        )]
+        enum Basic {
+            Line {
+                persona: String,
+                expression: String,
+                text: String,
+                #[serde(default)]
+                motion: StoryMotion,
+            },
+            Move {
+                persona: String,
+                enter: StoryEnter,
+            },
+            Ask {
+                id: String,
+                persona: String,
+                expression: String,
+                prompt: String,
+                input: StoryInput,
+                #[serde(default)]
+                known: Option<String>,
+                #[serde(default)]
+                motion: StoryMotion,
+            },
+            Choice {
+                persona: String,
+                expression: String,
+                prompt: String,
+                options: Vec<StoryOption>,
+                #[serde(default)]
+                motion: StoryMotion,
+            },
+        }
+        let mut value = serde_json::Value::deserialize(deserializer)?;
+        let object = value
+            .as_object_mut()
+            .ok_or_else(|| D::Error::custom("step must be an object"))?;
+        match object.get("kind").and_then(|kind| kind.as_str()) {
+            Some("action") => {
+                object.remove("kind");
+                serde_json::from_value(value)
+                    .map(|action| Self::Action { action })
+                    .map_err(D::Error::custom)
+            }
+            Some("wait") => {
+                object.remove("kind");
+                let timeout_sec = serde_json::from_value(
+                    object
+                        .remove("timeoutSec")
+                        .ok_or_else(|| D::Error::missing_field("timeoutSec"))?,
+                )
+                .map_err(D::Error::custom)?;
+                let on_timeout = serde_json::from_value(
+                    object
+                        .remove("onTimeout")
+                        .ok_or_else(|| D::Error::missing_field("onTimeout"))?,
+                )
+                .map_err(D::Error::custom)?;
+                let cancel_on = object
+                    .remove("cancelOn")
+                    .map(serde_json::from_value)
+                    .transpose()
+                    .map_err(D::Error::custom)?
+                    .unwrap_or_default();
+                let event = serde_json::from_value(value).map_err(D::Error::custom)?;
+                Ok(Self::Wait {
+                    event,
+                    timeout_sec,
+                    cancel_on,
+                    on_timeout,
+                })
+            }
+            _ => match serde_json::from_value::<Basic>(value).map_err(D::Error::custom)? {
+                Basic::Line {
+                    persona,
+                    expression,
+                    text,
+                    motion,
+                } => Ok(Self::Line {
+                    persona,
+                    expression,
+                    text,
+                    motion,
+                }),
+                Basic::Move { persona, enter } => Ok(Self::Move { persona, enter }),
+                Basic::Ask {
+                    id,
+                    persona,
+                    expression,
+                    prompt,
+                    input,
+                    known,
+                    motion,
+                } => Ok(Self::Ask {
+                    id,
+                    persona,
+                    expression,
+                    prompt,
+                    input,
+                    known,
+                    motion,
+                }),
+                Basic::Choice {
+                    persona,
+                    expression,
+                    prompt,
+                    options,
+                    motion,
+                } => Ok(Self::Choice {
+                    persona,
+                    expression,
+                    prompt,
+                    options,
+                    motion,
+                }),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ScenarioDefinition {
+    #[serde(default, skip_serializing_if = "ScenarioPurpose::is_story")]
+    pub purpose: ScenarioPurpose,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chapters: Option<Vec<Chapter>>,
     pub id: String,
     pub title: String,
     pub center_id: String,
@@ -135,17 +467,21 @@ pub struct ScenarioDefinition {
         skip_serializing_if = "Vec::is_empty"
     )]
     pub defer: Vec<SceneLine>,
-    #[serde(deserialize_with = "strict_lines")]
+    #[serde(default, deserialize_with = "strict_lines")]
     pub intro: Vec<SceneLine>,
-    #[serde(deserialize_with = "strict_lines")]
+    #[serde(default, deserialize_with = "strict_lines")]
     pub accept: Vec<SceneLine>,
-    #[serde(deserialize_with = "strict_lines")]
+    #[serde(default, deserialize_with = "strict_lines")]
     pub decline: Vec<SceneLine>,
-    #[serde(deserialize_with = "strict_lines")]
+    #[serde(default, deserialize_with = "strict_lines")]
     pub ending: Vec<SceneLine>,
+    #[serde(default)]
     pub accept_keywords: Vec<String>,
+    #[serde(default)]
     pub decline_keywords: Vec<String>,
+    #[serde(default)]
     pub proceed_keywords: Vec<String>,
+    #[serde(default)]
     pub cancel_keywords: Vec<String>,
     #[serde(default)]
     pub accept_next_id: Option<String>,
@@ -298,10 +634,305 @@ pub fn validate_character(definition: &CharacterDefinition) -> Result<()> {
     }
     Ok(())
 }
+fn story_text(text: &str, max: usize) -> bool {
+    !text.trim().is_empty() && text.chars().count() <= max
+}
+
+fn validate_variables(text: &str, name_known: bool, answers: &BTreeSet<String>) -> Result<()> {
+    if !name_known && text.contains("{userName}") {
+        return Err("이름을 묻기 전에는 {userName}을 쓸 수 없어요.".into());
+    }
+    let mut rest = text;
+    while let Some(start) = rest.find("{answer.") {
+        rest = &rest[start + "{answer.".len()..];
+        let end = rest.find('}').ok_or("입력 변수의 형식을 확인해 주세요.")?;
+        if !answers.contains(&rest[..end]) {
+            return Err("같은 장에서 앞서 물은 입력만 사용할 수 있어요.".into());
+        }
+        rest = &rest[end + 1..];
+    }
+    Ok(())
+}
+
+fn validate_action(action: &StoryAction) -> Result<()> {
+    if let StoryAction::FocusStart { minutes } = action {
+        if !(1..=60).contains(minutes) {
+            return Err("집중 시간은 1~60분이어야 해요.".into());
+        }
+    }
+    Ok(())
+}
+
+fn validate_chapters(
+    scene: &ScenarioDefinition,
+    sources: &BTreeMap<&str, &CharacterDefinition>,
+) -> Result<()> {
+    let chapters = scene.chapters.as_ref().ok_or("장면을 확인해 주세요.")?;
+    if !(1..=12).contains(&chapters.len()) {
+        return Err("장은 1~12개여야 해요.".into());
+    }
+    let mut chapter_ids = BTreeMap::new();
+    for (index, chapter) in chapters.iter().enumerate() {
+        if !id(&chapter.id)
+            || chapter_ids.insert(chapter.id.as_str(), index).is_some()
+            || !story_text(&chapter.title, 40)
+            || !(1..=32).contains(&chapter.steps.len())
+        {
+            return Err("장 ID·제목·단계 수를 확인해 주세요.".into());
+        }
+    }
+    let target = |value: &str, reserved: &[&str]| -> Result<()> {
+        if !reserved.contains(&value) && !chapter_ids.contains_key(value) {
+            return Err("이동할 장 ID를 확인해 주세요.".into());
+        }
+        Ok(())
+    };
+    let actor =
+        |persona: &str, expression: Option<&str>, motion: Option<&StoryMotion>| -> Result<()> {
+            let actor = sources.get(persona).ok_or("이야기에 없는 화자예요.")?;
+            if !scene
+                .participants
+                .iter()
+                .any(|participant| participant == persona)
+                || expression.is_some_and(|value| !actor.expressions.contains_key(value))
+            {
+                return Err("이야기 대사의 참가자·표정을 확인해 주세요.".into());
+            }
+            if let Some(motion) = motion {
+                crate::characters::reactions::validate_motion(motion, actor, false)?;
+            }
+            Ok(())
+        };
+    for chapter in chapters {
+        if let Some(next) = &chapter.next {
+            target(next, &["end"])?;
+        }
+        for step in &chapter.steps {
+            match step {
+                StoryStep::Line {
+                    persona,
+                    expression,
+                    text,
+                    motion,
+                } => {
+                    actor(persona, Some(expression), Some(motion))?;
+                    if !story_text(text, 500) {
+                        return Err("대사 본문은 1~500자여야 해요.".into());
+                    }
+                }
+                StoryStep::Move { persona, .. } => actor(persona, None, None)?,
+                StoryStep::Ask {
+                    id: ask_id,
+                    persona,
+                    expression,
+                    prompt,
+                    input,
+                    known,
+                    motion,
+                } => {
+                    actor(persona, Some(expression), Some(motion))?;
+                    if !id(ask_id)
+                        || !story_text(prompt, 500)
+                        || (*input == StoryInput::Name && known.is_none())
+                        || known.as_ref().is_some_and(|text| !story_text(text, 500))
+                    {
+                        return Err("질문 ID·본문·이름 대사를 확인해 주세요.".into());
+                    }
+                }
+                StoryStep::Choice {
+                    persona,
+                    expression,
+                    prompt,
+                    options,
+                    motion,
+                } => {
+                    actor(persona, Some(expression), Some(motion))?;
+                    if !story_text(prompt, 500) || !(2..=4).contains(&options.len()) {
+                        return Err("선택지와 질문을 확인해 주세요.".into());
+                    }
+                    let mut option_ids = BTreeSet::new();
+                    for option in options {
+                        if !id(&option.id)
+                            || !option_ids.insert(&option.id)
+                            || !story_text(&option.label, 20)
+                        {
+                            return Err("선택지 ID·표시 문구를 확인해 주세요.".into());
+                        }
+                        target(&option.goto, &["next", "end"])?;
+                    }
+                }
+                StoryStep::Action { action } => validate_action(action)?,
+                StoryStep::Wait {
+                    timeout_sec,
+                    on_timeout,
+                    ..
+                } => {
+                    if !(10..=900).contains(timeout_sec) || on_timeout.steps.len() > 4 {
+                        return Err("대기 시간과 시간 초과 단계를 확인해 주세요.".into());
+                    }
+                    target(&on_timeout.then, &["next", "nextChapter", "end"])?;
+                    for step in &on_timeout.steps {
+                        match step {
+                            StoryStep::Line {
+                                persona,
+                                expression,
+                                text,
+                                motion,
+                            } => {
+                                actor(persona, Some(expression), Some(motion))?;
+                                if !story_text(text, 500) {
+                                    return Err("대사 본문은 1~500자여야 해요.".into());
+                                }
+                            }
+                            StoryStep::Action { action } => validate_action(action)?,
+                            _ => {
+                                return Err("시간 초과 단계에는 대사와 동작만 쓸 수 있어요.".into())
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // The only chapter transition without an interaction is the implicit/explicit next.
+    for start in 0..chapters.len() {
+        let mut visited = BTreeSet::new();
+        let mut current = Some(start);
+        while let Some(index) = current {
+            if !visited.insert(index) {
+                return Err("입력이나 대기 없는 장 순환은 사용할 수 없어요.".into());
+            }
+            let chapter = &chapters[index];
+            if chapter.steps.iter().any(|step| {
+                matches!(
+                    step,
+                    StoryStep::Ask { .. } | StoryStep::Choice { .. } | StoryStep::Wait { .. }
+                )
+            }) {
+                break;
+            }
+            current = match chapter.next.as_deref() {
+                Some("end") => None,
+                Some(next) => chapter_ids.get(next).copied(),
+                None => (index + 1 < chapters.len()).then_some(index + 1),
+            };
+        }
+    }
+    // Propagate name availability through all possible chapter transitions. Answers expire at chapter boundaries.
+    let mut queue = vec![(0usize, false)];
+    let mut visited = BTreeSet::new();
+    loop {
+        if queue.is_empty() {
+            if let Some(index) =
+                (0..chapters.len()).find(|index| !visited.iter().any(|(seen, _)| seen == index))
+            {
+                queue.push((index, false));
+            } else {
+                break;
+            }
+        }
+        let (index, mut name_known) = queue.pop().unwrap();
+        if !visited.insert((index, name_known)) {
+            continue;
+        }
+        let chapter = &chapters[index];
+        let mut answers = BTreeSet::new();
+        let mut follows_next = true;
+        for step in &chapter.steps {
+            match step {
+                StoryStep::Line { text, .. } => validate_variables(text, name_known, &answers)?,
+                StoryStep::Ask {
+                    id,
+                    prompt,
+                    input,
+                    known,
+                    ..
+                } => {
+                    validate_variables(prompt, name_known, &answers)?;
+                    if let Some(known) = known {
+                        validate_variables(
+                            known,
+                            *input == StoryInput::Name || name_known,
+                            &answers,
+                        )?;
+                    }
+                    match input {
+                        StoryInput::Name => name_known = true,
+                        StoryInput::Text => {
+                            answers.insert(id.clone());
+                        }
+                    }
+                }
+                StoryStep::Choice {
+                    prompt, options, ..
+                } => {
+                    validate_variables(prompt, name_known, &answers)?;
+                    let mut has_next = false;
+                    for option in options {
+                        validate_variables(&option.label, name_known, &answers)?;
+                        if option.goto == "next" {
+                            has_next = true;
+                        } else if option.goto != "end" && follows_next {
+                            if let Some(next) = chapter_ids.get(option.goto.as_str()) {
+                                queue.push((*next, name_known));
+                            }
+                        }
+                    }
+                    if !has_next {
+                        follows_next = false;
+                    }
+                }
+                StoryStep::Wait { on_timeout, .. } => {
+                    for step in &on_timeout.steps {
+                        if let StoryStep::Line { text, .. } = step {
+                            validate_variables(text, name_known, &answers)?;
+                        }
+                    }
+                    let next = if on_timeout.then == "nextChapter" {
+                        match chapter.next.as_deref() {
+                            Some("end") => None,
+                            Some(value) => chapter_ids.get(value).copied(),
+                            None => (index + 1 < chapters.len()).then_some(index + 1),
+                        }
+                    } else if matches!(on_timeout.then.as_str(), "next" | "end") {
+                        None
+                    } else {
+                        chapter_ids.get(on_timeout.then.as_str()).copied()
+                    };
+                    if follows_next {
+                        if let Some(next) = next {
+                            queue.push((next, name_known));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        if follows_next {
+            let next = match chapter.next.as_deref() {
+                Some("end") => None,
+                Some(value) => chapter_ids.get(value).copied(),
+                None => (index + 1 < chapters.len()).then_some(index + 1),
+            };
+            if let Some(next) = next {
+                queue.push((next, name_known));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn validate_pack(
     definitions: &[CharacterDefinition],
     extras: &PackStoryDefinition,
 ) -> Result<()> {
+    if extras
+        .scenarios
+        .iter()
+        .any(|scene| scene.purpose == ScenarioPurpose::Tutorial && scene.chapters.is_none())
+    {
+        return Err("튜토리얼은 장면형 이야기로만 만들 수 있어요.".into());
+    }
     if extras.world_rules.chars().count() > 2000
         || extras.knowledge.len() > 32
         || extras.knowledge.iter().any(|item| {
@@ -373,6 +1004,15 @@ pub fn validate_pack(
         }
         check_flags(&item.required_flags)?;
     }
+    if extras
+        .scenarios
+        .iter()
+        .filter(|scene| scene.purpose == ScenarioPurpose::Tutorial)
+        .count()
+        > 1
+    {
+        return Err("튜토리얼 이야기는 팩당 하나만 만들 수 있어요.".into());
+    }
     let mut scenes = BTreeSet::new();
     for scene in &extras.scenarios {
         if !id(&scene.id)
@@ -398,6 +1038,26 @@ pub fn validate_pack(
         {
             return Err("이야기 ID·중심 인물·참가자를 확인해 주세요.".into());
         }
+        let is_scene = scene.chapters.is_some();
+        if is_scene
+            && (scene.reveal_affinity.is_some()
+                || !scene.defer.is_empty()
+                || !scene.intro.is_empty()
+                || !scene.accept.is_empty()
+                || !scene.decline.is_empty()
+                || !scene.ending.is_empty()
+                || !scene.accept_keywords.is_empty()
+                || !scene.decline_keywords.is_empty()
+                || !scene.proceed_keywords.is_empty()
+                || !scene.cancel_keywords.is_empty()
+                || scene.accept_next_id.is_some()
+                || scene.decline_next_id.is_some())
+        {
+            return Err("장면형에는 제안형 단계를 사용할 수 없어요.".into());
+        }
+        if is_scene {
+            validate_chapters(scene, &sources)?;
+        }
         for values in [
             &scene.keywords,
             &scene.accept_keywords,
@@ -409,40 +1069,42 @@ pub fn validate_pack(
                 return Err("이야기 입력 표현을 확인해 주세요.".into());
             }
         }
-        for (lines, min, max) in [
-            (&scene.intro, 1, 32),
-            (&scene.accept, 1, 32),
-            (&scene.decline, 1, 32),
-            (&scene.ending, 1, 32),
-            (&scene.defer, 0, 8),
-        ] {
-            if !(min..=max).contains(&lines.len()) {
-                return Err("이야기 단계는 1~32줄, 유보 대사는 8줄까지 작성해 주세요.".into());
-            }
-            for line in lines {
-                let actor = sources
-                    .get(line.persona.as_str())
-                    .ok_or("이야기에 없는 화자예요.")?;
-                if !scene.participants.contains(&line.persona)
-                    || !actor.expressions.contains_key(&line.expression)
-                    || line.text.trim().is_empty()
-                    || line.text.chars().count() > 500
-                {
-                    return Err("이야기 대사의 참가자·표정·본문을 확인해 주세요.".into());
+        if !is_scene {
+            for (lines, min, max) in [
+                (&scene.intro, 1, 32),
+                (&scene.accept, 1, 32),
+                (&scene.decline, 1, 32),
+                (&scene.ending, 1, 32),
+                (&scene.defer, 0, 8),
+            ] {
+                if !(min..=max).contains(&lines.len()) {
+                    return Err("이야기 단계는 1~32줄, 유보 대사는 8줄까지 작성해 주세요.".into());
                 }
-                crate::characters::reactions::validate_motion(&line.motion, actor, false)?;
+                for line in lines {
+                    let actor = sources
+                        .get(line.persona.as_str())
+                        .ok_or("이야기에 없는 화자예요.")?;
+                    if !scene.participants.contains(&line.persona)
+                        || !actor.expressions.contains_key(&line.expression)
+                        || line.text.trim().is_empty()
+                        || line.text.chars().count() > 500
+                    {
+                        return Err("이야기 대사의 참가자·표정·본문을 확인해 주세요.".into());
+                    }
+                    crate::characters::reactions::validate_motion(&line.motion, actor, false)?;
+                }
             }
-        }
-        let entry_count = scene
-            .participants
-            .iter()
-            .filter_map(|source| sources.get(source.as_str()))
-            .filter(|actor| actor.presence_role == PresenceRole::Npc)
-            .filter_map(|actor| actor.npc.as_ref())
-            .map(|npc| npc.entry_lines.len())
-            .sum::<usize>();
-        if scene.intro.len() + entry_count > 32 {
-            return Err("입장 대사를 포함한 이야기 단계는 32줄까지 작성해 주세요.".into());
+            let entry_count = scene
+                .participants
+                .iter()
+                .filter_map(|source| sources.get(source.as_str()))
+                .filter(|actor| actor.presence_role == PresenceRole::Npc)
+                .filter_map(|actor| actor.npc.as_ref())
+                .map(|npc| npc.entry_lines.len())
+                .sum::<usize>();
+            if scene.intro.len() + entry_count > 32 {
+                return Err("입장 대사를 포함한 이야기 단계는 32줄까지 작성해 주세요.".into());
+            }
         }
         check_flags(&scene.required_flags)?;
         check_flags(&scene.completion.set_flags)?;
@@ -457,6 +1119,8 @@ pub fn validate_pack(
                     .count()
                     > 500
             })
+            || (is_scene
+                && serde_json::to_vec(scene).map_or(true, |bytes| bytes.len() > 128 * 1024))
             || [
                 &scene.intro,
                 &scene.accept,
@@ -886,7 +1550,8 @@ pub fn select(
             }
         }
         for definition in candidates {
-            if snapshot.source_to_local.get(&definition.center_id) != Some(center)
+            if definition.chapters.is_some()
+                || snapshot.source_to_local.get(&definition.center_id) != Some(center)
                 || !definition.keywords.is_empty()
                     && !matches_keywords(&definition.keywords, content)
                 || !flags_match(&definition.required_flags, &flags)
@@ -1241,6 +1906,9 @@ pub fn trial(
         .iter()
         .find(|scenario| scenario.id == scenario_id)
         .ok_or("시험할 이야기를 찾을 수 없어요.")?;
+    if definition.chapters.is_some() {
+        return Err("아직 시험할 수 없어요.".into());
+    }
     if definition
         .required_flags
         .iter()

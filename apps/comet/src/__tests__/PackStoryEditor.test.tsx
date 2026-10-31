@@ -122,6 +122,46 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it("preserves scene stories when saving other edits and blocks editing and trials", async () => {
+  const saved = snapshot("a");
+  saved.definition.scenarios[0] = {
+    ...saved.definition.scenarios[0],
+    purpose: "tutorial",
+    chapters: [
+      {
+        id: "first",
+        title: "첫 만남",
+        steps: [{ kind: "line", persona: "a-source-0", expression: "평온", text: "안녕" }],
+      },
+    ],
+    intro: [],
+    accept: [],
+    decline: [],
+    ending: [],
+    acceptKeywords: [],
+    declineKeywords: [],
+    proceedKeywords: [],
+    cancelKeywords: [],
+  };
+  vi.mocked(command).mockResolvedValue(saved);
+  render(<Harness packId="a" />);
+  expect(await screen.findByText("이 이야기는 아직 여기서 고칠 수 없어요.")).toBeTruthy();
+  expect(screen.getByText("아직 시험할 수 없어요.")).toBeTruthy();
+  expect(screen.queryByLabelText("이야기 제목")).toBeNull();
+  expect(screen.queryByRole("button", { name: "등록 이야기 시험" })).toBeNull();
+  fireEvent.change(screen.getByLabelText("세계와 공통 규칙"), {
+    target: { value: "수정한 세계" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "팩 이야기 저장" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("save_pack_story_definition", {
+      packId: "a",
+      definition: { ...saved.definition, worldRules: "수정한 세계" },
+      expectedBaseline: "1",
+    }),
+  );
+});
+
 it("previews a pack member's unsaved animation bytes without requesting a stored asset URL", async () => {
   const actor = installed[0];
   const pending: AnimationAsset = {
@@ -229,7 +269,7 @@ it("keeps raw story text after failed save and retries the same definition basel
   expect(screen.getByLabelText("제안 1 본문")).toHaveProperty("value", raw);
   const expected = snapshot("a");
   expected.definition.worldRules = "새 세계";
-  expected.definition.scenarios[0].intro[0].text = raw;
+  expected.definition.scenarios[0].intro![0].text = raw;
   expect(command).toHaveBeenLastCalledWith("save_pack_story_definition", {
     packId: "a",
     definition: expected.definition,

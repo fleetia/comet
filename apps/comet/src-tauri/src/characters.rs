@@ -1232,6 +1232,21 @@ pub fn export_pack(
     export_pack_with_options(conn, ids, selected_wordbook, &ExportOptions::default())
 }
 
+fn strip_chapter_step_images(step: &mut crate::pack_stories::StoryStep) {
+    use crate::pack_stories::StoryStep;
+    match step {
+        StoryStep::Line { motion, .. }
+        | StoryStep::Ask { motion, .. }
+        | StoryStep::Choice { motion, .. } => *motion = motion.without_images(),
+        StoryStep::Wait { on_timeout, .. } => {
+            for step in &mut on_timeout.steps {
+                strip_chapter_step_images(step);
+            }
+        }
+        StoryStep::Move { .. } | StoryStep::Action { .. } => {}
+    }
+}
+
 pub fn export_pack_with_options(
     conn: &Connection,
     ids: &[String],
@@ -1449,6 +1464,11 @@ fn export_pack_contents(
             {
                 line.motion = line.motion.without_images();
             }
+            if let Some(chapters) = &mut scenario.chapters {
+                for step in chapters.iter_mut().flat_map(|chapter| &mut chapter.steps) {
+                    strip_chapter_step_images(step);
+                }
+            }
         }
     }
     pack.format_version = if validation::has_gestures(&pack) {
@@ -1488,6 +1508,9 @@ fn export_pack_contents(
         .any(|scene| scene.reveal_affinity.is_some() || !scene.defer.is_empty())
     {
         pack.format_version = pack.format_version.max(12);
+    }
+    if pack.scenarios.iter().any(|scene| scene.chapters.is_some()) {
+        pack.format_version = pack.format_version.max(14);
     }
     validation::validate_pack_metadata(&pack)?;
     Ok(pack)

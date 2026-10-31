@@ -85,6 +85,85 @@ export type ConditionalKnowledge = {
   knownBy: string[];
   requiredFlags: string[];
 };
+export type ScenarioWidget =
+  | "memo"
+  | "focus-timer"
+  | "todo"
+  | "calendar"
+  | "music"
+  | "ball"
+  | "paper-plane"
+  | "bubbles";
+export type ScenarioAction =
+  | { do: "widget.open"; widget: ScenarioWidget }
+  | { do: "focus.start"; minutes: number }
+  | { do: "focus.stop" }
+  | {
+      do: "settings.open";
+      tab: "friends" | "dialogue" | "desktop" | "widgets" | "ai" | "general";
+      highlight?: "ai.recommended" | "general.guide" | null;
+    }
+  | {
+      do: "guide.open";
+      page:
+        | "first-meeting"
+        | "talking"
+        | "friends"
+        | "packs"
+        | "widgets"
+        | "ai"
+        | "rhythm"
+        | "diary-memory"
+        | "glossary"
+        | "troubleshooting"
+        | "privacy";
+    };
+export type ScenarioEvent =
+  | { event: "body.clicked" | "body.moved" | "focus.started" | "focus.stopped" }
+  | { event: "widget.saved"; widget: "memo" }
+  | { event: "window.closed"; window: "settings" | ScenarioWidget };
+export type ScenarioLineStep = {
+  kind: "line";
+  persona: string;
+  expression: string;
+  text: string;
+  motion?: MotionOverride;
+};
+export type ScenarioActionStep = { kind: "action" } & ScenarioAction;
+export type ScenarioStep =
+  | ScenarioLineStep
+  | { kind: "move"; persona: string; enter: "left" | "right" }
+  | {
+      kind: "ask";
+      id: string;
+      persona: string;
+      expression: string;
+      prompt: string;
+      input: "name" | "text";
+      known?: string | null;
+      motion?: MotionOverride;
+    }
+  | {
+      kind: "choice";
+      persona: string;
+      expression: string;
+      prompt: string;
+      options: { id: string; label: string; goto: string }[];
+      motion?: MotionOverride;
+    }
+  | ScenarioActionStep
+  | ({
+      kind: "wait";
+      timeoutSec: number;
+      cancelOn?: ScenarioEvent[];
+      onTimeout: { steps: (ScenarioLineStep | ScenarioActionStep)[]; then: string };
+    } & ScenarioEvent);
+export type ScenarioChapter = {
+  id: string;
+  title: string;
+  next?: string | null;
+  steps: ScenarioStep[];
+};
 export type ScenarioDefinition = {
   id: string;
   title: string;
@@ -93,18 +172,20 @@ export type ScenarioDefinition = {
   keywords: string[];
   requiredFlags: string[];
   minAffinity: number;
+  purpose?: "story" | "tutorial";
+  chapters?: ScenarioChapter[] | null;
   revealAffinity?: number | null;
   defer?: SceneLine[];
-  intro: SceneLine[];
-  accept: SceneLine[];
-  decline: SceneLine[];
-  ending: SceneLine[];
-  acceptKeywords: string[];
-  declineKeywords: string[];
-  proceedKeywords: string[];
-  cancelKeywords: string[];
-  acceptNextId: string | null;
-  declineNextId: string | null;
+  intro?: SceneLine[];
+  accept?: SceneLine[];
+  decline?: SceneLine[];
+  ending?: SceneLine[];
+  acceptKeywords?: string[];
+  declineKeywords?: string[];
+  proceedKeywords?: string[];
+  cancelKeywords?: string[];
+  acceptNextId?: string | null;
+  declineNextId?: string | null;
   allowIncompleteRepeat: boolean;
   allowRepeat: boolean;
   completion: { setFlags: string[]; memoryTemplate: string | null };
@@ -264,7 +345,7 @@ export type CharacterArchive = {
   }[];
 };
 export type CharacterPack = Partial<PackStoryDefinition> & {
-  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 12 | 13;
+  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 12 | 13 | 14;
   name: string;
   author: string;
   sourceUrl?: string;

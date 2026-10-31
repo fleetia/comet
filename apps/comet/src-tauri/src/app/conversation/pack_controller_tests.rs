@@ -31,6 +31,8 @@ fn fixture(npc: bool) -> (AppState, Vec<String>) {
             public: true,
         }];
         let scenario = pack_stories::ScenarioDefinition {
+            purpose: Default::default(),
+            chapters: None,
             id: "one".into(),
             title: "작은 이야기".into(),
             center_id: center.clone(),
