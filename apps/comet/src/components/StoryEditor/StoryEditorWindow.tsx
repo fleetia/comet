@@ -20,9 +20,11 @@ import {
   ReactFlowProvider,
   useNodesState,
   useReactFlow,
+  useUpdateNodeInternals,
   type Edge,
   type Node,
   type NodeProps,
+  type XYPosition,
 } from "@xyflow/react";
 import "@xyflow/react/dist/base.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -39,12 +41,21 @@ import { StoryPanel } from "./StoryPanel";
 import { WindowHeader } from "../WindowHeader/WindowHeader";
 import {
   buildStoryGraph,
-  layoutStoryGraph,
   normalizeStoryChapters,
+  findStoryProblems,
+  setStoryExit,
+  createStoryChapter,
+  deleteStoryChapter,
+  incomingStoryExits,
+  STORY_CHAPTER_LIMIT,
+  setStoryStart,
+  type StoryExitRef,
+  type StoryProblem,
   type StoryGraph,
   type StoryGraphExit,
   type StoryGraphNode,
 } from "./storyGraph";
+import { useStoryPositions } from "./storyPositions";
 import * as s from "./storyEditor.css";
 
 type Target = { packId: string; scenarioId: string; createNew?: boolean };
@@ -58,11 +69,18 @@ type CardData = Record<string, unknown> & {
   exits: StoryGraphExit[];
   actors: CharacterDefinition[];
   openStory: (id: string) => void;
+  editable: boolean;
+  hasProblem: boolean;
 };
 type CardNode = Node<CardData, "card">;
 
-function StoryCard({ data }: NodeProps<CardNode>): JSX.Element {
-  const { item, exits, actors, openStory } = data;
+function StoryCard({ id, data }: NodeProps<CardNode>): JSX.Element {
+  const { item, exits, actors, openStory, editable, hasProblem } = data;
+  const updateNodeInternals = useUpdateNodeInternals();
+  const exitIds = exits.map((exit) => exit.id).join("|");
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, exitIds, updateNodeInternals]);
   if (item.kind === "end")
     return (
       <div className={s.end}>
@@ -71,7 +89,7 @@ function StoryCard({ data }: NodeProps<CardNode>): JSX.Element {
     );
   const actor = actors.find((value) => value.sourceId === item.firstLine?.persona);
   return (
-    <div className={s.card}>
+    <div className={`${s.card} ${hasProblem ? s.problemCard : ""}`}>
       <Handle type="target" position={Position.Left} className={s.target} />
       {item.kind === "story" && item.storyId ? (
         <button
@@ -104,14 +122,23 @@ function StoryCard({ data }: NodeProps<CardNode>): JSX.Element {
             <div className={s.exits}>
               {exits.map((exit) => (
                 <div className={s.exit} key={exit.id}>
-                  <span className={s.exitText}>{exit.label}</span>
-                  {"target" in exit && (
+                  <span
+                    className={`${s.exitText} ${exit.targetState === "missing" || exit.targetState === "invalid" ? s.missingExit : ""}`}
+                  >
+                    {exit.targetState === "missing" ? `${exit.label} · 이어질 곳 없음` : exit.label}
+                  </span>
+                  {("target" in exit || (editable && exit.ref)) && (
                     <Handle
                       id={exit.id}
                       type="source"
+                      isConnectable={editable && !!exit.ref}
                       position={Position.Right}
                       className={
-                        exit.kind === "choice" ? `${s.handle} ${s.choiceHandle}` : s.handle
+                        exit.targetState === "missing" || exit.targetState === "invalid"
+                          ? `${s.handle} ${s.missingHandle}`
+                          : exit.kind === "choice"
+                            ? `${s.handle} ${s.choiceHandle}`
+                            : s.handle
                       }
                     />
                   )}
@@ -134,6 +161,17 @@ function StoryCanvas({
   closePanel,
   openSettings,
   panelOpen,
+  editable,
+  packId,
+  scenarioId,
+  problems,
+  onConnectExit,
+  onCreateChapter,
+  onAddChapter,
+  onDisconnect,
+  openProblems,
+  atLimit,
+  focusRequest,
 }: {
   graph: StoryGraph;
   actors: CharacterDefinition[];
@@ -142,14 +180,27 @@ function StoryCanvas({
   closePanel: () => void;
   openSettings: () => void;
   panelOpen: boolean;
+  editable: boolean;
+  packId: string;
+  scenarioId: string;
+  problems: StoryProblem[];
+  onConnectExit: (ref: StoryExitRef, target: string) => void;
+  onCreateChapter: (ref: StoryExitRef) => string | undefined;
+  onAddChapter: () => void;
+  onDisconnect: (ref: StoryExitRef) => void;
+  openProblems: () => void;
+  atLimit: boolean;
+  focusRequest: { id: string; sequence: number } | null;
 }): JSX.Element {
-  const positions = useMemo(() => layoutStoryGraph(graph), [graph]);
+  const { positions, savePosition, tidy } = useStoryPositions(graph, packId, scenarioId);
   const initialNodes = useMemo<CardNode[]>(
     () =>
       graph.nodes.map((item) => ({
         id: item.id,
         type: "card",
         position: positions[item.id],
+        draggable: editable && item.kind === "chapter",
+        deletable: false,
         data: {
           item,
           exits: [
@@ -158,19 +209,17 @@ function StoryCanvas({
           ],
           actors,
           openStory,
+          editable,
+          hasProblem: problems.some((problem) => `chapter:${problem.chapterId}` === item.id),
         },
       })),
-    [graph, positions, actors, openStory],
+    [graph, positions, actors, openStory, editable, problems],
   );
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   useEffect(() => {
-    setNodes((current) =>
-      initialNodes.map((node) => ({
-        ...node,
-        position: current.find((item) => item.id === node.id)?.position ?? node.position,
-      })),
-    );
+    setNodes(initialNodes);
   }, [initialNodes, setNodes]);
+  const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const edges = useMemo<Edge[]>(
     () =>
       graph.edges.map((edge) => ({
@@ -178,29 +227,129 @@ function StoryCanvas({
         source: edge.source,
         target: edge.target,
         sourceHandle: edge.id,
+        selectable: editable && !!edge.ref,
+        deletable: editable && !!edge.ref,
+        selected: selectedEdge === edge.id,
         style: {
           stroke: edge.kind === "choice" ? tokens["color/primary"] : tokens["color/ink-3"],
-          strokeWidth: 1.5,
+          strokeWidth: selectedEdge === edge.id ? 3 : 1.5,
           strokeDasharray: edge.kind === "timeout" ? "4 4" : undefined,
         },
       })),
-    [graph],
+    [graph, editable, selectedEdge],
   );
-  const { fitView, zoomIn, zoomOut, getViewport, setViewport, flowToScreenPosition } =
-    useReactFlow();
+  const {
+    fitView,
+    zoomIn,
+    zoomOut,
+    getViewport,
+    setViewport,
+    setCenter,
+    flowToScreenPosition,
+    screenToFlowPosition,
+  } = useReactFlow();
   const [zoom, setZoom] = useState(100);
+  const [draggingExit, setDraggingExit] = useState(false);
+  const [dropPoint, setDropPoint] = useState<XYPosition | null>(null);
+  const handledFocus = useRef<number | null>(null);
+  useEffect(() => {
+    if (!focusRequest || handledFocus.current === focusRequest.sequence) return;
+    const position = nodes.find((node) => node.id === `chapter:${focusRequest.id}`)?.position;
+    if (!position) return;
+    handledFocus.current = focusRequest.sequence;
+    const zoom = getViewport().zoom;
+    void setCenter(
+      position.x + 112 + Math.min(400, window.innerWidth) / (2 * zoom),
+      position.y + 50,
+      { duration: 0 },
+    );
+  }, [focusRequest, nodes, getViewport, setCenter]);
+  useEffect(() => {
+    function keydown(event: KeyboardEvent): void {
+      if (!selectedEdge || (event.key !== "Delete" && event.key !== "Backspace")) return;
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        active instanceof HTMLSelectElement ||
+        (active instanceof HTMLElement && active.isContentEditable)
+      )
+        return;
+      const ref = graph.edges.find((edge) => edge.id === selectedEdge)?.ref;
+      if (ref) {
+        event.preventDefault();
+        onDisconnect(ref);
+        setSelectedEdge(null);
+      }
+    }
+    document.addEventListener("keydown", keydown);
+    return () => document.removeEventListener("keydown", keydown);
+  }, [selectedEdge, graph, onDisconnect]);
   const startPosition = graph.startId ? positions[graph.startId] : undefined;
   return (
-    <div className={`${s.canvas} ${panelOpen ? s.panelOpen : ""}`}>
+    <div
+      className={`${s.canvas} ${panelOpen ? s.panelOpen : ""}`}
+      onMouseMove={(event) => {
+        if (!draggingExit) return;
+        const element = document.elementFromPoint(event.clientX, event.clientY);
+        const bounds = event.currentTarget.getBoundingClientRect();
+        setDropPoint(
+          element?.classList.contains("react-flow__pane")
+            ? { x: event.clientX - bounds.left, y: event.clientY - bounds.top }
+            : null,
+        );
+      }}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
-        nodesConnectable={false}
-        elementsSelectable={false}
-        onPaneClick={closePanel}
+        nodesConnectable={editable}
+        connectionLineStyle={{ strokeDasharray: "4 4" }}
+        elementsSelectable={editable}
+        nodesDraggable={editable}
+        onNodeDragStop={(_, node) =>
+          savePosition(node.id, node.position)
+        }
+        onConnectStart={(_, params) => {
+          if (params.handleType === "source") setDraggingExit(true);
+        }}
+        onConnectEnd={(event, state) => {
+          setDraggingExit(false);
+          setDropPoint(null);
+          if (!editable || !state.fromHandle) return;
+          const exit = [
+            ...graph.edges,
+            ...graph.nodes.flatMap((node) => node.localExits ?? []),
+          ].find((item) => item.id === state.fromHandle?.id);
+          if (!exit?.ref) return;
+          const point = "changedTouches" in event ? event.changedTouches[0] : event;
+          if (!point) return;
+          const element = document.elementFromPoint(point.clientX, point.clientY);
+          const nodeElement = element?.closest(".react-flow__node");
+          const targetId = nodeElement?.getAttribute("data-id");
+          if (targetId?.startsWith("chapter:")) onConnectExit(exit.ref, targetId.slice(8));
+          else if (!atLimit && element?.classList.contains("react-flow__pane")) {
+            const id = onCreateChapter(exit.ref);
+            if (id)
+              savePosition(
+                `chapter:${id}`,
+                screenToFlowPosition({ x: point.clientX, y: point.clientY }),
+              );
+          }
+        }}
+        deleteKeyCode={null}
+        onEdgeClick={(_, edge) => {
+          if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+          setSelectedEdge(edge.id);
+        }}
+        onPaneClick={() => {
+          setSelectedEdge(null);
+          closePanel();
+        }}
         onNodeClick={(_, node) => {
+          setSelectedEdge(null);
           if (node.data.item.kind !== "chapter") return;
           openChapter(node.data.item.id);
           const right = flowToScreenPosition({ x: node.position.x + 224, y: node.position.y }).x;
@@ -228,9 +377,38 @@ function StoryCanvas({
           zoomable
         />
       </ReactFlow>
+      {draggingExit && dropPoint && !atLimit && (
+        <div className={s.dropHint} style={{ left: dropPoint.x, top: dropPoint.y }}>
+          여기에 놓으면 새 장
+        </div>
+      )}
       <div className={s.toolbar}>
         <Button variant="ghost" onClick={openSettings}>
           이야기 설정
+        </Button>
+        {editable && (
+          <Button
+            variant="ghost"
+            disabled={atLimit}
+            title={atLimit ? "장은 99개까지 만들 수 있어요." : undefined}
+            onClick={onAddChapter}
+          >
+            장 추가
+          </Button>
+        )}
+        {editable && atLimit && (
+          <span className={s.limitNotice}>장은 99개까지 만들 수 있어요.</span>
+        )}
+        {editable && (
+          <Button variant="ghost" onClick={openProblems}>
+            확인할 곳 {problems.length}
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          onClick={tidy}
+        >
+          정돈
         </Button>
         <Button variant="ghost" onClick={() => void fitView({ duration: 0 })}>
           맞춤 보기
@@ -274,6 +452,9 @@ export default function StoryEditorWindow({
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
   const [panel, setPanel] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [focusRequest, setFocusRequest] = useState<{ id: string; sequence: number } | null>(null);
+  const [pendingProblems, setPendingProblems] = useState<Target | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -444,14 +625,27 @@ export default function StoryEditorWindow({
   }, [loading, target.packId, target.scenarioId, target.createNew, draft, actors, actorsPack]);
   const scenarios = draft?.definition.scenarios ?? [];
   const selected = scenarios.find((value) => value.id === target.scenarioId) ?? scenarios[0];
+  const problems = useMemo(() => (selected ? findStoryProblems(selected) : []), [selected]);
   const graph = useMemo(
     () => (selected ? buildStoryGraph(selected, scenarios) : null),
     [selected, scenarios],
   );
   useLayoutEffect(() => {
+    setFocusRequest(null);
     if (selected?.chapters?.length === 1) setPanel(`chapter:${selected.chapters[0].id}`);
     else setPanel(null);
   }, [target.packId, selected?.id]);
+  useEffect(() => {
+    if (
+      !loading &&
+      pendingProblems &&
+      target.packId === pendingProblems.packId &&
+      selected?.id === pendingProblems.scenarioId
+    ) {
+      setPanel("problems");
+      setPendingProblems(null);
+    }
+  }, [loading, pendingProblems, target.packId, selected?.id]);
   const openStory = useCallback((scenarioId: string) => {
     group.current = null;
     setPanel(null);
@@ -475,6 +669,28 @@ export default function StoryEditorWindow({
         definition,
       },
     }));
+  }
+  function addChapter(ref?: StoryExitRef): string | undefined {
+    if (!selected?.chapters || selected.chapters.length >= STORY_CHAPTER_LIMIT || lock.current)
+      return;
+    const id = crypto.randomUUID();
+    const chapter = {
+      id,
+      title: "",
+      next: "end",
+      steps: [{ kind: "line" as const, persona: selected.centerId, expression: "평온", text: "" }],
+    };
+    let next = createStoryChapter(selected, chapter);
+    if (ref) next = setStoryExit(next, ref, id);
+    group.current = null;
+    updateScenario(next);
+    setPanel(`chapter:${id}`);
+    return id;
+  }
+  function changeExit(ref: StoryExitRef, destination: string): void {
+    if (!selected || !selected.chapters) return;
+    group.current = null;
+    updateScenario(setStoryExit(selected, ref, destination));
   }
   function travel(redo: boolean): void {
     if (lock.current) return;
@@ -541,6 +757,17 @@ export default function StoryEditorWindow({
           (all || id === targetRef.current.packId) &&
           JSON.stringify(item.definition) !== JSON.stringify(item.saved.definition),
       );
+      for (const [packId, item] of entries) {
+        const invalid = item.definition.scenarios.find((scenario) =>
+          findStoryProblems(scenario).some((problem) => problem.blocking),
+        );
+        if (invalid) {
+          closeGuard.keepEditing();
+          setTarget({ packId, scenarioId: invalid.id });
+          setPendingProblems({ packId, scenarioId: invalid.id });
+          return false;
+        }
+      }
       for (const [packId, item] of entries) {
         const definition = {
           ...item.definition,
@@ -681,20 +908,120 @@ export default function StoryEditorWindow({
               closePanel={() => setPanel(null)}
               openSettings={() => setPanel("settings")}
               panelOpen={panel !== null}
+              editable={selected.chapters != null}
+              packId={target.packId}
+              scenarioId={selected.id}
+              problems={problems}
+              onConnectExit={changeExit}
+              onDisconnect={(ref) => changeExit(ref, "")}
+              onCreateChapter={addChapter}
+              onAddChapter={() => {
+                addChapter();
+              }}
+              openProblems={() => setPanel("problems")}
+              atLimit={(selected.chapters?.length ?? 0) >= STORY_CHAPTER_LIMIT}
+              focusRequest={focusRequest}
             />
           </ReactFlowProvider>
-          {panel && (
+          {panel === "problems" && (
+            <aside className={s.problemsPanel} aria-label="확인할 곳">
+              <div className={s.problemsHeader}>
+                <strong>확인할 곳 {problems.length}</strong>
+                <Button variant="ghost" onClick={() => setPanel(null)}>
+                  닫기
+                </Button>
+              </div>
+              <p>
+                {problems.some((problem) => problem.blocking)
+                  ? "고쳐야 저장할 수 있어요."
+                  : "저장해도 쓰던 내용은 남아요. 고치면 목록에서 사라져요."}
+              </p>
+              <ul className={s.problemsList}>
+                {problems.map((problem, index) => {
+                  const chapter = selected.chapters?.find((item) => item.id === problem.chapterId);
+                  const reason = {
+                    "missing-exit": "이어질 곳 없음",
+                    "missing-chapter": "없는 장으로 이어져요",
+                    "empty-line": "빈 대사가 있어요",
+                    unreachable: "어디서도 오지 못해요",
+                    "unreachable-cycle": "시작 장에서 닿지 않는 순환이에요",
+                  }[problem.kind];
+                  return (
+                    <li key={`${problem.chapterId}:${problem.kind}:${index}`}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPanel(`chapter:${problem.chapterId}`);
+                          setFocusRequest((current) => ({
+                            id: problem.chapterId,
+                            sequence: (current?.sequence ?? 0) + 1,
+                          }));
+                        }}
+                      >
+                        <strong>{chapter?.title || "새 장"}</strong>
+                        <span>{reason}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </aside>
+          )}
+          {panel && panel !== "problems" && (
             <StoryPanel
               key={`${selected.id}:${panel}`}
               scenario={selected}
               chapterId={panel === "settings" ? null : panel.replace(/^chapter:/, "")}
               actors={actors}
               onChange={updateScenario}
+              onCreateChapter={(exit) => {
+                if (panel.startsWith("chapter:"))
+                  addChapter({ ...exit, chapterId: panel.slice(8) });
+              }}
+              onDeleteChapter={() => {
+                if (panel.startsWith("chapter:")) setDeleting(panel.slice(8));
+              }}
+              onSetStart={() => {
+                if (!panel.startsWith("chapter:")) return;
+                group.current = null;
+                updateScenario(setStoryStart(selected, panel.slice(8)));
+              }}
               onClose={() => setPanel(null)}
             />
           )}
         </div>
       )}
+      <Dialog
+        isOpen={deleting !== null}
+        title={`${selected?.chapters?.find((chapter) => chapter.id === deleting)?.title || "새 장"} 장을 지울까요?`}
+        variant="confirm"
+        onOpenChange={(open) => {
+          if (!open) setDeleting(null);
+        }}
+        footer={
+          <>
+            <Button onClick={() => setDeleting(null)}>계속 편집</Button>
+            <Button
+              onClick={() => {
+                if (selected && deleting) {
+                  group.current = null;
+                  updateScenario(deleteStoryChapter(selected, deleting));
+                  setPanel(null);
+                }
+                setDeleting(null);
+              }}
+            >
+              장 지우기
+            </Button>
+          </>
+        }
+      >
+        <p>
+          여기로 이어지던 {selected && deleting ? incomingStoryExits(selected, deleting).length : 0}
+          곳이 끊겨요. 되돌리기로 되살릴 수 있어요.
+        </p>
+        {selected?.chapters?.[0]?.id === deleting && <p>다음 장을 시작 장으로 삼아요.</p>}
+      </Dialog>
       <Dialog
         isOpen={latest !== null}
         title="저장된 최신 내용"

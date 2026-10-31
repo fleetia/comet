@@ -44,7 +44,7 @@ export const saveActions = style({
 export const workspace = style({ position: "relative", flex: 1, minHeight: 0, display: "flex" });
 export const panelOpen = style({});
 globalStyle(`.${panelOpen} > div:last-child`, { right: 416 });
-export const canvas = style({ position: "relative", flex: 1, minHeight: 0 });
+export const canvas = style({ position: "relative", zIndex: 0, flex: 1, minHeight: 0 });
 export const state = style({
   display: "flex",
   flexDirection: "column",
@@ -175,3 +175,62 @@ globalStyle(`.${canvas} .react-flow__minimap`, {
 });
 
 globalStyle(`.${canvas}.${panelOpen} .react-flow__minimap`, { right: 416 });
+globalStyle(`.${canvas} .react-flow__attribution`, { background: "transparent" });
+globalStyle(`.${canvas} .react-flow__attribution a`, { color: tokens["color/ink-3"] });
+
+export const problemCard = style({ borderColor: tokens["color/danger"] });
+export const missingExit = style({ color: tokens["color/danger"] });
+export const limitNotice = style({
+  alignSelf: "center",
+  color: tokens["color/ink-3"],
+  fontSize: 11,
+});
+export const missingHandle = style({});
+globalStyle(`.${canvas} .${missingHandle}`, {
+  backgroundColor: tokens["color/card"],
+  border: `1px solid ${tokens["color/danger"]}`,
+});
+export const dropHint = style({
+  position: "absolute",
+  zIndex: 5,
+  pointerEvents: "none",
+  width: 180,
+  padding: 16,
+  border: `1px dashed ${tokens["color/primary"]}`,
+  borderRadius: 12,
+  color: tokens["color/ink-3"],
+  background: tokens["color/card"],
+  fontSize: 12,
+});
+export const problemsPanel = style({
+  position: "absolute",
+  zIndex: 6,
+  right: 0,
+  top: 0,
+  bottom: 0,
+  width: "min(400px, 100%)",
+  boxSizing: "border-box",
+  overflowY: "auto",
+  padding: 20,
+  background: tokens["color/glass-window"],
+  borderLeft: `1px solid ${tokens["color/card-border"]}`,
+});
+export const problemsHeader = style({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+});
+export const problemsList = style({ listStyle: "none", margin: 0, padding: 0 });
+globalStyle(`.${problemsList} button`, {
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+  width: "100%",
+  padding: 12,
+  border: 0,
+  borderBottom: `1px solid ${tokens["color/card-border"]}`,
+  color: tokens["color/ink"],
+  background: "transparent",
+  textAlign: "left",
+  cursor: "pointer",
+});

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { useState } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import StoryEditorWindow from "../components/StoryEditor/StoryEditorWindow";
 import { command, PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
@@ -25,28 +26,93 @@ const windowMock = vi.hoisted(() => ({
   onCloseRequested: vi.fn().mockResolvedValue(() => {}),
 }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => windowMock }));
+const flowMock = vi.hoisted(() => ({
+  drag: undefined as undefined | ((id: string, position: { x: number; y: number }) => void),
+  selectEdge: undefined as undefined | ((id: string) => void),
+  connect: undefined as undefined | ((id: string, target: Element) => void),
+  edgeId: undefined as string | undefined,
+}));
 vi.mock("@xyflow/react", () => ({
   ReactFlowProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   ReactFlow: ({
     children,
     nodes,
+    edges,
+    onNodeClick,
+    onNodeDragStop,
+    onEdgeClick,
+    onConnectStart,
+    onConnectEnd,
   }: {
     children: React.ReactNode;
-    nodes: { id: string; data: { item: { title: string } } }[];
-  }) => (
-    <div>
-      {nodes.map((node) => (
-        <span key={node.id}>{node.data.item.title}</span>
-      ))}
-      {children}
-    </div>
-  ),
+    nodes: { id: string; position: { x: number; y: number }; data: { item: { title: string } } }[];
+    edges: { id: string; source: string }[];
+    onNodeClick: (event: unknown, node: unknown) => void;
+    onNodeDragStop: (event: unknown, node: unknown) => void;
+    onEdgeClick: (event: unknown, edge: { id: string }) => void;
+    onConnectStart: (event: unknown, params: { handleType: string }) => void;
+    onConnectEnd: (
+      event: { clientX: number; clientY: number },
+      state: { fromHandle: { id: string } },
+    ) => void;
+  }) => {
+    flowMock.edgeId = edges.find((edge) => edge.source === "chapter:first")?.id;
+    flowMock.drag = (id, position) => {
+      const node = nodes.find((item) => item.id === id);
+      if (node) onNodeDragStop(null, { ...node, position });
+    };
+    flowMock.selectEdge = (id) => {
+      const edge = edges.find((item) => item.id === id);
+      if (edge) onEdgeClick(null, edge);
+    };
+    flowMock.connect = (id, target) => {
+      const original = Object.getOwnPropertyDescriptor(document, "elementFromPoint");
+      Object.defineProperty(document, "elementFromPoint", {
+        configurable: true,
+        value: () => target,
+      });
+      try {
+        onConnectStart(null, { handleType: "source" });
+        onConnectEnd({ clientX: 250, clientY: 180 }, { fromHandle: { id } });
+      } finally {
+        if (original) Object.defineProperty(document, "elementFromPoint", original);
+        else Reflect.deleteProperty(document, "elementFromPoint");
+      }
+    };
+    return (
+      <div>
+        {nodes.map((node) => (
+          <span
+            key={node.id}
+            className="react-flow__node"
+            data-id={node.id}
+            onClick={() => onNodeClick(null, node)}
+          >
+            {node.data.item.title}
+          </span>
+        ))}
+        {children}
+      </div>
+    );
+  },
   Background: () => null,
   MiniMap: () => null,
   Handle: () => null,
   Position: { Left: "left", Right: "right" },
-  useNodesState: (nodes: unknown[]) => [nodes, vi.fn(), vi.fn()],
-  useReactFlow: () => ({ fitView: vi.fn(), zoomIn: vi.fn(), zoomOut: vi.fn() }),
+  useNodesState: (nodes: unknown[]) => {
+    const [current, setCurrent] = useState(nodes);
+    return [current, setCurrent, vi.fn()];
+  },
+  useReactFlow: () => ({
+    fitView: vi.fn(),
+    zoomIn: vi.fn(),
+    zoomOut: vi.fn(),
+    flowToScreenPosition: (position: unknown) => position,
+    getViewport: () => ({ x: 0, y: 0, zoom: 1 }),
+    setViewport: vi.fn(),
+    setCenter: vi.fn(),
+    screenToFlowPosition: (position: unknown) => position,
+  }),
 }));
 const packs = [
   { id: "a", name: "팩 A" },
@@ -82,6 +148,7 @@ function pack(id: string): PackStorySnapshot {
 }
 beforeEach(() => {
   vi.mocked(command).mockReset();
+  localStorage.clear();
   windowMock.destroy.mockClear();
   eventMock.listener = undefined;
   vi.mocked(command).mockImplementation(async (name, args) => {
@@ -148,6 +215,11 @@ it("새 이야기 이벤트는 첫 대사에 초점을 둔 초안을 한 번만 
   ).toHaveLength(1);
   expect(command).not.toHaveBeenCalledWith("save_pack_story_definition", expect.anything());
   fireEvent.click(screen.getByRole("button", { name: "저장" }));
+  expect(await screen.findByRole("complementary", { name: "확인할 곳" })).toBeTruthy();
+  expect(command).not.toHaveBeenCalledWith("save_pack_story_definition", expect.anything());
+  fireEvent.click(screen.getByText("빈 대사가 있어요"));
+  fireEvent.change(screen.getByLabelText("단계 1 대사"), { target: { value: "안녕" } });
+  fireEvent.click(screen.getByRole("button", { name: "저장" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith(
       "save_pack_story_definition",
@@ -159,7 +231,7 @@ it("새 이야기 이벤트는 첫 대사에 초점을 둔 초안을 한 번만 
               chapters: [
                 expect.objectContaining({
                   next: "end",
-                  steps: [expect.objectContaining({ kind: "line", text: "" })],
+                  steps: [expect.objectContaining({ kind: "line", text: "안녕" })],
                 }),
               ],
             }),
@@ -410,6 +482,57 @@ it("닫기에서 저장이 실패하면 창과 초안을 유지하고 성공하�
 });
 afterEach(cleanup);
 
+it("선을 끊거나 다시 잇고 빈 곳에 장을 만들며 각 변경을 되돌린다", async () => {
+  const snapshot = pack("a");
+  const story = scenario("one");
+  story.chapters = [
+    { id: "first", title: "첫 장", next: "second", steps: [] },
+    { id: "second", title: "둘째 장", next: "end", steps: [] },
+  ];
+  snapshot.definition.scenarios = [story];
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_character_packs") return packs;
+    if (name === "get_snapshot") return PREVIEW_SNAPSHOT;
+    if (name === "get_pack_story_definition") return snapshot;
+    return null;
+  });
+  render(<StoryEditorWindow initialPackId="a" initialScenarioId="one" />);
+  const first = await screen.findByText("첫 장", { selector: "span" });
+  fireEvent.click(first);
+  const next = (): HTMLSelectElement => screen.getByLabelText("다음 장");
+  expect(next().value).toBe("second");
+  const edgeId = flowMock.edgeId;
+  expect(edgeId).toBeDefined();
+  if (!edgeId) throw new Error("첫 장에서 나가는 선이 없어요.");
+
+  act(() => flowMock.selectEdge?.(edgeId));
+  fireEvent.keyDown(document, { key: "Delete" });
+  expect(next().value).toBe("");
+  fireEvent.keyDown(document, { key: "z", metaKey: true });
+  expect(next().value).toBe("second");
+
+  act(() => flowMock.connect?.(edgeId, first));
+  expect(next().value).toBe("first");
+  fireEvent.keyDown(document, { key: "z", metaKey: true });
+  expect(next().value).toBe("second");
+
+  const pane = document.createElement("div");
+  pane.className = "react-flow__pane";
+  act(() => flowMock.connect?.(edgeId, pane));
+  expect(screen.getByLabelText<HTMLInputElement>("장 제목").value).toBe("");
+  expect(screen.getByLabelText<HTMLTextAreaElement>("단계 1 대사").value).toBe("");
+  fireEvent.click(screen.getByText("첫 장", { selector: "span" }));
+  const createdId = next().value;
+  expect(createdId).not.toBe("second");
+  expect(createdId).not.toBe("");
+  expect(screen.getByRole<HTMLOptionElement>("option", { name: "새 장" }).value).toBe(createdId);
+  fireEvent.keyDown(document, { key: "z", metaKey: true });
+  expect(next().value).toBe("second");
+  expect(screen.queryByRole("option", { name: "새 장" })).toBeNull();
+  fireEvent.keyDown(document, { key: "z", metaKey: true, shiftKey: true });
+  expect(next().value).toBe(createdId);
+});
+
 it("불러오는 동안 안내하고 선택한 이야기의 구조를 표시한다", async () => {
   let finish: (value: PackStorySnapshot) => void = () => {};
   vi.mocked(command).mockImplementation(async (name) => {
@@ -486,4 +609,92 @@ it("이야기가 없는 팩의 빈 상태를 표시한다", async () => {
   });
   render(<StoryEditorWindow initialPackId="a" initialScenarioId="" />);
   expect(await screen.findByText("이야기가 없어요.")).toBeTruthy();
+});
+
+function useChapterFixture(chapters: NonNullable<ScenarioDefinition["chapters"]>): void {
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_character_packs") return packs;
+    if (name === "get_snapshot") return PREVIEW_SNAPSHOT;
+    if (name === "get_pack_story_definition") {
+      const value = pack("a");
+      value.definition.scenarios = [{ ...scenario("one"), chapters }];
+      return value;
+    }
+    if (name === "save_pack_story_definition") {
+      return {
+        ...pack("a"),
+        definition: (args as { definition: PackStorySnapshot["definition"] }).definition,
+      };
+    }
+    return null;
+  });
+}
+
+const writtenLine = { kind: "line" as const, persona: "a", expression: "평온", text: "안녕" };
+
+it("빈 대사와 끊어진 연결이 있으면 저장하지 않고 확인할 곳을 연다", async () => {
+  useChapterFixture([
+    { id: "first", title: "첫 장", next: "", steps: [{ ...writtenLine, text: "" }] },
+  ]);
+  render(<StoryEditorWindow initialPackId="a" initialScenarioId="one" />);
+  await editStoryTitle("쓰던 초안");
+  fireEvent.click(screen.getByRole("button", { name: "저장" }));
+  expect(await screen.findByText("고쳐야 저장할 수 있어요.")).toBeTruthy();
+  expect(screen.getByText("빈 대사가 있어요")).toBeTruthy();
+  expect(screen.getByText("이어질 곳 없음")).toBeTruthy();
+  expect(screen.getByText("바뀐 내용")).toBeTruthy();
+  expect(command).not.toHaveBeenCalledWith("save_pack_story_definition", expect.anything());
+});
+
+it("도달하지 못하는 장만 있으면 경고를 표시하면서 저장한다", async () => {
+  useChapterFixture([
+    { id: "first", title: "첫 장", next: "end", steps: [writtenLine] },
+    { id: "second", title: "별도 장", next: "end", steps: [writtenLine] },
+  ]);
+  render(<StoryEditorWindow initialPackId="a" initialScenarioId="one" />);
+  await editStoryTitle("바꾼 제목");
+  fireEvent.click(screen.getByRole("button", { name: "확인할 곳 1" }));
+  expect(screen.getByText("어디서도 오지 못해요")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "저장" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith(
+      "save_pack_story_definition",
+      expect.objectContaining({
+        definition: expect.objectContaining({
+          scenarios: [expect.objectContaining({ title: "바꾼 제목" })],
+        }),
+      }),
+    ),
+  );
+});
+
+it("들어오는 연결을 보여주고 장을 삭제한 뒤 되돌린다", async () => {
+  useChapterFixture([
+    { id: "first", title: "첫 장", next: "second", steps: [writtenLine] },
+    { id: "second", title: "둘째", next: "end", steps: [writtenLine] },
+  ]);
+  render(<StoryEditorWindow initialPackId="a" initialScenarioId="one" />);
+  fireEvent.click(await screen.findByText("둘째", { selector: "span" }));
+  fireEvent.click(screen.getByRole("button", { name: "장 지우기" }));
+  const dialog = await screen.findByRole("dialog", { name: "둘째 장을 지울까요?" });
+  expect(within(dialog).getByText(/여기로 이어지던 1곳이 끊겨요/)).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole("button", { name: "장 지우기" }));
+  expect(screen.queryByText("둘째", { selector: "span" })).toBeNull();
+  expect(screen.getByRole("button", { name: "확인할 곳 1" })).toBeTruthy();
+  fireEvent.keyDown(document, { key: "z", metaKey: true });
+  expect(await screen.findByText("둘째", { selector: "span" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "확인할 곳 0" })).toBeTruthy();
+  expect(screen.queryByText("바뀐 내용")).toBeNull();
+});
+
+it("장 위치만 이동하고 정돈해도 이야기의 변경 표시가 생기지 않는다", async () => {
+  useChapterFixture([{ id: "first", title: "첫 장", next: "end", steps: [writtenLine] }]);
+  render(<StoryEditorWindow initialPackId="a" initialScenarioId="one" />);
+  await screen.findByText("첫 장", { selector: "span" });
+  act(() => flowMock.drag?.("chapter:first", { x: 300, y: 120 }));
+  expect(screen.queryByText("바뀐 내용")).toBeNull();
+  expect(localStorage.length).toBe(1);
+  fireEvent.click(screen.getByRole("button", { name: "정돈" }));
+  expect(localStorage.length).toBe(0);
+  expect(screen.queryByText("바뀐 내용")).toBeNull();
 });

@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { ScenarioChapter, ScenarioDefinition } from "../types";
 import {
   buildStoryGraph,
+  createStoryChapter,
+  deleteStoryChapter,
+  findStoryProblems,
+  incomingStoryExits,
+  setStoryExit,
+  setStoryStart,
   layoutStoryGraph,
   normalizeStoryChapters,
   type StoryGraph,
@@ -336,9 +342,18 @@ describe("layoutStoryGraph", () => {
     expect(positions.c.y - positions.b.y).toBeGreaterThanOrEqual(90 + 10 * 20 + 40);
   });
   it("장 안에서 이어지는 선택지의 높이도 배치에 반영한다", () => {
-    const value = graph(["a", "b", "c"], [["a", "b"], ["a", "c"]]);
+    const value = graph(
+      ["a", "b", "c"],
+      [
+        ["a", "b"],
+        ["a", "c"],
+      ],
+    );
     value.nodes[1].localExits = Array.from({ length: 10 }, (_, index) => ({
-      id: String(index), source: "b", kind: "choice", label: "다음 단계",
+      id: String(index),
+      source: "b",
+      kind: "choice",
+      label: "다음 단계",
     }));
     const positions = layoutStoryGraph(value);
     expect(positions.c.y - positions.b.y).toBeGreaterThanOrEqual(100 + 10 * 24);
@@ -353,5 +368,104 @@ describe("layoutStoryGraph", () => {
     );
     expect(Object.keys(positions)).toHaveLength(99);
     expect(positions["98"].x).toBe(98 * 320);
+  });
+});
+
+describe("장과 이어지는 곳 편집", () => {
+  it("다음 장, 선택지, 시간이 지난 뒤의 연결을 바꾸고 끊는다", () => {
+    const first = chapter("a", "b");
+    first.steps.push(
+      {
+        kind: "choice",
+        persona: "actor",
+        expression: "평온",
+        prompt: "?",
+        options: [
+          { id: "one", label: "계속", goto: "next" },
+          { id: "two", label: "다음", goto: "next" },
+        ],
+      },
+      {
+        kind: "wait",
+        event: "body.clicked",
+        timeoutSec: 10,
+        onTimeout: { steps: [], then: "nextChapter" },
+      },
+    );
+    const original = scenario([first, chapter("b", "end"), chapter("c", "end")]);
+    const next = { chapterId: "a", kind: "next" } as const;
+    const choice = { chapterId: "a", kind: "choice", stepIndex: 1, optionIndex: 0 } as const;
+    const timeout = { chapterId: "a", kind: "timeout", stepIndex: 2 } as const;
+    const updated = setStoryExit(
+      setStoryExit(setStoryExit(original, next, "c"), choice, "b"),
+      timeout,
+      "",
+    );
+    const graph = buildStoryGraph(updated, []);
+    expect(links(graph)).toContain("chapter:a>chapter:c:next");
+    expect(links(graph)).toContain("chapter:a>chapter:b:choice");
+    expect(graph.nodes[0].localExits).toContainEqual(
+      expect.objectContaining({ ref: timeout, targetState: "missing" }),
+    );
+    expect(original.chapters?.[0].next).toBe("b");
+    const disconnected = setStoryExit(updated, choice, "");
+    expect(
+      findStoryProblems(disconnected).filter((problem) => problem.kind === "missing-exit"),
+    ).toHaveLength(2);
+  });
+
+  it("들어오는 연결을 세고 삭제하면 끊으며 이전 상태는 복원할 수 있다", () => {
+    const a = chapter("a", "b");
+    a.steps.push({
+      kind: "wait",
+      event: "body.clicked",
+      timeoutSec: 5,
+      onTimeout: { steps: [], then: "nextChapter" },
+    });
+    const original = scenario([a, chapter("b", "end"), chapter("c", "b")]);
+    expect(incomingStoryExits(original, "b")).toHaveLength(3);
+    const deleted = deleteStoryChapter(original, "b");
+    expect(deleted.chapters?.map(({ id }) => id)).toEqual(["a", "c"]);
+    expect(deleted.chapters?.[0].next).toBe("");
+    expect(deleted.chapters?.[1].next).toBe("");
+    expect(deleted.chapters?.[0].steps[1]).toMatchObject({ onTimeout: { then: "" } });
+    expect(original.chapters?.[0].next).toBe("b");
+    expect(deleteStoryChapter(scenario([chapter("only")]), "only").chapters).toHaveLength(1);
+  });
+
+  it("시작 장을 옮길 때 생략된 다음 장의 기존 의미를 유지한다", () => {
+    const original = scenario([chapter("a"), chapter("b"), chapter("c")]);
+    const updated = setStoryStart(original, "c");
+    expect(updated.chapters?.map(({ id, next }) => [id, next])).toEqual([
+      ["c", "end"],
+      ["a", "b"],
+      ["b", "c"],
+    ]);
+    expect(original.chapters?.[0].next).toBeUndefined();
+  });
+
+  it("새 장을 만들고 99장에서 더 만들지 않는다", () => {
+    const original = scenario([chapter("a", "end")]);
+    expect(createStoryChapter(original, chapter("b", "end")).chapters).toHaveLength(2);
+    const full = scenario(Array.from({ length: 99 }, (_, index) => chapter(String(index), "end")));
+    expect(createStoryChapter(full, chapter("extra", "end"))).toBe(full);
+  });
+
+  it("저장을 막는 각 문제와 도달 불가 경고를 구분한다", () => {
+    const a = chapter("a", "");
+    a.steps[0] = { kind: "line", persona: "actor", expression: "평온", text: "  " };
+    a.steps.push({
+      kind: "choice",
+      persona: "actor",
+      expression: "평온",
+      prompt: "?",
+      options: [{ id: "one", label: "계속", goto: "missing" }],
+    });
+    const problems = findStoryProblems(scenario([a, chapter("b", "end")]));
+    expect(problems).toContainEqual({ chapterId: "a", kind: "missing-exit", blocking: true });
+    expect(problems).toContainEqual({ chapterId: "a", kind: "missing-chapter", blocking: true });
+    expect(problems).toContainEqual({ chapterId: "a", kind: "empty-line", blocking: true });
+    expect(problems).toContainEqual({ chapterId: "b", kind: "unreachable", blocking: false });
+    expect(findStoryProblems(scenario(null))).toEqual([]);
   });
 });

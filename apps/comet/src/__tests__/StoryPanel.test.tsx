@@ -35,6 +35,9 @@ function Harness(): React.JSX.Element {
       actors={[actor]}
       onChange={setScenario}
       onClose={() => {}}
+      onCreateChapter={() => {}}
+      onDeleteChapter={() => {}}
+      onSetStart={() => {}}
     />
   );
 }
@@ -66,4 +69,61 @@ it("빈 대사의 / 메뉴에서 입력 단계를 추가하고 이름 저장 후
   const saved = screen.getByLabelText("단계 1 이름을 저장한 뒤 대사") as HTMLTextAreaElement;
   await user.type(saved, "반가워");
   expect(saved.value).toBe("반가워");
+});
+
+it("선택지와 시간이 지난 뒤 이어질 장을 바꾸고 연결을 끊는다", () => {
+  function Links(): React.JSX.Element {
+    const [scenario, setScenario] = useState<ScenarioDefinition>({
+      ...initial,
+      chapters: [
+        {
+          id: "chapter",
+          title: "첫 장",
+          next: "other",
+          steps: [
+            {
+              kind: "choice",
+              persona: actor.sourceId,
+              expression: "평온",
+              prompt: "선택해요",
+              options: [{ id: "yes", label: "좋아요", goto: "next" }],
+            },
+            {
+              kind: "wait",
+              event: "body.clicked",
+              timeoutSec: 90,
+              onTimeout: { steps: [], then: "next" },
+            },
+          ],
+        },
+        { id: "other", title: "둘째 장", next: "end", steps: [] },
+      ],
+    });
+    return (
+      <>
+        <StoryPanel
+          scenario={scenario}
+          chapterId="chapter"
+          actors={[actor]}
+          onChange={setScenario}
+          onClose={() => {}}
+          onCreateChapter={() => {}}
+          onDeleteChapter={() => {}}
+          onSetStart={() => {}}
+        />
+        <output data-testid="draft">{JSON.stringify(scenario.chapters)}</output>
+      </>
+    );
+  }
+  render(<Links />);
+  fireEvent.change(screen.getByLabelText("좋아요 이어질 장"), { target: { value: "other" } });
+  fireEvent.change(screen.getByLabelText("시간이 지나면 이어질 장"), {
+    target: { value: "other" },
+  });
+  fireEvent.change(screen.getByLabelText("다음 장"), { target: { value: "" } });
+  const chapters = JSON.parse(screen.getByTestId("draft").textContent ?? "[]");
+  expect(chapters[0].steps[0].options[0].goto).toBe("other");
+  expect(chapters[0].steps[1].onTimeout.then).toBe("other");
+  expect(chapters[0].next).toBe("");
+  expect(screen.getByLabelText("다음 장")).toHaveProperty("value", "");
 });

@@ -1443,6 +1443,10 @@ fn chapter_schema_enforces_count_limits_and_story_size() {
             .collect(),
     );
     assert!(validate_pack(&characters, &large_scene).is_err());
+    assert_eq!(
+        validate_pack(&characters, &large_scene).unwrap_err(),
+        "이야기는 128 KiB 이하여야 해요."
+    );
 
     let mut proposal = extras;
     let scene = &mut proposal.scenarios[0];

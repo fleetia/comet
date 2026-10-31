@@ -1,6 +1,8 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 
+export const missingTarget = style({ color: tokens["color/danger"] });
+
 export const panel = style({
   position: "absolute",
   zIndex: 6,
