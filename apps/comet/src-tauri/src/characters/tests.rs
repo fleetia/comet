@@ -741,7 +741,7 @@ fn legacy_story_pack_output_omits_purpose() {
         tutorial.scenarios[0].purpose = crate::pack_stories::ScenarioPurpose::Tutorial;
         assert_eq!(
             pack_json(&tutorial).unwrap_err(),
-            "튜토리얼은 장면형 이야기로만 만들 수 있어요."
+            "튜토리얼은 장을 이어 가는 이야기로만 만들 수 있어요."
         );
     }
 

@@ -426,7 +426,7 @@ function StoryCanvas({
           disabled={!editable || atLimit || trialActive}
           title={
             !editable
-              ? "제안형은 네 단계가 정해져 있어서 장을 더할 수 없어요."
+              ? "친구가 제안하는 짧은 이야기는 네 단계가 정해져 있어서 장을 더할 수 없어요."
               : atLimit
                 ? "장은 99개까지 만들 수 있어요."
                 : undefined
@@ -499,7 +499,6 @@ export default function StoryEditorWindow({
   const [deleting, setDeleting] = useState<string | null>(null);
   const [newStory, setNewStory] = useState<Target | null>(null);
   const previousStory = useRef<Target | null>(null);
-  const [newMode, setNewMode] = useState<StoryMode>("scene");
   const [focusRequest, setFocusRequest] = useState<{ id: string; sequence: number } | null>(null);
   const [stepFocus, setStepFocus] = useState<{ index: number; sequence: number } | null>(null);
   const [pendingProblems, setPendingProblems] = useState<Target | null>(null);
@@ -636,10 +635,9 @@ export default function StoryEditorWindow({
       return;
     }
     created.current.add(target.scenarioId);
-    setNewMode("scene");
     setNewStory(target);
   }, [loading, target.packId, target.scenarioId, target.createNew, draft, actors, actorsPack]);
-  function createNewStory(): void {
+  function createNewStory(mode: StoryMode): void {
     if (
       !newStory ||
       !draft ||
@@ -671,7 +669,7 @@ export default function StoryEditorWindow({
       completion: { setFlags: [], memoryTemplate: null },
     };
     const createdScenario =
-      newMode === "proposal" ? changeStoryMode(scenario, "proposal") : scenario;
+      mode === "proposal" ? changeStoryMode(scenario, "proposal") : scenario;
     const definition = {
       ...draft.definition,
       scenarios: [...draft.definition.scenarios, createdScenario],
@@ -1149,8 +1147,8 @@ export default function StoryEditorWindow({
           newStory.packId === target.packId &&
           newStory.scenarioId === target.scenarioId
         }
-        title="어떤 이야기를 만들까요?"
-        variant="confirm"
+        title="새 이야기 만들기"
+        style={{ maxWidth: 460 }}
         onOpenChange={(open) => {
           if (!open) {
             setNewStory(null);
@@ -1158,40 +1156,37 @@ export default function StoryEditorWindow({
             previousStory.current = null;
           }
         }}
-        footer={
-          <>
-            <Button
-              onClick={() => {
-                setNewStory(null);
-                setTarget(previousStory.current ?? { ...target, scenarioId: scenarios[0]?.id ?? "", createNew: false });
-                previousStory.current = null;
-              }}
-            >
-              취소
-            </Button>
-            <Button onClick={createNewStory}>만들기</Button>
-          </>
-        }
       >
-        <div className={modeStyles.choices}>
-          <button
-            type="button"
-            className={modeStyles.choice}
-            aria-pressed={newMode === "scene"}
-            onClick={() => setNewMode("scene")}
-          >
-            <strong>장면형</strong>
-            <span>장을 이어 가며 선택과 기다리기를 넣어요. 튜토리얼도 이 방식이에요.</span>
-          </button>
-          <button
-            type="button"
-            className={modeStyles.choice}
-            aria-pressed={newMode === "proposal"}
-            onClick={() => setNewMode("proposal")}
-          >
-            <strong>제안형</strong>
-            <span>친구가 먼저 제안하고 수락·거절로 나뉘어요. 네 단계가 정해져 있어요.</span>
-          </button>
+        <div className={modeStyles.card}>
+          <svg className={modeStyles.diagram} viewBox="0 0 120 56" fill="none" aria-hidden="true">
+            <path
+              d="M28 28H39L51 12H65M39 28L51 44H65M85 12H94L104 28M85 44H94L104 28"
+              stroke={tokens["color/ink-3"]}
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <rect x="4" y="19" width="24" height="18" rx="4" fill={tokens["color/primary"]} />
+            <rect x="65" y="4" width="20" height="16" rx="4" stroke={tokens["color/primary"]} strokeWidth="2" />
+            <rect x="65" y="36" width="20" height="16" rx="4" stroke={tokens["color/primary"]} strokeWidth="2" />
+            <circle cx="108" cy="28" r="4" fill={tokens["color/primary"]} />
+          </svg>
+          <strong className={modeStyles.title}>장을 이어 가는 이야기</strong>
+          <p className={modeStyles.description}>
+            선택에 따라 갈라지고, 사용자가 뭔가 해 주길 기다릴 수 있어요. 대부분의 이야기는 이걸로 만들어요.
+          </p>
+          <Button className={modeStyles.primaryButton} onClick={() => createNewStory("scene")}>
+            이 방식으로 만들기
+          </Button>
+        </div>
+        <div className={modeStyles.alternative}>
+          <div className={modeStyles.alternativeText}>
+            <strong>친구가 제안하는 짧은 이야기</strong>
+            <span className={modeStyles.alternativeDescription}>수락·거절로 끝나요</span>
+          </div>
+          <Button variant="ghost" onClick={() => createNewStory("proposal")}>
+            만들기
+          </Button>
         </div>
       </Dialog>
       <Dialog

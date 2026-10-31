@@ -600,7 +600,7 @@ fn scenario_conditions(
     {
         output
             .blocked_reasons
-            .push("연결된 장면형 이야기는 따로 시험해 주세요.".into());
+            .push("연결된 장을 이어 가는 이야기는 따로 시험해 주세요.".into());
         return Ok(false);
     }
     let center = actor(request, &request.context.center_id)?;

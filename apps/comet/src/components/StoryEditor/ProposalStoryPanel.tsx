@@ -106,7 +106,7 @@ export function ProposalStoryPanel({
         </Button>
       </div>
       <div className={s.content}>
-        <p>제안형은 네 단계가 정해져 있어서 장을 더하거나 잇는 곳을 바꿀 수 없어요.</p>
+        <p>친구가 제안하는 짧은 이야기는 네 단계가 정해져 있어서 장을 더하거나 잇는 곳을 바꿀 수 없어요.</p>
         {lines.map((line, index) => {
           const actor = actors.find((value) => value.sourceId === line.persona);
           return (

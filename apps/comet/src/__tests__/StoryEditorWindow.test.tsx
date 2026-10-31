@@ -187,14 +187,10 @@ it("새 이야기 이벤트는 첫 대사에 초점을 둔 초안을 한 번만 
   await waitFor(() => expect(eventMock.listener).toBeDefined());
   const payload = { packId: "a", scenarioId: "new-story", createNew: true };
   act(() => eventMock.listener?.({ payload }));
-  const dialog = await screen.findByRole("dialog", { name: "어떤 이야기를 만들까요?" });
-  expect(
-    within(dialog)
-      .getByRole("button", { name: /장면형/ })
-      .getAttribute("aria-pressed"),
-  ).toBe("true");
+  const dialog = await screen.findByRole("dialog", { name: "새 이야기 만들기" });
+  expect(within(dialog).getByText("장을 이어 가는 이야기")).toBeTruthy();
   expect(command).not.toHaveBeenCalledWith("save_pack_story_definition", expect.anything());
-  fireEvent.click(within(dialog).getByRole("button", { name: "만들기" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "이 방식으로 만들기" }));
   const line = await screen.findByLabelText<HTMLTextAreaElement>("단계 1 대사");
   expect(line.value).toBe("");
   expect(document.activeElement).toBe(line);
@@ -279,8 +275,8 @@ it("편집기에서 이야기를 추가해도 기존 초안을 유지한다", as
   render(<StoryEditorWindow initialPackId="a" initialScenarioId="one" />);
   await editStoryTitle("보존할 초안");
   fireEvent.click(screen.getByRole("button", { name: "이야기 추가" }));
-  const dialog = await screen.findByRole("dialog", { name: "어떤 이야기를 만들까요?" });
-  fireEvent.click(within(dialog).getByRole("button", { name: "만들기" }));
+  const dialog = await screen.findByRole("dialog", { name: "새 이야기 만들기" });
+  fireEvent.click(within(dialog).getByRole("button", { name: "이 방식으로 만들기" }));
   expect(await screen.findByLabelText("단계 1 대사")).toBeTruthy();
   fireEvent.change(screen.getByLabelText("이야기 선택"), { target: { value: "one" } });
   fireEvent.click(screen.getByRole("button", { name: "이야기 설정" }));
@@ -315,9 +311,8 @@ it("선택한 이야기와 새 제안형 초안을 모두 보존해 저장한다
   fireEvent.change(screen.getByLabelText("이야기 선택"), { target: { value: "one" } });
   await editStoryTitle("첫 이야기 초안");
   fireEvent.click(screen.getByRole("button", { name: "이야기 추가" }));
-  const dialog = await screen.findByRole("dialog", { name: "어떤 이야기를 만들까요?" });
+  const dialog = await screen.findByRole("dialog", { name: "새 이야기 만들기" });
   expect(command).not.toHaveBeenCalledWith("save_pack_story_definition", expect.anything());
-  fireEvent.click(within(dialog).getByRole("button", { name: /제안형/ }));
   fireEvent.click(within(dialog).getByRole("button", { name: "만들기" }));
   await screen.findByText("제안", { selector: ".react-flow__node" });
   const newId = screen.getByLabelText<HTMLSelectElement>("이야기 선택").value;
@@ -406,28 +401,27 @@ it("새 이야기에서 제안형을 고르면 선택한 방식의 초안이 생
   act(() =>
     eventMock.listener?.({ payload: { packId: "a", scenarioId: "proposal", createNew: true } }),
   );
-  const dialog = await screen.findByRole("dialog", { name: "어떤 이야기를 만들까요?" });
-  fireEvent.click(within(dialog).getByRole("button", { name: /제안형/ }));
+  const dialog = await screen.findByRole("dialog", { name: "새 이야기 만들기" });
   fireEvent.click(within(dialog).getByRole("button", { name: "만들기" }));
   expect(await screen.findByText("바뀐 내용")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "이야기 설정" }));
-  expect(screen.getByRole("button", { name: "제안형" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button", { name: "친구가 제안하는 짧은 이야기" }).getAttribute("aria-pressed")).toBe("true");
   expect(command).not.toHaveBeenCalledWith("save_pack_story_definition", expect.anything());
 });
 
 it("이야기 방식 전환은 확인 후 적용되고 되돌릴 수 있다", async () => {
   render(<StoryEditorWindow initialPackId="a" initialScenarioId="one" />);
   fireEvent.click(await screen.findByRole("button", { name: "이야기 설정" }));
-  fireEvent.click(screen.getByRole("button", { name: "제안형" }));
+  fireEvent.click(screen.getByRole("button", { name: "친구가 제안하는 짧은 이야기" }));
   const dialog = screen.getByRole("dialog", { name: "이야기 방식을 바꿀까요?" });
-  expect(within(dialog).getByText("방식을 바꾸면 기존 방식의 내용이 지워져요.")).toBeTruthy();
+  expect(within(dialog).getByText("친구가 제안하는 짧은 이야기로 바꾸면 기존 방식의 내용이 지워져요.")).toBeTruthy();
   fireEvent.click(within(dialog).getByRole("button", { name: "계속 편집" }));
-  expect(screen.getByRole("button", { name: "장면형" }).getAttribute("aria-pressed")).toBe("true");
-  fireEvent.click(screen.getByRole("button", { name: "제안형" }));
+  expect(screen.getByRole("button", { name: "장을 이어 가는 이야기" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "친구가 제안하는 짧은 이야기" }));
   fireEvent.click(screen.getByRole("button", { name: "방식 바꾸기" }));
-  expect(screen.getByRole("button", { name: "제안형" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button", { name: "친구가 제안하는 짧은 이야기" }).getAttribute("aria-pressed")).toBe("true");
   fireEvent.keyDown(document, { key: "z", metaKey: true });
-  expect(screen.getByRole("button", { name: "장면형" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button", { name: "장을 이어 가는 이야기" }).getAttribute("aria-pressed")).toBe("true");
   expect(command).not.toHaveBeenCalledWith("save_pack_story_definition", expect.anything());
 });
 
@@ -444,7 +438,7 @@ it("튜토리얼은 제안형으로 전환할 수 없다", async () => {
   });
   render(<StoryEditorWindow initialPackId="a" initialScenarioId="one" />);
   fireEvent.click(await screen.findByRole("button", { name: "이야기 설정" }));
-  expect(screen.getByRole<HTMLButtonElement>("button", { name: "제안형" }).disabled).toBe(true);
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "친구가 제안하는 짧은 이야기" }).disabled).toBe(true);
 });
 
 it("저장할 때 baseline과 명시된 다음 장을 보내고 성공하면 변경 표시를 지운다", async () => {
@@ -1066,8 +1060,20 @@ it("이야기 추가를 취소하면 보던 이야기를 유지한다", async ()
   await screen.findByText("one 장", { selector: "span" });
   fireEvent.change(screen.getByLabelText("이야기 선택"), { target: { value: "two" } });
   fireEvent.click(screen.getByRole("button", { name: "이야기 추가" }));
-  const dialog = await screen.findByRole("dialog", { name: "어떤 이야기를 만들까요?" });
-  fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
+  const dialog = await screen.findByRole("dialog", { name: "새 이야기 만들기" });
+  fireEvent.click(within(dialog).getByRole("button", { name: "닫기" }));
+  expect(screen.getByLabelText<HTMLSelectElement>("이야기 선택").value).toBe("two");
+  expect(screen.getByText("two 장", { selector: "span" })).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: "이야기 추가" }));
+  const reopened = await screen.findByRole("dialog", { name: "새 이야기 만들기" });
+  fireEvent(reopened, new Event("cancel", { bubbles: true, cancelable: true }));
+  expect(screen.getByLabelText<HTMLSelectElement>("이야기 선택").value).toBe("two");
+  expect(screen.getByText("two 장", { selector: "span" })).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: "이야기 추가" }));
+  const reopenedAgain = await screen.findByRole("dialog", { name: "새 이야기 만들기" });
+  fireEvent.click(reopenedAgain);
   expect(screen.getByLabelText<HTMLSelectElement>("이야기 선택").value).toBe("two");
   expect(screen.getByText("two 장", { selector: "span" })).toBeTruthy();
 });

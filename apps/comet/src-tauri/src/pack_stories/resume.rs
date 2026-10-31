@@ -34,7 +34,7 @@ fn scenario(run: &RunTicket) -> Result<(&str, &ScenarioDefinition)> {
         .as_ref()
         .ok_or("이야기 정의를 찾을 수 없어요.")?;
     if definition.id != id || definition.chapters.is_none() {
-        return Err("장면형 이야기 정의를 확인해 주세요.".into());
+        return Err("장을 이어 가는 이야기 정의를 확인해 주세요.".into());
     }
     Ok((id, definition))
 }

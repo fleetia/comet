@@ -149,7 +149,7 @@ pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
             .iter()
             .any(|scenario| scenario.chapters.is_some())
     {
-        return Err("장면형 이야기는 캐릭터팩 버전 14 이상이 필요해요.".into());
+        return Err("장을 이어 가는 이야기는 캐릭터팩 버전 14 이상이 필요해요.".into());
     }
     if pack.format_version < 12
         && pack

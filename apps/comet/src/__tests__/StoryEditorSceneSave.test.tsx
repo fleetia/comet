@@ -192,13 +192,13 @@ it("제안형을 확인 후 장면형으로 바꾸고 튜토리얼 장과 기다
   expect(screen.getByLabelText("제안 1 대사")).toHaveProperty("value", "등록 원문");
   expect(screen.getByLabelText("시작 키워드 · 한 줄에 하나")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "이야기 설정" }));
-  fireEvent.click(screen.getByRole("button", { name: "장면형" }));
+  fireEvent.click(screen.getByRole("button", { name: "장을 이어 가는 이야기" }));
   expect(screen.getByRole("dialog", { name: "이야기 방식을 바꿀까요?" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "계속 편집" }));
   fireEvent.click(screen.getByText("제안", { selector: ".react-flow__node" }));
   expect(screen.getByLabelText("제안 1 대사")).toHaveProperty("value", "등록 원문");
   fireEvent.click(screen.getByRole("button", { name: "이야기 설정" }));
-  fireEvent.click(screen.getByRole("button", { name: "장면형" }));
+  fireEvent.click(screen.getByRole("button", { name: "장을 이어 가는 이야기" }));
   fireEvent.click(screen.getByRole("button", { name: "방식 바꾸기" }));
   expect(screen.queryByLabelText("수락 표현 · 한 줄에 하나")).toBeNull();
   expect(screen.queryByLabelText("노출 친밀도")).toBeNull();
@@ -448,7 +448,7 @@ it("팩을 바꾸면 방식 전환 확인을 닫고 새 팩의 제안 원문을 
   });
   render(<StoryEditorWindow initialPackId="a" initialScenarioId="one" />);
   fireEvent.click(await screen.findByRole("button", { name: "이야기 설정" }));
-  fireEvent.click(screen.getByRole("button", { name: "장면형" }));
+  fireEvent.click(screen.getByRole("button", { name: "장을 이어 가는 이야기" }));
   expect(screen.getByRole("dialog", { name: "이야기 방식을 바꿀까요?" })).toBeTruthy();
   fireEvent.change(screen.getByLabelText("팩 선택"), { target: { value: "b" } });
   await waitFor(() =>
