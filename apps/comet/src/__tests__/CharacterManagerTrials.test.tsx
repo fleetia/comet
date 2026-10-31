@@ -12,6 +12,11 @@ vi.mock("../hooks/useSnapshot", async (load) => ({
 }));
 const native = vi.hoisted(() => ({ listeners: new Set<() => void>(), listen: vi.fn() }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => native }));
+vi.mock("../components/characterAnimation", async (load) => ({
+  ...(await load<typeof import("../components/characterAnimation")>()),
+  animationAssetUrl: (characterId: string) =>
+    `data:image/png;base64,${characterId === "trial-local-0" ? "resident" : "guest"}-saved-bytes`,
+}));
 
 const assets: AnimationAsset[] = ["resident", "guest"].map((owner) => ({
   assetId: "shared-asset",
@@ -24,6 +29,7 @@ const actors = PREVIEW_SNAPSHOT.characters.installed.map((actor, index) => ({
   ...actor,
   id: `trial-local-${index}`,
   packId: "trial-pack",
+  animationAssets: { "shared-asset": { mime: "image/png", width: 16, height: 16, updatedAt: 1 } },
   definition: {
     ...actor.definition,
     sourceId: `trial-source-${index}`,
@@ -41,7 +47,14 @@ const actors = PREVIEW_SNAPSHOT.characters.installed.map((actor, index) => ({
           }
         : undefined,
     animation: {
-      clips: [{ id: "trial-clip", name: "시험 동작", fps: 8, frames: [] }],
+      clips: [
+        {
+          id: "trial-clip",
+          name: "시험 동작",
+          fps: 8,
+          frames: [{ assetId: "shared-asset", x: 0, y: 0, width: 16, height: 16 }],
+        },
+      ],
       bindings: {},
       overrides: {},
     },
@@ -198,7 +211,7 @@ function chooseCharacter(name: string): void {
   selectFriend(new RegExp(`^${name}`));
 }
 
-it("opens the requested friend while preserving another friend's draft", async () => {
+it("opens the requested friend and discards another friend's draft", async () => {
   const { rerender } = render(
     <CharacterManager
       embedded
@@ -216,6 +229,7 @@ it("opens the requested friend while preserving another friend's draft", async (
       characterRequest={{ id: actors[1].id, revision: 2 }}
     />,
   );
+  openCharacterPage("프로필");
   await waitFor(() =>
     expect(screen.getByLabelText("이름")).toHaveProperty("value", actors[1].definition.name),
   );
@@ -226,8 +240,9 @@ it("opens the requested friend while preserving another friend's draft", async (
       characterRequest={{ id: actors[0].id, revision: 3 }}
     />,
   );
+  openCharacterPage("프로필");
   await waitFor(() =>
-    expect(screen.getByLabelText("이름")).toHaveProperty("value", "저장하지 않은 친구 이름"),
+    expect(screen.getByLabelText("이름")).toHaveProperty("value", actors[0].definition.name),
   );
 });
 
@@ -236,7 +251,7 @@ async function addDraftAsset(): Promise<void> {
   const appearance = within(screen.getByLabelText("모습·표정", { selector: '[role="tabpanel"]' }));
   fireEvent.click(appearance.getByRole("button", { name: "시험 동작 동작 선택" }));
   fireEvent.click(appearance.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
-  await appearance.findByLabelText("1번 프레임 선택");
+  await appearance.findByLabelText("2번 프레임 선택");
 }
 
 it.each([
@@ -244,7 +259,7 @@ it.each([
   ["npc", "찾아오는 친구 등장 시험"],
   ["scenario", "등록 이야기 시험"],
 ])(
-  "replays %s trials with each speaker's unsaved bytes even when asset IDs match",
+  "replays %s trials with each speaker's saved bytes after discarding edits on navigation",
   async (kind, title) => {
     const original = structuredClone(snapshot);
     render(<CharacterManager embedded snapshot={snapshot} />);
@@ -266,13 +281,14 @@ it.each([
     fireEvent.click(trial.getByRole("button", { name: title }));
     const result = await trial.findByLabelText(`${title} 결과`);
     const preview = within(result).getByLabelText("선택한 대사 미리보기");
-    await waitFor(() => expect(urls).toContain("data:image/png;base64,resident-draft-bytes"));
+    await waitFor(() => expect(urls).toContain("data:image/png;base64,resident-saved-bytes"));
     expect(preview.textContent).toContain(lines[0].text);
     expect(within(preview).getByText(actors[0].definition.expressions.평온)).toBeTruthy();
     fireEvent.click(within(preview).getByRole("button", { name: "미리보기" }));
     await waitFor(() => expect(preview.textContent).toContain(lines[1].text));
     expect(within(preview).getByText(actors[1].definition.name)).toBeTruthy();
-    await waitFor(() => expect(urls).toContain("data:image/png;base64,guest-draft-bytes"));
+    await waitFor(() => expect(urls).toContain("data:image/png;base64,guest-saved-bytes"));
+    expect(urls.some((url) => url.includes("draft-bytes"))).toBe(false);
     expect(urls.filter(Boolean).every((url) => url.startsWith("data:image/png;base64,"))).toBe(
       true,
     );
@@ -290,8 +306,11 @@ it.each([
       await trial.findByLabelText(`${title} 결과`);
       openCharacterPage("프로필");
       openCharacterPage("등장·이야기");
-      expect(trial.queryByLabelText(`${title} 결과`)).toBeNull();
-      expect(world).toHaveProperty("value", "  유지할 세계 초안\n원문  ");
+      expect(screen.queryByLabelText(`${title} 결과`)).toBeNull();
+      expect(await screen.findByLabelText("세계와 공통 규칙")).toHaveProperty(
+        "value",
+        pack.definition.worldRules,
+      );
     }
     expect(snapshot).toEqual(original);
     expect(

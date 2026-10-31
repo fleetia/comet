@@ -35,6 +35,14 @@ export function ClockTool({
   const [countMode, setCountMode] = useState("remaining");
   const [showOnWidget, setShowOnWidget] = useState(false);
   const [celebrate, setCelebrate] = useState(true);
+  const [baseline, setBaseline] = useState({
+    title,
+    date,
+    repeat,
+    countMode,
+    showOnWidget,
+    celebrate,
+  });
   const [saving, setSaving] = useState(false);
   const pending = useRef(false);
   const editRevision = useRef(0);
@@ -45,21 +53,40 @@ export function ClockTool({
   const featured = clockFeatured(data);
   const anniversaries = rows(data.anniversaries);
   const editingMissing = id !== null && !anniversaries.some((item) => item.id === id);
+  const dirty =
+    creating &&
+    JSON.stringify({
+      title,
+      date,
+      repeat,
+      countMode,
+      showOnWidget,
+      celebrate,
+    }) !== JSON.stringify(baseline);
   useEffect(() => {
-    onDirtyChange?.(creating && (Boolean(title.trim()) || id !== null));
-  }, [creating, title, id, onDirtyChange]);
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
   useEffect(() => {
     if (creating) titleInput.current?.focus();
   }, [creating, id]);
   function reset(): void {
     editRevision.current += 1;
+    const today = localDay();
     setId(null);
     setTitle("");
-    setDate(localDay());
+    setDate(today);
     setRepeat("none");
     setCountMode("remaining");
     setShowOnWidget(false);
     setCelebrate(true);
+    setBaseline({
+      title: "",
+      date: today,
+      repeat: "none",
+      countMode: "remaining",
+      showOnWidget: false,
+      celebrate: true,
+    });
     setCreating(false);
   }
   function edit(item: DataRecord): void {
@@ -72,6 +99,14 @@ export function ClockTool({
     setCountMode(text(item.countMode) || "remaining");
     setShowOnWidget(featured?.id === item.id);
     setCelebrate(item.celebrate === true);
+    setBaseline({
+      title: text(item.title),
+      date: text(item.date),
+      repeat: text(item.repeat) || "none",
+      countMode: text(item.countMode) || "remaining",
+      showOnWidget: featured?.id === item.id,
+      celebrate: item.celebrate === true,
+    });
   }
   async function save(action: string, input: DataRecord): Promise<void> {
     if (pending.current) return;
@@ -278,7 +313,10 @@ export function ClockTool({
           variant="ghost"
           size="small"
           disabled={creating || saving}
-          onClick={() => setCreating(true)}
+          onClick={() => {
+            reset();
+            setCreating(true);
+          }}
         >
           <Icon name="plus" size={15} />
           기념일 추가…

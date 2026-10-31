@@ -26,7 +26,7 @@ function renderScenes(): void {
     <CharacterDialogueEditor ids={["first", "second"]} onDirtyChange={() => {}} mode="scenes" />,
   );
 }
-it("saves one scene by merging it with saved scenes while keeping another scene's draft", async () => {
+it("saves one scene after discarding the previously selected scene draft", async () => {
   renderScenes();
   fireEvent.change(await screen.findByLabelText("장면 1 대사 1"), {
     target: { value: "첫 장면 미저장" },
@@ -52,7 +52,10 @@ it("saves one scene by merging it with saved scenes while keeping another scene'
     expect(screen.getByRole("button", { name: "이 장면 저장" })).toHaveProperty("disabled", true),
   );
   fireEvent.click(screen.getByRole("button", { name: "장면 1 선택" }));
-  expect(screen.getByLabelText("장면 1 대사 1")).toHaveProperty("value", "첫 장면 미저장");
+  expect(screen.getByLabelText("장면 1 대사 1")).toHaveProperty(
+    "value",
+    saved.pairScenes[0][0].text,
+  );
   fireEvent.click(screen.getByRole("button", { name: "장면 수정 취소" }));
   expect(screen.getByLabelText("장면 1 대사 1")).toHaveProperty(
     "value",
@@ -61,7 +64,7 @@ it("saves one scene by merging it with saved scenes while keeping another scene'
   fireEvent.click(screen.getByRole("button", { name: "장면 2 선택" }));
   expect(screen.getByLabelText("장면 2 대사 1")).toHaveProperty("value", "  둘째만 저장\n그대로  ");
 });
-it("retains failed scene drafts and discards only the selected new scene", async () => {
+it("keeps a failed scene save until selecting a new scene, then discards it", async () => {
   renderScenes();
   fireEvent.change(await screen.findByLabelText("장면 1 대사 1"), {
     target: { value: "유지할 첫 장면" },
@@ -73,9 +76,12 @@ it("retains failed scene drafts and discards only the selected new scene", async
   fireEvent.change(screen.getByLabelText("장면 3 대사 1"), { target: { value: "버릴 새 장면" } });
   fireEvent.click(screen.getByRole("button", { name: "장면 수정 취소" }));
   expect(screen.queryByRole("button", { name: "장면 3 선택" })).toBeNull();
-  expect(screen.getByLabelText("장면 1 대사 1")).toHaveProperty("value", "유지할 첫 장면");
+  expect(screen.getByLabelText("장면 1 대사 1")).toHaveProperty(
+    "value",
+    saved.pairScenes[0][0].text,
+  );
 });
-it("cancels list structure changes without discarding edits to existing scenes", async () => {
+it("restores the saved scene contents when selecting another scene after list cancellation", async () => {
   renderScenes();
   fireEvent.change(await screen.findByLabelText("장면 1 대사 1"), {
     target: { value: "유지할 편집" },
@@ -85,9 +91,15 @@ it("cancels list structure changes without discarding edits to existing scenes",
   fireEvent.click(screen.getByRole("button", { name: "장면 2 삭제" }));
   fireEvent.click(screen.getByRole("button", { name: "구성 수정 취소" }));
   expect(screen.getByRole("button", { name: "장면 2 선택" })).toBeTruthy();
-  expect(screen.getByLabelText("장면 1 대사 1")).toHaveProperty("value", "유지할 편집");
+  expect(screen.getByLabelText("장면 1 대사 1")).toHaveProperty(
+    "value",
+    saved.pairScenes[0][0].text,
+  );
   fireEvent.click(screen.getByRole("button", { name: "장면 2 선택" }));
-  expect(screen.getByLabelText("장면 2 대사 1")).toHaveProperty("value", "삭제 직전 편집");
+  expect(screen.getByLabelText("장면 2 대사 1")).toHaveProperty(
+    "value",
+    saved.pairScenes[1][0].text,
+  );
   expect(vi.mocked(command).mock.calls.every(([name]) => name === "get_character_dialogue")).toBe(
     true,
   );

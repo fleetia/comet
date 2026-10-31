@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Button, Dialog, ProfileLink, Tabs as CometTabs } from "@comet/ui";
 import { ActionBar, Inline, SaveStatus } from "../../primitives";
@@ -112,23 +112,39 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
   const [shortcutDirty, setShortcutDirty] = useState(false);
   const [updateBusy, setUpdateBusy] = useState(false);
   const [confirmExit, setConfirmExit] = useState(false);
-  const [talkVisited, setTalkVisited] = useState(initialSection === "talk");
-  const [wordbookVisited, setWordbookVisited] = useState(initialSection !== "talk");
   const [dialogueView, setDialogueView] = useState<"wordbook" | "talk">(
     initialSection === "talk" ? "talk" : "wordbook",
   );
   const [actionError, setActionError] = useState<string | null>(null);
+  const page = section === "dialogue" ? `dialogue:${dialogueView}` : section;
+  const previousPage = useRef(page);
+  useEffect(() => {
+    if (previousPage.current === page) return;
+    previousPage.current = page;
+    automatic.reset();
+    model.reset();
+    setOrganizerDirty(false);
+    setWidgetsDirty(false);
+    setCharactersDirty(false);
+    setWordbookDirty(false);
+    setUserDirty(false);
+    setGeneralDirty(false);
+    setShortcutDirty(false);
+    setConfirmExit(false);
+  }, [page]);
   const dirty = {
     characters: charactersDirty,
     widgets: widgetsDirty,
     automatic: automatic.hasChanges,
     dialogue: wordbookDirty,
-    model: model.hasChanges || organizerDirty,
+    model: model.hasChanges || automatic.hasChanges,
     desktop: generalDirty,
     user: userDirty,
-    general: userDirty || shortcutDirty,
+    general: shortcutDirty,
+    organizer: organizerDirty,
+    theme: false,
   };
-  const hasChanges = Object.values(dirty).some(Boolean);
+  const hasChanges = previousPage.current === page && dirty[section];
   useEffect(() => {
     if (isDesktop())
       void command("set_settings_dirty", { dirty: hasChanges || widgetsBusy }).catch(
@@ -245,7 +261,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
           hidden={section !== "characters"}
           className={styles.settingsPage}
         >
-          {visited.has("characters") && (
+          {section === "characters" && (
             <CharacterManager
               snapshot={snapshot}
               embedded
@@ -264,7 +280,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
           hidden={section !== "widgets"}
           className={styles.settingsPage}
         >
-          {visited.has("widgets") && (
+          {section === "widgets" && (
             <WidgetManager
               embedded
               active={section === "widgets"}
@@ -281,15 +297,13 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
           hidden={section !== "automatic"}
           className={styles.settingsPage}
         >
-          {visited.has("automatic") && (
+          {section === "automatic" && (
             <ConversationSettings
               snapshot={snapshot}
               draft={automatic}
               onOpenModel={() => navigate("model")}
               onOpenDialogue={(kind) => {
                 setDialogueView(kind);
-                if (kind === "talk") setTalkVisited(true);
-                else setWordbookVisited(true);
                 navigate("dialogue");
               }}
               footer={
@@ -311,8 +325,12 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
           hidden={section !== "desktop"}
           className={styles.settingsPage}
         >
-          {visited.has("desktop") && (
-            <DesktopPreferences hidden={snapshot.runtime.hidden} platform={snapshot.device.platform} onDirtyChange={setGeneralDirty} />
+          {section === "desktop" && (
+            <DesktopPreferences
+              hidden={snapshot.runtime.hidden}
+              platform={snapshot.device.platform}
+              onDirtyChange={setGeneralDirty}
+            />
           )}
         </section>
         <section
@@ -323,7 +341,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
           hidden={section !== "model"}
           className={styles.settingsPage}
         >
-          {visited.has("model") && (
+          {section === "model" && (
             <ModelSettings
               snapshot={snapshot}
               draft={model}
@@ -345,7 +363,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
           hidden={section !== "dialogue"}
           className={styles.settingsPage}
         >
-          {visited.has("dialogue") && (
+          {section === "dialogue" && (
             <div className={styles.subpage}>
               <div className={styles.breadcrumb}>
                 <Button variant="ghost" size="small" onClick={() => navigate("automatic")}>
@@ -354,7 +372,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                 <span>{dialogueView === "wordbook" ? "단어장" : "대화팩"}</span>
               </div>
               <div hidden={dialogueView !== "wordbook"} className={styles.dialogueSubview}>
-                {(wordbookVisited || dialogueView === "wordbook") && (
+                {dialogueView === "wordbook" && (
                   <WordbookPanel
                     entries={snapshot.wordbook}
                     owners={snapshot.characters.active.map((id) =>
@@ -367,7 +385,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                 )}
               </div>
               <div hidden={dialogueView !== "talk"} className={styles.dialogueSubview}>
-                {(talkVisited || dialogueView === "talk") && <TalkPackPanel />}
+                {dialogueView === "talk" && <TalkPackPanel />}
               </div>
             </div>
           )}
@@ -406,7 +424,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
           hidden={section !== "user"}
           className={styles.settingsPage}
         >
-          {visited.has("user") && (
+          {section === "user" && (
             <div className={styles.subpage}>
               <div className={styles.breadcrumb}>
                 <Button variant="ghost" size="small" onClick={() => navigate("general")}>
@@ -426,7 +444,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
           hidden={section !== "organizer"}
           className={styles.settingsPage}
         >
-          {visited.has("organizer") && (
+          {section === "organizer" && (
             <div className={styles.subpage}>
               <div className={styles.breadcrumb}>
                 <Button variant="ghost" size="small" onClick={() => navigate("general")}>
@@ -446,7 +464,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
           hidden={section !== "theme"}
           className={styles.settingsPage}
         >
-          {visited.has("theme") && (
+          {section === "theme" && (
             <div className={styles.subpage}>
               <div className={styles.breadcrumb}>
                 <Button variant="ghost" size="small" onClick={() => navigate("general")}>
@@ -465,24 +483,30 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
       <Dialog
         isOpen={confirmExit}
         onOpenChange={setConfirmExit}
-        title="저장하지 않고 종료할까요?"
+        title={widgetsBusy && !hasChanges ? "진행 중인 작업이 있어요" : "저장하지 않고 종료할까요?"}
         variant="confirm"
         footer={
           <>
             <Button variant="ghost" onClick={() => setConfirmExit(false)}>
               계속 편집
             </Button>
-            <Button
-              variant="primary"
-              disabled={widgetsBusy || updateBusy}
-              onClick={() => void act("quit_app", { force: true })}
-            >
-              변경을 버리고 종료
-            </Button>
+            {!(widgetsBusy && !hasChanges) && (
+              <Button
+                variant="primary"
+                disabled={widgetsBusy || updateBusy}
+                onClick={() => void act("quit_app", { force: true })}
+              >
+                변경을 버리고 종료
+              </Button>
+            )}
           </>
         }
       >
-        <p>저장하지 않은 설정과 편집 내용을 버리고 comet을 종료해요.</p>
+        <p>
+          {widgetsBusy && !hasChanges
+            ? "진행 중인 작업이 끝난 뒤 종료해 주세요."
+            : "저장하지 않은 설정과 편집 내용을 버리고 comet을 종료해요."}
+        </p>
       </Dialog>
     </Container>
   );

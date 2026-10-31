@@ -247,6 +247,13 @@ export function MemoryEditor({
                 aria-label={`${memory.content.slice(0, 48)}${drafts[memory.id]?.dirty ? " · 미저장" : ""}`}
                 disabled={pending || disabled}
                 onClick={() => {
+                  if (current.id !== memory.id) {
+                    setDrafts((previous) =>
+                      Object.fromEntries(
+                        Object.entries(previous).filter(([, draft]) => !draft.dirty),
+                      ),
+                    );
+                  }
                   setSelected(memory.id);
                   setConfirmDelete(false);
                   setError(null);
@@ -261,7 +268,8 @@ export function MemoryEditor({
                   {memory.userName} ·{" "}
                   {new Date(
                     momentSummary(memory) !== null ? memory.sourceCreatedAt : memory.updatedAt,
-                  ).toLocaleDateString("ko-KR")} ·{" "}
+                  ).toLocaleDateString("ko-KR")}{" "}
+                  ·{" "}
                   {momentSummary(memory) !== null
                     ? "함께한 추억"
                     : memory.kind === "user_fact"

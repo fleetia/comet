@@ -41,7 +41,7 @@ export function OrganizerSettings({
   );
   const [settings, setSettings] = useState(DEFAULT_ORGANIZER_SETTINGS);
   const [view, setView] = useState<"overview" | "connect">("overview");
-  const [settingsDirty, setSettingsDirty] = useState(false);
+  const savedSettings = useRef(DEFAULT_ORGANIZER_SETTINGS);
   const [root, setRoot] = useState("");
   const [include, setInclude] = useState("");
   const [exclude, setExclude] = useState(DEFAULT_EXCLUDE);
@@ -51,7 +51,6 @@ export function OrganizerSettings({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const mounted = useRef(true);
-  const dirty = useRef(false);
   const fetching = useRef(false);
   const lock = useRef(false);
   const epoch = useRef(0);
@@ -77,7 +76,9 @@ export function OrganizerSettings({
     context.current = next.context;
     setStatus(next);
   }
-  dirty.current = settingsDirty;
+  const settingsDirty = (Object.keys(settings) as Array<keyof OrganizerSettingsValue>).some(
+    (key) => settings[key] !== savedSettings.current[key],
+  );
   const vaultDirty = Boolean(
     root || include || exclude !== DEFAULT_EXCLUDE || outputDir !== "comet-ex-brain" || automatic,
   );
@@ -91,8 +92,17 @@ export function OrganizerSettings({
     try {
       const next = await command<OrganizerStatus>("organizer_status");
       if (mounted.current && version === epoch.current && next) {
+        const previousSaved = savedSettings.current;
+        savedSettings.current = next.settings;
+        setSettings((previous) => ({
+          ...next.settings,
+          ...Object.fromEntries(
+            (Object.keys(previous) as Array<keyof OrganizerSettingsValue>)
+              .filter((key) => previous[key] !== previousSaved[key])
+              .map((key) => [key, previous[key]]),
+          ),
+        }));
         acceptStatus(next);
-        if (!dirty.current) setSettings(next.settings);
       }
     } catch (cause) {
       if (mounted.current && version === epoch.current) setError(errorText(cause));
@@ -153,8 +163,7 @@ export function OrganizerSettings({
       if (name === "organizer_pick_folder") {
         if (typeof result === "string") setRoot(result);
       } else if (name === "organizer_save_settings") {
-        dirty.current = false;
-        setSettingsDirty(false);
+        savedSettings.current = settings;
         setNotice("Ex-brain 설정을 저장했어요.");
       } else if (name === "organizer_connect_vault") {
         setRoot("");
@@ -181,8 +190,6 @@ export function OrganizerSettings({
     key: K,
     value: OrganizerSettingsValue[K],
   ): void {
-    dirty.current = true;
-    setSettingsDirty(true);
     setSettings((previous) => ({ ...previous, [key]: value }));
     setNotice(null);
   }
@@ -390,7 +397,9 @@ export function OrganizerSettings({
           {hits?.length === 0 && (
             <div role="status" className={s.searchEmpty}>
               <p className={figma.caption}>일치하는 자료가 없어요.</p>
-              <p className={figma.caption}>원문을 고쳤다면 ‘변경 자료 다시 읽기’ 뒤에 찾아보세요.</p>
+              <p className={figma.caption}>
+                원문을 고쳤다면 ‘변경 자료 다시 읽기’ 뒤에 찾아보세요.
+              </p>
             </div>
           )}
           {hits && hits.length > 0 && (
@@ -534,9 +543,7 @@ export function OrganizerSettings({
                 variant="ghost"
                 disabled={disabled || !settingsDirty}
                 onClick={() => {
-                  if (status) setSettings(status.settings);
-                  dirty.current = false;
-                  setSettingsDirty(false);
+                  setSettings(savedSettings.current);
                 }}
               >
                 설정 되돌리기

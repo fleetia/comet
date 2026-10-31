@@ -20,6 +20,7 @@ export type CharacterEditorProps = {
   onChange: (definition: CharacterDefinition) => void;
   onSave: () => void;
   onCancel?: () => void;
+  onNavigate?: () => void;
   onSprite?: (expression: string, remove: boolean) => void;
   animationAssets?: AnimationAsset[];
   animationVersion?: number;
@@ -33,7 +34,7 @@ export type CharacterEditorProps = {
   memoryTabRequest?: number;
   /**
    * Opens this friend on a tab once per revision, e.g. the balloon tab from theme settings.
-   * `relationshipTarget` opens that relationship's name reaction, adding a draft if missing.
+   * `relationshipTarget` opens that relationship's name reaction when it exists.
    */
   tabRequest?: {
     id: string;

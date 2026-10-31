@@ -205,6 +205,14 @@ export function PackStoryEditor({
     setNotice(null);
     setConfirmReload(false);
     setSelected("");
+    onDraftsChange(
+      Object.fromEntries(
+        Object.entries(currentDrafts.current).map(([id, value]) => [
+          id,
+          { ...value, definition: value.saved.definition },
+        ]),
+      ),
+    );
   }, [packId]);
   useEffect(() => {
     if (visible && packId && !currentDrafts.current[packId] && !lock.current) void load();
@@ -423,7 +431,13 @@ export function PackStoryEditor({
             fill
             aria-label="편집할 이야기"
             value={selectedScenario?.id ?? ""}
-            onChange={(event) => setSelected(event.target.value)}
+            onChange={(event) => {
+              if (event.target.value === selectedScenario?.id) return;
+              setEditor({ ...editor, definition: editor.saved.definition });
+              setSelected(event.target.value);
+              setError(null);
+              setNotice(null);
+            }}
           >
             {editor.definition.scenarios.map((value) => (
               <option key={value.id} value={value.id}>
@@ -440,9 +454,9 @@ export function PackStoryEditor({
             const id = crypto.randomUUID();
             const line = { persona: first.sourceId, expression: "평온", text: "" };
             update({
-              ...editor.definition,
+              ...editor.saved.definition,
               scenarios: [
-                ...editor.definition.scenarios,
+                ...editor.saved.definition.scenarios,
                 {
                   id,
                   title: "",
@@ -545,7 +559,8 @@ export function PackStoryEditor({
             <details>
               <summary>이야기 저작 진단</summary>
               <p>
-                노출 친밀도 ≤ 최소 친밀도: {selectedScenario.revealAffinity == null ||
+                노출 친밀도 ≤ 최소 친밀도:{" "}
+                {selectedScenario.revealAffinity == null ||
                 selectedScenario.revealAffinity <= selectedScenario.minAffinity
                   ? "통과"
                   : "확인 필요"}
@@ -623,8 +638,8 @@ export function PackStoryEditor({
                 />
               </FormField>
               <p className={s.small}>
-                최소 친밀도보다 낮게 정하면 이야기를 시작하기 전 유보 대사를 말해요. 비워 두면
-                최소 친밀도에 도달할 때까지 이야기가 나오지 않아요. 유보 대사가 없으면 기본 문구를
+                최소 친밀도보다 낮게 정하면 이야기를 시작하기 전 유보 대사를 말해요. 비워 두면 최소
+                친밀도에 도달할 때까지 이야기가 나오지 않아요. 유보 대사가 없으면 기본 문구를
                 사용해요.
               </p>
               {(

@@ -40,9 +40,11 @@ export function WeatherSettings({
   }, [widget.id]);
   const { busy, error, run } = useConnectionCommand();
   const locked = disabled || busy || searching;
+  const dirty =
+    (draft !== null && JSON.stringify(draft) !== JSON.stringify(stored)) || query.length > 0;
   useEffect(() => {
-    onDirtyChange?.(draft !== null || query.length > 0);
-  }, [draft, query, onDirtyChange]);
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
   useEffect(() => {
     onBusyChange?.(busy || searching);
   }, [busy, searching, onBusyChange]);

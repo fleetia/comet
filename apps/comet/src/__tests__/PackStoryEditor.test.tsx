@@ -246,7 +246,9 @@ it("previews a pack member's unsaved animation bytes without requesting a stored
     const trialButton = await openTrial();
     fireEvent.click(trialButton);
     await waitFor(() =>
-      expect(vi.mocked(command).mock.calls.some(([name]) => name === "trial_pack_authoring")).toBe(true),
+      expect(vi.mocked(command).mock.calls.some(([name]) => name === "trial_pack_authoring")).toBe(
+        true,
+      ),
     );
     await screen.findByLabelText("등록 이야기 시험 결과");
     await waitFor(() => expect(urls).toContain("data:image/png;base64,draft-bytes"));
@@ -283,7 +285,7 @@ it("keeps raw story text after failed save and retries the same definition basel
   expect(screen.getByLabelText("세계와 공통 규칙")).toHaveProperty("value", "새 세계");
 });
 
-it("preserves per-pack drafts and rejects an old save even after A to B to A", async () => {
+it("discards per-pack drafts and rejects an old save after A to B to A", async () => {
   const view = render(<Harness packId="a" />);
   fireEvent.change(await screen.findByLabelText("세계와 공통 규칙"), {
     target: { value: "a 초안" },
@@ -305,18 +307,21 @@ it("preserves per-pack drafts and rejects an old save even after A to B to A", a
   );
   fireEvent.change(screen.getByLabelText("세계와 공통 규칙"), { target: { value: "b 초안" } });
   view.rerender(<Harness packId="a" />);
-  expect(screen.getByLabelText("세계와 공통 규칙")).toHaveProperty("value", "a 초안");
+  expect(screen.getByLabelText("세계와 공통 규칙")).toHaveProperty("value", "a 세계");
   await act(async () => {
     finish(snapshot("a", "99"));
   });
-  expect(screen.getByLabelText("세계와 공통 규칙")).toHaveProperty("value", "a 초안");
+  expect(screen.getByLabelText("세계와 공통 규칙")).toHaveProperty("value", "a 세계");
   expect(screen.queryByText("팩의 이야기와 지식을 저장했어요.")).toBeNull();
+  fireEvent.change(screen.getByLabelText("세계와 공통 규칙"), {
+    target: { value: "다시 편집 중" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "최신 팩 내용 확인" }));
   expect(await screen.findByRole("dialog", { name: "팩 이야기 초안을 버릴까요?" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "계속 편집" }));
-  expect(screen.getByLabelText("세계와 공통 규칙")).toHaveProperty("value", "a 초안");
+  expect(screen.getByLabelText("세계와 공통 규칙")).toHaveProperty("value", "다시 편집 중");
   view.rerender(<Harness packId="b" />);
-  expect(screen.getByLabelText("세계와 공통 규칙")).toHaveProperty("value", "b 초안");
+  expect(screen.getByLabelText("세계와 공통 규칙")).toHaveProperty("value", "b 세계");
 });
 
 it("drops late trial results when its section closes or its visible tab changes", async () => {
@@ -389,4 +394,31 @@ it("drops late trial results when its section closes or its visible tab changes"
         ["get_pack_story_definition", "trial_pack_authoring"].includes(name),
       ),
   ).toBe(true);
+});
+
+it("discards unsaved story edits when choosing another registered story", async () => {
+  const saved = snapshot("a");
+  saved.definition.scenarios.push({
+    ...saved.definition.scenarios[0],
+    id: "a-second",
+    title: "두 번째 이야기",
+  });
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "get_pack_story_definition" ? saved : undefined,
+  );
+  render(<Harness packId="a" />);
+  const title = await screen.findByLabelText("이야기 제목");
+  fireEvent.change(title, { target: { value: "버릴 이야기 제목" } });
+  fireEvent.change(screen.getByLabelText("세계와 공통 규칙"), {
+    target: { value: "버릴 세계 초안" },
+  });
+  fireEvent.change(screen.getByLabelText("편집할 이야기"), { target: { value: "a-second" } });
+  expect(screen.getByLabelText("이야기 제목")).toHaveProperty("value", "두 번째 이야기");
+  expect(screen.getByLabelText("세계와 공통 규칙")).toHaveProperty(
+    "value",
+    saved.definition.worldRules,
+  );
+  fireEvent.change(screen.getByLabelText("편집할 이야기"), { target: { value: "a-story" } });
+  expect(screen.getByLabelText("이야기 제목")).toHaveProperty("value", "a 이야기");
+  expect(screen.getByRole("button", { name: "팩 이야기 저장" })).toHaveProperty("disabled", true);
 });

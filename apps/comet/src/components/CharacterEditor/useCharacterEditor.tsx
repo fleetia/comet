@@ -44,7 +44,7 @@ export type CharacterEditorState = ReturnType<typeof getCharacterEditorValues> &
     dialogueType: DialogueType;
     chooseDialogueType: (type: DialogueType) => void;
     tab: string;
-    setTab: Dispatch<SetStateAction<string>>;
+    navigate: (next: string) => void;
     tabsId: string;
     change: <K extends keyof CharacterDefinition>(key: K, value: CharacterDefinition[K]) => void;
     changeNpc: (patch: Partial<CharacterNpc>) => void;
@@ -62,6 +62,7 @@ export function useCharacterEditor({
   onChange,
   onSave,
   onCancel,
+  onNavigate,
   animationAssets = [],
   animationVersion = 0,
   pending,
@@ -84,6 +85,8 @@ export function useCharacterEditor({
   const [npcPreviewIndex, setNpcPreviewIndex] = useState(0);
   const dialogueType = controlledDialogueType ?? localDialogueType;
   function chooseDialogueType(type: DialogueType): void {
+    if (type === dialogueType) return;
+    onNavigate?.();
     setLocalDialogueType(type);
     onDialogueTypeChange?.(type);
   }
@@ -91,23 +94,24 @@ export function useCharacterEditor({
     memoryTabRequest > 0 ? "memory" : character ? "overview" : "profile",
   );
   const tabsId = useId();
+  function navigate(next: string): void {
+    if (next === tab) return;
+    onNavigate?.();
+    setAssetSelections({});
+    setReactionTarget(null);
+    setTab(next);
+  }
   useEffect(() => {
     setTab(memoryTabRequest > 0 ? "memory" : character ? "overview" : "profile");
   }, [character?.id]);
   useEffect(() => {
-    if (memoryTabRequest > 0) setTab("memory");
+    if (memoryTabRequest > 0) navigate("memory");
   }, [memoryTabRequest]);
   useEffect(() => {
     if (!tabRequest?.tab || tabRequest.id !== character?.id) return;
-    setTab(tabRequest.tab);
+    navigate(tabRequest.tab);
     const target = tabRequest.relationshipTarget;
     setReactionTarget(target ?? null);
-    if (target && !definition.relationships.some(({ targetId }) => targetId === target)) {
-      change("relationships", [
-        ...definition.relationships,
-        { targetId: target, description: "", replyLines: [] },
-      ]);
-    }
   }, [tabRequest?.revision, character?.id]);
   function change<K extends keyof CharacterDefinition>(
     key: K,
@@ -132,6 +136,7 @@ export function useCharacterEditor({
     installed,
     presentIds,
     animationAssets,
+    reactionTarget,
   });
   const { valid, dialogueError } = values;
   const definitionActions = (
@@ -196,7 +201,7 @@ export function useCharacterEditor({
     dialogueType,
     chooseDialogueType,
     tab,
-    setTab,
+    navigate,
     tabsId,
     change,
     changeNpc,

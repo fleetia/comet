@@ -126,8 +126,16 @@ export function CharacterDialogueEditor({
       id: crypto.randomUUID(),
       lines: [{ persona: "a", expression: "평온", text: "" }],
     };
-    setScenes((values) => [...values, scene]);
+    setScenes([...baselineOrder.map((id) => ({ id, lines: baselineLines[id] })), scene]);
+    setRemovedDrafts({});
     setSelectedId(scene.id);
+  }
+  function selectScene(id: string): void {
+    if (id === selected?.id) return;
+    setScenes(baselineOrder.map((sceneId) => ({ id: sceneId, lines: baselineLines[sceneId] })));
+    setRemovedDrafts({});
+    setSelectedId(id);
+    setError(null);
   }
   function cancelSelected(): void {
     if (!selected) return;
@@ -235,22 +243,24 @@ export function CharacterDialogueEditor({
   );
   return (
     <div className={s.editor}>
-      <div hidden={mode === "scenes"} className={s.ownerPanel}>
-        <WordbookPanel
-          title={ids.length === 1 ? "이 캐릭터의 키워드 대사" : "현재 친구들의 키워드 대사"}
-          description="개인 단어장 다음에 찾는 등록 대사예요. 항목마다 따로 저장해요."
-          entries={dialogue.wordbook}
-          owners={owners}
-          singleCharacter={ids.length === 1}
-          speakerCount={ids.length}
-          saveEntry={saveEntry}
-          deleteEntry={deleteEntry}
-          onDirtyChange={setWordbookDirty}
-          highlight={false}
-        />
-      </div>
-      {ids.length > 1 && (
-        <section hidden={mode === "keyword"} className={s.ownerPanel} aria-label="조합의 자동 수다">
+      {mode !== "scenes" && (
+        <div className={s.ownerPanel}>
+          <WordbookPanel
+            title={ids.length === 1 ? "이 캐릭터의 키워드 대사" : "현재 친구들의 키워드 대사"}
+            description="개인 단어장 다음에 찾는 등록 대사예요. 항목마다 따로 저장해요."
+            entries={dialogue.wordbook}
+            owners={owners}
+            singleCharacter={ids.length === 1}
+            speakerCount={ids.length}
+            saveEntry={saveEntry}
+            deleteEntry={deleteEntry}
+            onDirtyChange={setWordbookDirty}
+            highlight={false}
+          />
+        </div>
+      )}
+      {ids.length > 1 && mode !== "keyword" && (
+        <section className={s.ownerPanel} aria-label="조합의 자동 수다">
           <div className={s.sceneLayout}>
             <CharacterWorkPanel
               role="complementary"
@@ -265,7 +275,7 @@ export function CharacterDialogueEditor({
                   className={s.sceneRow}
                   aria-label={`장면 ${index + 1} 선택`}
                   disabled={pending}
-                  onClick={() => setSelectedId(scene.id)}
+                  onClick={() => selectScene(scene.id)}
                 >
                   <strong>
                     장면 {index + 1}

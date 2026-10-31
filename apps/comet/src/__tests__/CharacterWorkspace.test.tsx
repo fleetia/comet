@@ -7,12 +7,12 @@ import {
   openCharacterLibrary,
 } from "./characterNavigation";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { CharacterManager } from "../components/CharacterManager/CharacterManager";
 import { CharacterEditor } from "../components/CharacterEditor/CharacterEditor";
 import { CharacterLinePreview } from "../components/CharacterEditor/CharacterLinePreview";
 import { command, PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
-import type { Snapshot } from "../types";
+import type { InstalledCharacter, Snapshot } from "../types";
 
 vi.mock("../hooks/useSnapshot", async (load) => ({
   ...(await load<typeof import("../hooks/useSnapshot")>()),
@@ -43,10 +43,6 @@ function choose(name: RegExp): void {
 }
 function selectTab(name: string): void {
   openCharacterPage(name);
-}
-function selectPanel(name: string): ReturnType<typeof within> {
-  selectTab(name);
-  return within(screen.getByRole("tabpanel", { name }));
 }
 
 it("requires a new authored preview after hiding or changing its selected draft", () => {
@@ -112,7 +108,7 @@ it("opens authored lines from the profile, previews the selected draft locally, 
   choose(/^A/);
   expect(screen.getByRole("textbox", { name: "자동 수다 1 대사" })).toHaveProperty(
     "value",
-    "  선택한 원문.\n다음 줄.  ",
+    snapshot.characters.installed[0].definition.idleLines[0].text,
   );
 });
 
@@ -185,155 +181,110 @@ it("shows global hiding before desktop presence in the friend detail status", ()
   choose(/^모래/);
   expect(screen.getByText("직접 만든 친구 · 쉬는 중")).toBeTruthy();
   addNewFriend();
-  expect(screen.getByText("새로 만날 친구")).toBeTruthy();
+  expect(screen.getByRole("textbox", { name: "이름" })).toHaveProperty("value", "");
 });
 
-it("retains exact per-character drafts across selection and snapshot changes after a save failure", async () => {
+it("compares character values and discards unsaved edits on internal pages and friend selection", async () => {
   const onDirtyChange = vi.fn();
-  const { rerender } = render(
-    <CharacterManager embedded snapshot={snapshot} onDirtyChange={onDirtyChange} />,
-  );
+  render(<CharacterManager embedded snapshot={snapshot} onDirtyChange={onDirtyChange} />);
   openCharacterPage("프로필");
-  let panel = within(screen.getByRole("tabpanel", { name: "프로필" }));
-  fireEvent.change(panel.getByLabelText("이름"), { target: { value: "쓰던 이름" } });
-  panel = selectPanel("말풍선");
-  fireEvent.change(panel.getByLabelText("말풍선 글자 크기(px)"), { target: { value: "27" } });
-  fireEvent.change(panel.getByLabelText("말풍선 글자 색"), { target: { value: "#3467ab" } });
-  fireEvent.change(panel.getByLabelText("말풍선 폰트"), {
-    target: { value: "Apple SD Gothic Neo" },
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  fireEvent.change(screen.getByLabelText("이름"), { target: { value: "바꾼 이름" } });
+  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  fireEvent.change(screen.getByLabelText("이름"), { target: { value: "A" } });
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  expect(screen.getByRole("button", { name: "캐릭터 저장" })).toHaveProperty("disabled", true);
+  fireEvent.change(screen.getByLabelText("캐릭터 지침"), {
+    target: { value: "  저장 전 원문\n유지  " },
   });
-  fireEvent.change(panel.getByLabelText("글자 출력 속도 (초당 글자 수)"), {
-    target: { value: "12" },
-  });
-  panel = selectPanel("프로필");
-  fireEvent.change(panel.getByLabelText("캐릭터 지침"), {
-    target: { value: "  짧게 답해요.\n모르면 물어봐요.  " },
-  });
-  panel = selectPanel("다른 친구와의 관계");
-  fireEvent.click(panel.getByRole("button", { name: "관계 추가" }));
-  fireEvent.change(panel.getByLabelText("관계 1 대상"), {
-    target: { value: extra.id },
-  });
-  fireEvent.change(panel.getByLabelText("관계 1 설명"), {
-    target: { value: "  오래된 친구.\n편하게 장난쳐요.  " },
-  });
-  panel = selectPanel("대사·반응");
-  fireEvent.change(panel.getByLabelText("인사 1 대사"), {
-    target: { value: "  안녕.\n반가워.  " },
-  });
-  fireEvent.change(panel.getByLabelText("떠남 1 대사"), {
-    target: { value: "  산책 다녀올게.\n금방 올게.  " },
-  });
-  fireEvent.change(panel.getByLabelText("복귀 1 대사"), {
-    target: { value: "  다시 왔어!  " },
-  });
-  choose(/^B/);
-  panel = selectPanel("말풍선");
-  expect(panel.getByLabelText("말풍선 글자 크기(px)")).toHaveProperty("value", "16");
-  expect(panel.getByLabelText("말풍선 폰트")).toHaveProperty("value", "");
-  expect(panel.getByLabelText("글자 출력 속도 (초당 글자 수)")).toHaveProperty("value", "0");
-  fireEvent.change(panel.getByLabelText("말풍선 폰트"), { target: { value: "Georgia" } });
-  fireEvent.change(panel.getByLabelText("글자 출력 속도 (초당 글자 수)"), {
-    target: { value: "35" },
-  });
-  panel = selectPanel("프로필");
-  fireEvent.change(panel.getByLabelText("성격과 말투"), { target: { value: "느긋한 말투" } });
-  rerender(
-    <CharacterManager
-      embedded
-      snapshot={{ ...snapshot, characters: { ...snapshot.characters } }}
-      onDirtyChange={onDirtyChange}
-    />,
-  );
-  openCharacterPage("프로필");
-  choose(/^쓰던 이름/);
-  panel = selectPanel("말풍선");
-  expect(panel.getByLabelText("말풍선 글자 크기(px)")).toHaveProperty("value", "27");
-  expect(panel.getByLabelText("말풍선 글자 색")).toHaveProperty("value", "#3467ab");
-  expect(panel.getByLabelText("말풍선 폰트")).toHaveProperty("value", "Apple SD Gothic Neo");
-  expect(panel.getByLabelText("글자 출력 속도 (초당 글자 수)")).toHaveProperty("value", "12");
-  const preview = panel.getByLabelText("말풍선 글자 미리보기");
-  expect(preview.style.fontSize).toBe("27px");
-  expect(preview.style.color).toBe("rgb(52, 103, 171)");
-  expect(preview.style.fontFamily).toContain("Apple SD Gothic Neo");
-  panel = selectPanel("프로필");
-  expect(panel.getByLabelText("캐릭터 지침")).toHaveProperty(
-    "value",
-    "  짧게 답해요.\n모르면 물어봐요.  ",
-  );
-  panel = selectPanel("다른 친구와의 관계");
-  expect(panel.getByLabelText("관계 1 대상")).toHaveProperty("value", extra.id);
-  expect(panel.getByLabelText("관계 1 설명")).toHaveProperty(
-    "value",
-    "  오래된 친구.\n편하게 장난쳐요.  ",
-  );
-  panel = selectPanel("대사·반응");
-  expect(panel.getByRole("textbox", { name: "인사 1 대사" })).toHaveProperty(
-    "value",
-    "  안녕.\n반가워.  ",
-  );
-  expect(panel.getByRole("textbox", { name: "떠남 1 대사" })).toHaveProperty(
-    "value",
-    "  산책 다녀올게.\n금방 올게.  ",
-  );
-  expect(panel.getByRole("textbox", { name: "복귀 1 대사" })).toHaveProperty(
-    "value",
-    "  다시 왔어!  ",
-  );
-  vi.mocked(command).mockImplementation(async (name) => {
-    if (name === "save_character") {
-      throw new Error("저장 실패");
-    }
-    return { pairScenes: [], wordbook: [] };
-  });
+  vi.mocked(command).mockRejectedValueOnce(new Error("저장 실패"));
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "저장 실패");
-  panel = selectPanel("프로필");
-  expect(panel.getByLabelText("이름")).toHaveProperty("value", "쓰던 이름");
-  expect(command).toHaveBeenCalledWith("save_character", {
-    id: "builtin-a",
-    definition: expect.objectContaining({
-      name: "쓰던 이름",
-      balloonStyle: {
-        fontSize: 27,
-        textColor: "#3467ab",
-        fontFamily: "Apple SD Gothic Neo",
-        textSpeed: 12,
-      },
-      instructions: "  짧게 답해요.\n모르면 물어봐요.  ",
-      relationships: [{ targetId: extra.id, description: "  오래된 친구.\n편하게 장난쳐요.  " }],
-      greeting: [
-        { ...snapshot.characters.installed[0].definition.greeting[0], text: "  안녕.\n반가워.  " },
-        ...snapshot.characters.installed[0].definition.greeting.slice(1),
-      ],
-      departureLines: [
-        {
-          ...snapshot.characters.installed[0].definition.departureLines[0],
-          text: "  산책 다녀올게.\n금방 올게.  ",
-        },
-      ],
-      returnLines: [
-        { ...snapshot.characters.installed[0].definition.returnLines[0], text: "  다시 왔어!  " },
-      ],
-    }),
-  });
-  fireEvent.click(screen.getByRole("button", { name: "캐릭터 수정 취소" }));
-  panel = selectPanel("말풍선");
-  expect(panel.getByLabelText("말풍선 글자 크기(px)")).toHaveProperty("value", "16");
-  expect(panel.getByLabelText("말풍선 폰트")).toHaveProperty("value", "");
-  expect(panel.getByRole("button", { name: "기본색" })).toHaveProperty("disabled", true);
-  expect(panel.getByLabelText("글자 출력 속도 (초당 글자 수)")).toHaveProperty("value", "0");
-  panel = selectPanel("프로필");
-  expect(panel.getByLabelText("캐릭터 지침")).toHaveProperty("value", "");
-  expect(panel.queryByLabelText("관계 1 설명")).toBeNull();
-  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
-  choose(/^B/);
-  panel = selectPanel("말풍선");
-  expect(panel.getByLabelText("말풍선 폰트")).toHaveProperty("value", "Georgia");
-  expect(panel.getByLabelText("글자 출력 속도 (초당 글자 수)")).toHaveProperty("value", "35");
-  fireEvent.click(screen.getByRole("button", { name: "캐릭터 수정 취소" }));
+  expect(screen.getByLabelText("캐릭터 지침")).toHaveProperty("value", "  저장 전 원문\n유지  ");
+  openCharacterPage("말풍선");
   expect(onDirtyChange).toHaveBeenLastCalledWith(false);
-}, 15_000);
+  fireEvent.change(screen.getByLabelText("말풍선 글자 크기(px)"), { target: { value: "27" } });
+  fireEvent.change(screen.getByLabelText("말풍선 글자 크기(px)"), { target: { value: "16" } });
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  openCharacterPage("프로필");
+  expect(screen.getByLabelText("캐릭터 지침")).toHaveProperty(
+    "value",
+    snapshot.characters.installed[0].definition.instructions,
+  );
+  fireEvent.change(screen.getByLabelText("캐릭터 지침"), { target: { value: "버릴 초안" } });
+  choose(/^B/);
+  choose(/^A/);
+  expect(screen.getByLabelText("캐릭터 지침")).toHaveProperty(
+    "value",
+    snapshot.characters.installed[0].definition.instructions,
+  );
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+});
+
+it.each([
+  ["대사·반응", "사건 반응", "반응 추가", "반응 1 삭제"],
+  ["모습·표정", "부위와 교감 동작", "부위 추가", "부위 삭제"],
+  ["모습·표정", "부위와 교감 동작", "교감 동작 추가", "교감 동작 삭제"],
+])(
+  "restores clean state after %s optional settings are added and removed (%s)",
+  (page, editor, add, remove) => {
+    const original = snapshot.characters.installed[0];
+    const definition = { ...original.definition };
+    delete definition.balloonStyle;
+    delete definition.animation;
+    delete definition.reactions;
+    delete definition.bodyRegions;
+    delete definition.gestureMotions;
+    const onDirtyChange = vi.fn();
+    render(
+      <CharacterManager
+        embedded
+        snapshot={{
+          ...snapshot,
+          characters: {
+            ...snapshot.characters,
+            installed: [{ ...original, definition }, ...snapshot.characters.installed.slice(1)],
+          },
+        }}
+        onDirtyChange={onDirtyChange}
+      />,
+    );
+    openCharacterPage(page);
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${editor}`) }));
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+    fireEvent.click(screen.getByRole("button", { name: add }));
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+    fireEvent.click(screen.getByRole("button", { name: remove }));
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+    expect(screen.getByRole("button", { name: "캐릭터 저장" })).toHaveProperty("disabled", true);
+  },
+);
+
+it("opens a missing relationship destination without creating an unsaved relationship", () => {
+  const onChange = vi.fn();
+  const character = snapshot.characters.installed[0];
+  render(
+    <CharacterEditor
+      definition={character.definition}
+      character={character}
+      installed={snapshot.characters.installed}
+      onChange={onChange}
+      onSave={() => {}}
+      pending={false}
+      dirty={false}
+      tabRequest={{
+        id: character.id,
+        revision: 1,
+        tab: "relationships",
+        relationshipTarget: "builtin-b",
+      }}
+    />,
+  );
+  expect(screen.getByRole("tabpanel", { name: "다른 친구와의 관계" })).toBeTruthy();
+  expect(screen.queryByLabelText("관계 1 설명")).toBeNull();
+  expect(onChange).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "캐릭터 저장" })).toHaveProperty("disabled", true);
+});
 
 it("defaults older balloon styles to instant text and rejects unsupported text sizes and speeds", async () => {
   const original = snapshot.characters.installed[0];
@@ -399,11 +350,22 @@ it("keeps instructions and directional relationships on their owner while a save
         })
       : Promise.resolve({ pairScenes: [], wordbook: [] }),
   );
-  render(<CharacterManager embedded snapshot={snapshot} />);
+  const ownerSnapshot = {
+    ...snapshot,
+    characters: {
+      ...snapshot.characters,
+      installed: snapshot.characters.installed.map((character, index) =>
+        index === 0
+          ? {
+              ...character,
+              definition: { ...character.definition, instructions: "한 문장으로 답해요." },
+            }
+          : character,
+      ),
+    },
+  };
+  render(<CharacterManager embedded snapshot={ownerSnapshot} />);
   openCharacterPage("프로필");
-  fireEvent.change(screen.getByLabelText("캐릭터 지침"), {
-    target: { value: "한 문장으로 답해요." },
-  });
   openCharacterPage("다른 친구와의 관계");
   fireEvent.click(screen.getByRole("button", { name: "관계 추가" }));
   expect(screen.getByLabelText("관계 1 대상")).toHaveProperty("value", "builtin-b");
@@ -414,16 +376,17 @@ it("keeps instructions and directional relationships on their owner while a save
     target: { value: "존경하는 선배예요." },
   });
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
-  expect(screen.getByLabelText("캐릭터 지침").closest("fieldset")).toHaveProperty("disabled", true);
+  expect(screen.queryByLabelText("캐릭터 지침")).toBeNull();
   expect(screen.getByLabelText("관계 1 대상").closest("fieldset")).toHaveProperty("disabled", true);
   choose(/^B/);
+  openCharacterPage("프로필");
   expect(screen.getByLabelText("캐릭터 지침")).toHaveProperty("value", "");
   expect(screen.queryByLabelText("관계 1 설명")).toBeNull();
   fireEvent.change(screen.getByLabelText("캐릭터 지침"), {
     target: { value: "차분하게 대답해요." },
   });
-  finish();
-  await screen.findByText("A 캐릭터를 저장했어요.");
+  await act(async () => finish());
+  expect(screen.queryByText("A 캐릭터를 저장했어요.")).toBeNull();
   expect(screen.getByLabelText("캐릭터 지침")).toHaveProperty("value", "차분하게 대답해요.");
   expect(command).toHaveBeenCalledWith("save_character", {
     id: "builtin-a",
@@ -433,6 +396,45 @@ it("keeps instructions and directional relationships on their owner while a save
     }),
   });
 });
+
+it.each(["create_character", "clone_character"])(
+  "keeps the current friend draft after a late %s completion",
+  async (operation) => {
+    let finish: (value: InstalledCharacter) => void = () => {};
+    vi.mocked(command).mockImplementation(async (name) => {
+      if (name === operation)
+        return new Promise<InstalledCharacter>((resolve) => {
+          finish = resolve;
+        });
+      return name === "get_character_dialogue" ? { pairScenes: [], wordbook: [] } : undefined;
+    });
+    render(<CharacterManager embedded snapshot={snapshot} />);
+    if (operation === "create_character") {
+      addNewFriend();
+      fireEvent.change(screen.getByLabelText("이름"), { target: { value: "만들던 친구" } });
+      fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
+    } else {
+      openCharacterPage("친구 정보");
+      fireEvent.click(screen.getByRole("button", { name: "복제" }));
+    }
+    choose(/^B/);
+    openCharacterPage("프로필");
+    fireEvent.change(screen.getByLabelText("캐릭터 지침"), {
+      target: { value: "현재 친구의 미저장 초안" },
+    });
+    await act(async () =>
+      finish({
+        ...extra,
+        id: "late-created",
+        definition: { ...extra.definition, name: "늦게 만든 친구" },
+      }),
+    );
+    expect(screen.getByLabelText("이름")).toHaveProperty("value", "B");
+    expect(screen.getByLabelText("캐릭터 지침")).toHaveProperty("value", "현재 친구의 미저장 초안");
+    expect(screen.getByRole("button", { name: "캐릭터 저장" })).toHaveProperty("disabled", false);
+    expect(screen.queryByText("별도의 관계를 가진 복사본을 만들었어요.")).toBeNull();
+  },
+);
 
 it("offers other installed identities once and distinguishes duplicate names", () => {
   const duplicate = { ...extra, id: "another-friend" };
@@ -549,10 +551,7 @@ it("applies a saved character once and enforces the final-member and eight-membe
   choose(/^모래/);
   fireEvent.change(screen.getByLabelText("이름"), { target: { value: "수정 중" } });
   openCharacterPage("친구 정보");
-  expect(screen.getByRole("switch", { name: "함께 지내기" })).toHaveProperty("disabled", true);
-  openCharacterPage("프로필");
-  fireEvent.click(screen.getByRole("button", { name: "캐릭터 수정 취소" }));
-  openCharacterPage("친구 정보");
+  expect(screen.getByRole("switch", { name: "함께 지내기" })).toHaveProperty("disabled", false);
   let finish: () => void = () => {};
   vi.mocked(command).mockImplementation((name) =>
     name === "apply_character_roster"
@@ -596,59 +595,27 @@ it("applies a saved character once and enforces the final-member and eight-membe
   expect(screen.getByRole("switch", { name: "함께 지내기" })).toHaveProperty("disabled", true);
 });
 
-it("preserves separate keyword drafts when switching characters or visiting a new character", async () => {
+it("discards keyword drafts when changing dialogue type or choosing another friend", async () => {
   const onDirtyChange = vi.fn();
   render(<CharacterManager embedded snapshot={snapshot} onDirtyChange={onDirtyChange} />);
-  openCharacterPage("프로필");
-  selectTab("대사·반응");
-  fireEvent.click(screen.getByRole("button", { name: "키워드" }));
-  await screen.findByRole("textbox", { name: "제목" });
-  fireEvent.change(screen.getByRole("textbox", { name: "제목" }), {
-    target: { value: "첫 친구 인사" },
-  });
-  fireEvent.change(screen.getByRole("textbox", { name: "키워드" }), {
-    target: { value: "반가워" },
-  });
-  fireEvent.change(screen.getByRole("textbox", { name: "대사 1" }), {
-    target: { value: "  쓰던 인사\n반가워  " },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "인사·수다·출입" }));
-  selectTab("프로필");
-  selectTab("말풍선");
-  selectTab("대사·반응");
-  choose(/^B/);
-  fireEvent.click(screen.getByRole("button", { name: "키워드" }));
-  await screen.findByRole("textbox", { name: "제목" });
-  fireEvent.change(screen.getByRole("textbox", { name: "제목" }), {
-    target: { value: "둘째 친구 인사" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "인사·수다·출입" }));
-  addNewFriend();
-  choose(/^A/);
   openCharacterPage("대사·반응");
   fireEvent.click(screen.getByRole("button", { name: "키워드" }));
-  expect(screen.getByRole("textbox", { name: "제목" })).toHaveProperty("value", "첫 친구 인사");
-  expect(screen.getByRole("textbox", { name: "대사 1" })).toHaveProperty(
-    "value",
-    "  쓰던 인사\n반가워  ",
-  );
-  fireEvent.click(screen.getByRole("button", { name: "단어장 저장" }));
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("save_character_dialogue", {
-      ids: ["builtin-a"],
-      dialogue: expect.objectContaining({
-        wordbook: [
-          expect.objectContaining({
-            title: "첫 친구 인사",
-            lines: [expect.objectContaining({ text: "  쓰던 인사\n반가워  " })],
-          }),
-        ],
-      }),
-    }),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "인사·수다·출입" }));
+  fireEvent.change(await screen.findByRole("textbox", { name: "제목" }), {
+    target: { value: "버릴 인사" },
+  });
   expect(onDirtyChange).toHaveBeenLastCalledWith(true);
-  choose(/^B/);
+  fireEvent.click(screen.getByRole("button", { name: "인사·수다·출입" }));
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
   fireEvent.click(screen.getByRole("button", { name: "키워드" }));
-  expect(screen.getByRole("textbox", { name: "제목" })).toHaveProperty("value", "둘째 친구 인사");
-}, 15_000);
+  expect(await screen.findByRole("textbox", { name: "제목" })).toHaveProperty("value", "");
+  fireEvent.change(screen.getByRole("textbox", { name: "제목" }), {
+    target: { value: "친구 이동 전 초안" },
+  });
+  choose(/^B/);
+  choose(/^A/);
+  expect(await screen.findByRole("textbox", { name: "제목" })).toHaveProperty("value", "");
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  expect(vi.mocked(command).mock.calls.some(([name]) => name === "save_character_dialogue")).toBe(
+    false,
+  );
+});

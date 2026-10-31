@@ -119,7 +119,10 @@ export function MusicSettings({
   const { mac, windows } = platformSupport();
   const [draft, setDraft] = useState<Config | null>(null);
   const config = draft ?? stored;
-  const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(stored);
+  const dirty =
+    draft !== null &&
+    JSON.stringify({ ...draft, allowedProviders: [...draft.allowedProviders].sort() }) !==
+      JSON.stringify({ ...stored, allowedProviders: [...stored.allowedProviders].sort() });
   const { busy, error, invoke } = useMusicRequest(widget);
   const [bridge, setBridge] = useState<BridgeStatus | null>(null);
   const [bridgeError, setBridgeError] = useState(false);
