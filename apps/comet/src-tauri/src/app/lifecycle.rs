@@ -205,6 +205,7 @@ pub fn run() {
             crate::pack_stories::commands::get_pack_story_definition,
             crate::pack_stories::commands::save_pack_story_definition,
             crate::pack_stories::commands::trial_pack_story,
+            crate::app::conversation::start_tutorial,
             crate::pack_stories::commands::trial_pack_authoring,
             crate::widgets::generated::commands::get_generated_widgets,
             crate::widgets::generated::commands::get_widget_workshop_mode,
@@ -538,6 +539,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         follow_ups: Mutex::new(None),
         follow_up_dismissed_epoch: AtomicU64::new(u64::MAX),
         pack_stories: Mutex::new(crate::pack_stories::Runtime::default()),
+        scene_events: Mutex::new(super::scene_events::Runtime::default()),
         story_clock: Mutex::new(story::Clock::default()),
         story_catalog: Mutex::new(story_catalog),
         widget_jobs: Mutex::new(HashMap::new()),
@@ -631,6 +633,8 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
         crate::widgets::desktop::moved(window);
     }
     if matches!(event, WindowEvent::Destroyed) {
+        let state = window.state::<Arc<AppState>>();
+        let _ = super::scene_events::closed_label(&state, window.label());
         let label = window.label();
         if label == "widget-editor" {
             crate::widgets::desktop::editor_destroyed(window.app_handle());
@@ -700,6 +704,9 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
                     "settings_window_hide",
                     "Settings window hide failed: {error}"
                 );
+            } else {
+                let state = window.state::<Arc<AppState>>();
+                let _ = super::scene_events::closed_label(&state, "settings");
             }
         }
         return;

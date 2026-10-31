@@ -55,6 +55,17 @@ it("defers without submitting an affinity choice", async () => {
   );
 });
 
+it.each(["scene-choice:1", "scene-resume:1"])(
+  "shows only the supplied choices for %s",
+  (id) => {
+    render(<StoryChoices story={{ ...story, id }} dispatch={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "다음에 듣기" })).toBeNull();
+    for (const choice of story.choices) {
+      expect(screen.getByRole("button", { name: choice.label })).toBeTruthy();
+    }
+  },
+);
+
 it.each([2, 4])(
   "keeps %i choices and their long original text keyboard accessible",
   async (count) => {

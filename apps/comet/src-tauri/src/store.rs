@@ -31,8 +31,8 @@ pub use memory::memories;
 pub use memory::{
     analysis_memories, analyze_apply_batch, assign_legacy_memories, completed_conversation_sources,
     copy_recall, delete_memory_for, edit_memory_for, forget_character_memories, idle_memories,
-    inherit_recall, insert_experience, insert_moment, legacy_memory_count, legacy_memory_page, recall_valid,
-    record_recall, relationships, scoped_memory_page,
+    inherit_recall, insert_experience, insert_moment, legacy_memory_count, legacy_memory_page,
+    recall_valid, record_recall, relationships, scoped_memory_page,
 };
 #[cfg(test)]
 pub use memory::{delete_memory, edit_memory};
@@ -51,7 +51,9 @@ pub use messages::{
     single_bundle_selected, single_bundle_targets, MessageIdentity,
 };
 use messages::{initialize_identities, initialize_message_context};
-pub(crate) use messages::{insert_message_with_actor, save_generated_bundle};
+pub(crate) use messages::{
+    insert_message_with_actor, save_generated_bundle,
+};
 #[cfg(test)]
 pub use messages::{insert_message_with_source, insert_message_with_talk};
 pub use search::{
@@ -65,8 +67,8 @@ pub use search::{current_user_facts_for, memory_page, revalidate_search_hits, se
 pub use users::require_user;
 pub use users::{
     active_user_id, current_user, current_user_birthday, effective_memory_time, expire_memories,
-    message_user_id, message_user_names, register_user_name, register_user_profile, set_user_birthday,
-    set_user_name, user_identity, MEMORY_LIFETIME_MILLIS,
+    message_user_id, message_user_names, register_user_name, register_user_profile,
+    set_user_birthday, set_user_name, user_identity, MEMORY_LIFETIME_MILLIS,
 };
 
 use crate::types::*;

@@ -13,7 +13,7 @@ export const card = style({
   border: 0,
   background: tokens["color/glass-panel"],
   backdropFilter: tokens["backdrop/backdrop-panel"],
-  boxShadow: `inset 0 0 0 1px ${tokens["color/glass-border"]}, inset 0 1px 0 ${tokens["color/surface-highlight"]}, 0 22px 48px ${tokens["color/surface-shadow"]}`,
+  boxShadow: `inset 0 0 0 1px ${tokens["color/glass-border"]}, inset 0 1px 0 ${tokens["color/surface-highlight"]}, 0 4px 12px -2px ${tokens["color/component/surface-shadow-alpha-160"]}`,
 });
 export const header = style({ display: "flex", alignItems: "center", gap: 8, minWidth: 0 });
 export const heading = style({
@@ -273,7 +273,7 @@ export const fortuneBalloon = style([
   {
     minHeight: 168,
     border: 0,
-    boxShadow: `inset 0 0 0 1px ${tokens["color/glass-border"]}, inset 0 1px 0 ${tokens["color/surface-highlight"]}, 0 22px 48px ${tokens["color/surface-shadow"]}`,
+    boxShadow: `inset 0 0 0 1px ${tokens["color/glass-border"]}, inset 0 1px 0 ${tokens["color/surface-highlight"]}, 0 4px 12px -2px ${tokens["color/surface-shadow"]}`,
   },
 ]);
 export const fortuneCopy = style({ display: "grid", gap: 8 });

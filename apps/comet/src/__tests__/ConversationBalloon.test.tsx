@@ -66,6 +66,19 @@ function conversationSnapshot(): Snapshot {
   };
 }
 
+it("sends a scene answer with the displayed question identity and no old conversation draft", async () => {
+  const { rerender } = render(<Balloon snapshot={conversationSnapshot()} />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "이전 대화" } });
+  rerender(<Balloon snapshot={{ ...conversationSnapshot(), conversation: null, sceneAskId: "ask-2" }} />);
+  const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+  expect(input.value).toBe("");
+  fireEvent.change(input, { target: { value: "장면 답변" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(command).toHaveBeenCalledWith("send_message", {
+    content: "장면 답변", target: "builtin-a", clientMessageId: expect.any(String), sceneAskId: "ask-2",
+  }));
+});
+
 const interruptedInput: Message = {
   ...seed,
   id: "interrupted-input",

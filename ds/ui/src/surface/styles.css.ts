@@ -13,7 +13,7 @@ export const surface = style({
   borderRadius: tokens["radius/radius-22"],
   background: tokens["color/glass-panel"],
   backdropFilter: "blur(12px)",
-  boxShadow: `inset 0 1px 0 ${tokens["color/window-highlight"]}, 0 22px 48px ${tokens["color/surface-shadow"]}, 0 0 0 ${tokens["color/surface-halo"]}`,
+  boxShadow: `inset 0 1px 0 ${tokens["color/window-highlight"]}, 0 4px 12px -2px ${tokens["color/surface-shadow"]}, 0 0 0 ${tokens["color/surface-halo"]}`,
   selectors: { "&[hidden]": { display: "none" } },
 });
 
@@ -23,7 +23,7 @@ export const variants = styleVariants({
     borderColor: tokens["color/glass-border-soft"],
     background: tokens["color/glass-window"],
     backdropFilter: "blur(15px)",
-    boxShadow: `inset 0 1px 0 ${tokens["color/window-highlight"]}, 0 30px 80px ${tokens["color/window-shadow"]}`,
+    boxShadow: `inset 0 1px 0 ${tokens["color/window-highlight"]}, 0 4px 12px -2px ${tokens["color/window-shadow"]}`,
   },
   sheet: {},
   panel: {

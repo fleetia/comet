@@ -26,6 +26,7 @@ export function useConversationSubmission({
   playing,
   canRetry,
   latestUser,
+  sceneAskId,
 }: {
   user: Snapshot["user"];
   activeRequest: ActiveRequest | undefined;
@@ -43,6 +44,7 @@ export function useConversationSubmission({
   playing: boolean;
   canRetry: boolean;
   latestUser: Message | undefined;
+  sceneAskId?: string;
 }): {
   pending: boolean;
   failedSubmission: Submission | null;
@@ -152,6 +154,7 @@ export function useConversationSubmission({
         content: input.trim(),
         target,
         clientMessageId,
+        ...(sceneAskId ? { sceneAskId } : {}),
         ...(submittedDraft.sessionId ? { sessionId: submittedDraft.sessionId } : {}),
       });
       if (draft.current === submittedDraft) {

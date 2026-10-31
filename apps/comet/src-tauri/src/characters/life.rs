@@ -120,7 +120,12 @@ impl Runtime {
             return Vec::new();
         }
         let mut changes = self.apply_mood(id, action, 1, now, epoch);
-        for (queued, change) in self.mood_changes.iter_mut().rev().zip(changes.iter_mut().rev()) {
+        for (queued, change) in self
+            .mood_changes
+            .iter_mut()
+            .rev()
+            .zip(changes.iter_mut().rev())
+        {
             queued.interaction_id = Some(request_id.into());
             change.interaction_id = queued.interaction_id.clone();
         }
@@ -717,25 +722,39 @@ mod tests {
         let id = characters::active_ids(&db).unwrap()[0].clone();
         let actor = characters::get(&db, &id).unwrap();
         crate::widgets::storage::body_interaction_with_actor(
-            &db, &actor, 0, "stroke", &uuid::Uuid::new_v4().to_string(), 500,
-        ).unwrap();
+            &db,
+            &actor,
+            0,
+            "stroke",
+            &uuid::Uuid::new_v4().to_string(),
+            500,
+        )
+        .unwrap();
         let first = uuid::Uuid::new_v4().to_string();
         let accepted = crate::widgets::storage::body_interaction_with_actor(
             &db, &actor, 0, "stroke", &first, 1_000,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(accepted.accepted && accepted.event.is_none());
         let mut life = Runtime::default();
         life.apply_interaction(&id, "stroke", accepted.accepted, &first, 1_000, 0);
         assert_eq!(life.mood[&id].value, 1);
         let retry = crate::widgets::storage::body_interaction_with_actor(
             &db, &actor, 0, "stroke", &first, 400_000,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(!retry.accepted);
         life.apply_interaction(&id, "stroke", retry.accepted, &first, 400_000, 0);
         assert_eq!(life.mood[&id].value, 1);
         let second = crate::widgets::storage::body_interaction_with_actor(
-            &db, &actor, 0, "snack", &uuid::Uuid::new_v4().to_string(), 1_001,
-        ).unwrap();
+            &db,
+            &actor,
+            0,
+            "snack",
+            &uuid::Uuid::new_v4().to_string(),
+            1_001,
+        )
+        .unwrap();
         assert!(second.accepted);
         life.apply_interaction(&id, "snack", second.accepted, "snack", 1_001, 0);
         assert_eq!(life.mood[&id].value, 2);
@@ -803,6 +822,8 @@ mod tests {
             title: "진행 중".into(),
             prompt: "선택".into(),
             choices: vec![],
+            expression: None,
+            motion: None,
             character_id: id.clone(),
             user_id: "user".into(),
             epoch: token.0,

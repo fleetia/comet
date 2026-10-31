@@ -101,7 +101,7 @@ export const states = styleVariants({
     background: tokens["color/primary"],
     color: tokens["color/on-primary"],
     borderColor: tokens["color/primary"],
-    boxShadow: `0 0 26px ${tokens["color/star-line"]}`,
+    boxShadow: `0 0 12px ${tokens["color/star-line"]}`,
   },
   focus: { outline: `2px solid ${tokens["color/primary"]}`, outlineOffset: 3 },
   visited: { width: 44, height: 44, border: `2px solid ${tokens["color/primary"]}` },

@@ -99,6 +99,21 @@ pub fn choose_story(
     request_id: String,
     choice_id: String,
 ) -> Result<(), String> {
+    if request_id.starts_with("scene-resume:") {
+        return crate::app::scene_resume::choose(
+            app,
+            state.inner().clone(),
+            &request_id,
+            &choice_id,
+        );
+    }
+    if crate::app::conversation::scene_story::answer_choice(&state, &request_id, &choice_id)? {
+        crate::app::publish(&app, &state);
+        return Ok(());
+    }
+    if request_id.starts_with("scene-choice:") {
+        return Err("이미 지나간 이야기예요.".into());
+    }
     let (line, token) = {
         let _action = lock(&state.action)?;
         let request = lock(&state.story)?

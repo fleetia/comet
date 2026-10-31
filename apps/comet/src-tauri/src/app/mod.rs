@@ -13,6 +13,8 @@ pub(crate) mod presence;
 pub(crate) mod quiet_hours;
 mod reset;
 pub(crate) mod scene;
+pub(crate) mod scene_events;
+pub(crate) mod scene_resume;
 mod settings;
 pub(crate) mod tasks;
 #[cfg(test)]
@@ -72,6 +74,7 @@ pub(crate) struct AppState {
     pub(crate) follow_ups: Mutex<Option<FollowUpRequest>>,
     pub(crate) follow_up_dismissed_epoch: AtomicU64,
     pub(crate) pack_stories: Mutex<crate::pack_stories::Runtime>,
+    pub(crate) scene_events: Mutex<scene_events::Runtime>,
     pub(crate) story_clock: Mutex<story::Clock>,
     pub(crate) story_catalog: Mutex<Vec<story::Scene>>,
     pub(crate) widget_jobs: Mutex<HashMap<String, Arc<AtomicBool>>>,
@@ -130,7 +133,10 @@ pub(crate) fn open_session(path: &std::path::Path) -> Result<Connection, String>
         let recovered = crate::organizer::runtime::collect_comet(&db, &user)
             .and_then(|()| crate::organizer::recover_operations(&db, &user));
         if recovered.is_err() {
-            crate::report_error!("organizer_recovery", "Organizer operation recovery deferred");
+            crate::report_error!(
+                "organizer_recovery",
+                "Organizer operation recovery deferred"
+            );
         }
     }
     Ok(db)
@@ -173,6 +179,11 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
             .map(|session| store::conversation_view(&db, &session.id))
             .transpose()?,
         story: lock(&state.story)?.clone(),
+        scene_ask_id: lock(&state.pack_stories)?
+            .interaction
+            .as_ref()
+            .filter(|interaction| interaction.choices.is_none() && interaction.answer.is_none())
+            .map(|interaction| interaction.request_id.clone()),
         follow_ups: lock(&state.follow_ups)?.clone(),
         wordbook: wordbook::entries(&db)?,
         characters,
@@ -269,13 +280,15 @@ pub(crate) fn interrupt_with_db(
     crate::pack_stories::flush_cancellations(db, &mut *lock(&state.pack_stories)?)?;
     crate::pack_stories::cancel_with_progress(db, &mut *lock(&state.pack_stories)?)?;
     if let Some(run_id) = run_id {
+        scene_events::clear_run(state, db, &run_id)?;
         crate::characters::guests::leave_run_locked(state, &run_id)?;
     }
     interrupt_for_conversation(state, automatic)
 }
 
 pub(crate) fn discard_moment_events(db: &rusqlite::Connection) -> Result<(), String> {
-    db.execute("DELETE FROM moment_events", []).map_err(|error| error.to_string())?;
+    db.execute("DELETE FROM moment_events", [])
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 

@@ -87,7 +87,7 @@ export function Balloon({
     dispatch,
   );
   const userId = snapshot.user?.id;
-  const viewIdentity = `${snapshot.user?.id ?? ""}:${mode === "input" && sessionId ? `conversation:${sessionId}` : snapshot.panel ? `${mode}:${snapshot.panel.persona}${mode === "update" ? `:${snapshot.playback?.id ?? ""}` : ""}` : (snapshot.playback?.id ?? "")}`;
+  const viewIdentity = `${snapshot.user?.id ?? ""}:${snapshot.sceneAskId ?? (mode === "input" && sessionId ? `conversation:${sessionId}` : snapshot.panel ? `${mode}:${snapshot.panel.persona}${mode === "update" ? `:${snapshot.playback?.id ?? ""}` : ""}` : (snapshot.playback?.id ?? ""))}`;
   const currentView = useRef<BalloonView>({
     identity: viewIdentity,
     mode,
@@ -181,7 +181,7 @@ export function Balloon({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
   const responding = ["loading", "generating"].includes(snapshot.runtime.phase);
-  const playing = Boolean(conversation && snapshot.playback);
+  const playing = Boolean(conversation && snapshot.playback && !snapshot.sceneAskId);
   const latestUser = (conversation?.messages ?? snapshot.messages)
     .filter((message) => message.role === "user")
     .at(-1);
@@ -222,6 +222,7 @@ export function Balloon({
     playing,
     canRetry,
     latestUser,
+    sceneAskId: snapshot.sceneAskId,
   });
   const inputError = error || (mode === "input" || !mode ? snapshot.runtime.error : null);
   const download = snapshot.runtime.download;
@@ -288,6 +289,15 @@ export function Balloon({
     setTarget(persona);
   }, [persona, sessionId]);
   useEffect(() => {
+    if (!snapshot.sceneAskId) return;
+    setTarget(persona);
+    draft.current = { userId, sessionId: undefined, value: "", saved: "" };
+    setInput("");
+    setError(null);
+    forgetSubmission();
+  }, [snapshot.sceneAskId]);
+  useEffect(() => {
+    if (snapshot.sceneAskId) return;
     draft.current = {
       userId: conversation?.session.userId ?? userId,
       sessionId,
@@ -299,7 +309,7 @@ export function Balloon({
     forgetSubmission();
   }, [snapshot.user?.id]);
   useEffect(() => {
-    if (!conversation || draft.current.sessionId === sessionId) return;
+    if (snapshot.sceneAskId || !conversation || draft.current.sessionId === sessionId) return;
     draft.current = {
       userId: conversation.session.userId,
       sessionId,
@@ -311,12 +321,13 @@ export function Balloon({
     forgetSubmission();
     setLogOpen(false);
     setLatestUserOpen(false);
-  }, [sessionId]);
+  }, [sessionId, snapshot.sceneAskId]);
   useEffect(() => {
     // Async generation can fail after send_message accepted and cleared the editor.
     // Restore only an empty draft, never text written while that request was running.
     if (
       mode !== "input" ||
+      snapshot.sceneAskId ||
       !conversation ||
       snapshot.runtime.phase !== "error" ||
       recovery?.reason !== "incomplete" ||
@@ -335,12 +346,13 @@ export function Balloon({
     latestUser?.id,
     recovery?.messageId,
     recovery?.reason,
+    snapshot.sceneAskId,
   ]);
   useEffect(() => {
-    if (!conversation) return;
+    if (snapshot.sceneAskId || !conversation) return;
     const participants = conversation.session.participants;
     setTarget(guestPersona ?? (participants.length > 1 ? "all" : (participants[0] ?? persona)));
-  }, [sessionId, guestPersona]);
+  }, [sessionId, guestPersona, snapshot.sceneAskId]);
   useEffect(() => {
     if (mode === "input") {
       inputRef.current?.focus({ preventScroll: Boolean(visibleError) });

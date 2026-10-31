@@ -90,15 +90,17 @@ export function StoryChoices({
           options={story.choices.map((choice) => ({ ...choice, disabled: pending }))}
           onChoose={(id) => void choose(id)}
         />
-        <Button
-          className={s.defer}
-          variant="ghost"
-          size="small"
-          disabled={pending}
-          onClick={() => void choose()}
-        >
-          다음에 듣기
-        </Button>
+        {!story.id.startsWith("scene-choice:") && !story.id.startsWith("scene-resume:") && (
+          <Button
+            className={s.defer}
+            variant="ghost"
+            size="small"
+            disabled={pending}
+            onClick={() => void choose()}
+          >
+            다음에 듣기
+          </Button>
+        )}
       </div>
       {pending && (
         <p className={s.status} role="status">

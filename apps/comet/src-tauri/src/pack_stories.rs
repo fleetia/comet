@@ -1,4 +1,5 @@
 pub(crate) mod commands;
+pub(crate) mod resume;
 
 use crate::{
     characters::{CharacterDefinition, CharacterLine},
@@ -534,6 +535,7 @@ pub enum Stage {
     Decline,
     Ending,
     Entry,
+    Chapter,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -543,6 +545,10 @@ pub struct RunTicket {
     pub scope: Scope,
     pub scenario_id: Option<String>,
     pub stage: Stage,
+    #[serde(default)]
+    pub chapter_id: Option<String>,
+    #[serde(default)]
+    pub step: usize,
     pub phase_generation: u64,
     pub epoch: u64,
     pub participants: Vec<String>,
@@ -595,6 +601,20 @@ pub struct Runtime {
     pub run: Option<RunTicket>,
     pub pending_next: Option<(Scope, String)>,
     pub pending_cancellations: Vec<RunTicket>,
+    pub resume_offered: bool,
+    pub pending_resume: Option<(String, Scope, resume::ResumePoint)>,
+    pub(crate) interaction: Option<SceneInteraction>,
+}
+
+#[derive(Clone)]
+pub(crate) struct SceneInteraction {
+    pub run_id: String,
+    pub epoch: u64,
+    pub generation: u64,
+    pub request_id: String,
+    pub persona: String,
+    pub choices: Option<Vec<String>>,
+    pub answer: Option<String>,
 }
 
 fn id(value: &str) -> bool {
@@ -1149,6 +1169,7 @@ pub fn validate_pack(
 
 pub(crate) fn initialize(db: &Connection) -> Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS pack_story_inputs(user_id TEXT NOT NULL,input_id TEXT NOT NULL,turn INTEGER NOT NULL,PRIMARY KEY(user_id,input_id)); CREATE TABLE IF NOT EXISTS pack_story_plans(input_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS pack_story_progress(scope TEXT PRIMARY KEY,wait_turn INTEGER NOT NULL DEFAULT 0,flags TEXT NOT NULL DEFAULT '[]'); CREATE TABLE IF NOT EXISTS pack_story_outcomes(run_id TEXT NOT NULL,kind TEXT NOT NULL,scope TEXT NOT NULL,scenario_id TEXT NOT NULL,input_id TEXT NOT NULL,evidence TEXT NOT NULL,PRIMARY KEY(run_id,kind));").map_err(|e| e.to_string())?;
+    resume::initialize(db)?;
     recover_interrupted(db)
 }
 fn transaction<T>(db: &Connection, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
@@ -1197,18 +1218,25 @@ pub fn load_plan(db: &Connection, input_id: &str) -> Result<Option<Plan>> {
         )
         .optional()
         .map_err(|e| e.to_string())?;
-    data.map(|value| {
-        serde_json::from_str::<Plan>(&value)
-            .map(|mut plan| {
-                plan.retry = true;
-                plan
-            })
-            .map_err(|e| e.to_string())
-    })
-    .transpose()
+    let Some(value) = data else {
+        return Ok(None);
+    };
+    let mut plan: Plan = serde_json::from_str(&value).map_err(|e| e.to_string())?;
+    if plan.run.stage == Stage::Chapter {
+        if plan.source == "expired-chapter" {
+            return Err("지난 장면형 이야기는 재시도할 수 없어요. 새로 시작해 주세요.".into());
+        }
+        let started: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pack_story_outcomes WHERE run_id=?1 AND kind='accepted')", [&plan.run_id], |row| row.get(0)).map_err(|e| e.to_string())?;
+        if started {
+            return Err("지난 장면형 이야기는 재시도할 수 없어요. 새로 시작해 주세요.".into());
+        }
+    }
+    plan.retry = true;
+    Ok(Some(plan))
 }
 pub fn cancel(runtime: &mut Runtime) -> Vec<String> {
     runtime.pending_next = None;
+    runtime.interaction = None;
     runtime
         .run
         .take()
@@ -1241,6 +1269,12 @@ fn progress(db: &Connection, scope: &Scope) -> Result<(u64, BTreeSet<String>)> {
                 .map_err(|e| e.to_string())
         })
         .unwrap_or(Ok((0, BTreeSet::new())))
+}
+fn story_affinity(db: &Connection, center: &str) -> Result<i32> {
+    Ok(crate::store::relationships(db)?
+        .into_iter()
+        .find(|relation| relation.persona == center)
+        .map_or(20, |relation| relation.score))
 }
 pub fn current(db: &Connection, run: &RunTicket) -> Result<bool> {
     if crate::store::active_user_id(db)? != run.scope.user_id
@@ -1338,7 +1372,9 @@ fn make_plan(
                     .ok_or("이야기 참가자가 설치되어 있지 않아요.".to_string())
             })
             .collect::<Result<Vec<_>>>()?;
-        let source_lines = if stage == Stage::Defer {
+        let source_lines = if stage == Stage::Chapter {
+            Vec::new()
+        } else if stage == Stage::Defer {
             defer_lines(definition)
         } else {
             lines_for(stage, definition).to_vec()
@@ -1423,12 +1459,18 @@ fn make_plan(
         scope,
         scenario_id: definition.as_ref().map(|d| d.id.clone()),
         stage,
+        chapter_id: None,
+        step: 0,
         phase_generation: generation,
         epoch: context.epoch,
         participants,
         pack_baseline: snapshot.baseline,
         definition_baselines: baselines,
-        last_playback_id: format!("scene:{}:{}", context.input_id, lines.len() - 1),
+        last_playback_id: format!(
+            "scene:{}:{}",
+            context.input_id,
+            lines.len().saturating_sub(1)
+        ),
         definition,
         ready: false,
     };
@@ -1447,6 +1489,46 @@ fn make_plan(
         run,
         retry: false,
     })
+}
+
+pub(crate) fn scene_plan(
+    db: &Connection,
+    context: &InputContext,
+    scope: Scope,
+    definition: ScenarioDefinition,
+    chapter_id: Option<&str>,
+) -> Result<Plan> {
+    if crate::store::current_user(db)?.is_none()
+        || context.user_id != crate::store::active_user_id(db)?
+    {
+        return Err("이야기를 시작하려면 이름을 먼저 등록해 주세요.".into());
+    }
+    let chapters = definition
+        .chapters
+        .as_ref()
+        .ok_or("장면형 이야기가 아니에요.")?;
+    let chapter = chapter_id
+        .and_then(|id| chapters.iter().find(|chapter| chapter.id == id))
+        .or_else(|| chapters.first())
+        .ok_or("이야기의 첫 장을 찾을 수 없어요.")?;
+    let chapter_id = chapter.id.clone();
+    let source = if definition.purpose == ScenarioPurpose::Tutorial {
+        "tutorial"
+    } else {
+        "scenario"
+    };
+    let mut plan = make_plan(
+        db,
+        context,
+        scope,
+        Some(definition),
+        (Stage::Chapter, 1),
+        uuid::Uuid::new_v4().to_string(),
+        None,
+    )?;
+    plan.run.chapter_id = Some(chapter_id);
+    plan.source = source.into();
+    Ok(plan)
 }
 fn save_plan(db: &Connection, plan: &Plan) -> Result<()> {
     transaction(db, |tx| {
@@ -1537,9 +1619,6 @@ pub fn select(
             center_id: center.clone(),
         };
         let (wait, flags) = progress(db, &scope)?;
-        if turn < wait {
-            continue;
-        }
         let mut candidates = snapshot.definition.scenarios.iter().collect::<Vec<_>>();
         if let Some((pending_scope, next)) = &runtime.pending_next {
             if *pending_scope == scope {
@@ -1550,8 +1629,42 @@ pub fn select(
             }
         }
         for definition in candidates {
-            if definition.chapters.is_some()
-                || snapshot.source_to_local.get(&definition.center_id) != Some(center)
+            if definition.chapters.is_some() {
+                let flags_allowed = flags_match(&definition.required_flags, &flags)
+                    && !definition
+                        .participants
+                        .iter()
+                        .filter_map(|source| snapshot.source_to_local.get(source))
+                        .filter_map(|id| crate::characters::get(db, id).ok())
+                        .filter_map(|actor| actor.definition.npc)
+                        .any(|npc| !flags_match(&npc.required_flags, &flags));
+                if runtime.run.is_none()
+                    && snapshot.source_to_local.get(&definition.center_id) == Some(center)
+                    && !definition.keywords.is_empty()
+                    && matches_keywords(&definition.keywords, content)
+                    && crate::store::current_user(db)?.is_some()
+                    && flags_allowed
+                {
+                    if definition.purpose.is_story()
+                        && (turn < wait || story_affinity(db, center)? < definition.min_affinity)
+                    {
+                        continue;
+                    }
+                    let completed: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pack_story_outcomes WHERE scope=?1 AND scenario_id=?2 AND kind='completed')", params![scope_key(&scope)?, definition.id], |row| row.get(0)).map_err(|error| error.to_string())?;
+                    let incomplete: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pack_story_outcomes o WHERE scope=?1 AND scenario_id=?2 AND kind IN ('accepted','cancelled') AND NOT EXISTS(SELECT 1 FROM pack_story_outcomes terminal WHERE terminal.run_id=o.run_id AND terminal.kind IN ('completed','declined')))", params![scope_key(&scope)?, definition.id], |row| row.get(0)).map_err(|error| error.to_string())?;
+                    if !repeat_allowed(definition, completed, incomplete) {
+                        continue;
+                    }
+                    let plan = scene_plan(db, context, scope.clone(), definition.clone(), None)?;
+                    save_plan(db, &plan)?;
+                    return Ok(Some(plan));
+                }
+                continue;
+            }
+            if turn < wait {
+                continue;
+            }
+            if snapshot.source_to_local.get(&definition.center_id) != Some(center)
                 || !definition.keywords.is_empty()
                     && !matches_keywords(&definition.keywords, content)
                 || !flags_match(&definition.required_flags, &flags)
@@ -1570,10 +1683,7 @@ pub fn select(
             if !repeat_allowed(definition, completed, incomplete) {
                 continue;
             }
-            let score = crate::store::relationships(db)?
-                .into_iter()
-                .find(|relation| relation.persona == *center)
-                .map_or(20, |relation| relation.score);
+            let score = story_affinity(db, center)?;
             let stage = if score >= definition.min_affinity {
                 Stage::Intro
             } else if definition
@@ -1700,6 +1810,31 @@ pub fn retain_run(
     runtime.run = Some(ticket.clone());
     Ok(ticket)
 }
+fn apply_completion_effects(db: &Connection, ticket: &RunTicket, now: i64) -> Result<()> {
+    let definition = ticket
+        .definition
+        .as_ref()
+        .ok_or("이야기 정의를 찾을 수 없어요.")?;
+    let (_, mut flags) = progress(db, &ticket.scope)?;
+    flags.extend(definition.completion.set_flags.iter().cloned());
+    db.execute("INSERT INTO pack_story_progress VALUES(?1,?2,?3) ON CONFLICT(scope) DO UPDATE SET wait_turn=excluded.wait_turn,flags=excluded.flags",params![scope_key(&ticket.scope)?,current_turn(db,&ticket.scope.user_id)?+3,serde_json::to_string(&flags).map_err(|e|e.to_string())?]).map_err(|e|e.to_string())?;
+    if let Some(template) = &definition.completion.memory_template {
+        let text = template.replace("{scenarioTitle}", &definition.title);
+        crate::store::insert_moment(
+            db,
+            &ticket.scope.center_id,
+            &ticket.scope.user_id,
+            "story-complete",
+            &text,
+            now,
+            ticket.scenario_id.as_deref(),
+            serde_json::json!({"scenarioId":ticket.scenario_id}),
+            None,
+            None,
+        )?;
+    }
+    Ok(())
+}
 pub fn display_finished(
     db: &Connection,
     runtime: &mut Runtime,
@@ -1734,7 +1869,7 @@ pub fn display_finished(
         return Ok(Finish::default());
     };
     let actor = crate::characters::get(db, &line.persona)?;
-    if !matches!(source.as_str(), "scenario" | "npc")
+    if !matches!(source.as_str(), "scenario" | "npc" | "tutorial")
         || proof.ends_at
             < start.saturating_add(crate::playback::line_duration_millis(
                 &line.text,
@@ -1773,28 +1908,7 @@ pub fn display_finished(
                 )
                 .map_err(|e| e.to_string())?;
             if inserted > 0 {
-                let definition = ticket
-                    .definition
-                    .as_ref()
-                    .ok_or("이야기 정의를 찾을 수 없어요.")?;
-                let (_, mut flags) = progress(tx, &ticket.scope)?;
-                flags.extend(definition.completion.set_flags.iter().cloned());
-                tx.execute("INSERT INTO pack_story_progress VALUES(?1,?2,?3) ON CONFLICT(scope) DO UPDATE SET wait_turn=excluded.wait_turn,flags=excluded.flags",params![scope_key(&ticket.scope)?,current_turn(tx,&ticket.scope.user_id)?+3,serde_json::to_string(&flags).map_err(|e|e.to_string())?]).map_err(|e|e.to_string())?;
-                if let Some(template) = &definition.completion.memory_template {
-                    let text = template.replace("{scenarioTitle}", &definition.title);
-                    crate::store::insert_moment(
-                        tx,
-                        &ticket.scope.center_id,
-                        &ticket.scope.user_id,
-                        "story-complete",
-                        &text,
-                        proof.now,
-                        ticket.scenario_id.as_deref(),
-                        serde_json::json!({"scenarioId":ticket.scenario_id}),
-                        None,
-                        None,
-                    )?;
-                }
+                apply_completion_effects(tx, ticket, proof.now)?;
             }
         } else if entry_ends {
             tx.execute(
@@ -1942,6 +2056,8 @@ pub fn trial(
         },
         scenario_id: Some(definition.id.clone()),
         stage: Stage::Intro,
+        chapter_id: None,
+        step: 0,
         phase_generation: 1,
         epoch: 0,
         participants: definition.participants.clone(),
@@ -1997,7 +2113,13 @@ fn record_cancelled(db: &Connection, run: &RunTicket) -> Result<()> {
                 ],
             )
             .map_err(|e| e.to_string())?;
-        if inserted > 0 {
+        if inserted > 0
+            && (run.stage != Stage::Chapter
+                || run
+                    .definition
+                    .as_ref()
+                    .is_some_and(|definition| definition.purpose.is_story()))
+        {
             let (_, flags) = progress(tx, &run.scope)?;
             tx.execute("INSERT INTO pack_story_progress VALUES(?1,?2,?3) ON CONFLICT(scope) DO UPDATE SET wait_turn=excluded.wait_turn",params![scope_key(&run.scope)?,current_turn(tx,&run.scope.user_id)?+3,serde_json::to_string(&flags).map_err(|e|e.to_string())?]).map_err(|e|e.to_string())?;
         }
@@ -2051,12 +2173,24 @@ pub fn recover_interrupted(db: &Connection) -> Result<()> {
     drop(statement);
     let mut seen = BTreeSet::new();
     for data in rows {
-        let plan: Plan = serde_json::from_str(&data).map_err(|e| e.to_string())?;
+        let mut plan: Plan = serde_json::from_str(&data).map_err(|e| e.to_string())?;
+        if plan.run.stage == Stage::Chapter {
+            plan.source = "expired-chapter".into();
+            db.execute(
+                "UPDATE pack_story_plans SET data=?2 WHERE input_id=?1",
+                params![
+                    plan.input_id,
+                    serde_json::to_string(&plan).map_err(|error| error.to_string())?
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+        }
         if !seen.insert(plan.run_id.clone()) {
             continue;
         }
         let terminal:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM pack_story_outcomes WHERE run_id=?1 AND kind IN ('completed','declined','cancelled','entry-finished','deferred'))",[&plan.run_id],|row|row.get(0)).map_err(|e|e.to_string())?;
-        if !terminal {
+        let accepted: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pack_story_outcomes WHERE run_id=?1 AND kind='accepted')", [&plan.run_id], |row| row.get(0)).map_err(|error| error.to_string())?;
+        if !terminal && (plan.run.stage != Stage::Chapter || accepted) {
             record_cancelled(db, &plan.run)?;
         }
     }

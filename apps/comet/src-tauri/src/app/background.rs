@@ -149,14 +149,18 @@ pub(crate) async fn background_loop(
                                 "Automatic preparation deferred"
                             );
                         }
-                        phase(
-                            &worker_app,
-                            &worker_state,
-                            epoch,
-                            RuntimePhase::Idle,
-                            None,
-                            None,
-                        );
+                        if !lock(&worker_state.story).is_ok_and(|story| {
+                            story.as_ref().is_some_and(|request| request.epoch == epoch)
+                        }) {
+                            phase(
+                                &worker_app,
+                                &worker_state,
+                                epoch,
+                                RuntimePhase::Idle,
+                                None,
+                                None,
+                            );
+                        }
                     }
                 },
             );
@@ -695,6 +699,10 @@ async fn run_idle_scene(
         super::publish(app, state);
         return Ok(());
     }
+    if offer_scene_resume(state, epoch, &cancel)? {
+        super::publish(app, state);
+        return Ok(());
+    }
     let (lines, source) = {
         let _action = lock(&state.action)?;
         if !is_current(state, epoch, &cancel) {
@@ -742,6 +750,83 @@ async fn run_idle_scene(
         cancel,
     )
     .await
+}
+
+fn offer_scene_resume(state: &AppState, epoch: u64, cancel: &AtomicBool) -> Result<bool, String> {
+    let _action = lock(&state.action)?;
+    if !is_current(state, epoch, cancel) || lock(&state.pack_stories)?.resume_offered {
+        return Ok(false);
+    }
+    let db = lock(&state.db)?;
+    let Some(user) = store::current_user(&db)? else {
+        return Ok(false);
+    };
+    let residents = characters::active_ids(&db)?;
+    let present = presence::present_ids(state, &residents)?;
+    for center_id in present {
+        if characters::life::sleeping(state, &center_id)? {
+            continue;
+        }
+        let Some(pack_id) = characters::get(&db, &center_id)?.pack_id else {
+            continue;
+        };
+        let scope = crate::pack_stories::Scope {
+            user_id: user.id.clone(),
+            pack_id,
+            center_id: center_id.clone(),
+        };
+        for point in crate::pack_stories::resume::load_for_scope(&db, &scope)? {
+            if crate::pack_stories::resume::resolve(&db, &scope, &point)?.is_none() {
+                continue;
+            }
+            let request_id = format!("scene-resume:{}", uuid::Uuid::new_v4());
+            let title = "이어서 하기".to_string();
+            let prompt = "아까 둘러보던 거, 이어서 할래?".to_string();
+            let choices = vec![
+                story::Choice {
+                    id: "resume".into(),
+                    label: "이어서 하기".into(),
+                },
+                story::Choice {
+                    id: "decline".into(),
+                    label: "그만할래".into(),
+                },
+            ];
+            let request = story::Request {
+                id: request_id.clone(),
+                display_started_at: None,
+                persona: center_id.clone(),
+                title: title.clone(),
+                prompt: prompt.clone(),
+                choices,
+                expression: Some("호기심".into()),
+                motion: None,
+                character_id: center_id.clone(),
+                user_id: user.id,
+                scene: story::Scene {
+                    id: request_id.clone(),
+                    chapter: 0,
+                    title,
+                    prompt,
+                    choices: vec![],
+                },
+                epoch,
+            };
+            let mut runtime = lock(&state.pack_stories)?;
+            runtime.resume_offered = true;
+            runtime.pending_resume = Some((request_id, scope, point));
+            drop(runtime);
+            *lock(&state.story)? = Some(request);
+            schedule_idle(state, store::settings(&db)?.idle_minutes);
+            state.last_scene.store(now(), Ordering::SeqCst);
+            let mut status = lock(&state.runtime)?;
+            status.phase = RuntimePhase::Story;
+            status.persona = Some(center_id);
+            status.error = None;
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Sends pending user messages for memory analysis and applies the result if nothing changed meanwhile.
@@ -993,6 +1078,61 @@ pub(crate) fn reserve_api_idle(db: &Connection, at: i64) -> Result<bool, String>
 #[cfg(test)]
 mod recall_opportunity_tests {
     use super::*;
+
+    #[test]
+    fn scene_resume_is_offered_only_once_per_runtime() {
+        let state = super::super::tests::state();
+        {
+            let db = lock(&state.db).unwrap();
+            store::set_user_name(&db, "친구", 1000).unwrap();
+            let mut pack = characters::factory_pack();
+            let center = pack.characters[0].source_id.clone();
+            pack.format_version = 14;
+            pack.scenarios = vec![serde_json::from_value(serde_json::json!({
+                "id":"tutorial", "title":"안내", "purpose":"tutorial", "centerId":center,
+                "participants":[center], "chapters":[{"id":"first", "title":"첫 장", "steps":[
+                    {"kind":"line", "persona":center, "expression":"평온", "text":"안녕"}
+                ]}]
+            }))
+            .unwrap()];
+            let installed = characters::import_pack(&db, &pack).unwrap();
+            characters::apply_roster(&db, vec![installed[0].id.clone()]).unwrap();
+            let pack_id = installed[0].pack_id.as_ref().unwrap();
+            let scope = crate::pack_stories::Scope {
+                user_id: store::active_user_id(&db).unwrap(),
+                pack_id: pack_id.clone(),
+                center_id: installed[0].id.clone(),
+            };
+            let key = serde_json::to_string(&scope).unwrap();
+            let baseline = characters::pack_definition_baseline(&db, pack_id).unwrap();
+            db.execute(
+                "INSERT INTO pack_story_outcomes VALUES('run','accepted',?1,'tutorial','input',?2)",
+                rusqlite::params![key, "\"tutorial\""],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO pack_story_resume VALUES(?1,'tutorial','first','run',?2,1000)",
+                rusqlite::params![key, baseline],
+            )
+            .unwrap();
+        }
+        let cancel = AtomicBool::new(false);
+        assert!(offer_scene_resume(&state, 0, &cancel).unwrap());
+        assert_eq!(
+            lock(&state.story).unwrap().as_ref().unwrap().prompt,
+            "아까 둘러보던 거, 이어서 할래?"
+        );
+        *lock(&state.story).unwrap() = None;
+        assert!(!offer_scene_resume(&state, 0, &cancel).unwrap());
+        assert_eq!(
+            lock(&state.db)
+                .unwrap()
+                .query_row("SELECT COUNT(*) FROM pack_story_resume", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+    }
 
     #[test]
     fn recent_input_defers_recall_without_claiming_the_daily_opportunity() {

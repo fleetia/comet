@@ -524,7 +524,7 @@ fn attachable_message(
          JOIN message_users mu ON mu.message_id=m.id
          JOIN message_context mc ON mc.message_id=m.id
          WHERE m.id=?1 AND mu.user_id=?2 AND m.role IN ('user','assistant')
-         AND mc.source NOT IN ('story','scenario','npc','archive','imported')
+         AND mc.source NOT IN ('story','scenario','npc','tutorial','archive','imported')
          AND ((?4=0 AND m.role='assistant') OR EXISTS(
              SELECT 1 FROM message_characters i WHERE i.message_id=m.id
              AND i.character_id IN (SELECT value FROM json_each(?3))))",
@@ -731,7 +731,7 @@ fn pending_reply_input(conn: &Connection, id: &str) -> Result<Option<String>> {
         // A completed scene remains complete even after its recall revision changes.
         for index in 0..length {
             let id = format!("scene:{input}:{index}");
-            let complete = if matches!(source.as_str(), "scenario" | "npc") {
+            let complete = if matches!(source.as_str(), "scenario" | "npc" | "tutorial") {
                 super::message_finished(conn, &id)?
             } else {
                 super::message_displayed(conn, &id)?
@@ -867,7 +867,7 @@ pub fn conversation_message_allowed(
          JOIN message_users mu ON mu.message_id=m.id
          JOIN message_context mc ON mc.message_id=m.id
          WHERE m.id=?1 AND mu.user_id=?2 AND json_extract(m.data,'$.status')='complete'
-         AND mc.source NOT IN ('story','scenario','npc','archive','imported')
+         AND mc.source NOT IN ('story','scenario','npc','tutorial','archive','imported')
          AND NOT EXISTS(SELECT 1 FROM memory_exclusions e
              WHERE e.source=m.id AND e.character_id=?3 AND e.user_id=?2))",
             params![message.id, active_user_id(conn)?, target.id],
@@ -914,7 +914,7 @@ pub fn conversation_context(conn: &Connection, id: &str, persona: &str) -> Resul
          JOIN message_context mc ON mc.message_id=m.id
          WHERE (cm.conversation_id=?1 OR cm.conversation_id=?2)
          AND s.user_id=?3 AND mu.user_id=?3 AND json_extract(m.data,'$.status')='complete'
-         AND mc.source NOT IN ('story','scenario','npc','archive','imported')
+         AND mc.source NOT IN ('story','scenario','npc','tutorial','archive','imported')
          AND EXISTS(SELECT 1 FROM message_characters i WHERE i.message_id=m.id AND i.character_id=?4)
          AND NOT EXISTS(SELECT 1 FROM memory_exclusions e WHERE e.source=m.id AND e.character_id=?4 AND e.user_id=?3)
          ORDER BY m.seq DESC LIMIT 24"
@@ -1683,7 +1683,7 @@ mod tests {
     fn story_archival_invalid_recall_and_other_character_are_never_context() {
         let db = store::open(Path::new(":memory:")).unwrap();
         let session = start(&db);
-        for source in ["story", "archive", "imported"] {
+        for source in ["story", "tutorial", "archive", "imported"] {
             let original = message(source, "assistant", "a", "프롬프트에 넣지 않는 기록");
             store::insert_message_with_source(&db, &original, source, None, false).unwrap();
             assert!(attach_conversation_message(&db, &session.id, source).is_err());
@@ -1727,7 +1727,7 @@ mod tests {
                 .unwrap()
                 .messages
                 .len(),
-            6
+            7
         );
     }
 

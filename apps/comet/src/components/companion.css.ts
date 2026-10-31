@@ -364,7 +364,7 @@ export const inputCapsule = style({
   borderRadius: 24,
   border: `1px solid ${tokens["color/capsule-border"]}`,
   background: tokens["color/glass-capsule"],
-  boxShadow: `0 12px 28px ${tokens["color/surface-shadow"]}`,
+  boxShadow: `0 4px 12px -2px ${tokens["color/surface-shadow"]}`,
 });
 export const input = style({
   flex: 1,

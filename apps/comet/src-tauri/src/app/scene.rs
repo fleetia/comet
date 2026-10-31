@@ -10,6 +10,29 @@ use std::{
     time::Duration,
 };
 
+fn story_owns_focus(state: &AppState, source: &str, epoch: u64) -> Result<bool, String> {
+    if !matches!(source, "tutorial" | "scenario") {
+        return Ok(false);
+    }
+    let run = lock(&state.pack_stories)?.run.clone();
+    match run {
+        Some(run) if run.epoch == epoch && run.stage == crate::pack_stories::Stage::Chapter => {
+            super::scene_events::owned_focus(state, &run)
+        }
+        _ => Ok(false),
+    }
+}
+
+fn chapter_available_locked(state: &AppState, db: &Connection, epoch: u64) -> Result<bool, String> {
+    let run = lock(&state.pack_stories)?.run.clone();
+    match run {
+        Some(run) if run.epoch == epoch && run.stage == crate::pack_stories::Stage::Chapter => {
+            super::scene_events::available_locked(state, db, &run)
+        }
+        _ => Ok(true),
+    }
+}
+
 fn playback_link(
     db: &Connection,
     state: &AppState,
@@ -90,7 +113,9 @@ fn playback_link(
     let event = if matches!(source, "widget" | "reaction" | "talk") {
         let event = lock(&state.widget_playback)?.clone();
         if source == "talk" {
-            let talk_event = lock(&state.talk_playback)?.as_ref().and_then(|talk| talk.event.clone());
+            let talk_event = lock(&state.talk_playback)?
+                .as_ref()
+                .and_then(|talk| talk.event.clone());
             event.filter(|event| talk_event.as_ref().is_some_and(|talk| talk.id == event.id))
         } else {
             event
@@ -188,11 +213,33 @@ pub(crate) fn present_line(
     cancel: &AtomicBool,
     direct_reply: bool,
 ) -> Result<bool, String> {
+    present_line_with_record(
+        state, line, source, id, line_index, line_count, revision, epoch, cancel, direct_reply,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn present_line_with_record(
+    state: &AppState,
+    line: &SceneLine,
+    source: &str,
+    id: &str,
+    line_index: usize,
+    line_count: usize,
+    revision: i64,
+    epoch: u64,
+    cancel: &AtomicBool,
+    direct_reply: bool,
+    recorded_text: Option<&str>,
+) -> Result<bool, String> {
     let _action = lock(&state.action)?;
     let db = lock(&state.db)?;
     if !is_current(state, epoch, cancel)
+        || !chapter_available_locked(state, &db, epoch)?
         || (source == "diary" && !crate::diary::runtime::playback_current(state, &db, id)?)
         || (crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
+            && !story_owns_focus(state, source, epoch)?
             && !(source == "widget"
                 && lock(&state.widget_playback)?
                     .as_ref()
@@ -202,12 +249,12 @@ pub(crate) fn present_line(
             &store::settings(&db)?,
             lock(&state.runtime)?.paused,
         )?
-        || (!matches!(source, "scenario" | "npc") && store::revision(&db)? != revision)
+        || (!matches!(source, "scenario" | "npc" | "tutorial") && store::revision(&db)? != revision)
     {
         return Ok(false);
     }
     let saved = if direct_reply {
-        if if matches!(source, "scenario" | "npc") {
+        if if matches!(source, "scenario" | "npc" | "tutorial") {
             store::message_finished(&db, id)?
         } else {
             store::message_displayed(&db, id)?
@@ -236,7 +283,8 @@ pub(crate) fn present_line(
     let line = &resolved[0];
     lock(&state.reactions)?.clear_ambient(&line.persona);
     if crate::characters::life::sleeping(state, &line.persona)? {
-        if state.automatic.load(Ordering::SeqCst) {
+        let chapter = lock(&state.pack_stories)?.run.as_ref().is_some_and(|run| run.epoch == epoch && run.stage == crate::pack_stories::Stage::Chapter);
+        if chapter || state.automatic.load(Ordering::SeqCst) {
             return Ok(false);
         }
         crate::characters::life::wake(state, &line.persona)?;
@@ -265,7 +313,7 @@ pub(crate) fn present_line(
     if source == "talk" && !talk::host::current(state, &db)? {
         return Ok(false);
     }
-    if matches!(source, "scenario" | "npc") {
+    if matches!(source, "scenario" | "npc" | "tutorial") {
         let replay = lock(&state.tasks)?
             .pack_replay
             .as_ref()
@@ -288,11 +336,15 @@ pub(crate) fn present_line(
         None
     };
     let link = playback_link(&db, state, source, id, line)?;
+    let mut recorded_line = line.clone();
+    if let Some(text) = recorded_text {
+        recorded_line.text = text.into();
+    }
     let message = Message {
         id: id.into(),
         role: "assistant".into(),
         persona: Some(line.persona.clone()),
-        content: line.text.clone(),
+        content: recorded_line.text.clone(),
         expression: Some(line.expression.clone()),
         created_at: chrono::Utc::now().timestamp_millis(),
         status: "complete".into(),
@@ -300,11 +352,13 @@ pub(crate) fn present_line(
     let private_activity = source == "talk" && talk::host::activity_in_playback(state)?;
     if private_activity {
         if let Some(key) = scene_key.as_deref() {
-            lock(&state.life)?.activity.record_private_scene(key.to_owned(), message.created_at);
+            lock(&state.life)?
+                .activity
+                .record_private_scene(key.to_owned(), message.created_at);
         }
     } else {
         if ticket.is_some() {
-            store::insert_message_with_actor(&db, &message, source, direct_reply, line, &actor)?;
+            store::insert_message_with_actor(&db, &message, source, direct_reply, &recorded_line, &actor)?;
         } else {
             store::insert_message_with_playback(
                 &db,
@@ -312,7 +366,7 @@ pub(crate) fn present_line(
                 source,
                 scene_key.as_deref(),
                 direct_reply,
-                Some(line),
+                Some(&recorded_line),
             )?;
         }
     }
@@ -398,8 +452,10 @@ pub(crate) fn line_completion_locked(
     let db = lock(&state.db)?;
     let status = lock(&state.runtime)?.clone();
     if status.hidden
+        || !chapter_available_locked(state, &db, epoch)?
         || super::unavailable(state)
-        || crate::widgets::storage::focus_active(&db, now)?
+        || (crate::widgets::storage::focus_active(&db, now)?
+            && !story_owns_focus(state, &expected.source, epoch)?)
     {
         return Ok(None);
     }
@@ -410,7 +466,7 @@ pub(crate) fn line_completion_locked(
             return Ok(None);
         }
     }
-    if matches!(expected.source.as_str(), "scenario" | "npc") {
+    if matches!(expected.source.as_str(), "scenario" | "npc" | "tutorial") {
         let Some(run) = lock(&state.pack_stories)?.run.clone() else {
             return Ok(None);
         };
@@ -681,7 +737,14 @@ async fn show_link_hint(
                 &actor,
             )?;
         } else {
-            store::insert_message_with_playback(&db, &message, LINK_HINT_SOURCE, None, false, None)?;
+            store::insert_message_with_playback(
+                &db,
+                &message,
+                LINK_HINT_SOURCE,
+                None,
+                false,
+                None,
+            )?;
         }
         db.execute(
             "INSERT INTO message_playback(message_id,revision,line) VALUES(?1,?2,?3)",
@@ -719,6 +782,11 @@ async fn wait_for_valid_line(
             return Ok(false);
         }
         let at = chrono::Utc::now().timestamp_millis();
+        if matches!(line.source.as_str(), "tutorial" | "scenario") {
+            let _action = lock(&state.action)?;
+            let db = lock(&state.db)?;
+            if !chapter_available_locked(state, &db, epoch)? { return Ok(false); }
+        }
         if matches!(line.source.as_str(), "llm" | "question") {
             let db = lock(&state.db)?;
             if !store::recall_valid(&db, &line.id, at)? {
@@ -792,7 +860,7 @@ pub(crate) async fn run_scene_completed(
     epoch: u64,
     cancel: Arc<AtomicBool>,
 ) -> Result<Option<LineCompletion>, String> {
-    let generic = matches!(source, "scenario" | "npc");
+    let generic = matches!(source, "scenario" | "npc" | "tutorial");
     let effectful = generic && lock(&state.tasks)?.pack_replay.as_deref() != Some(prefix);
     let (revision, saved) = {
         let _action = lock(&state.action)?;
@@ -800,7 +868,7 @@ pub(crate) async fn run_scene_completed(
             return Ok(None);
         }
         let db = lock(&state.db)?;
-        let saved = if direct_reply && matches!(source, "wordbook" | "story" | "scenario" | "npc") {
+        let saved = if direct_reply && matches!(source, "wordbook" | "story" | "scenario" | "npc" | "tutorial") {
             super::conversation::ensure_current_user_message(&db, prefix)?;
             store::save_reply_scene_with_source(&db, prefix, lines, source)?;
             if generic {
@@ -1075,22 +1143,44 @@ mod tests {
     fn event_triggered_talk_links_to_its_originating_widget() {
         let state = super::super::tests::state();
         let db = lock(&state.db).unwrap();
-        let todo = widgets::storage::instances(&db).unwrap().into_iter()
-            .find(|widget| widget.kind == "todo").unwrap();
+        let todo = widgets::storage::instances(&db)
+            .unwrap()
+            .into_iter()
+            .find(|widget| widget.kind == "todo")
+            .unwrap();
         let now = chrono::Utc::now().timestamp_millis();
         let event = widgets::WidgetEvent {
-            id: "event".into(), instance_id: todo.id.clone(), widget_kind: todo.kind,
-            revision: todo.revision, created_at: now, expires_at: now + 30_000,
-            event: widgets::EventDraft { kind: "todo-completed".into(), text: String::new(), payload: serde_json::json!({}) },
+            id: "event".into(),
+            instance_id: todo.id.clone(),
+            widget_kind: todo.kind,
+            revision: todo.revision,
+            created_at: now,
+            expires_at: now + 30_000,
+            event: widgets::EventDraft {
+                kind: "todo-completed".into(),
+                text: String::new(),
+                payload: serde_json::json!({}),
+            },
         };
         let source = "format: 1\nscene: complete\non: todo-completed\n---\nA: 다 했구나!\n===\n";
-        lock(&state.talk).unwrap().apply(Ok(talk::validate_source(std::path::Path::new("event.talk"), source, &talk::context::registry()).unwrap()));
-        let lines = talk::host::prepare(&state, &db, Some(&event)).unwrap().unwrap();
+        lock(&state.talk).unwrap().apply(Ok(talk::validate_source(
+            std::path::Path::new("event.talk"),
+            source,
+            &talk::context::registry(),
+        )
+        .unwrap()));
+        let lines = talk::host::prepare(&state, &db, Some(&event))
+            .unwrap()
+            .unwrap();
         *lock(&state.widget_playback).unwrap() = Some(event.clone());
-        let link = playback_link(&db, &state, "talk", "line", &lines[0]).unwrap().unwrap();
+        let link = playback_link(&db, &state, "talk", "line", &lines[0])
+            .unwrap()
+            .unwrap();
         assert_eq!(link.instance_id, todo.id);
         lock(&state.widget_playback).unwrap().as_mut().unwrap().id = "different".into();
-        assert!(playback_link(&db, &state, "talk", "line", &lines[0]).unwrap().is_none());
+        assert!(playback_link(&db, &state, "talk", "line", &lines[0])
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -1109,12 +1199,17 @@ mod tests {
         };
         for reaction_enabled in [true, false] {
             if !reaction_enabled {
-                db.execute("INSERT INTO widget_preferences(key,value) VALUES('reaction:test-device','0')", []).unwrap();
+                db.execute(
+                    "INSERT INTO widget_preferences(key,value) VALUES('reaction:test-device','0')",
+                    [],
+                )
+                .unwrap();
             }
             let mut prompt = Vec::new();
             let mut schema = crate::domain::reply_schema_for(&["builtin-a".into()], &["평온"]);
-            let kinds = crate::domain::configure_widget_replies(&db, &mut prompt, &mut schema, false)
-                .unwrap();
+            let kinds =
+                crate::domain::configure_widget_replies(&db, &mut prompt, &mut schema, false)
+                    .unwrap();
             assert!(kinds.iter().any(|kind| kind == "device"));
             assert!(playback_link(&db, &state, "llm", "message", &line)
                 .unwrap()

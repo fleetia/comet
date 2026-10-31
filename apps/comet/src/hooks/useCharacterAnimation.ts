@@ -134,9 +134,10 @@ export function useCharacterAnimation(
   const speaking = Boolean(speakingLine || speakingStory);
   const running =
     available && !reduced && (!snapshot.runtime.paused || speaking || Boolean(activeReaction));
-  const lineKey = JSON.stringify([definitionKey, playback?.id]);
+  const lineKey = JSON.stringify([definitionKey, speakingStory ? snapshot.story?.id : playback?.id]);
   const lineMotion = speakingLine && finishedLine !== lineKey ? playback?.motion : undefined;
-  const motion = activeReaction ? activeReaction.motion : lineMotion;
+  const storyMotion = speakingStory && finishedLine !== lineKey ? snapshot.story?.motion : undefined;
+  const motion = activeReaction ? activeReaction.motion : (lineMotion ?? storyMotion);
   let binding = motionBinding(motion);
   const explicit = binding !== undefined;
   let trigger = activeReaction ? `reaction:${activeReaction.id}` : "idle";
@@ -238,11 +239,11 @@ export function useCharacterAnimation(
     if (
       !activeReaction &&
       explicit &&
-      lineMotion?.mode === "clip" &&
+      (lineMotion ?? storyMotion)?.mode === "clip" &&
       (progress.finished || loaded.error)
     )
       setFinishedLine(lineKey);
-  }, [activeReaction, explicit, lineMotion?.mode, progress.finished, loaded.error, lineKey]);
+  }, [activeReaction, explicit, lineMotion?.mode, storyMotion?.mode, progress.finished, loaded.error, lineKey]);
 
   const acknowledgement = useRef({ id: "", ready: false, readyAt: 0, finished: false });
   useEffect(() => {

@@ -302,7 +302,7 @@ export const musicCard = style({
   padding: "16px 18px",
   border: 0,
   borderRadius: 26,
-  boxShadow: `inset 0 0 0 1px ${tokens["color/glass-border"]}, inset 0 1px 0 ${tokens["color/surface-highlight"]}, 0 22px 48px ${tokens["color/surface-shadow"]}`,
+  boxShadow: `inset 0 0 0 1px ${tokens["color/glass-border"]}, inset 0 1px 0 ${tokens["color/surface-highlight"]}, 0 4px 12px -2px ${tokens["color/surface-shadow"]}`,
 });
 globalStyle(`${musicCard} > header`, { minHeight: 30 });
 globalStyle(`${musicCard} > header h3`, {

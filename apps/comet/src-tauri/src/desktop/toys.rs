@@ -105,6 +105,7 @@ struct Actor {
     ignore_cursor: bool,
     last_sent: Option<(f64, f64, Frame)>,
     visible: bool,
+    story: Option<crate::pack_stories::RunTicket>,
     attempt: String,
 }
 
@@ -180,7 +181,6 @@ impl Runtime {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
 fn label(id: &str) -> String {
     format!("desktop-toy-{id}")
 }
@@ -394,6 +394,35 @@ pub(crate) fn open(
     automatic: bool,
     geometry: &Geometry,
 ) -> Result<String, String> {
+    open_inner(app, widget_id, kind, owner, revision, geometry, OpenMode { automatic, story: None })
+}
+
+pub(crate) fn open_for_story(
+    app: &AppHandle,
+    widget_id: &str,
+    kind: &str,
+    revision: i64,
+    geometry: &Geometry,
+    run: crate::pack_stories::RunTicket,
+) -> Result<String, String> {
+    open_inner(app, widget_id, kind, None, revision, geometry, OpenMode { automatic: false, story: Some(run) })
+}
+
+struct OpenMode {
+    automatic: bool,
+    story: Option<crate::pack_stories::RunTicket>,
+}
+
+fn open_inner(
+    app: &AppHandle,
+    widget_id: &str,
+    kind: &str,
+    owner: Option<String>,
+    revision: i64,
+    geometry: &Geometry,
+    mode: OpenMode,
+) -> Result<String, String> {
+    let OpenMode { automatic, story } = mode;
     let kind = parse_kind(kind)?;
     let count = if kind == Kind::Bubbles && !automatic {
         let available = available_actor_slots(app)?;
@@ -416,6 +445,7 @@ pub(crate) fn open(
             automatic,
             geometry,
             &attempt,
+            story.clone(),
         ) {
             Ok(id) => ids.push(id),
             Err(error) => {
@@ -455,6 +485,7 @@ fn open_one(
     automatic: bool,
     geometry: &Geometry,
     attempt: &str,
+    story: Option<crate::pack_stories::RunTicket>,
 ) -> Result<String, String> {
     let seed = uuid::Uuid::new_v4().as_u128();
     let cursor = geometry::cursor_position();
@@ -528,6 +559,7 @@ fn open_one(
         ignore_cursor: true,
         last_sent: None,
         visible: false,
+        story,
         attempt: attempt.into(),
     };
     #[cfg(target_os = "macos")]
@@ -565,7 +597,7 @@ fn open_one(
         let actor_id = id.clone();
         let creation_app = app.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            if let Err(error) = create_webview(&creation_app, &actor_id, x, y, scale) {
+            if let Err(error) = run_story_creation(&creation_app, &actor_id, || create_webview(&creation_app, &actor_id, x, y, scale)) {
                 creation_result(&creation_app, &actor_id, Err(error.clone()));
                 crate::report_error!("desktop_toy_window", "desktop toy window creation failed: {error}");
             }
@@ -614,31 +646,21 @@ fn update_linux_input(window: &WebviewWindow, show_ready: bool) -> Result<(), St
             let Some(id) = window_label.strip_prefix("desktop-toy-") else {
                 return;
             };
-            let Some(window) = app.get_webview_window(&window_label) else {
-                return;
-            };
-            let Ok(native) = window.gtk_window() else {
-                return;
-            };
-            let runtime = app.state::<Runtime>();
-            // World lock owners only calculate toy state; they never wait for GTK
-            // while holding it. Keep the actor check, input shape and mapping atomic
-            // with removal, and release it before reporting the creation outcome.
-            let Ok(world) = runtime.world.lock() else {
-                return;
-            };
-            let Some(ignore) = linux_input_state(&world, id) else {
-                return;
-            };
-            linux::set_input_passthrough(&native, ignore);
-            if show_ready {
-                native.set_focus_on_map(false);
-                native.show_all();
-            }
-            drop(world);
-            if show_ready {
-                creation_result(&app, id, Ok(()));
-            }
+            let _ = run_story_creation(&app, id, || {
+                let Some(window) = app.get_webview_window(&window_label) else { return Ok(()); };
+                let Ok(native) = window.gtk_window() else { return Ok(()); };
+                let runtime = app.state::<Runtime>();
+                let Ok(world) = runtime.world.lock() else { return Ok(()); };
+                let Some(ignore) = linux_input_state(&world, id) else { return Ok(()); };
+                linux::set_input_passthrough(&native, ignore);
+                if show_ready {
+                    native.set_focus_on_map(false);
+                    native.show_all();
+                }
+                drop(world);
+                if show_ready { creation_result(&app, id, Ok(())); }
+                Ok(())
+            });
         })
         .map_err(|error| error.to_string())
 }
@@ -721,6 +743,8 @@ fn remove_matching(app: &AppHandle, matches: impl Fn(&Actor) -> bool) {
     }
 }
 fn close_window(app: &AppHandle, id: &str) {
+    let state = app.state::<std::sync::Arc<crate::app::AppState>>();
+    let _ = crate::app::scene_events::closed_label(&state, &label(id));
     #[cfg(target_os = "macos")]
     native::close(app, id.to_string());
     #[cfg(not(target_os = "macos"))]
@@ -770,6 +794,29 @@ pub(crate) fn runtime_counts(
     Ok(counts)
 }
 
+fn run_story_creation<T>(app: &AppHandle, id: &str, create: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    let story = {
+        let runtime = app.state::<Runtime>();
+        let world = crate::lock(&runtime.world)?;
+        world.actors.get(id).ok_or("장난감이 닫혔어요.")?.story.clone()
+    };
+    let Some(story) = story else { return create(); };
+    let state = app.state::<std::sync::Arc<crate::app::AppState>>();
+    let guard = crate::lock(&state.action)?;
+    let db = crate::lock(&state.db)?;
+    let allowed = crate::app::scene_events::execution_current(&state, &story)?
+        && crate::app::scene_events::available_locked(&state, &db, &story)?;
+    drop(db);
+    if !allowed {
+        drop(guard);
+        remove_actor(app, id);
+        return Err("이야기 실행이 바뀌었어요.".into());
+    }
+    let result = create();
+    drop(guard);
+    result
+}
+
 fn creation_result(app: &AppHandle, id: &str, result: Result<(), String>) {
     let target = {
         let runtime = app.state::<Runtime>();
@@ -782,6 +829,7 @@ fn creation_result(app: &AppHandle, id: &str, result: Result<(), String>) {
         let target = (actor.widget_id.clone(), actor.attempt.clone());
         if result.is_ok() {
             actor.visible = true;
+            actor.story = None;
         }
         target
     };
@@ -897,7 +945,7 @@ pub(crate) fn desktop_toy_action(
             }
             #[cfg(not(target_os = "linux"))]
             {
-                if let Err(error) = window.show().map_err(|error| error.to_string()) {
+                if let Err(error) = run_story_creation(&app, &id, || window.show().map_err(|error| error.to_string())) {
                     creation_result(&app, &id, Err(error.clone()));
                     return Err(error);
                 }
@@ -1669,6 +1717,7 @@ mod tests {
             ignore_cursor: true,
             last_sent: None,
             visible: false,
+            story: None,
             attempt: String::new(),
         }
     }

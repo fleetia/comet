@@ -1,4 +1,5 @@
 pub(crate) mod pack_context;
+pub(crate) mod scene_story;
 
 use super::scene::{clear_line_if_current, present_line, start_scene, wait_for_completed_line};
 use super::unavailable;
@@ -158,6 +159,7 @@ pub(crate) fn cancel_pack_run_locked(state: &AppState, run_id: &str) -> Result<(
         .is_some_and(|run| run.run_id == run_id)
     {
         pack_stories::cancel_with_progress(&db, &mut *lock(&state.pack_stories)?)?;
+        super::scene_events::clear_run(state, &db, run_id)?;
         characters::guests::leave_run_locked(state, run_id)?;
     }
     Ok(())
@@ -256,7 +258,7 @@ pub(crate) fn retain_pack_run(
     Ok(())
 }
 
-fn bind_pack_plan_locked(
+pub(crate) fn bind_pack_plan_locked(
     state: &AppState,
     db: &Connection,
     plan: &pack_stories::Plan,
@@ -588,6 +590,106 @@ pub(crate) fn record_input_and_route(
 }
 
 #[tauri::command]
+pub(crate) fn start_tutorial(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let prepared = (|| -> Result<_, String> {
+        let _action = lock(&state.action)?;
+        if unavailable(&state) || lock(&state.pack_stories)?.run.is_some() {
+            return Err("지금은 이야기를 시작할 수 없어요.".into());
+        }
+        let db = lock(&state.db)?;
+        ensure_available(&db)?;
+        let status = lock(&state.runtime)?.clone();
+        if status.hidden
+            || status.paused
+            || super::quiet_hours::automatic_blocked(&state, &store::settings(&db)?)?
+        {
+            return Err("지금은 이야기가 쉬고 있어요.".into());
+        }
+        let user = store::current_user(&db)?.ok_or("이름을 먼저 등록해 주세요.")?;
+        let mut selected = None;
+        for center in characters::active_ids(&db)? {
+            let actor = characters::get(&db, &center)?;
+            let Some(pack_id) = actor.pack_id else {
+                continue;
+            };
+            let snapshot = characters::get_pack_story_definition(&db, &pack_id)?;
+            if let Some(definition) = snapshot.definition.scenarios.iter().find(|definition| {
+                definition.purpose == pack_stories::ScenarioPurpose::Tutorial
+                    && definition.chapters.is_some()
+                    && snapshot.source_to_local.get(&definition.center_id) == Some(&center)
+            }) {
+                selected = Some((
+                    pack_stories::Scope {
+                        user_id: user.id.clone(),
+                        pack_id,
+                        center_id: center,
+                    },
+                    definition.clone(),
+                ));
+                break;
+            }
+        }
+        let (scope, definition) = selected.ok_or("시작할 튜토리얼을 찾지 못했어요.")?;
+        let context = pack_stories::InputContext {
+            input_id: uuid::Uuid::new_v4().to_string(),
+            user_id: user.id,
+            targets: vec![scope.center_id.clone()],
+            epoch: state.epoch.load(Ordering::SeqCst),
+        };
+        let plan = pack_stories::scene_plan(&db, &context, scope, definition, None)?;
+        let (epoch, cancel) = super::tasks::reserve(&state, super::tasks::Kind::Scene, false)?;
+        let prepared = (|| {
+            store::pause_conversations(&db)?;
+            *lock(&state.panel)? = None;
+            let admitted = bind_pack_plan_locked(&state, &db, &plan, epoch)?;
+            let run = lock(&state.pack_stories)?
+                .run
+                .clone()
+                .ok_or("이야기 실행을 시작하지 못했어요.")?;
+            pack_stories::resume::record_accepted(&db, &run)?;
+            Ok::<_, String>((run, admitted))
+        })();
+        let (run, admitted) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                super::scene_resume::clear_failed_start(&state, &db, &plan.run_id, epoch, &error);
+                return Err(error);
+            }
+        };
+        Ok((run, cancel, admitted))
+    })();
+    let (run, cancel, admitted) = match prepared {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            publish(&app, &state);
+            return Err(error);
+        }
+    };
+    if !admitted.is_empty() {
+        if let Err(error) = characters::guests::create_admitted(&app, state.inner(), &admitted) {
+            {
+                let _action = lock(&state.action)?;
+                let db = lock(&state.db)?;
+                super::scene_resume::clear_failed_start(
+                    &state,
+                    &db,
+                    &run.run_id,
+                    run.epoch,
+                    &error,
+                );
+            }
+            publish(&app, &state);
+            return Err(error);
+        }
+    }
+    scene_story::start(app, state.inner().clone(), run, cancel);
+    Ok(())
+}
+
+#[tauri::command]
 pub(crate) async fn send_message(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
@@ -595,6 +697,7 @@ pub(crate) async fn send_message(
     target: String,
     client_message_id: String,
     session_id: Option<String>,
+    scene_ask_id: Option<String>,
 ) -> Result<(), String> {
     send_message_inner(
         app,
@@ -603,9 +706,14 @@ pub(crate) async fn send_message(
         target,
         client_message_id,
         session_id,
-        None,
+        MessageRoute::Message { scene_ask_id },
     )
     .await
+}
+
+pub(crate) enum MessageRoute {
+    Message { scene_ask_id: Option<String> },
+    Choice { request_id: String, option_id: String },
 }
 
 pub(crate) async fn send_message_inner(
@@ -615,11 +723,24 @@ pub(crate) async fn send_message_inner(
     target: String,
     client_message_id: String,
     session_id: Option<String>,
-    choice: Option<(String, String)>,
+    route: MessageRoute,
 ) -> Result<(), String> {
+    let (choice, scene_ask_id) = match route {
+        MessageRoute::Message { scene_ask_id } => (None, scene_ask_id),
+        MessageRoute::Choice { request_id, option_id } => (Some((request_id, option_id)), None),
+    };
     uuid::Uuid::parse_str(&client_message_id)
         .map_err(|_| "메시지 식별자가 올바르지 않아요.".to_string())?;
-    let (token, registered, targets, source, admitted) = {
+    if let Some(request_id) = scene_ask_id {
+        if choice.is_none()
+            && scene_story::answer_text(&state, &target, &content, &client_message_id, &request_id)?
+        {
+            publish(&app, &state);
+            return Ok(());
+        }
+        return Err("이미 지나간 이야기 질문이에요.".into());
+    }
+    let (token, registered, targets, source, admitted, scene_run) = {
         let _action = lock(&state.action)?;
         if unavailable(&state) {
             return Err("앱을 종료하고 있어요.".into());
@@ -756,9 +877,25 @@ pub(crate) async fn send_message_inner(
             retain_pack_run(&state, &db, waiting_pack, token.0)?;
         }
         let mut admitted = Vec::new();
+        let mut scene_run = None;
         registered = registered.and_then(|lines| {
             if let Some(plan) = &plan {
+                if plan.run.stage == pack_stories::Stage::Chapter
+                    && (lock(&state.runtime)?.paused
+                        || super::quiet_hours::automatic_blocked(&state, &settings)?)
+                {
+                    return Err("지금은 이야기가 쉬고 있어요.".into());
+                }
                 admitted = bind_pack_plan_locked(&state, &db, plan, token.0)?;
+                if plan.run.stage == pack_stories::Stage::Chapter {
+                    let run = lock(&state.pack_stories)?
+                        .run
+                        .clone()
+                        .ok_or("이야기 실행을 시작하지 못했어요.")?;
+                    pack_stories::resume::record_accepted(&db, &run)?;
+                    store::pause_conversations(&db)?;
+                    scene_run = Some(run);
+                }
             } else {
                 let ids = match &lines {
                     Some(lines) if !lines.is_empty() => {
@@ -781,26 +918,74 @@ pub(crate) async fn send_message_inner(
             "wordbook"
         };
         if registered.is_err() {
-            let mut tasks = lock(&state.tasks)?;
-            tasks.active = None;
-            tasks.conversation = None;
+            if let (Some(plan), Err(error)) = (&plan, &registered) {
+                if plan.run.stage == pack_stories::Stage::Chapter {
+                    super::scene_resume::clear_failed_start(
+                        &state,
+                        &db,
+                        &plan.run_id,
+                        token.0,
+                        error,
+                    );
+                    admitted.clear();
+                    scene_run = None;
+                } else {
+                    let mut tasks = lock(&state.tasks)?;
+                    tasks.active = None;
+                    tasks.conversation = None;
+                }
+            } else {
+                let mut tasks = lock(&state.tasks)?;
+                tasks.active = None;
+                tasks.conversation = None;
+            }
         }
         let input_mode = super::chat::input_panel_mode(&state)?;
-        *lock(&state.panel)? = Some(PanelState {
-            persona: if resident_target != target {
-                target.clone()
-            } else {
-                targets[0].clone()
-            },
-            mode: input_mode.into(),
-        });
+        let chapter_failed = registered.is_err()
+            && plan
+                .as_ref()
+                .is_some_and(|plan| plan.run.stage == pack_stories::Stage::Chapter);
+        *lock(&state.panel)? = if scene_run.is_some() || chapter_failed {
+            None
+        } else {
+            Some(PanelState {
+                persona: if resident_target != target {
+                    target.clone()
+                } else {
+                    targets[0].clone()
+                },
+                mode: input_mode.into(),
+            })
+        };
         super::discard_moment_events(&db)?;
         state.last_input.store(now(), Ordering::SeqCst);
         schedule_idle(&state, settings.idle_minutes);
-        (token, registered, routing_targets, source, admitted)
+        (
+            token,
+            registered,
+            routing_targets,
+            source,
+            admitted,
+            scene_run,
+        )
     };
     if !admitted.is_empty() {
         if let Err(error) = characters::guests::create_admitted(&app, state.inner(), &admitted) {
+            if let Some(run) = &scene_run {
+                {
+                    let _action = lock(&state.action)?;
+                    let db = lock(&state.db)?;
+                    super::scene_resume::clear_failed_start(
+                        &state,
+                        &db,
+                        &run.run_id,
+                        token.0,
+                        &error,
+                    );
+                }
+                publish(&app, &state);
+                return Err(error);
+            }
             if super::tasks::release_failed_conversation(&state, token.0)? {
                 phase(
                     &app,
@@ -825,9 +1010,14 @@ pub(crate) async fn send_message_inner(
                 targets.first().cloned(),
                 Some(error.clone()),
             );
+            publish(&app, &state);
             return Err(error);
         }
     };
+    if let Some(run) = scene_run {
+        scene_story::start(app, state.inner().clone(), run, token.1);
+        return Ok(());
+    }
     if let Some(lines) = registered {
         start_scene(
             app,
@@ -1517,7 +1707,7 @@ fn bundle_prompt(
         .collect::<Result<Vec<_>, _>>()?;
     let histories = if let Some(allowed) = &context.history_allowlist {
         let ids = serde_json::to_string(allowed).map_err(|error| error.to_string())?;
-        let mut query = db.prepare("SELECT m.data FROM messages m JOIN message_users u ON u.message_id=m.id JOIN message_context c ON c.message_id=m.id WHERE m.id IN (SELECT value FROM json_each(?1)) AND u.user_id=?2 AND json_extract(m.data,'$.status')='complete' AND c.forgotten=0 AND c.source NOT IN ('story','archive','imported','unknown') AND (m.role='user' OR EXISTS(SELECT 1 FROM message_presentations p WHERE p.message_id=m.id)) ORDER BY m.seq DESC LIMIT 24").map_err(|error|error.to_string())?;
+        let mut query = db.prepare("SELECT m.data FROM messages m JOIN message_users u ON u.message_id=m.id JOIN message_context c ON c.message_id=m.id WHERE m.id IN (SELECT value FROM json_each(?1)) AND u.user_id=?2 AND json_extract(m.data,'$.status')='complete' AND c.forgotten=0 AND c.source NOT IN ('story','tutorial','archive','imported','unknown') AND (m.role='user' OR EXISTS(SELECT 1 FROM message_presentations p WHERE p.message_id=m.id)) ORDER BY m.seq DESC LIMIT 24").map_err(|error|error.to_string())?;
         let values = query
             .query_map(rusqlite::params![ids, store::active_user_id(db)?], |row| {
                 row.get::<_, String>(0)
