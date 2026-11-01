@@ -1,4 +1,4 @@
-import { style, styleVariants } from "@vanilla-extract/css";
+import { globalStyle, style, styleVariants } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 
 const window = style({
@@ -38,6 +38,18 @@ export const status = style({
   fontSize: tokens["typography/sans/body/fontSize"],
   lineHeight: "1.462",
 });
+export const operationStatus = style({
+  minHeight: "1.462em",
+  flexShrink: 0,
+  margin: 0,
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/body/fontSize"],
+  lineHeight: "1.462",
+});
+export const companionFrame = style({ display: "flex", flexDirection: "column", height: "100dvh" });
+export const companionContent = style({ flex: 1, minHeight: 0, overflowY: "auto" });
+export const companionBody = style({ height: "100%", minHeight: 0 });
+globalStyle(`${companionBody} > main`, { minHeight: "100%", boxSizing: "border-box" });
 const body = style({
   flex: 1,
   minHeight: 0,

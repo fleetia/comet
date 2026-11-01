@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS widget_preferences(key TEXT PRIMARY KEY,value TEXT NO
 CREATE TRIGGER IF NOT EXISTS widget_music_preference_delete AFTER DELETE ON widget_instances BEGIN
 DELETE FROM widget_preferences WHERE key='music-launch:' || OLD.id;
 END;
+CREATE TRIGGER IF NOT EXISTS widget_tool_preference_delete AFTER DELETE ON widget_instances BEGIN
+DELETE FROM widget_preferences WHERE key IN ('tool-position:' || OLD.id, 'tool-focus:' || OLD.id);
+END;
 CREATE TABLE IF NOT EXISTS weather_history(day TEXT NOT NULL,lat REAL NOT NULL,lon REAL NOT NULL,code INTEGER NOT NULL,tMax REAL NOT NULL,tMin REAL NOT NULL,tObserved REAL,source TEXT NOT NULL DEFAULT 'live',PRIMARY KEY(day,lat,lon));
 CREATE TABLE IF NOT EXISTS character_touches(character_id TEXT NOT NULL,user_id TEXT NOT NULL,action TEXT NOT NULL,count INTEGER NOT NULL,last_at INTEGER NOT NULL,PRIMARY KEY(character_id,user_id,action));
 CREATE TABLE IF NOT EXISTS character_touch_events(character_id TEXT NOT NULL,user_id TEXT NOT NULL,created_at INTEGER NOT NULL);
@@ -124,6 +127,37 @@ CREATE TABLE IF NOT EXISTS desktop_toy_results(id TEXT PRIMARY KEY,widget_id TEX
     .map_err(err)?;
     tx.commit().map_err(err)?;
     super::backgrounds::initialize(db)
+}
+
+pub(crate) fn read_tool_position(db: &Connection, id: &str) -> Result<Option<super::desktop::Point>> {
+    let value: Option<String> = db.query_row(
+        "SELECT value FROM widget_preferences WHERE key=?1",
+        [format!("tool-position:{id}")],
+        |row| row.get(0),
+    ).optional().map_err(err)?;
+    Ok(value.and_then(|value| serde_json::from_str::<super::desktop::Point>(&value).ok())
+        .filter(|point| point.x.is_finite() && point.y.is_finite()))
+}
+
+pub(crate) fn save_tool_position(db: &Connection, id: &str, x: f64, y: f64) -> Result<()> {
+    let value = serde_json::to_string(&super::desktop::Point { x, y }).map_err(err)?;
+    db.execute("INSERT INTO widget_preferences(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", params![format!("tool-position:{id}"), value]).map_err(err)?;
+    Ok(())
+}
+
+pub(crate) fn read_tool_focus(db: &Connection, id: &str) -> Result<(bool, bool)> {
+    let value: Option<String> = db.query_row(
+        "SELECT value FROM widget_preferences WHERE key=?1",
+        [format!("tool-focus:{id}")],
+        |row| row.get(0),
+    ).optional().map_err(err)?;
+    Ok(value.and_then(|value| serde_json::from_str::<(bool, bool)>(&value).ok()).unwrap_or((true, false)))
+}
+
+pub(crate) fn save_tool_focus(db: &Connection, id: &str, expanded: bool, collapsed: bool) -> Result<()> {
+    let value = serde_json::to_string(&(expanded, collapsed)).map_err(err)?;
+    db.execute("INSERT INTO widget_preferences(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", params![format!("tool-focus:{id}"), value]).map_err(err)?;
+    Ok(())
 }
 
 #[derive(Default, serde::Serialize)]

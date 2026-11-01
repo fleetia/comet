@@ -445,10 +445,14 @@ pub(crate) fn open_widget_settings(app: tauri::AppHandle, kind: &str) -> Result<
         .map_err(|e| e.to_string())
 }
 
-pub(crate) fn show_widget_settings(app: tauri::AppHandle, kind: &str) -> Result<(), String> {
+pub(crate) fn show_widget_settings(
+    app: tauri::AppHandle,
+    kind: &str,
+    placement: Option<(f64, f64, f64, f64)>,
+) -> Result<(), String> {
     validate_widget_settings_kind(kind)?;
     *crate::lock(&app.state::<Navigation>().settings_target)? = Some(kind.into());
-    crate::app::windows::show_settings_section(app.clone(), SettingsSection::Widgets)?;
+    crate::app::windows::show_settings_section_with_placement(app.clone(), SettingsSection::Widgets, placement)?;
     app.emit_to("settings", "planner-settings-target", kind)
         .map_err(|e| e.to_string())
 }

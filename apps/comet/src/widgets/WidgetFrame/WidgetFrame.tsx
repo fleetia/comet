@@ -7,6 +7,7 @@ type Props = {
   status?: string;
   headerActions?: ReactNode;
   footer?: ReactNode;
+  operationStatus?: ReactNode;
   closeLabel: string;
   onClose: () => Promise<void>;
   variant?: "tool" | "note" | "frameless";
@@ -20,6 +21,7 @@ export function WidgetFrame({
   status,
   headerActions,
   footer,
+  operationStatus,
   closeLabel,
   onClose,
   variant = "tool",
@@ -44,6 +46,7 @@ export function WidgetFrame({
         {status && <p className={s.status}>{status}</p>}
         {children}
       </div>
+      {operationStatus}
       {footer && <footer className={s.footer[variant]}>{footer}</footer>}
     </main>
   );

@@ -185,18 +185,21 @@ fn show(app: &tauri::AppHandle, request: OpenRequest) -> Result<(), String> {
     url.query_pairs_mut()
         .append_pair("view", "conversation-history")
         .append_pair("persona", &request.persona);
-    tauri::WebviewWindowBuilder::new(
+    let placement = super::windows::placement(app, None, 1200.0, 788.0);
+    let (_, _, width, height) = placement.unwrap_or((0.0, 0.0, 1200.0, 788.0));
+    let builder = tauri::WebviewWindowBuilder::new(
         app,
         "conversation-history",
         tauri::WebviewUrl::App(format!("index.html?{}", url.query().unwrap_or_default()).into()),
     )
         .title("comet · 지난 대화")
-        .inner_size(1200.0, 788.0)
-        .min_inner_size(800.0, 560.0)
+        .inner_size(width, height)
+        .min_inner_size(800.0_f64.min(width), 560.0_f64.min(height))
         .decorations(false)
         .transparent(true)
-        .disable_drag_drop_handler()
-        .build()
+        .disable_drag_drop_handler();
+    let builder = if let Some((x, y, _, _)) = placement { builder.position(x, y) } else { builder };
+    builder.build()
         .map_err(|error| error.to_string())?;
     Ok(())
 }

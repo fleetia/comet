@@ -279,14 +279,17 @@ fn show(app: &tauri::AppHandle, ticket: OpenTicket) -> Result<(), String> {
                     840.0,
                 ),
             };
-            tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App(url.into()))
+            let placement = crate::app::windows::placement(app, None, width, height);
+            let (_, _, width, height) = placement.unwrap_or((0.0, 0.0, width, height));
+            let builder = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App(url.into()))
                 .title(title)
                 .inner_size(width, height)
-                .min_inner_size(720.0, 520.0)
+                .min_inner_size(720.0_f64.min(width), 520.0_f64.min(height))
                 .decorations(false)
                 .transparent(true)
-                .disable_drag_drop_handler()
-                .build()
+                .disable_drag_drop_handler();
+            let builder = if let Some((x, y, _, _)) = placement { builder.position(x, y) } else { builder };
+            builder.build()
                 .map_err(|e| e.to_string())?;
         }
         Ok::<(), String>(())

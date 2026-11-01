@@ -82,7 +82,7 @@ pub(crate) struct AppState {
     pub(crate) story_clock: Mutex<story::Clock>,
     pub(crate) story_catalog: Mutex<Vec<story::Scene>>,
     pub(crate) widget_jobs: Mutex<HashMap<String, Arc<AtomicBool>>>,
-    pub(crate) widget_open_intents: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    pub(crate) widget_open_intents: Mutex<HashMap<String, widgets::commands::WidgetOpenIntent>>,
     pub(crate) widget_clocks: Mutex<std::collections::BTreeMap<String, i64>>,
     pub(crate) last_input: AtomicI64,
     pub(crate) last_foreground: AtomicI64,

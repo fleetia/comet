@@ -1,5 +1,5 @@
 import { Button, Dialog } from "@comet/ui";
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactElement, type SyntheticEvent } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWidgets } from "../useWidgets";
 import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
@@ -32,6 +32,7 @@ const COMPANION_KINDS = [
 import { transparentDocument } from "../../components/companion.css";
 import * as c from "../../common.css";
 import * as s from "../tools.css";
+import * as frameStyles from "../WidgetFrame/widgetFrame.css";
 
 export function WidgetTool({
   id,
@@ -46,11 +47,28 @@ export function WidgetTool({
   const [failure, setFailure] = useState<string | null>(null),
     [busy, setBusy] = useState(false);
   const pending = useRef(false);
+  const triggeringControl = useRef<HTMLElement | null>(null);
+  const lockedControl = useRef<HTMLElement | null>(null);
+  const previousDisabled = useRef<string | null>(null);
   const [draftDirty, setDraftDirty] = useState(false);
   const [draftBusy, setDraftBusy] = useState(false);
-  const widget = snapshot?.widgets.find((item) => item.id === id);
-  const transparent = widget?.kind === "focus-timer";
+  const [showBusy, setShowBusy] = useState(false);
   useEffect(() => {
+    if (!busy) {
+      setShowBusy(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowBusy(true), 300);
+    return () => window.clearTimeout(timer);
+  }, [busy]);
+  const widget = snapshot?.widgets.find((item) => item.id === id);
+  const entry = snapshot?.catalog.find((entry) => entry.id === widget?.kind);
+  const initialKind = new URLSearchParams(window.location.search).get("kind");
+  const loadedKind = widget && entry ? widget.kind : undefined;
+  const kind = snapshot ? loadedKind : error ? null : initialKind;
+  const companion = [...COMPANION_KINDS, ...DESKTOP_TOYS].includes(kind ?? "");
+  const transparent = kind === "focus-timer" || kind === "music" || companion;
+  useLayoutEffect(() => {
     if (!transparent) return;
     document.documentElement.classList.add(transparentDocument);
     return () => document.documentElement.classList.remove(transparentDocument);
@@ -107,9 +125,16 @@ export function WidgetTool({
       return false;
     }
     if (pending.current) {
+      setFailure("이전 작업을 마친 뒤 다시 시도해 주세요.");
       return false;
     }
     pending.current = true;
+    const control = triggeringControl.current;
+    if (control && control.getAttribute("aria-disabled") !== "true") {
+      previousDisabled.current = control.getAttribute("aria-disabled");
+      control.setAttribute("aria-disabled", "true");
+      lockedControl.current = control;
+    }
     setBusy(true);
     setFailure(null);
     try {
@@ -121,6 +146,10 @@ export function WidgetTool({
       return false;
     } finally {
       pending.current = false;
+      if (previousDisabled.current === null) lockedControl.current?.removeAttribute("aria-disabled");
+      else lockedControl.current?.setAttribute("aria-disabled", previousDisabled.current);
+      lockedControl.current = null;
+      previousDisabled.current = null;
       setBusy(false);
     }
   }
@@ -144,7 +173,6 @@ export function WidgetTool({
       }),
     );
   }
-  const entry = snapshot?.catalog.find((entry) => entry.id === widget?.kind);
   const name = entry?.name ?? "위젯";
   let status: string | undefined;
   if (widget) {
@@ -189,7 +217,7 @@ export function WidgetTool({
         footer = (
           <Button
             variant="ghost"
-            disabled={busy}
+            onClickCapture={captureControl}
             onClick={() => void run(() => command("open_planner_settings", { kind: "calendar" }))}
           >
             캘린더 연결 설정
@@ -209,7 +237,7 @@ export function WidgetTool({
         footer = (
           <Button
             variant="ghost"
-            disabled={busy}
+            onClickCapture={captureControl}
             onClick={() => void run(() => command("open_planner_settings", { kind: "weather" }))}
           >
             날씨 설정 열기
@@ -223,7 +251,6 @@ export function WidgetTool({
             widget={widget}
             act={act}
             onClose={closeGuard.requestClose}
-            busy={busy}
             error={failure || undefined}
           >
             {widget.kind === "device" ? (
@@ -252,7 +279,6 @@ export function WidgetTool({
             characters={characters}
             userName={userName}
             onClose={closeGuard.requestClose}
-            busy={busy}
             error={failure || widget.error || undefined}
           />
         );
@@ -262,18 +288,34 @@ export function WidgetTool({
     }
   }
   const frameless = Boolean(
-    widget &&
-    ["music", "focus-timer", ...COMPANION_KINDS, ...DESKTOP_TOYS].includes(widget.kind),
+    kind &&
+    ["music", "focus-timer", ...COMPANION_KINDS, ...DESKTOP_TOYS].includes(kind),
   );
+  function captureControl(event: SyntheticEvent): void {
+    const control = event.target instanceof Element
+      ? event.target.closest<HTMLElement>("button, input, select, textarea, [role='button'], [role='switch']")
+      : null;
+    if (control && control === lockedControl.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    triggeringControl.current = control;
+    window.setTimeout(() => {
+      if (triggeringControl.current === control) triggeringControl.current = null;
+    }, 0);
+  }
   return (
     <WidgetFrame
       variant={frameless ? "frameless" : "tool"}
-      className={frameless ? undefined : s.host}
+      className={companion ? frameStyles.companionFrame : frameless ? undefined : s.host}
       contentClassName={
-        widget?.kind === "music"
+        loadedKind === "music"
           ? s.musicContent
-          : widget?.kind === "focus-timer"
+          : loadedKind === "focus-timer"
             ? s.focusContent
+            : companion
+              ? frameStyles.companionContent
             : undefined
       }
       title={name}
@@ -281,27 +323,41 @@ export function WidgetTool({
       onClose={closeGuard.requestClose}
       footer={footer}
       status={status}
+      operationStatus={widget && kind !== "focus-timer" && kind !== "music" && (
+        <p role="status" aria-hidden={!showBusy || Boolean(failure)} className={frameStyles.operationStatus}>
+          {showBusy && !failure ? "처리 중…" : ""}
+        </p>
+      )}
     >
       {error && (
         <p role="alert" className={c.error}>
           {error}
         </p>
       )}
-      {failure && (
+      {failure && !companion && (
         <p role="alert" className={c.error}>
           {failure}
         </p>
       )}
-      {widget?.error && <p className={c.error}>{widget.error}</p>}
-      <fieldset
+      {widget?.error && !["weather", "music"].includes(widget.kind) && <p className={c.error}>{widget.error}</p>}
+      <div
         className={
-          widget?.kind === "music"
+          loadedKind === "music"
             ? s.musicBody
-            : widget?.kind === "focus-timer"
+            : loadedKind === "focus-timer"
               ? s.focusBody
+              : companion
+                ? `${s.body} ${frameStyles.companionBody}`
               : s.body
         }
-        disabled={busy && widget?.kind !== "focus-timer"}
+        onClickCapture={captureControl}
+        onChangeCapture={captureControl}
+        onKeyDownCapture={(event) => {
+          if (event.key !== "Tab" && event.target === lockedControl.current) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }}
         onPointerDown={(event) => {
           if (widget?.kind !== "music") return;
           musicDrag.reset();
@@ -319,8 +375,7 @@ export function WidgetTool({
         onPointerCancel={musicDrag.reset}
       >
         {content}
-      </fieldset>
-      {busy && <p role="status">처리 중…</p>}
+      </div>
       <Dialog
         isOpen={closeGuard.confirmClose}
         title="작성 중인 내용이 있어요"
