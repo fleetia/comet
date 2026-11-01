@@ -474,6 +474,48 @@ fn available_actor_slots(app: &AppHandle) -> Result<usize, String> {
     Ok(MAX_ACTORS.saturating_sub(world.actors.len()))
 }
 
+fn closest_monitor(monitors: &[Rect], position: Option<(f64, f64)>) -> Option<&Rect> {
+    let Some((x, y)) = position else {
+        return monitors.first();
+    };
+    if let Some(area) = monitors.iter().find(|area| area.contains(x, y)) {
+        return Some(area);
+    }
+    monitors.iter().min_by(|left, right| {
+        let distance = |area: &&Rect| {
+            (x - x.clamp(area.x, area.x + area.width))
+                .hypot(y - y.clamp(area.y, area.y + area.height))
+        };
+        distance(left).total_cmp(&distance(right))
+    })
+}
+
+fn restore_to_monitors(mut motion: Motion, geometry: &Geometry) -> Motion {
+    let boundaries = geometry
+        .monitor_boundaries
+        .as_deref()
+        .unwrap_or(&geometry.monitors);
+    if boundaries
+        .iter()
+        .any(|area| area.contains(motion.x, motion.y))
+    {
+        return motion;
+    }
+    if let Some(area) = closest_monitor(&geometry.monitors, Some((motion.x, motion.y))) {
+        motion.x = motion.x.clamp(
+            area.x + motion.radius,
+            (area.x + area.width - motion.radius).max(area.x + motion.radius),
+        );
+        motion.y = motion.y.clamp(
+            area.y + motion.radius,
+            (area.y + area.height - motion.radius).max(area.y + motion.radius),
+        );
+        motion.vx = 0.0;
+        motion.vy = 0.0;
+    }
+    motion
+}
+
 // A bubble batch shares one attempt while each actor keeps its own launch parameters.
 #[allow(clippy::too_many_arguments)]
 fn open_one(
@@ -489,13 +531,8 @@ fn open_one(
 ) -> Result<String, String> {
     let seed = uuid::Uuid::new_v4().as_u128();
     let cursor = geometry::cursor_position();
-    let location = cursor;
-    let area = geometry
-        .monitors
-        .iter()
-        .find(|area| location.is_some_and(|(x, y)| area.contains(x, y)))
-        .or_else(|| geometry.monitors.first())
-        .ok_or("사용할 수 있는 화면이 없어요.")?;
+    let area =
+        closest_monitor(&geometry.monitors, cursor).ok_or("사용할 수 있는 화면이 없어요.")?;
     let scale = scale_at(app, area.x + area.width * 0.5, area.y + area.height * 0.5);
     let appearance = if kind == Kind::Bubbles {
         bubble_appearance(seed)
@@ -1379,7 +1416,13 @@ fn apply_geometry(world: &mut World, sample: Option<GeometrySample>, now: Instan
         .is_none_or(|at| now.duration_since(at) > Duration::from_secs(1))
     {
         world.geometry.external_windows_available = false;
-        world.geometry.edges = geometry::monitor_edges(&world.geometry.monitors);
+        world.geometry.edges = geometry::monitor_edges(
+            world
+                .geometry
+                .monitor_boundaries
+                .as_deref()
+                .unwrap_or(&world.geometry.monitors),
+        );
     }
 }
 
@@ -1518,32 +1561,7 @@ pub(crate) fn start(app: AppHandle) {
                         removed.push(actor.id.clone());
                         continue;
                     }
-                    if let Some(area) = geometry.monitors.iter().min_by(|left, right| {
-                        let distance = |r: &&Rect| {
-                            (actor.motion.x - actor.motion.x.clamp(r.x, r.x + r.width))
-                                .hypot(actor.motion.y - actor.motion.y.clamp(r.y, r.y + r.height))
-                        };
-                        distance(left).total_cmp(&distance(right))
-                    }) {
-                        if !geometry
-                            .monitors
-                            .iter()
-                            .any(|area| area.contains(actor.motion.x, actor.motion.y))
-                        {
-                            actor.motion.x = actor.motion.x.clamp(
-                                area.x + actor.motion.radius,
-                                (area.x + area.width - actor.motion.radius)
-                                    .max(area.x + actor.motion.radius),
-                            );
-                            actor.motion.y = actor.motion.y.clamp(
-                                area.y + actor.motion.radius,
-                                (area.y + area.height - actor.motion.radius)
-                                    .max(area.y + actor.motion.radius),
-                            );
-                            actor.motion.vx = 0.0;
-                            actor.motion.vy = 0.0;
-                        }
-                    }
+                    actor.motion = restore_to_monitors(actor.motion, &geometry);
                     if actor.dragging {
                         if let Some((cx, cy)) = cursor {
                             let x = cx + actor.drag_offset.0;
@@ -1626,6 +1644,88 @@ pub(crate) fn start(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn closest_monitor_selects_the_screen_under_the_dock_and_preserves_first_match() {
+        let monitors = [
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1000.0,
+                height: 875.0,
+            },
+            Rect {
+                x: 1000.0,
+                y: 0.0,
+                width: 1000.0,
+                height: 875.0,
+            },
+        ];
+        assert_eq!(
+            closest_monitor(&monitors, Some((1500.0, 890.0))),
+            Some(&monitors[1])
+        );
+        assert_eq!(
+            closest_monitor(&monitors, Some((1000.0, 400.0))),
+            Some(&monitors[0])
+        );
+        assert_eq!(closest_monitor(&monitors, None), Some(&monitors[0]));
+    }
+
+    #[test]
+    fn restoring_a_ball_uses_visible_monitors_but_keeps_the_seam_open() {
+        let first = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 875.0,
+        };
+        let second = Rect {
+            x: 500.0,
+            y: 900.0,
+            width: 1000.0,
+            height: 875.0,
+        };
+        let geometry = Geometry {
+            monitors: vec![first, second],
+            monitor_boundaries: Some(vec![
+                first,
+                second,
+                Rect {
+                    x: 500.0,
+                    y: 875.0,
+                    width: 500.0,
+                    height: 25.0,
+                },
+            ]),
+            ..Geometry::default()
+        };
+        let motion = Motion {
+            x: 100.0,
+            y: 881.0,
+            vx: 10.0,
+            vy: 20.0,
+            radius: 19.0,
+        };
+        let restored = restore_to_monitors(motion, &geometry);
+        assert_eq!((restored.x, restored.y), (100.0, 856.0));
+        assert_eq!((restored.vx, restored.vy), (0.0, 0.0));
+
+        let seam_motion = Motion { x: 700.0, ..motion };
+        let unchanged = restore_to_monitors(seam_motion, &geometry);
+        assert_eq!((unchanged.x, unchanged.y), (700.0, 881.0));
+        assert_eq!((unchanged.vx, unchanged.vy), (10.0, 20.0));
+
+        let fallback_geometry = Geometry {
+            monitor_boundaries: None,
+            ..geometry
+        };
+        let restored_without_boundaries = restore_to_monitors(seam_motion, &fallback_geometry);
+        assert_eq!(
+            (restored_without_boundaries.x, restored_without_boundaries.y),
+            (700.0, 856.0)
+        );
+    }
 
     #[cfg(target_os = "linux")]
     #[test]
@@ -2123,6 +2223,41 @@ mod tests {
         assert!(!world.geometry.external_windows_available);
         assert_eq!(world.geometry.edges.len(), 4);
         assert_eq!(world.last_geometry_ok, Some(now));
+    }
+
+    #[test]
+    fn unavailable_geometry_preserves_partial_monitor_boundaries() {
+        let now = Instant::now();
+        let mut world = World {
+            geometry: Geometry {
+                monitors: vec![Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 100.0,
+                }],
+                monitor_boundaries: Some(vec![Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 90.0,
+                }]),
+                ..Geometry::default()
+            },
+            last_geometry_ok: Some(now),
+            ..World::default()
+        };
+        apply_geometry(&mut world, None, now + Duration::from_secs(2));
+        assert!(world
+            .geometry
+            .edges
+            .iter()
+            .any(|edge| edge.horizontal && edge.axis == 90.0));
+        assert!(!world
+            .geometry
+            .edges
+            .iter()
+            .any(|edge| edge.horizontal && edge.axis == 100.0));
     }
 
     #[test]
