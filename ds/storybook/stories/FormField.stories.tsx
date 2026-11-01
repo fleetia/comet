@@ -50,7 +50,7 @@ export const Controls: Story = {
       <FormField label="날짜">
         <TextInput fill type="date" defaultValue="2026-10-18" />
       </FormField>
-      <FormField label="자동 대화">
+      <FormField label="자동 잡담">
         <Checkbox label="사용" />
       </FormField>
     </div>

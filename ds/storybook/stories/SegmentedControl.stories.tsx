@@ -78,6 +78,7 @@ export const WithDisabledOption: Story = {
   args: { options: options.map((option) => ({ ...option, disabled: option.value === "month" })) },
 };
 export const Disabled: Story = { name: "전체 비활성", args: { disabled: true } };
+export const InProgress: Story = { name: "작업 중", args: { "aria-disabled": true } };
 export const Controlled: Story = { name: "값 연결", render: () => <ControlledSegments /> };
 export const SharedForm: Story = {
   name: "폼 밖의 선택지 · 초기화",

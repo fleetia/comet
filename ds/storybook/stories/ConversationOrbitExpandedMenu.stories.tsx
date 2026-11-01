@@ -88,6 +88,23 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Full: Story = { name: "큰 교감" };
+export const DisabledConversation: Story = {
+  name: "이을 대화 없음",
+  args: {
+    title: "대화",
+    selectedId: undefined,
+    secondaryItems: [],
+    items: [
+      {
+        id: "continue-conversation",
+        label: "대화 없음",
+        accessibleLabel: "이어서 할 대화가 없어요",
+        icon: "chat",
+        disabled: true,
+      },
+    ],
+  },
+};
 export const Compact: Story = {
   name: "작은 교감",
   args: {
