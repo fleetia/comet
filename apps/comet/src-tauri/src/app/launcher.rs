@@ -616,6 +616,7 @@ fn accept_settings_execution(
 #[tauri::command]
 pub(crate) async fn execute_launcher(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, Arc<AppState>>,
     request: ExecuteRequest,
 ) -> Result<(), String> {
@@ -649,6 +650,7 @@ pub(crate) async fn execute_launcher(
                 accept_direct_execution(&state, request.session_id)?;
                 widgets::desktop::set_widget_desktop_editing(
                     app.clone(),
+                    window,
                     app.state::<Arc<AppState>>(),
                     true,
                 )
