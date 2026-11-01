@@ -120,7 +120,7 @@ it("locks the draft during widget shutdown and unlocks it when saving fails", as
     requestId: "shutdown",
     windowLabel: "widget-memo-note-one",
     success: false,
-    error: expect.any(String),
+    error: "메모를 저장하지 못했어요. 메모 창에서 다시 저장해 주세요.",
   });
   const release = vi.mocked(listen).mock.calls.find(([name]) => name === "memo-flush-release")?.[1];
   expect(vi.mocked(listen).mock.calls.map(([event, , options]) => [event, options])).toEqual([
@@ -133,4 +133,77 @@ it("locks the draft during widget shutdown and unlocks it when saving fails", as
   });
   expect(screen.getByRole("textbox")).toHaveProperty("readOnly", false);
   expect(screen.getByRole("textbox")).toHaveProperty("value", "보존할 초안");
+});
+
+it("reports the conflict choices when a shutdown flush encounters a conflict", async () => {
+  vi.mocked(command).mockRejectedValueOnce(new Error("다른 화면에서 이 메모가 변경됐어요. 내용을 확인한 뒤 다시 저장해 주세요."));
+  render(<MemoNote id="memo" noteId="one" />);
+  await waitFor(() => expect(listen).toHaveBeenCalledWith("memo-flush-request", expect.any(Function), {
+    target: "widget-memo-note-one",
+  }));
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "보존할 초안" } });
+  const request = vi.mocked(listen).mock.calls.find(([name]) => name === "memo-flush-request")?.[1];
+  await act(async () => {
+    await request?.({ event: "memo-flush-request", id: 1, payload: { requestId: "shutdown" } });
+  });
+  expect(emitTo).toHaveBeenCalledWith("widget-memo-note-one", "memo-flush-result", {
+    requestId: "shutdown",
+    windowLabel: "widget-memo-note-one",
+    success: false,
+    error: "메모 창에서 '내 글을 새 메모로 저장'이나 '내 글 버리고 최신 내용으로 바꾸기'를 선택해 주세요.",
+  });
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "보존할 초안");
+});
+
+it("keeps a conflicting draft until it is saved as another memo", async () => {
+  vi.mocked(command).mockRejectedValueOnce(new Error("다른 화면에서 이 메모가 변경됐어요. 내용을 확인한 뒤 다시 저장해 주세요."));
+  vi.mocked(command).mockResolvedValueOnce({ catalog, widgets: [widget], onboardingDone: true });
+  vi.mocked(command).mockResolvedValueOnce("copy");
+  render(<MemoNote id="memo" noteId="one" />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "내 초안" } });
+  fireEvent.click(screen.getByRole("button", { name: "메모 넣기" }));
+  const copy = await screen.findByRole("button", { name: "내 글을 새 메모로 저장" });
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "내 초안");
+  fireEvent.click(copy);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("execute_widget", {
+    request: expect.objectContaining({ instanceId: "memo", expectedRevision: 2, action: "add", input: { title: "기존 제목", body: "내 초안", fontSize: 16 } }),
+  }));
+  await waitFor(() => expect(screen.getByRole("textbox")).toHaveProperty("value", "첫 줄\n둘째 줄"));
+});
+
+it("requires confirmation before discarding a conflicting draft", async () => {
+  vi.mocked(command).mockRejectedValueOnce(new Error("다른 화면에서 이 메모가 변경됐어요. 내용을 확인한 뒤 다시 저장해 주세요."));
+  render(<MemoNote id="memo" noteId="one" />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "보존할 초안" } });
+  fireEvent.click(screen.getByRole("button", { name: "메모 넣기" }));
+  fireEvent.click(await screen.findByRole("button", { name: "내 글 버리고 최신 내용으로 바꾸기" }));
+  expect(screen.getByText("내 글을 버리고 최신 내용으로 바꿀까요?")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "취소" }));
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "보존할 초안");
+  expect(command).not.toHaveBeenCalledWith("get_widgets");
+});
+
+it("adopts the newer original received while the conflict copy is saving", async () => {
+  vi.mocked(command).mockRejectedValueOnce(new Error("다른 화면에서 이 메모가 변경됐어요. 내용을 확인한 뒤 다시 저장해 주세요."));
+  vi.mocked(command).mockResolvedValueOnce({ catalog, widgets: [widget], onboardingDone: true });
+  let finish: ((value: string) => void) | undefined;
+  vi.mocked(command).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  const view = render(<MemoNote id="memo" noteId="one" />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "내 초안" } });
+  fireEvent.click(screen.getByRole("button", { name: "메모 넣기" }));
+  fireEvent.click(await screen.findByRole("button", { name: "내 글을 새 메모로 저장" }));
+  await waitFor(() => expect(finish).toBeDefined());
+  const newer: WidgetView = { ...widget, revision: 4, data: { notes: [
+    { id: "one", title: "기존 제목", body: "더 최신 원문", isOpen: true, fontSize: 18 },
+  ] } };
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { catalog, widgets: [newer], onboardingDone: true }, error: null, reload: vi.fn(),
+  });
+  view.rerender(<MemoNote id="memo" noteId="one" />);
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "내 초안");
+  await act(async () => finish?.("copy"));
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "더 최신 원문");
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "다시 작성" } });
+  fireEvent.click(screen.getByRole("button", { name: "메모 넣기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("save_memo_note", expect.objectContaining({ expectedBody: "더 최신 원문" })));
 });

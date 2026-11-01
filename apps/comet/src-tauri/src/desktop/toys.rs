@@ -1419,17 +1419,35 @@ fn prepare_tick(world: &mut World, elapsed: f64, previous: Instant) -> (f64, Vec
     (0.0, removed)
 }
 
+fn resting_tick(actors: &BTreeMap<String, Actor>, cursor: Option<(f64, f64)>) -> bool {
+    actors.values().all(|actor| {
+        !actor.moving
+            && !actor.dragging
+            && cursor.is_none_or(|(x, y)| {
+                (x - actor.motion.x).hypot(y - actor.motion.y) > 100.0 * actor.scale
+            })
+    })
+}
+
 pub(crate) fn start(app: AppHandle) {
     if app.state::<Runtime>().started.swap(true, Ordering::SeqCst) {
         return;
     }
     tauri::async_runtime::spawn(async move {
-        let mut timer = tokio::time::interval(Duration::from_millis(16));
-        timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut previous = Instant::now();
         let mut pending_geometry = None;
+        let mut cursor = None;
         loop {
-            timer.tick().await;
+            let resting = {
+                let runtime = app.state::<Runtime>();
+                let resting = runtime
+                    .world
+                    .lock()
+                    .map(|world| resting_tick(&world.actors, cursor))
+                    .unwrap_or(false);
+                resting
+            };
+            tokio::time::sleep(Duration::from_millis(if resting { 250 } else { 16 })).await;
             let now = Instant::now();
             let elapsed = now.duration_since(previous).as_secs_f64();
             let interrupted_after = previous;
@@ -1440,9 +1458,10 @@ pub(crate) fn start(app: AppHandle) {
                 .lock()
                 .map(|world| {
                     !world.actors.is_empty()
-                        && world
-                            .geometry_at
-                            .is_none_or(|at| now.duration_since(at) >= Duration::from_millis(150))
+                        && world.geometry_at.is_none_or(|at| {
+                            now.duration_since(at)
+                                >= Duration::from_millis(if resting { 500 } else { 150 })
+                        })
                 })
                 .unwrap_or(false);
             let active = runtime
@@ -1458,7 +1477,7 @@ pub(crate) fn start(app: AppHandle) {
                 pending_geometry = Some(request_geometry(&app));
             }
             let characters = crate::characters::collision_host::colliders(&app);
-            let cursor = geometry::cursor_position();
+            cursor = geometry::cursor_position();
             let mut displays = vec![];
             let mut removed = vec![];
             {
@@ -2124,8 +2143,29 @@ mod tests {
         assert_eq!(outcomes.len(), 1);
         assert!(!actor.moving);
         let y = actor.motion.y;
-        step(&mut actor, &Geometry::default(), STEP);
+        let mut actors = BTreeMap::new();
+        actors.insert(actor.id.clone(), actor);
+        assert!(resting_tick(&actors, Some((500.0, 500.0))));
+        assert!(!resting_tick(&actors, Some((50.0, y))));
+        let actor = actors.get_mut("test").unwrap();
+        step(actor, &Geometry::default(), STEP);
         assert!(actor.moving && actor.motion.y > y);
+        assert!(!resting_tick(&actors, Some((500.0, 500.0))));
+    }
+
+    #[test]
+    fn dragging_or_another_moving_actor_keeps_the_fast_tick() {
+        let mut actor = resting_ball();
+        actor.moving = false;
+        let mut actors = BTreeMap::from([(actor.id.clone(), actor)]);
+        assert!(resting_tick(&actors, None));
+        actors.get_mut("test").unwrap().dragging = true;
+        assert!(!resting_tick(&actors, None));
+        actors.get_mut("test").unwrap().dragging = false;
+        let mut second = resting_ball();
+        second.id = "second".into();
+        actors.insert(second.id.clone(), second);
+        assert!(!resting_tick(&actors, None));
     }
     #[test]
     fn drag_bypasses_all_physics_until_release() {

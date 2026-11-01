@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import type { WidgetValue, WidgetView } from "../types";
 import { render, screen } from "@testing-library/react";
-import { desktopSummary, FreeformWidget } from "./DesktopWidget";
+import { desktopSummary, FreeformWidget, widgetWindowCommand } from "./DesktopWidget";
 
 function widget(kind: string, data: WidgetValue): WidgetView {
   return {
@@ -17,6 +17,18 @@ function widget(kind: string, data: WidgetValue): WidgetView {
     packageBytes: 0,
   };
 }
+
+it("selects the most recently updated nonempty stored memo", () => {
+  const memo = widget("memo", { notes: [
+    { id: "old", title: "예전", body: "", isOpen: false, updatedAt: 1 },
+    { id: "new", title: "", body: "최근 내용", isOpen: false, updatedAt: 3 },
+    { id: "blank", title: "", body: "", isOpen: false, updatedAt: 4 },
+  ] });
+  expect(desktopSummary(memo, 0).description).toBe("최근 내용");
+  expect(widgetWindowCommand(memo)).toEqual(["open_memo_note", { id: "memo", noteId: "new" }]);
+  expect(widgetWindowCommand(widget("memo", { notes: [{ id: "blank", title: "", body: "" }] })))
+    .toEqual(["open_widget", { id: "memo" }]);
+});
 
 it("names the focus row by its real state instead of always saying it is running", () => {
   const now = Date.now();

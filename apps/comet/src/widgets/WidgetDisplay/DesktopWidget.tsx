@@ -52,6 +52,12 @@ export function desktopWidgets(widgets: readonly WidgetView[]): WidgetView[] {
     (widget) => desktopKind(widget.kind) !== undefined,
   );
 }
+function memoNote(data: DataRecord): DataRecord | undefined {
+  const notes = rows(data.notes);
+  return notes.find((note) => note.isOpen === true) ?? notes
+    .filter((note) => text(note.title) !== "" || text(note.body) !== "")
+    .sort((a, b) => number(b.updatedAt) - number(a.updatedAt))[0];
+}
 export function focusRemaining(widget: WidgetView, now: number): number {
   const data = record(widget.data);
   return Math.max(
@@ -207,7 +213,7 @@ export function desktopSummary(
       };
     }
     case "memo": {
-      const note = rows(data.notes).find((note) => note.isOpen) ?? rows(data.notes)[0];
+      const note = memoNote(data);
       return {
         icon: "memo",
         title: text(note?.title) || "메모",
@@ -368,7 +374,7 @@ export function FreeformWidget({
       );
     }
     case "memo": {
-      const note = rows(data.notes).find((item) => item.isOpen === true) ?? rows(data.notes)[0];
+      const note = memoNote(data);
       return (
         <MemoWidget {...look} title={summary.title}>
           <span style={{ fontSize: number(note?.fontSize) || 16, lineHeight: 1.6 }}>
@@ -521,10 +527,9 @@ export function useStackAction(widget: WidgetView): {
   return { label: action.label, busy, error, open };
 }
 
-/** Opens the widget's own window; a memo opens its open note, or its first one. */
+/** Opens the widget's own window; a memo opens its open or most recent nonempty note. */
 export function widgetWindowCommand(widget: WidgetView): [string, Record<string, unknown>] {
-  const notes = widget.kind === "memo" ? rows(record(widget.data).notes) : [];
-  const note = notes.find((item) => item.isOpen === true) ?? notes[0];
+  const note = widget.kind === "memo" ? memoNote(record(widget.data)) : undefined;
   return note
     ? ["open_memo_note", { id: widget.id, noteId: text(note.id) }]
     : ["open_widget", { id: widget.id }];

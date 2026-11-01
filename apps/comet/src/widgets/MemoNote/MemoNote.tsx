@@ -8,14 +8,15 @@ import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { number, record, rows, text, type DataRecord } from "../toolData";
 import { useWidgets } from "../useWidgets";
 import { useMemoDraft } from "../useMemoDraft";
+import type { WidgetSnapshot } from "../types";
 import { WidgetDragHandle } from "../WidgetDragHandle";
 import * as c from "../../common.css";
 import * as s from "../memo.css";
 import * as paper from "./memoNote.css";
 
-function NoteEditor({ id, note }: { id: string; note: DataRecord }): ReactElement {
+function NoteEditor({ id, note, revision }: { id: string; note: DataRecord; revision: number }): ReactElement {
   const noteId = text(note.id);
-  const { draft, status, error, edit, flush } = useMemoDraft({
+  const { draft, status, error, edit, flush, isConflict, adopt } = useMemoDraft({
     id,
     noteId,
     body: text(note.body),
@@ -23,9 +24,14 @@ function NoteEditor({ id, note }: { id: string; note: DataRecord }): ReactElemen
   });
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const pending = useRef(false);
   const flushRequest = useRef<string | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const latestNote = useRef({ revision, note });
+  if (revision >= latestNote.current.revision) {
+    latestNote.current = { revision, note };
+  }
   const drag = useWindowDrag(isDesktop(), setFailure);
   useEffect(() => {
     input.current?.focus();
@@ -88,7 +94,9 @@ function NoteEditor({ id, note }: { id: string; note: DataRecord }): ReactElemen
               success,
               ...(success
                 ? {}
-                : { error: "메모를 저장하지 못했어요. 메모 창에서 다시 저장해 주세요." }),
+                : { error: isConflict()
+                    ? "메모 창에서 '내 글을 새 메모로 저장'이나 '내 글 버리고 최신 내용으로 바꾸기'를 선택해 주세요."
+                    : "메모를 저장하지 못했어요. 메모 창에서 다시 저장해 주세요." }),
             });
           } catch (cause: unknown) {
             setFailure(errorText(cause));
@@ -112,7 +120,7 @@ function NoteEditor({ id, note }: { id: string; note: DataRecord }): ReactElemen
       active = false;
       cleanups.forEach((cleanup) => cleanup());
     };
-  }, [putAway, flush]);
+  }, [putAway, flush, isConflict]);
 
   async function create(): Promise<void> {
     if (pending.current) {
@@ -125,6 +133,40 @@ function NoteEditor({ id, note }: { id: string; note: DataRecord }): ReactElemen
       if (await flush()) {
         await command("create_memo_note", { id });
       }
+    } catch (cause: unknown) {
+      setFailure(errorText(cause));
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function resolveConflict(copy: boolean): Promise<void> {
+    if (pending.current) {
+      return;
+    }
+    pending.current = true;
+    setBusy(true);
+    setFailure(null);
+    try {
+      const snapshot = await command<WidgetSnapshot>("get_widgets");
+      const widget = snapshot.widgets.find((item) => item.id === id);
+      const latest = rows(record(widget?.data).notes).find((item) => item.id === noteId);
+      if (!widget || !latest) throw new Error("최신 메모를 찾지 못했어요.");
+      if (copy) {
+        await command("execute_widget", {
+          request: {
+            requestId: crypto.randomUUID(),
+            instanceId: id,
+            expectedRevision: widget.revision,
+            action: "add",
+            input: { title: text(latest.title), body: draft.body, fontSize: draft.fontSize },
+          },
+        });
+      }
+      const current = latestNote.current.revision > widget.revision ? latestNote.current.note : latest;
+      adopt({ body: text(current.body), fontSize: number(current.fontSize) || 16 });
+      setConfirmDiscard(false);
     } catch (cause: unknown) {
       setFailure(errorText(cause));
     } finally {
@@ -222,9 +264,29 @@ function NoteEditor({ id, note }: { id: string; note: DataRecord }): ReactElemen
       {(error || failure) && (
         <div className={s.failure}>
           <p role="alert" className={c.error}>
-            {error || failure}
+            {failure || error}
           </p>
-          {error && (
+          {error?.includes("다른 화면에서 이 메모가 변경됐어요") ? (
+            <>
+              <Button variant="ghost" size="small" disabled={busy} onClick={() => void resolveConflict(true)}>
+                내 글을 새 메모로 저장
+              </Button>
+              <Button variant="danger" size="small" disabled={busy} onClick={() => setConfirmDiscard(true)}>
+                내 글 버리고 최신 내용으로 바꾸기
+              </Button>
+              {confirmDiscard && (
+                <div>
+                  <p>내 글을 버리고 최신 내용으로 바꿀까요?</p>
+                  <Button variant="danger" size="small" disabled={busy} onClick={() => void resolveConflict(false)}>
+                    버리고 바꾸기
+                  </Button>
+                  <Button variant="ghost" size="small" disabled={busy} onClick={() => setConfirmDiscard(false)}>
+                    취소
+                  </Button>
+                </div>
+              )}
+            </>
+          ) : error && (
             <Button variant="ghost" size="small" disabled={busy} onClick={() => void flush()}>
               다시 저장
             </Button>
@@ -245,7 +307,7 @@ export function MemoNote({ id, noteId }: { id: string; noteId: string }): ReactE
   const widget = snapshot?.widgets.find((item) => item.id === id);
   const note = rows(record(widget?.data).notes).find((item) => item.id === noteId);
   if (widget && note) {
-    return <NoteEditor key={noteId} id={id} note={note} />;
+    return <NoteEditor key={noteId} id={id} note={note} revision={widget.revision} />;
   }
   return (
     <main className={paper.stage}>

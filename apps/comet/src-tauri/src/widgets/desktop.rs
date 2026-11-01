@@ -367,8 +367,7 @@ pub(crate) fn clamp_point(point: &Point, size: (f64, f64), areas: &[Rect]) -> Po
 pub(crate) fn restore_point(point: &Point, size: (f64, f64), areas: &[Rect]) -> Point {
     let center = (point.x + size.0 / 2.0, point.y + size.1 / 2.0);
     let overlap_area = |area: &Rect| {
-        overlap(point.x, size.0, area.x, area.width)
-            * overlap(point.y, size.1, area.y, area.height)
+        overlap(point.x, size.0, area.x, area.width) * overlap(point.y, size.1, area.y, area.height)
     };
     let distance = |area: &Rect| {
         let dx = (area.x - center.0)
@@ -897,8 +896,7 @@ fn anchor_area(app: &tauri::AppHandle, layout: &Layout) -> Result<Rect, String> 
 pub(crate) fn is_widget_window(label: &str) -> bool {
     label == STACK
         || label.starts_with(DISPLAY)
-        || (label.starts_with("widget-")
-            && (label.contains("-image-") || label.contains("-note-")))
+        || (label.starts_with("widget-") && (label.contains("-image-") || label.contains("-note-")))
 }
 
 fn is_placement_obstacle(label: &str) -> bool {
@@ -1342,7 +1340,11 @@ fn should_close_empty_stack(layout: &Layout) -> bool {
 }
 
 fn is_latest_move(moves: &Mutex<HashMap<String, u64>>, label: &str, expected: u64) -> bool {
-    moves.lock().ok().and_then(|moves| moves.get(label).copied()) == Some(expected)
+    moves
+        .lock()
+        .ok()
+        .and_then(|moves| moves.get(label).copied())
+        == Some(expected)
 }
 
 /// Runs off the main thread: the action lock may be held by a command waiting on native calls.
@@ -1363,6 +1365,7 @@ pub(crate) fn mark_widget_desktop_drag(window: tauri::WebviewWindow) {
     if label != STACK
         && !label.starts_with(DISPLAY)
         && !(label.starts_with("widget-") && label.contains("-image-"))
+        && !(label.starts_with("widget-") && label.contains("-note-"))
     {
         return;
     }
@@ -1494,6 +1497,7 @@ pub(crate) fn watch_work_areas(app: &tauri::AppHandle, state: Arc<AppState>) {
                 if let Ok(stored) = stored {
                     let _ = sync(&app, &state, &stored.layout, false, true);
                     crate::widgets::images::reposition_on_screen_change(&app);
+                    crate::widgets::memo_notes::reposition_on_screen_change(&app);
                 }
             })
             .await;
@@ -1501,11 +1505,7 @@ pub(crate) fn watch_work_areas(app: &tauri::AppHandle, state: Arc<AppState>) {
     });
 }
 
-fn reset_anchor(
-    layout: &mut Layout,
-    anchor: Anchor,
-    monitor: Option<(Option<String>, Point)>,
-) {
+fn reset_anchor(layout: &mut Layout, anchor: Anchor, monitor: Option<(Option<String>, Point)>) {
     layout.anchor = anchor;
     layout.stack_position = None;
     let (name, origin) = monitor.map_or((None, None), |(name, origin)| (name, Some(origin)));
@@ -1542,7 +1542,10 @@ pub(crate) async fn reset_widget_desktop_position(
 /// Debounces native moves of desktop widget windows and saves where the user left them.
 pub(crate) fn moved(window: &tauri::Window) {
     let label = window.label();
-    if label != STACK && !label.starts_with(DISPLAY) {
+    if label != STACK
+        && !label.starts_with(DISPLAY)
+        && !(label.starts_with("widget-") && label.contains("-note-"))
+    {
         return;
     }
     let app = window.app_handle().clone();
@@ -1596,10 +1599,18 @@ pub(crate) fn moved(window: &tauri::Window) {
             && screen_unchanged(&app)
         {
             let _ = tauri::async_runtime::spawn_blocking(move || {
-                let result = settle(&app, &label, epoch);
+                let result = if label.starts_with("widget-") && label.contains("-note-") {
+                    crate::widgets::memo_notes::settle_move(&app, &label, epoch, expected)
+                } else {
+                    settle(&app, &label, epoch)
+                };
                 if let Some(runtime) = app.try_state::<Runtime>() {
-                    if let Ok(mut dragging) = runtime.dragging.lock() {
-                        dragging.remove(&label);
+                    if let Ok(moves) = runtime.moves.lock() {
+                        if moves.get(&label) == Some(&expected) {
+                            if let Ok(mut dragging) = runtime.dragging.lock() {
+                                dragging.remove(&label);
+                            }
+                        }
                     }
                 }
                 result
@@ -1607,6 +1618,57 @@ pub(crate) fn moved(window: &tauri::Window) {
             .await;
         }
     });
+}
+
+pub(crate) fn current_move(app: &tauri::AppHandle, label: &str, generation: u64) -> bool {
+    app.try_state::<Runtime>()
+        .is_some_and(|runtime| is_latest_move(&runtime.moves, label, generation))
+}
+
+pub(crate) fn move_generation(app: &tauri::AppHandle, label: &str) -> Option<u64> {
+    app.try_state::<Runtime>()
+        .and_then(|runtime| runtime.moves.lock().ok()?.get(label).copied())
+}
+
+pub(crate) fn active_drag_move(app: &tauri::AppHandle, label: &str) -> Option<u64> {
+    let runtime = app.try_state::<Runtime>()?;
+    if !runtime.dragging.lock().ok()?.contains(label) {
+        return None;
+    }
+    let generation = move_generation(app, label)?;
+    if !runtime.dragging.lock().ok()?.contains(label) {
+        return None;
+    }
+    Some(generation)
+}
+
+pub(crate) fn drag_pending(app: &tauri::AppHandle, label: &str) -> bool {
+    app.try_state::<Runtime>().is_some_and(|runtime| {
+        runtime
+            .dragging
+            .lock()
+            .ok()
+            .is_some_and(|dragging| dragging.contains(label))
+            || runtime.drag_marks.lock().ok().is_some_and(|marks| {
+                marks
+                    .get(label)
+                    .is_some_and(|marked| marked.elapsed() < Duration::from_secs(3))
+            })
+    })
+}
+
+pub(crate) fn invalidate_move(app: &tauri::AppHandle, label: &str) {
+    if let Some(runtime) = app.try_state::<Runtime>() {
+        if let Ok(mut moves) = runtime.moves.lock() {
+            *moves.entry(label.to_string()).or_default() += 1;
+        }
+        if let Ok(mut dragging) = runtime.dragging.lock() {
+            dragging.remove(label);
+        }
+        if let Ok(mut marks) = runtime.drag_marks.lock() {
+            marks.remove(label);
+        }
+    }
 }
 
 fn settle(app: &tauri::AppHandle, label: &str, epoch: u64) -> Result<(), String> {
@@ -2563,12 +2625,32 @@ mod tests {
         };
         let areas = [AREA, second];
         assert_eq!(
-            restore_point(&Point { x: 1400.0, y: 850.0 }, (200.0, 100.0), &areas),
-            Point { x: 1440.0, y: 800.0 }
+            restore_point(
+                &Point {
+                    x: 1400.0,
+                    y: 850.0
+                },
+                (200.0, 100.0),
+                &areas
+            ),
+            Point {
+                x: 1440.0,
+                y: 800.0
+            }
         );
         assert_eq!(
-            restore_point(&Point { x: 4000.0, y: 100.0 }, (200.0, 100.0), &areas),
-            Point { x: 3160.0, y: 100.0 }
+            restore_point(
+                &Point {
+                    x: 4000.0,
+                    y: 100.0
+                },
+                (200.0, 100.0),
+                &areas
+            ),
+            Point {
+                x: 3160.0,
+                y: 100.0
+            }
         );
         let oversized = Point { x: 100.0, y: 100.0 };
         assert_eq!(
@@ -2604,10 +2686,7 @@ mod tests {
         };
         layout.positions.insert("b".into(), saved.clone());
         layout.shapes.insert("b".into(), shape(300.0, 100.0, 0.0));
-        let kinds = HashMap::from([
-            ("a".into(), "clock".into()),
-            ("b".into(), "clock".into()),
-        ]);
+        let kinds = HashMap::from([("a".into(), "clock".into()), ("b".into(), "clock".into())]);
         let mut occupied = Vec::new();
         add_saved_widget_areas(&mut occupied, &layout, &kinds, "a");
 
@@ -2835,14 +2914,19 @@ mod tests {
             occupied.push(rect);
         }
         let point = auto_place(AREA, size, &occupied);
-        assert!(occupied.iter().all(|other| !Rect::at(&point, size).intersects(other)));
+        assert!(occupied
+            .iter()
+            .all(|other| !Rect::at(&point, size).intersects(other)));
     }
 
     #[test]
     fn restoring_outside_a_monitor_does_not_replace_the_saved_position() {
         let db = database();
         let id = widget_ids(&db, &["clock"]).remove(0);
-        let saved = Point { x: 1390.0, y: 850.0 };
+        let saved = Point {
+            x: 1390.0,
+            y: 850.0,
+        };
         update(&db, |layout| {
             layout.order.push(id.clone());
             layout.positions.insert(id.clone(), saved.clone());
@@ -2858,7 +2942,13 @@ mod tests {
             None,
         );
         assert_eq!(clamp_point(&saved, (208.0, 208.0), &[AREA]), saved);
-        assert_eq!(shown, Point { x: 1232.0, y: 692.0 });
+        assert_eq!(
+            shown,
+            Point {
+                x: 1232.0,
+                y: 692.0
+            }
+        );
         assert!(!should_save);
         assert_eq!(load(&db).unwrap().layout.positions[&id], saved);
         let fallback = Point { x: 100.0, y: 100.0 };
@@ -2994,11 +3084,7 @@ mod tests {
         };
         let monitors = vec![
             (Some("same".into()), Point { x: 0.0, y: 0.0 }, AREA),
-            (
-                Some("same".into()),
-                Point { x: 2880.0, y: 0.0 },
-                external,
-            ),
+            (Some("same".into()), Point { x: 2880.0, y: 0.0 }, external),
         ];
         let legacy: Layout = serde_json::from_str(r#"{"stackMonitor":"same"}"#).unwrap();
         assert_eq!(

@@ -11,6 +11,8 @@ export function useMemoDraft({ id, noteId, body, fontSize }: Props): {
   error: string | null;
   edit: (patch: Partial<Draft>) => void;
   flush: () => Promise<boolean>;
+  isConflict: () => boolean;
+  adopt: (next: Draft) => void;
 } {
   const [draft, setDraft] = useState<Draft>({ body, fontSize });
   const [status, setStatus] = useState<"saved" | "unsaved" | "saving" | "error">("saved");
@@ -19,6 +21,8 @@ export function useMemoDraft({ id, noteId, body, fontSize }: Props): {
   const saved = useRef(draft);
   const pending = useRef<Promise<boolean> | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const conflict = useRef(false);
+  const isConflict = useCallback((): boolean => conflict.current, []);
 
   useEffect(() => {
     const clean =
@@ -34,6 +38,9 @@ export function useMemoDraft({ id, noteId, body, fontSize }: Props): {
 
   const flush = useCallback((): Promise<boolean> => {
     clearTimeout(timer.current);
+    if (conflict.current) {
+      return Promise.resolve(false);
+    }
     if (pending.current) {
       return pending.current;
     }
@@ -62,7 +69,9 @@ export function useMemoDraft({ id, noteId, body, fontSize }: Props): {
         return true;
       } catch (cause: unknown) {
         setStatus("error");
-        setError(errorText(cause));
+        const message = errorText(cause);
+        conflict.current = message.includes("다른 화면에서 이 메모가 변경됐어요");
+        setError(message);
         return false;
       }
     }
@@ -78,11 +87,21 @@ export function useMemoDraft({ id, noteId, body, fontSize }: Props): {
     const next = { ...current.current, ...patch };
     current.current = next;
     setDraft(next);
-    setStatus("unsaved");
+    if (!conflict.current) setStatus("unsaved");
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => void flush(), 400);
+    if (!conflict.current) timer.current = setTimeout(() => void flush(), 400);
+  }
+
+  function adopt(next: Draft): void {
+    clearTimeout(timer.current);
+    conflict.current = false;
+    current.current = next;
+    saved.current = next;
+    setDraft(next);
+    setStatus("saved");
+    setError(null);
   }
 
   useEffect(() => () => clearTimeout(timer.current), []);
-  return { draft, status, error, edit, flush };
+  return { draft, status, error, edit, flush, isConflict, adopt };
 }

@@ -1,8 +1,12 @@
 use crate::{
     app::{lock, AppState},
     widgets::commands::{cancel_widget_scene, change, publish_widgets},
-    widgets::{storage, WidgetRequest, WidgetSnapshot},
+    widgets::{
+        desktop::{self, Point, Rect},
+        storage, WidgetRequest, WidgetSnapshot,
+    },
 };
+use rusqlite::OptionalExtension;
 use serde_json::{json, Value};
 use std::{collections::BTreeSet, sync::Arc};
 use tauri::{Emitter, Listener, Manager};
@@ -34,6 +38,134 @@ fn execute(
 
 fn label(id: &str, note_id: &str) -> String {
     format!("widget-{id}-note-{note_id}")
+}
+
+fn position_key(id: &str, note_id: &str) -> String {
+    format!("memo-position:{id}:{note_id}")
+}
+
+fn position(db: &rusqlite::Connection, id: &str, note_id: &str) -> Result<Option<Point>, String> {
+    let value: Option<String> = db
+        .query_row(
+            "SELECT value FROM kv WHERE key=?1",
+            [position_key(id, note_id)],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    value
+        .map(|value| serde_json::from_str(&value).map_err(|error| error.to_string()))
+        .transpose()
+}
+
+fn prune_positions(db: &rusqlite::Connection) -> Result<(), String> {
+    let mut valid = BTreeSet::new();
+    for instance in storage::instances(db)?
+        .iter()
+        .filter(|instance| instance.kind == "memo")
+    {
+        for note in instance.data["notes"].as_array().into_iter().flatten() {
+            if let Some(note_id) = note["id"].as_str() {
+                valid.insert(position_key(&instance.id, note_id));
+            }
+        }
+    }
+    let keys = {
+        let mut statement = db
+            .prepare("SELECT key FROM kv WHERE key LIKE 'memo-position:%'")
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|error| error.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?
+    };
+    for key in keys.into_iter().filter(|key| !valid.contains(key)) {
+        db.execute("DELETE FROM kv WHERE key=?1", [key])
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn save_position(
+    db: &rusqlite::Connection,
+    id: &str,
+    note_id: &str,
+    point: &Point,
+) -> Result<bool, String> {
+    let instance = storage::get(db, id)?;
+    if instance.kind != "memo"
+        || !instance.data["notes"].as_array().is_some_and(|notes| {
+            notes
+                .iter()
+                .any(|note| note["id"] == note_id && note["isOpen"] == true)
+        })
+    {
+        return Ok(false);
+    }
+    db.execute(
+        "INSERT INTO kv(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        rusqlite::params![position_key(id, note_id), serde_json::to_string(point).map_err(|error| error.to_string())?],
+    ).map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+fn accepts_pending_position(
+    generation: u64,
+    current_generation: Option<u64>,
+    epoch: u64,
+    current_epoch: u64,
+    screen_unchanged: bool,
+) -> bool {
+    current_generation == Some(generation) && current_epoch == epoch && screen_unchanged
+}
+
+fn can_reposition(generation: Option<u64>, current: Option<u64>, dragging: bool) -> bool {
+    !dragging && generation == current
+}
+
+pub(crate) fn settle_move(
+    app: &tauri::AppHandle,
+    window_label: &str,
+    epoch: u64,
+    generation: u64,
+) -> Result<(), String> {
+    let Some((id, note_id)) = window_label
+        .strip_prefix("widget-")
+        .and_then(|label| label.split_once("-note-"))
+    else {
+        return Ok(());
+    };
+    let Some(window) = app.get_webview_window(window_label) else {
+        return Ok(());
+    };
+    if !window.is_visible().map_err(|error| error.to_string())? {
+        return Ok(());
+    }
+    let scale = window.scale_factor().map_err(|error| error.to_string())?;
+    let point = window
+        .outer_position()
+        .map_err(|error| error.to_string())?
+        .to_logical::<f64>(scale);
+    let state = app.state::<Arc<AppState>>();
+    let _action = lock(&state.action)?;
+    if crate::unavailable(&state)
+        || desktop::drag_epoch(app) != epoch
+        || !desktop::current_move(app, window_label, generation)
+        || !desktop::screen_unchanged(app)
+    {
+        return Ok(());
+    }
+    save_position(
+        &*lock(&state.db)?,
+        id,
+        note_id,
+        &Point {
+            x: point.x,
+            y: point.y,
+        },
+    )?;
+    Ok(())
 }
 
 fn reveal_note(
@@ -81,9 +213,12 @@ fn reconcile(
         if crate::unavailable(&state) {
             return Ok(());
         }
-        storage::instances(&*lock(&state.db)?)?
+        let db = lock(&state.db)?;
+        prune_positions(&db)?;
+        storage::instances(&db)?
     };
     let mut desired = BTreeSet::new();
+    let mut occupied: Vec<Rect> = desktop::visible_widget_areas(app, "");
     for instance in instances.iter().filter(|item| item.kind == "memo") {
         let Some(notes) = instance.data["notes"].as_array() else {
             continue;
@@ -101,6 +236,19 @@ fn reconcile(
             let window_label = label(&instance.id, note_id);
             desired.insert(window_label.clone());
             if app.get_webview_window(&window_label).is_none() {
+                desktop::invalidate_move(app, &window_label);
+                let saved = {
+                    let _action = lock(&state.action)?;
+                    position(&*lock(&state.db)?, &instance.id, note_id)?
+                };
+                let size = (320.0, 320.0);
+                let point = match saved {
+                    Some(point) => desktop::restore_point(&point, size, &desktop::work_areas(app)?),
+                    None => {
+                        desktop::auto_place(desktop::preferred_area(app, None)?, size, &occupied)
+                    }
+                };
+                occupied.push(Rect::at(&point, size));
                 let window = tauri::WebviewWindowBuilder::new(
                     app,
                     window_label.clone(),
@@ -114,6 +262,7 @@ fn reconcile(
                 )
                 .title("comet · 메모")
                 .inner_size(320.0, 320.0)
+                .position(point.x, point.y)
                 .min_inner_size(260.0, 220.0)
                 .decorations(false)
                 .transparent(true)
@@ -180,6 +329,79 @@ fn reconcile(
     Ok(())
 }
 
+pub(crate) fn reposition_on_screen_change(app: &tauri::AppHandle) {
+    type NotePosition = (String, Option<Point>, Option<u64>);
+
+    let state = app.state::<Arc<AppState>>();
+    let epoch = desktop::drag_epoch(app);
+    let notes = (|| -> Result<Vec<NotePosition>, String> {
+        let _action = lock(&state.action)?;
+        let db = lock(&state.db)?;
+        let mut notes = Vec::new();
+        for instance in storage::instances(&db)?
+            .iter()
+            .filter(|instance| instance.kind == "memo")
+        {
+            for note in instance.data["notes"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|note| note["isOpen"] == true)
+            {
+                if let Some(note_id) = note["id"].as_str() {
+                    let window_label = label(&instance.id, note_id);
+                    let generation = desktop::move_generation(app, &window_label);
+                    if desktop::drag_pending(app, &window_label) {
+                        continue;
+                    }
+                    notes.push((
+                        window_label,
+                        position(&db, &instance.id, note_id)?,
+                        generation,
+                    ));
+                }
+            }
+        }
+        Ok(notes)
+    })();
+    let (Ok(notes), Ok(areas)) = (notes, desktop::work_areas(app)) else {
+        return;
+    };
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if desktop::drag_epoch(&handle) != epoch {
+            return;
+        }
+        for (label, saved, generation) in notes {
+            if !can_reposition(
+                generation,
+                desktop::move_generation(&handle, &label),
+                desktop::drag_pending(&handle, &label),
+            ) {
+                continue;
+            }
+            let Some(window) = handle.get_webview_window(&label) else {
+                continue;
+            };
+            let (Ok(scale), Ok(position), Ok(size)) = (
+                window.scale_factor(),
+                window.outer_position(),
+                window.outer_size(),
+            ) else {
+                continue;
+            };
+            let position = position.to_logical::<f64>(scale);
+            let size = size.to_logical::<f64>(scale);
+            let point = saved.unwrap_or(Point {
+                x: position.x,
+                y: position.y,
+            });
+            let point = desktop::restore_point(&point, (size.width, size.height), &areas);
+            let _ = window.set_position(tauri::LogicalPosition::new(point.x, point.y));
+        }
+    });
+}
+
 async fn sync_story(
     app: &tauri::AppHandle,
     focus: Option<String>,
@@ -225,7 +447,8 @@ pub(crate) fn create_note(db: &rusqlite::Connection, id: &str) -> Result<WidgetS
 pub(crate) fn open_story_note(db: &rusqlite::Connection, id: &str) -> Result<String, String> {
     let instance = storage::get(db, id)?;
     let note = instance.data["notes"].as_array().and_then(|notes| {
-        notes.iter()
+        notes
+            .iter()
             .filter(|note| note["title"] == "" && note["body"] == "")
             .max_by_key(|note| note["updatedAt"].as_i64())
             .and_then(|note| note["id"].as_str())
@@ -235,11 +458,15 @@ pub(crate) fn open_story_note(db: &rusqlite::Connection, id: &str) -> Result<Str
         return Ok(note.to_owned());
     }
     let snapshot = create_note(db, id)?;
-    let note = snapshot.widgets.iter().find(|item| item.instance.id == id)
+    let note = snapshot
+        .widgets
+        .iter()
+        .find(|item| item.instance.id == id)
         .and_then(|item| item.instance.data["notes"].as_array())
         .and_then(|notes| notes.last())
         .and_then(|note| note["id"].as_str())
-        .ok_or("메모를 열지 못했어요.")?.to_owned();
+        .ok_or("메모를 열지 못했어요.")?
+        .to_owned();
     Ok(note)
 }
 
@@ -323,8 +550,36 @@ pub(crate) async fn close_memo_note(
     id: String,
     note_id: String,
 ) -> Result<WidgetSnapshot, String> {
+    let window_label = label(&id, &note_id);
+    let pending_position = (|| {
+        let generation = desktop::active_drag_move(&app, &window_label)?;
+        let epoch = desktop::drag_epoch(&app);
+        let window = app.get_webview_window(&window_label)?;
+        let scale = window.scale_factor().ok()?;
+        let position = window.outer_position().ok()?.to_logical::<f64>(scale);
+        Some((
+            generation,
+            epoch,
+            Point {
+                x: position.x,
+                y: position.y,
+            },
+        ))
+    })();
     let snapshot = change(&state, |db| {
-        let snapshot = execute(db, &id, "update", json!({"id":note_id,"isOpen":false}))?;
+        if let Some((generation, epoch, point)) = &pending_position {
+            if accepts_pending_position(
+                *generation,
+                desktop::active_drag_move(&app, &window_label),
+                *epoch,
+                desktop::drag_epoch(&app),
+                desktop::screen_unchanged(&app),
+            ) {
+                save_position(db, &id, &note_id, point)?;
+            }
+        }
+        desktop::invalidate_move(&app, &window_label);
+        let snapshot = put_away(db, &id, &note_id)?;
         crate::app::scene_events::window_closed_locked(
             &state,
             crate::pack_stories::StoryWindow::Memo,
@@ -336,6 +591,19 @@ pub(crate) async fn close_memo_note(
     publish_widgets(&app, &state);
     sync(&app, None).await?;
     Ok(snapshot)
+}
+
+fn put_away(db: &rusqlite::Connection, id: &str, note_id: &str) -> Result<WidgetSnapshot, String> {
+    let instance = storage::get(db, id)?;
+    let note = instance.data["notes"]
+        .as_array()
+        .and_then(|notes| notes.iter().find(|note| note["id"] == note_id))
+        .ok_or("메모를 찾지 못했어요.")?;
+    if note["title"] == "" && note["body"] == "" {
+        execute(db, id, "delete", json!({"id":note_id}))
+    } else {
+        execute(db, id, "update", json!({"id":note_id,"isOpen":false}))
+    }
 }
 
 #[tauri::command]
@@ -591,6 +859,120 @@ mod tests {
             .as_array()
             .unwrap()
             .clone()
+    }
+
+    #[test]
+    fn put_away_deletes_only_empty_notes_and_keeps_saved_drafts() {
+        let (db, _directory, id) = database();
+        create_note(&db, &id).unwrap();
+        let note_id = notes(&db, &id)[0]["id"].as_str().unwrap().to_owned();
+        execute(
+            &db,
+            &id,
+            "update",
+            json!({"id": note_id, "body": "  초안\n "}),
+        )
+        .unwrap();
+        put_away(&db, &id, &note_id).unwrap();
+        assert_eq!(notes(&db, &id)[0]["body"], "  초안\n ");
+        assert_eq!(notes(&db, &id)[0]["isOpen"], false);
+        create_note(&db, &id).unwrap();
+        let blank_id = notes(&db, &id)[1]["id"].as_str().unwrap().to_owned();
+        put_away(&db, &id, &blank_id).unwrap();
+        assert_eq!(notes(&db, &id).len(), 1);
+    }
+
+    #[test]
+    fn position_is_retained_across_edits_and_reopening_without_writing_restore_correction() {
+        let (db, _directory, id) = database();
+        create_note(&db, &id).unwrap();
+        let note_id = notes(&db, &id)[0]["id"].as_str().unwrap().to_owned();
+        let stored = Point {
+            x: 1400.0,
+            y: 850.0,
+        };
+        assert!(save_position(&db, &id, &note_id, &stored).unwrap());
+        execute(&db, &id, "update", json!({"id": note_id, "body": "내용"})).unwrap();
+        put_away(&db, &id, &note_id).unwrap();
+        execute(&db, &id, "update", json!({"id": note_id, "isOpen": true})).unwrap();
+        let area = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 800.0,
+            height: 600.0,
+        };
+        let restored = desktop::restore_point(
+            &position(&db, &id, &note_id).unwrap().unwrap(),
+            (320.0, 320.0),
+            &[area],
+        );
+        assert_eq!(restored, Point { x: 480.0, y: 280.0 });
+        assert_eq!(position(&db, &id, &note_id).unwrap(), Some(stored));
+    }
+
+    #[test]
+    fn delayed_move_does_not_save_after_note_is_closed_or_deleted() {
+        let (db, _directory, id) = database();
+        create_note(&db, &id).unwrap();
+        let note_id = notes(&db, &id)[0]["id"].as_str().unwrap().to_owned();
+        execute(&db, &id, "update", json!({"id": note_id, "body": "내용"})).unwrap();
+        let point = Point { x: 10.0, y: 20.0 };
+        assert!(save_position(&db, &id, &note_id, &point).unwrap());
+        put_away(&db, &id, &note_id).unwrap();
+        assert!(!save_position(&db, &id, &note_id, &point).unwrap());
+        assert_eq!(position(&db, &id, &note_id).unwrap(), Some(point.clone()));
+        execute(&db, &id, "delete", json!({"id": note_id})).unwrap();
+        prune_positions(&db).unwrap();
+        assert!(!save_position(&db, &id, &note_id, &point).unwrap());
+        assert_eq!(position(&db, &id, &note_id).unwrap(), None);
+    }
+
+    #[test]
+    fn new_note_placement_avoids_existing_windows_and_unmarked_moves_are_rejected() {
+        let area = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1200.0,
+            height: 800.0,
+        };
+        let size = (320.0, 320.0);
+        let first = desktop::auto_place(area, size, &[]);
+        let second = desktop::auto_place(area, size, &[Rect::at(&first, size)]);
+        assert!(first.x != second.x || first.y != second.y);
+        assert!(!desktop::accepts_drag_move(false, false));
+        assert!(desktop::accepts_drag_move(false, true));
+    }
+
+    #[test]
+    fn closing_during_drag_preserves_only_the_current_screen_and_move() {
+        assert!(accepts_pending_position(3, Some(3), 7, 7, true));
+        assert!(!accepts_pending_position(3, None, 7, 7, true));
+        assert!(!accepts_pending_position(3, Some(4), 7, 7, true));
+        assert!(!accepts_pending_position(3, Some(3), 7, 8, true));
+        assert!(!accepts_pending_position(3, Some(3), 7, 7, false));
+    }
+
+    #[test]
+    fn last_drag_position_survives_put_away_and_reopen() {
+        let (db, _directory, id) = database();
+        create_note(&db, &id).unwrap();
+        let note_id = notes(&db, &id)[0]["id"].as_str().unwrap().to_owned();
+        execute(&db, &id, "update", json!({"id": note_id, "body": "내용"})).unwrap();
+        let last_drag = Point { x: 50.0, y: 100.0 };
+        if accepts_pending_position(3, Some(3), 7, 7, true) {
+            save_position(&db, &id, &note_id, &last_drag).unwrap();
+        }
+        put_away(&db, &id, &note_id).unwrap();
+        execute(&db, &id, "update", json!({"id": note_id, "isOpen": true})).unwrap();
+        assert_eq!(position(&db, &id, &note_id).unwrap(), Some(last_drag));
+    }
+
+    #[test]
+    fn screen_reposition_skips_a_new_or_pending_drag() {
+        assert!(can_reposition(None, None, false));
+        assert!(!can_reposition(None, Some(1), false));
+        assert!(!can_reposition(Some(1), Some(2), false));
+        assert!(!can_reposition(Some(1), Some(1), true));
     }
 
     #[test]
