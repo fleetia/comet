@@ -11,6 +11,7 @@ export const tutorialHighlight = style({
   outline: `2px solid ${tokens["color/primary"]}`,
   outlineOffset: 2,
   animation: `${highlightBlink} 1s 2`,
+  selectors: { '&[data-settings-highlight="general.autostart"]': { outlineOffset: -2 } },
   "@media": { "(prefers-reduced-motion: reduce)": { animation: "none" } },
 });
 export const window = style({

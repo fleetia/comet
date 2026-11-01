@@ -1,5 +1,6 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
+import * as common from "../../common.css";
 
 export const connectButton = style({ width: 129, height: 30, minHeight: 30 });
 export const headingActions = style({ display: "flex", alignItems: "center", gap: 8 });
@@ -187,6 +188,10 @@ export const settingRow = style({
 globalStyle(`${settingRow} > span:has(select)`, { width: "auto", flexShrink: 0 });
 globalStyle(`${settingRow} select`, { width: "auto", height: 34, minHeight: 34, fontSize: 13 });
 export const formGroup = style([group, { border: 0, boxShadow: `inset 0 0 0 1px ${tokens["color/card-border"]}` }]);
+globalStyle(`${formGroup} > .${common.quiet}`, {
+  margin: 0,
+  padding: `10px ${tokens["spacing/space-16"]}`,
+});
 export const formRow = style({
   display: "flex",
   flexDirection: "column",
