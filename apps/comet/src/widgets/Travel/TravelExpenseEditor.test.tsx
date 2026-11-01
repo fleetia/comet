@@ -53,6 +53,8 @@ it("previews a conserved split after changing payer and reselecting participants
       busy={false}
       onSave={onSave}
       onClose={vi.fn()}
+      onDirtyChange={vi.fn()}
+      onRequestClose={vi.fn()}
     />,
   );
   const group = within(screen.getByRole("group", { name: "나눌 사람과 몫" }));

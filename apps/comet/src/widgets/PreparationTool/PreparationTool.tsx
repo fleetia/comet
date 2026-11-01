@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { Button, Dialog, EnvelopeCard, FormField, SegmentedControl, Select } from "@comet/ui";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { localDay, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
@@ -8,6 +15,36 @@ import { useDiary } from "../Planner/useDiary";
 import { frequencyRecords, plannedDay, ruleOf } from "../Planner/plannerData";
 import { preparationFocusInput, preparationProgress } from "./preparationData";
 import * as s from "./preparationRuntime.css";
+
+export function discardEmbeddedPreparationDraft(widgetId: string, envelopeId: string): boolean {
+  try {
+    localStorage.removeItem(`comet:embedded-preparation:${widgetId}:${envelopeId}`);
+    localStorage.removeItem(`comet:embedded-preparation-schedule:${widgetId}:${envelopeId}`);
+    localStorage.removeItem(`comet:embedded-preparation-task:${widgetId}:${envelopeId}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function discardAllEmbeddedPreparationDrafts(): boolean {
+  try {
+    const prefixes = [
+      "comet:embedded-preparation:",
+      "comet:embedded-preparation-schedule:",
+      "comet:embedded-preparation-task:",
+    ];
+    const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index));
+    for (const key of keys) {
+      if (key && prefixes.some((prefix) => key.startsWith(prefix))) {
+        localStorage.removeItem(key);
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function PreparationTool({
   widget,
@@ -39,13 +76,35 @@ export function PreparationTool({
       setDrafts((previous) => ({ ...previous, [id]: { dirty, busy } })),
     [],
   );
-  const taskRequest = useRef<{
-    id: string;
-    title: string;
-    targetId: string;
-    revision: number;
-    scope: string;
-  } | null>(null);
+  const taskRequestKey = selectedId
+    ? `comet:embedded-preparation-task:${widget.id}:${selectedId}`
+    : null;
+  const [restoredTaskRequest] = useState(() => {
+    try {
+      const value = record(
+        JSON.parse(taskRequestKey ? localStorage.getItem(taskRequestKey) || "null" : "null"),
+      );
+      if (
+        typeof value.id !== "string" ||
+        typeof value.title !== "string" ||
+        typeof value.targetId !== "string" ||
+        typeof value.revision !== "number" ||
+        typeof value.scope !== "string"
+      )
+        return null;
+      return {
+        id: value.id,
+        title: value.title,
+        targetId: value.targetId,
+        revision: value.revision,
+        scope: value.scope,
+        ...(typeof value.result === "string" ? { result: value.result } : {}),
+      };
+    } catch {
+      return null;
+    }
+  });
+  const taskRequest = useRef(restoredTaskRequest);
   const report = useRef({ onDirtyChange, onBusyChange });
   report.current = { onDirtyChange, onBusyChange };
   const dirty = Object.values(drafts).some((value) => value.dirty);
@@ -64,13 +123,9 @@ export function PreparationTool({
   useEffect(() => {
     if (selectedId) setSelected(selectedId);
   }, [selectedId]);
-  const calendar = widgets.find(
-    (value) => value.kind === "calendar",
-  );
+  const calendar = widgets.find((value) => value.kind === "calendar");
   const todo = widgets.find((value) => value.kind === "todo");
-  const timer = widgets.find(
-    (value) => value.kind === "focus-timer",
-  );
+  const timer = widgets.find((value) => value.kind === "focus-timer");
   const connections = rows(record(calendar?.data).connections);
   const allEvents = rows(record(calendar?.data).events);
   const events = allEvents.filter(
@@ -182,6 +237,11 @@ export function PreparationTool({
             diaryAction={async (action, input) => Boolean(await diary.mutate(action, input))}
             onDirtyChange={(value) => reportDraft(`detail:${text(envelope.id)}`, value, false)}
             onBusyChange={(value) => reportDraft(`detail-busy:${text(envelope.id)}`, false, value)}
+            draftKey={
+              selectedId
+                ? `comet:embedded-preparation:${widget.id}:${text(envelope.id)}`
+                : undefined
+            }
             scheduleEditor={
               <EnvelopeSchedule
                 widget={widget}
@@ -189,6 +249,11 @@ export function PreparationTool({
                 events={events}
                 act={act}
                 reportDraft={reportDraft}
+                draftKey={
+                  selectedId
+                    ? `comet:embedded-preparation-schedule:${widget.id}:${text(envelope.id)}`
+                    : undefined
+                }
               />
             }
             onPlanTask={async (item) => {
@@ -237,6 +302,18 @@ export function PreparationTool({
                 return null;
               }
               if (
+                taskRequestKey &&
+                taskRequest.current &&
+                (taskRequest.current.title !== title ||
+                  taskRequest.current.targetId !== todo.id ||
+                  taskRequest.current.scope !== `${widget.id}:${text(envelope.id)}`)
+              ) {
+                setError(
+                  "이전 할 일 요청을 먼저 확인해 주세요. 이전에 입력한 제목으로 다시 시도해 주세요.",
+                );
+                return null;
+              }
+              if (
                 !taskRequest.current ||
                 taskRequest.current.title !== title ||
                 taskRequest.current.targetId !== todo.id ||
@@ -250,6 +327,15 @@ export function PreparationTool({
                   scope: `${widget.id}:${text(envelope.id)}`,
                 };
               const request = taskRequest.current;
+              if (request.result) return request.result;
+              if (taskRequestKey) {
+                try {
+                  localStorage.setItem(taskRequestKey, JSON.stringify(request));
+                } catch {
+                  setError("요청을 이 기기에 저장하지 못했어요. 다시 시도해 주세요.");
+                  return null;
+                }
+              }
               const id = await command<string | null>("execute_widget", {
                 request: {
                   requestId: request.id,
@@ -260,10 +346,27 @@ export function PreparationTool({
                 },
               });
               if (typeof id === "string" && id) {
-                if (taskRequest.current === request) taskRequest.current = null;
+                if (taskRequestKey) {
+                  request.result = id;
+                  try {
+                    localStorage.setItem(taskRequestKey, JSON.stringify(request));
+                  } catch {
+                    /* The original request can still recover its result. */
+                  }
+                } else if (taskRequest.current === request) taskRequest.current = null;
                 return id;
               }
               return null;
+            }}
+            onCreatedTaskLinked={() => {
+              taskRequest.current = null;
+              if (taskRequestKey) {
+                try {
+                  localStorage.removeItem(taskRequestKey);
+                } catch {
+                  setError("완료한 요청을 이 기기에서 정리하지 못했어요.");
+                }
+              }
             }}
             onFocusEnvelope={() => {
               void (async () => {
@@ -346,17 +449,39 @@ function EnvelopeSchedule({
   events,
   act,
   reportDraft,
+  draftKey,
 }: {
   widget: WidgetView;
   envelope: DataRecord;
   events: DataRecord[];
   act: ToolAction;
   reportDraft: (id: string, dirty: boolean, busy: boolean) => void;
+  draftKey?: string;
 }): ReactElement {
   const id = text(envelope.id);
   const saved = text(envelope.eventId);
-  const [base, setBase] = useState({ eventId: saved, revision: widget.revision });
-  const [selected, setSelected] = useState(saved);
+  const [restored] = useState(() => {
+    try {
+      const value = record(
+        JSON.parse(draftKey ? localStorage.getItem(draftKey) || "null" : "null"),
+      );
+      if (
+        typeof value.selected === "string" &&
+        typeof value.eventId === "string" &&
+        typeof value.revision === "number"
+      )
+        return value;
+    } catch {
+      /* Ignore a damaged draft. */
+    }
+    return null;
+  });
+  const [base, setBase] = useState({
+    eventId: restored ? text(restored.eventId) : saved,
+    revision:
+      restored && typeof restored.revision === "number" ? restored.revision : widget.revision,
+  });
+  const [selected, setSelected] = useState(restored ? text(restored.selected) : saved);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const pending = useRef(false);
@@ -365,6 +490,17 @@ function EnvelopeSchedule({
   const savedRequest = useRef<number | null>(null);
   const dirty = selected !== base.eventId;
   const conflict = dirty && widget.revision !== base.revision;
+  const [storageError, setStorageError] = useState(false);
+  useLayoutEffect(() => {
+    if (!draftKey) return;
+    try {
+      if (dirty) localStorage.setItem(draftKey, JSON.stringify({ selected, ...base }));
+      else localStorage.removeItem(draftKey);
+      setStorageError(false);
+    } catch {
+      setStorageError(true);
+    }
+  }, [draftKey, dirty, selected, base]);
   useEffect(() => {
     if (savedRequest.current !== null && widget.revision <= savedRequest.current) return;
     savedRequest.current = null;
@@ -450,6 +586,11 @@ function EnvelopeSchedule({
       {conflict && (
         <p className={s.error} role="alert">
           다른 곳에서 봉투가 바뀌었어요. 최신 연결을 확인한 뒤 다시 선택해 주세요.
+        </p>
+      )}
+      {storageError && (
+        <p className={s.error} role="alert">
+          이 기기에 초안을 임시 저장하지 못했어요.
         </p>
       )}
       {error && (

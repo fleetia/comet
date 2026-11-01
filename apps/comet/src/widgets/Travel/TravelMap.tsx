@@ -21,10 +21,19 @@ import * as s from "./travel.css";
 
 const FRAME: Frame = { width: 840, height: 360, padding: 48 };
 
-function useTiles(enabled: boolean, keys: string[]): Record<string, string> {
+function useTiles(enabled: boolean, keys: string[]): {
+  urls: Record<string, string>;
+  failed: string[];
+  retry: () => void;
+  fail: (key: string) => void;
+} {
   const [urls, setUrls] = useState<Record<string, string>>({});
+  const [failed, setFailed] = useState<string[]>([]);
+  const [attempt, setAttempt] = useState(0);
   const signature = keys.join("|");
   useEffect(() => {
+    setUrls({});
+    setFailed([]);
     if (!enabled || !isDesktop() || !keys.length) return;
     let active = true;
     const created: string[] = [];
@@ -38,18 +47,22 @@ function useTiles(enabled: boolean, keys: string[]): Record<string, string> {
           created.push(url);
           setUrls((current) => ({ ...current, [key]: url }));
         } catch {
-          // Missing tiles leave the drawn map visible underneath.
+          if (active) setFailed((current) => [...current, key]);
         }
       }
     })();
     return () => {
       active = false;
       for (const url of created) URL.revokeObjectURL(url);
-      setUrls({});
     };
     // The key list is captured by its signature.
-  }, [enabled, signature]);
-  return urls;
+  }, [enabled, signature, attempt]);
+  return {
+    urls,
+    failed,
+    retry: () => setAttempt((current) => current + 1),
+    fail: (key) => setFailed((current) => current.includes(key) ? current : [...current, key]),
+  };
 }
 
 /** Long flights curve like the design's dashed arcs; ground moves stay straight. */
@@ -88,7 +101,7 @@ export function MapSketch({
   const { lines, stops, photos, box } = layout(trip, days);
   const project = box ? projector(box, FRAME) : null;
   const tiles = box && showTiles ? tilesFor(box, FRAME, tileZoom(box, FRAME)) : [];
-  const urls = useTiles(showTiles, tiles.map((tile) => `${tile.z}/${tile.x}/${tile.y}`));
+  const { urls, failed, retry, fail } = useTiles(showTiles, tiles.map((tile) => `${tile.z}/${tile.x}/${tile.y}`));
   if (!box || !project) return null;
   return (
     <figure className={s.mapFrame} data-tiles={showTiles} data-compact={compact}>
@@ -100,6 +113,7 @@ export function MapSketch({
             className={s.tile}
             src={url}
             alt=""
+            onError={() => fail(`${tile.z}/${tile.x}/${tile.y}`)}
             style={{
               left: `${(tile.left / FRAME.width) * 100}%`,
               top: `${(tile.top / FRAME.height) * 100}%`,
@@ -155,6 +169,14 @@ export function MapSketch({
         })}
       </svg>
       <figcaption className={s.legend}>
+        {failed.length > 0 && (
+          <span role="status">
+            {failed.length === tiles.length
+              ? `지도 타일 ${failed.length}개를 모두 불러오지 못해 그린 지도로 표시하고 있어요.`
+              : `지도 타일 ${failed.length}개를 불러오지 못했어요.`}{" "}
+            <Button size="small" variant="ghost" onClick={retry}>다시 불러오기</Button>
+          </span>
+        )}
         {lines.map((route) => (
           <span key={route.day} className={s.inline}>
             <span className={s.legendLine} data-color={DAY_COLORS[route.day % DAY_COLORS.length]} />
@@ -187,6 +209,7 @@ export function TravelMap({
   const { stops, unplaced, box } = layout(trip, days);
   const [placing, setPlacing] = useState<TravelPlan | null>(null);
   const [pinning, setPinning] = useState<TravelPlan | null>(null);
+  const [showAllUnplaced, setShowAllUnplaced] = useState(false);
   return (
     <>
       <div className={s.heading}>
@@ -217,7 +240,7 @@ export function TravelMap({
       {unplaced.length > 0 && (
         <section className={s.list} aria-label="위치 없는 일정">
           <h3 className={s.sectionTitle}>위치 없는 일정 {unplaced.length}개 · 일정 순서로만 보여요</h3>
-          {unplaced.slice(0, 8).map((plan) => (
+          {(showAllUnplaced ? unplaced : unplaced.slice(0, 8)).map((plan) => (
             <div key={plan.id} className={s.inline}>
               <span className={s.grow}>
                 {ordinalDay(trip.travel, plan.date)} · {plan.title}
@@ -232,6 +255,11 @@ export function TravelMap({
               )}
             </div>
           ))}
+          {unplaced.length > 8 && (
+            <Button size="small" variant="ghost" onClick={() => setShowAllUnplaced((current) => !current)}>
+              {showAllUnplaced ? "접기" : `더 보기 (${unplaced.length - 8}개)`}
+            </Button>
+          )}
         </section>
       )}
       <div className={s.actions}>
@@ -310,6 +338,7 @@ export function PlacePicker({
   async function find(): Promise<void> {
     setSearching(true);
     setError("");
+    setResults([]);
     try {
       const found = await command<{ name: string; lat: number; lng: number }[]>("travel_geocode", { query });
       setResults(found);
@@ -345,7 +374,10 @@ export function PlacePicker({
               value={query}
               maxLength={200}
               disabled={busy || searching}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setResults([]);
+              }}
             />
             <Button variant="ghost" disabled={busy || searching || !query.trim()} onClick={() => void find()}>
               {searching ? "찾는 중" : "주소로 찾기"}

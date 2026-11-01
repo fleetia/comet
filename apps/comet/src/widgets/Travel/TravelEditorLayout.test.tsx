@@ -29,6 +29,8 @@ it("fills the envelope field without changing its existing selection or other se
       busy={false}
       onSave={onSave}
       onClose={onClose}
+      onDirtyChange={vi.fn()}
+      onRequestClose={vi.fn()}
     />,
   );
   const select = screen.getByLabelText("준비 봉투") as HTMLSelectElement;

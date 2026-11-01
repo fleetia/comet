@@ -153,6 +153,9 @@ fn selected_event_notice_uses_its_lead_and_revalidates_the_current_event() {
         let result = tick(&db, &mut clocks, now + 500);
         assert_eq!(result.os.len(), 1);
         assert!(result.os[0].text.contains("선택한 일정"));
+        if lead == 5 {
+            assert!(result.os[0].text.contains("5분 뒤 시작돼요"));
+        }
         assert!(!result.os[0].text.contains("다른 일정"));
         let pending = storage::take_reaction(&db, now + 501).unwrap().unwrap();
         assert!(crate::widgets::reminders::event_current(&db, &pending).unwrap());
@@ -162,6 +165,96 @@ fn selected_event_notice_uses_its_lead_and_revalidates_the_current_event() {
         save(&db, &calendar, data, now + 502);
         assert!(!crate::widgets::reminders::event_current(&db, &pending).unwrap());
         assert!(tick(&db, &mut clocks, now + 1000).os.is_empty());
+    }
+}
+
+#[test]
+fn calendar_and_focus_share_one_system_notice_for_the_same_event_and_time() {
+    for (calendar_os, channel, sound) in [(true, "both", true), (true, "os", false), (false, "os", true)] {
+        let db = setup(&["calendar", "focus-timer"]);
+        let now = 1_000_000;
+        linked_focus(&db, now, 5);
+        let calendar = widget(&db, "calendar");
+        let mut data = calendar.data.clone();
+        data["events"].as_array_mut().unwrap().truncate(1);
+        data["reminders"]["enabled"] = json!(true);
+        data["reminders"]["leadMinutes"] = json!(5);
+        data["reminders"]["characterEnabled"] = json!(false);
+        data["reminders"]["osEnabled"] = json!(calendar_os);
+        save(&db, &calendar, data, now - 1_000);
+        let timer = widget(&db, "focus-timer");
+        let mut data = timer.data.clone();
+        data["settings"]["finishNotification"] = json!(channel);
+        data["settings"]["finishSoundEnabled"] = json!(sound);
+        save(&db, &timer, data, now - 1_000);
+        let mut clocks = BTreeMap::new();
+        tick(&db, &mut clocks, now - 500);
+        let result = tick(&db, &mut clocks, now);
+        assert_eq!(result.os.len(), 1);
+        assert_eq!(result.os[0].sound_enabled, sound);
+        assert_eq!(result.os[0].destination.as_ref().unwrap().1.as_deref(), Some("event"));
+        assert_eq!(result.os[0].destination.as_ref().unwrap().2.as_deref(), Some("selected"));
+        assert_eq!(result.os[0].fallback.is_some(), channel == "os");
+        assert!(tick(&db, &mut clocks, now + 500).os.is_empty());
+    }
+}
+
+#[test]
+fn resumed_calendar_and_different_focus_event_share_one_system_notice() {
+    for channel in ["os", "both"] {
+    for external in [false, true] {
+    let db = setup(&["calendar", "focus-timer"]);
+    let now = chrono::Utc::now().timestamp_millis();
+    linked_focus(&db, now + 200_000, 0);
+    let calendar = widget(&db, "calendar");
+    let mut data = calendar.data.clone();
+    data["events"][1]["startAt"] = json!(now + 100_000);
+    if external {
+        data["events"][0]["connectionId"] = json!("external");
+        data["connections"] = json!([{"id":"external","status":"offline","lastSuccessAt":now - 2 * 60 * 60 * 1000}]);
+    }
+    data["reminders"]["enabled"] = json!(true);
+    data["reminders"]["leadMinutes"] = json!(3);
+    data["reminders"]["characterEnabled"] = json!(true);
+    data["reminders"]["osEnabled"] = json!(true);
+    save(&db, &calendar, data, now - 500_000);
+    let timer = widget(&db, "focus-timer");
+    let mut data = timer.data.clone();
+    if external {
+        data["eventRef"]["connectionId"] = json!("external");
+    }
+    data["settings"]["linkedEventLeadMinutes"] = json!(10);
+    data["settings"]["finishNotification"] = json!(channel);
+    data["settings"]["finishSoundEnabled"] = json!(true);
+    save(&db, &timer, data, now - 500_000);
+    let mut clocks = BTreeMap::new();
+    let mut calendar_clocks = BTreeMap::new();
+    crate::widgets::reminders::advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now - 500_000, false, &[]).unwrap();
+    clocks.clear();
+    let result = crate::widgets::reminders::advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now, false, &[]).unwrap();
+    assert_eq!(result.os.len(), 1);
+    assert!(result.os[0].text.contains("다른 일정"));
+    assert!(result.os[0].text.contains("선택한 일정"));
+    assert!(result.os[0].text.contains("집중에 연결한 일정이 곧 시작돼요"));
+    assert!(!result.os[0].text.contains("10분 뒤"));
+    assert!(result.os[0].sound_enabled);
+    let destination = result.os[0].destination.as_ref().unwrap();
+    assert_eq!(destination.0, "calendar");
+    assert_eq!(destination.1, None);
+    assert_eq!(result.os[0].fallback.is_some(), channel == "os");
+    if let Some(mut fallback) = result.os[0].fallback.clone() {
+        fallback.event.payload["bubbleEnabled"] = json!(true);
+        fallback.event.payload["osFallback"] = json!(true);
+        assert!(crate::widgets::reminders::event_current(&db, &fallback).unwrap());
+    }
+    let reaction = storage::take_reaction(&db, now).unwrap().unwrap();
+    assert!(reaction.event.text.contains("다른 일정"));
+    assert_eq!(reaction.event.text.contains("선택한 일정"), channel == "both");
+    assert_eq!(reaction.event.text.contains("집중에 연결한 일정이 곧 시작돼요"), channel == "both");
+    assert!(!reaction.event.text.contains("10분 뒤"));
+    assert!(crate::widgets::reminders::event_current(&db, &reaction).unwrap());
+    assert!(crate::widgets::reminders::advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now + 500, false, &[]).unwrap().os.is_empty());
+    }
     }
 }
 
@@ -179,7 +272,7 @@ fn focus_notice_ignores_stale_rescheduled_cancelled_or_unlinked_events() {
             "stale" => {
                 data["events"][0]["connectionId"] = json!("external");
                 data["connections"] =
-                    json!([{"id":"external","status":"offline","lastSuccessAt":now}]);
+                    json!([{"id":"external","status":"offline","lastSuccessAt":now - 86_400_001}]);
                 save(&db, &calendar, data, now - 1);
             }
             "rescheduled" => {

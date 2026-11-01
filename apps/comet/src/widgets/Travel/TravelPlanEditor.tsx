@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import {
   Button,
   Dialog,
@@ -9,8 +9,7 @@ import {
   Textarea,
 } from "@comet/ui";
 import type { DataRecord } from "../toolData";
-import { ZONES } from "./TravelEditor";
-import { duration, instant } from "./travelData";
+import { ZONES, duration, instant } from "./travelData";
 import { fromMicro, parseMapLink, toMicro } from "./travelGeo";
 import { kindLabel } from "./travelSummary";
 import type { Booking, Travel, TravelPlan } from "./travelTypes";
@@ -30,6 +29,8 @@ export function TravelPlanEditor({
   onSave,
   onDelete,
   onClose,
+  onDirtyChange,
+  onRequestClose,
 }: {
   travel: Travel;
   bookings: Booking[];
@@ -39,6 +40,8 @@ export function TravelPlanEditor({
   onSave: (input: DataRecord) => Promise<boolean>;
   onDelete?: () => Promise<boolean>;
   onClose: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+  onRequestClose: () => void;
 }): ReactElement {
   const [kind, setKind] = useState<TravelPlan["kind"]>(plan?.kind ?? "plan");
   const [day, setDay] = useState(plan?.date ?? date);
@@ -55,6 +58,10 @@ export function TravelPlanEditor({
     const at = fromMicro(plan?.lat, plan?.lng);
     return at ? `${at.lat.toFixed(6)}, ${at.lng.toFixed(6)}` : "";
   });
+  const current = JSON.stringify([kind, day, time, title, place, memo, arriveDate, arriveTime, departZone, arriveZone, bookingId, location]);
+  const initial = useRef(current);
+  useEffect(() => onDirtyChange(current !== initial.current), [current, onDirtyChange]);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
   const zones = [["", "여행 시간대"], ...ZONES.filter(([zone]) => zone !== travel.timeZone)];
   const minutes =
@@ -96,12 +103,17 @@ export function TravelPlanEditor({
     if (await onSave(input)) onClose();
   }
   return (
+    <>
     <Dialog
       isOpen
-      title={caption}
+      title={`${caption} · ${travel.title}`}
       closeLabel={`${caption} 닫기`}
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busy) onRequestClose();
+      }}
       onOpenChange={(open) => {
-        if (!open && !busy) onClose();
+        if (!open && !busy) onRequestClose();
       }}
     >
       <form
@@ -255,12 +267,12 @@ export function TravelPlanEditor({
               variant="danger"
               className={s.deleteAction}
               disabled={busy}
-              onClick={() => void onDelete().then((done) => done && onClose())}
+              onClick={() => setDeleting(true)}
             >
               지우기
             </Button>
           )}
-          <Button variant="ghost" disabled={busy} onClick={onClose}>
+          <Button variant="ghost" disabled={busy} onClick={onRequestClose}>
             취소
           </Button>
           <Button type="submit" disabled={busy}>
@@ -269,5 +281,17 @@ export function TravelPlanEditor({
         </div>
       </form>
     </Dialog>
+    <Dialog variant="confirm" isOpen={deleting} title="이 일정을 지울까요?" onOpenChange={setDeleting}
+      footer={<>
+        <Button variant="ghost" disabled={busy} onClick={() => setDeleting(false)}>취소</Button>
+        <Button variant="danger" disabled={busy} onClick={() => void onDelete?.().then((done) => {
+          if (done) onClose();
+          else setDeleting(false);
+        })}>지우기</Button>
+      </>}
+    >
+      <p className={s.caption}>이 일정이 지워져요. 되돌릴 수 없어요.</p>
+    </Dialog>
+    </>
   );
 }

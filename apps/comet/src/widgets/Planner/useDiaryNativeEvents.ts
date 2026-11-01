@@ -94,7 +94,8 @@ export function useDiaryNativeEvents({
     };
     const select = (tab: string, resetCollections = true): void => {
       if (!active || !NATIVE_TABS.includes(tab)) return;
-      navigateRef.current(() => handlers.current.onTab(tab, resetCollections));
+      if (resetCollections) navigateRef.current(() => handlers.current.onTab(tab, true));
+      else handlers.current.onTab(tab, false);
     };
     let received = false;
     let targetReceived = false;

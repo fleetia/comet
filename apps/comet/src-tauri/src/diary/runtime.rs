@@ -4,7 +4,7 @@ use crate::{
     characters, store,
     types::{RuntimePhase, SceneLine},
 };
-use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime};
+use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::sync::{atomic::Ordering, Arc};
 use tauri::Emitter;
@@ -21,10 +21,15 @@ pub(crate) fn initialize(db: &Connection) -> Result<()> {
 }
 
 #[derive(Debug)]
-struct Reminder {
-    key: String,
-    text: String,
+pub(super) struct Reminder {
+    pub(super) key: String,
+    pub(super) text: String,
 }
+
+pub(super) type TravelDelivery = (
+    Option<(super::travel_alerts::Alert, String)>,
+    Option<Reminder>,
+);
 
 fn scheduled(habit: &Habit, day: NaiveDate) -> bool {
     !habit.archived
@@ -105,9 +110,8 @@ fn record_travel_moments(
     tx.commit().map_err(err)
 }
 
-fn due(state: &DiaryState, at: NaiveDateTime) -> Result<Vec<Reminder>> {
+pub(super) fn due(state: &DiaryState, at: NaiveDateTime) -> Result<Vec<Reminder>> {
     let day = at.date().format("%Y-%m-%d").to_string();
-    let clock = at.format("%H:%M").to_string();
     let habits: Vec<_> = state
         .habits
         .iter()
@@ -123,16 +127,33 @@ fn due(state: &DiaryState, at: NaiveDateTime) -> Result<Vec<Reminder>> {
             text: "오늘의 습관을 모두 채웠네요. 차곡차곡 잘 해내고 있어요!".into(),
         });
     }
-    for habit in habits {
-        if habit.reminder_time.as_deref() == Some(clock.as_str()) && !completed(state, habit, &day)
-        {
-            reminders.push(Reminder {
-                key: format!("habit-reminder:{}:{day}", habit.id),
-                text: format!(
-                    "‘{}’ 할 시간이에요. 오늘의 습관을 가볍게 시작해 볼까요?",
-                    habit.title
-                ),
-            });
+    let previous = (at - Duration::minutes(10)).date();
+    for date in [Some(at.date()), (previous != at.date()).then_some(previous)]
+        .into_iter()
+        .flatten()
+    {
+        let reminder_day = date.format("%Y-%m-%d").to_string();
+        for habit in state.habits.iter().filter(|habit| scheduled(habit, date)) {
+            let Some(time) = habit
+                .reminder_time
+                .as_deref()
+                .and_then(|value| NaiveTime::parse_from_str(value, "%H:%M").ok())
+            else {
+                continue;
+            };
+            let scheduled_at = date.and_time(time);
+            if at >= scheduled_at
+                && at <= scheduled_at + Duration::minutes(10)
+                && !completed(state, habit, &reminder_day)
+            {
+                reminders.push(Reminder {
+                    key: format!("habit-reminder:{}:{reminder_day}", habit.id),
+                    text: format!(
+                        "‘{}’ 할 시간이에요. 오늘의 습관을 가볍게 시작해 볼까요?",
+                        habit.title
+                    ),
+                });
+            }
         }
     }
     if state.ledger_settings.reminder_enabled {
@@ -185,6 +206,29 @@ fn speaker(state: &AppState, db: &Connection, require_idle: bool) -> Result<Opti
         }
     }
     Ok(None)
+}
+
+// Temporary activity waits; explicit suppression retains its existing consume-once behavior.
+pub(super) fn defer_habits(state: &AppState, db: &Connection) -> Result<bool> {
+    let status = lock(&state.runtime)?.clone();
+    let settings = store::settings(db)?;
+    if app::unavailable(state)
+        || !settings.autonomous_enabled
+        || status.hidden
+        || status.paused
+        || crate::behavior::reactions_blocked(state)?
+        || crate::widgets::storage::focus_active(db, chrono::Utc::now().timestamp_millis())?
+        || app::quiet_hours::automatic_blocked(state, &settings)?
+    {
+        return Ok(false);
+    }
+    Ok(
+        !matches!(status.phase, RuntimePhase::Idle | RuntimePhase::Error)
+            || state.launcher_open.load(Ordering::SeqCst)
+            || lock(&state.panel)?.is_some()
+            || lock(&state.pack_stories)?.run.is_some()
+            || app::now() - state.last_input.load(Ordering::SeqCst) < 15,
+    )
 }
 
 pub(crate) fn playback_current(state: &AppState, db: &Connection, id: &str) -> Result<bool> {
@@ -246,7 +290,7 @@ fn generate(db: &Connection, state: &DiaryState, today: NaiveDate) -> Result<Dia
     Ok(saved)
 }
 
-fn claim(
+pub(super) fn claim(
     db: &Connection,
     reminders: &[Reminder],
     day: &str,
@@ -275,24 +319,147 @@ fn claim(
     Ok(texts)
 }
 
+pub(super) fn release_claim(db: &Connection, key: &str, token: &str) -> Result<()> {
+    db.execute(
+        "DELETE FROM diary_deliveries WHERE key=?1 AND message_id=?2",
+        params![key, token],
+    )
+    .map_err(err)?;
+    Ok(())
+}
+
+fn release_os_claim(state: &AppState, key: &str, token: &str) -> Result<()> {
+    let _action = lock(&state.action)?;
+    let db = lock(&state.db)?;
+    release_claim(&db, key, token)
+}
+
+pub(super) fn release_failed_os_claim(state: &AppState, key: &str, token: &str) -> Result<()> {
+    let _action = lock(&state.action)?;
+    let db = lock(&state.db)?;
+    let mut failed = lock(&state.failed_travel_notifications)?;
+    let removed = db
+        .execute(
+            "DELETE FROM diary_deliveries WHERE key=?1 AND message_id=?2",
+            params![key, token],
+        )
+        .map_err(err)?;
+    if removed > 0 {
+        failed.insert(key.to_string(), chrono::Utc::now().timestamp_millis());
+    }
+    Ok(())
+}
+
+pub(super) fn travel_os_permitted(state: &AppState, key: &str, permitted: bool) -> Result<bool> {
+    Ok(permitted && !lock(&state.failed_travel_notifications)?.contains_key(key))
+}
+
+pub(super) fn release_unshown_travel(db: &Connection, message_id: &str) -> Result<()> {
+    db.execute(
+        "DELETE FROM diary_deliveries WHERE message_id=?1 AND key LIKE 'travel-cancel:%' AND NOT EXISTS (SELECT 1 FROM message_presentations WHERE message_id=?1)",
+        [message_id],
+    ).map_err(err)?;
+    Ok(())
+}
+
+fn release_unshown_for_state(state: &AppState, message_id: &str) -> Result<()> {
+    let _action = lock(&state.action)?;
+    let db = lock(&state.db)?;
+    release_unshown_travel(&db, message_id)
+}
+
+pub(super) fn claim_travel_delivery(
+    db: &Connection,
+    alert: super::travel_alerts::Alert,
+    permitted: bool,
+    has_speaker: bool,
+    day: &str,
+    revision: u64,
+    expires: i64,
+) -> Result<TravelDelivery> {
+    if alert.os && permitted {
+        let token = format!("travel-os:{}", uuid::Uuid::new_v4());
+        let reminder = Reminder {
+            key: alert.key.clone(),
+            text: alert.text.clone(),
+        };
+        let claimed = !claim(db, &[reminder], day, revision, expires, Some(&token))?.is_empty();
+        return Ok((claimed.then_some((alert, token)), None));
+    }
+    let spoken = has_speaker.then_some(Reminder {
+        key: alert.key,
+        text: alert.text,
+    });
+    Ok((None, spoken))
+}
+
+pub(super) fn filter_habit_reminders(
+    reminders: &mut Vec<Reminder>,
+    diary: &DiaryState,
+    at: NaiveDateTime,
+    now: i64,
+    deferred: bool,
+    clocks: &mut std::collections::BTreeMap<String, i64>,
+) {
+    clocks.retain(|key, since| {
+        !key.starts_with("diary-defer:") || (now >= *since && now - *since <= 600_000)
+    });
+    reminders.retain(|reminder| {
+        if !reminder.key.starts_with("habit-reminder:") {
+            return true;
+        }
+        let initial = diary.habits.iter().any(|habit| {
+            reminder.key == format!("habit-reminder:{}:{}", habit.id, at.date())
+                && habit.reminder_time.as_deref() == Some(at.format("%H:%M").to_string().as_str())
+        });
+        let marker = format!("diary-defer:{}", reminder.key);
+        let pending = clocks.contains_key(&marker);
+        if deferred && (initial || pending) {
+            clocks.entry(marker).or_insert(now);
+            false
+        } else {
+            clocks.remove(&marker);
+            initial || pending
+        }
+    });
+}
+
 pub(crate) fn tick(app: &tauri::AppHandle, state: &Arc<AppState>) -> Result<()> {
+    let now = chrono::Utc::now().timestamp_millis();
+    {
+        let mut clocks = lock(&state.widget_clocks)?;
+        if clocks
+            .get("diary-runtime")
+            .is_some_and(|last| now >= *last && now - last < 15_000)
+        {
+            return Ok(());
+        }
+        clocks.insert("diary-runtime".into(), now);
+    }
+    let app = app.clone();
+    let state = state.clone();
+    tauri::async_runtime::spawn(async move {
+        let permission = crate::widgets::planning::notifications::permission(&app).await;
+        let permitted = permission
+            .as_deref()
+            .is_ok_and(|value| matches!(value, "granted" | "system"));
+        let _ = tick_ready(&app, &state, permitted);
+    });
+    Ok(())
+}
+
+fn tick_ready(app: &tauri::AppHandle, state: &Arc<AppState>, permitted: bool) -> Result<()> {
     let now = chrono::Utc::now().timestamp_millis();
     let prepared = {
         let _action = lock(&state.action)?;
         if app::unavailable(state) {
             return Ok(());
         }
-        {
-            let mut clocks = lock(&state.widget_clocks)?;
-            if clocks
-                .get("diary-runtime")
-                .is_some_and(|last| now >= *last && now - last < 15_000)
-            {
-                return Ok(());
-            }
-            clocks.insert("diary-runtime".into(), now);
-        }
         let db = lock(&state.db)?;
+        db.execute(
+            "DELETE FROM diary_deliveries WHERE key LIKE 'travel-cancel:%' AND message_id LIKE 'scene:%' AND expires_at < ?1 AND NOT EXISTS (SELECT 1 FROM message_presentations WHERE message_id=diary_deliveries.message_id)",
+            [now],
+        ).map_err(err)?;
         let at = Local::now().naive_local();
         let current = read(&db)?;
         let saved = generate(&db, &current, at.date())?;
@@ -302,35 +469,71 @@ pub(crate) fn tick(app: &tauri::AppHandle, state: &Arc<AppState>) -> Result<()> 
         }
         let mut reminders = due(&saved, at)?;
         let persona = speaker(state, &db, true)?;
-        let (urgent, travel): (Vec<_>, Vec<_>) =
-            super::travel_alerts::due(&saved, chrono::Utc::now())
-                .into_iter()
-                .partition(|alert| alert.os);
-        // Trip reminders wait for a speaker, so quiet hours delay them instead of consuming them.
-        if persona.is_some() {
-            reminders.extend(travel.into_iter().map(|alert| Reminder {
-                key: alert.key,
-                text: alert.text,
-            }));
-        }
-        let urgent: Vec<Reminder> = urgent
-            .into_iter()
-            .map(|alert| Reminder {
-                key: alert.key,
-                text: alert.text,
-            })
-            .collect();
-        for text in claim(
-            &db,
-            &urgent,
-            &at.date().format("%Y-%m-%d").to_string(),
-            saved.revision,
-            now + 60_000,
-            None,
-        )? {
-            if let Err(error) = crate::widgets::planning::notifications::show_plain(app, &text) {
-                let _ = app.emit("planner-notification-error", error);
-            }
+        let deferred = persona.is_none() && defer_habits(state, &db)?;
+        filter_habit_reminders(
+            &mut reminders,
+            &saved,
+            at,
+            now,
+            deferred,
+            &mut *lock(&state.widget_clocks)?,
+        );
+        lock(&state.failed_travel_notifications)?
+            .retain(|_, failed_at| now.saturating_sub(*failed_at) < 7 * 24 * 60 * 60 * 1000);
+        for alert in super::travel_alerts::due(&saved, chrono::Utc::now()) {
+            let permitted = travel_os_permitted(state, &alert.key, permitted)?;
+            let (urgent, travel) = claim_travel_delivery(
+                &db,
+                alert,
+                permitted,
+                persona.is_some(),
+                &at.date().format("%Y-%m-%d").to_string(),
+                saved.revision,
+                now + 60_000,
+            )?;
+            reminders.extend(travel);
+            let Some((alert, token)) = urgent else {
+                continue;
+            };
+            let app = app.clone();
+            let state = state.clone();
+            let revision = saved.revision;
+            tauri::async_runtime::spawn(async move {
+                let sound = (|| -> Result<Option<bool>> {
+                    let _action = lock(&state.action)?;
+                    let db = lock(&state.db)?;
+                    let current = read(&db)?;
+                    if app::unavailable(&state)
+                        || current.revision != revision
+                        || !super::travel_alerts::due(&current, chrono::Utc::now())
+                            .iter()
+                            .any(|due| due.key == alert.key)
+                    {
+                        release_claim(&db, &alert.key, &token)?;
+                        return Ok(None);
+                    }
+                    Ok(Some(!app::quiet_hours::active(&store::settings(&db)?)))
+                })();
+                let sound = match sound {
+                    Ok(Some(sound)) => sound,
+                    Ok(None) => return,
+                    Err(_) => {
+                        let _ = release_os_claim(&state, &alert.key, &token);
+                        return;
+                    }
+                };
+                if crate::widgets::planning::notifications::show_plain(
+                    &app,
+                    &alert.text,
+                    &alert.travel_id,
+                    sound,
+                )
+                .await
+                .is_err()
+                {
+                    let _ = release_failed_os_claim(&state, &alert.key, &token);
+                }
+            });
         }
         let prefix = format!("diary:{}", uuid::Uuid::new_v4());
         let message_id = format!("scene:{prefix}:0");
@@ -384,6 +587,7 @@ pub(crate) fn tick(app: &tauri::AppHandle, state: &Arc<AppState>) -> Result<()> 
         async move {
             let Some(_gate) = tasks::acquire_gate(&worker_state, epoch, cancel.clone()).await
             else {
+                let _ = release_unshown_for_state(&worker_state, &format!("scene:{prefix}:0"));
                 return;
             };
             let result = app::scene::run_scene(
@@ -397,6 +601,7 @@ pub(crate) fn tick(app: &tauri::AppHandle, state: &Arc<AppState>) -> Result<()> 
                 cancel.clone(),
             )
             .await;
+            let _ = release_unshown_for_state(&worker_state, &format!("scene:{prefix}:0"));
             if app::is_current(&worker_state, epoch, &cancel) {
                 app::phase(
                     &worker_app,
@@ -435,7 +640,8 @@ mod tests {
             .unwrap();
         let reminders = due(&state, at).unwrap();
         assert_eq!(reminders.len(), 1);
-        assert!(due(&state, at + Duration::minutes(1)).unwrap().is_empty());
+        assert_eq!(due(&state, at + Duration::minutes(1)).unwrap().len(), 1);
+        assert!(due(&state, at + Duration::minutes(11)).unwrap().is_empty());
         assert_eq!(
             claim(&db, &reminders, "2026-10-15", state.revision, 0, None)
                 .unwrap()

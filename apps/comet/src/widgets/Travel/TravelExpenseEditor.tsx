@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Button, Checkbox, Dialog, FormField, Select, TextInput, Textarea } from "@comet/ui";
 import type { DataRecord } from "../toolData";
 import type { DiaryLedgerCategory } from "../Planner/diaryLedgerTypes";
@@ -25,6 +25,8 @@ export function TravelExpenseEditor({
   onSave,
   onDelete,
   onClose,
+  onDirtyChange,
+  onRequestClose,
 }: {
   trip: TripData;
   expense?: Expense;
@@ -34,6 +36,8 @@ export function TravelExpenseEditor({
   onSave: (input: DataRecord) => Promise<boolean>;
   onDelete?: () => Promise<boolean>;
   onClose: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+  onRequestClose: () => void;
 }): ReactElement {
   const { travel } = trip;
   const linked = Boolean(expense?.bookingId);
@@ -53,6 +57,10 @@ export function TravelExpenseEditor({
     expense?.shares ?? everyone.map((person) => ({ person, weight: 1 })),
   );
   const [memo, setMemo] = useState(expense?.memo ?? "");
+  const current = JSON.stringify([title, date, currency, amount, rate, category, paid, payer, shares, memo]);
+  const initial = useRef(current);
+  useEffect(() => onDirtyChange(current !== initial.current), [current, onDirtyChange]);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
   const caption = expense ? "비용 고치기" : "비용 더하기";
   const preview: Expense | null = (() => {
@@ -93,12 +101,17 @@ export function TravelExpenseEditor({
   }
 
   return (
+    <>
     <Dialog
       isOpen
-      title={caption}
+      title={`${caption} · ${travel.title}`}
       closeLabel={`${caption} 닫기`}
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busy) onRequestClose();
+      }}
       onOpenChange={(open) => {
-        if (!open && !busy) onClose();
+        if (!open && !busy) onRequestClose();
       }}
     >
       <form
@@ -233,12 +246,12 @@ export function TravelExpenseEditor({
               variant="danger"
               className={s.deleteAction}
               disabled={busy}
-              onClick={() => void onDelete().then((done) => done && onClose())}
+              onClick={() => setDeleting(true)}
             >
               지우기
             </Button>
           )}
-          <Button variant="ghost" disabled={busy} onClick={onClose}>
+          <Button variant="ghost" disabled={busy} onClick={onRequestClose}>
             취소
           </Button>
           <Button type="submit" disabled={busy}>
@@ -247,5 +260,17 @@ export function TravelExpenseEditor({
         </div>
       </form>
     </Dialog>
+    <Dialog variant="confirm" isOpen={deleting} title="이 비용을 지울까요?" onOpenChange={setDeleting}
+      footer={<>
+        <Button variant="ghost" disabled={busy} onClick={() => setDeleting(false)}>취소</Button>
+        <Button variant="danger" disabled={busy} onClick={() => void onDelete?.().then((done) => {
+          if (done) onClose();
+          else setDeleting(false);
+        })}>지우기</Button>
+      </>}
+    >
+      <p className={s.caption}>{expense?.ledgerEntryId ? "연결된 가계부 기록도 함께 지워져요. 되돌릴 수 없어요." : "이 비용이 지워져요. 되돌릴 수 없어요."}</p>
+    </Dialog>
+    </>
   );
 }

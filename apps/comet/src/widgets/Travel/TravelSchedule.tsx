@@ -8,6 +8,7 @@ import {
   moveMinutes,
   ordinalDay,
   plansOn,
+  zoneName,
   zoneNote,
 } from "./travelData";
 import { formatAmount } from "./travelMoney";
@@ -19,7 +20,7 @@ export function planDetail(plan: TravelPlan, travel: Travel): string {
   if (plan.kind === "move" && plan.arriveTime) {
     const minutes = moveMinutes(plan, travel);
     const nextDay = plan.arriveDate && plan.arriveDate !== plan.date ? `${dayLabel(plan.arriveDate)} ` : "";
-    return [`도착 ${nextDay}${clock(plan.arriveTime)}`, minutes !== null && `이동 ${duration(minutes)}`, plan.place]
+    return [`도착 ${nextDay}${clock(plan.arriveTime)} (${zoneName(plan.arriveZone, travel.timeZone)})`, minutes !== null && `이동 ${duration(minutes)}`, plan.place]
       .filter(Boolean)
       .join(" · ");
   }
@@ -69,7 +70,7 @@ export function TravelSchedule({
           {ordinalDay(travel, date)} · {dayLabel(date)}
         </h2>
         <p className={s.caption}>
-          모든 시각은 여행지 시각이에요.{" "}
+          일정 시각은 여행지 시각이며, 이동 시각은 각각 출발지와 도착지 시간대예요. 시간대를 따로 정하지 않으면 여행지 시간대를 써요.{" "}
           {travel.timeZone === HOME_ZONE
             ? `${place}와 한국의 시차는 없어요.`
             : `${place}는 ${zoneNote(travel.timeZone)}.`}
@@ -81,7 +82,7 @@ export function TravelSchedule({
             <TripInfoRow
               key={plan.id}
               className={s.row}
-              title={`${plan.time ? `${clock(plan.time)}  ` : ""}${plan.title}`}
+              title={`${plan.time ? `${clock(plan.time)}${plan.kind === "move" ? ` (${zoneName(plan.departZone, travel.timeZone)})` : ""}  ` : ""}${plan.title}`}
               detail={planDetail(plan, travel) || undefined}
               value={planValue(plan, bookings)}
               disabled={busy}

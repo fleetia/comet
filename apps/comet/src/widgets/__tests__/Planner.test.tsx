@@ -102,6 +102,7 @@ it("destroys a clean planner window from the header close button", async () => {
 });
 
 beforeEach(() => {
+  localStorage.clear();
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(`${TODAY}T12:00:00`));
   vi.mocked(command).mockReset();
@@ -119,6 +120,78 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close = function (): void {
     this.removeAttribute("open");
   };
+});
+
+it("restores an embedded quick input and its selected day after remount", async () => {
+  useSnapshot(snapshot([]));
+  const selectDay = vi.fn();
+  const first = render(
+    <Planner embeddedTab="today" selectedDay="2026-09-20" onSelectedDayChange={selectDay} />,
+  );
+  fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
+    target: { value: "다시 열 계획" },
+  });
+  first.unmount();
+  render(<Planner embeddedTab="today" selectedDay={TODAY} onSelectedDayChange={selectDay} />);
+  expect(screen.getByRole("textbox", { name: "새 할 일" })).toHaveProperty("value", "다시 열 계획");
+  await waitFor(() => expect(selectDay).toHaveBeenCalledWith("2026-09-20"));
+});
+
+it("restores an embedded move and refuses a changed source", async () => {
+  const original = item("one", "서류 챙기기");
+  localStorage.setItem(
+    "comet:diary:planner-move-draft",
+    JSON.stringify({
+      movingTask: { id: "one", date: "2026-09-23" },
+      source: original,
+      widgetId: "todo-id",
+    }),
+  );
+  useSnapshot(snapshot([{ ...original, title: "바뀐 서류" }]));
+  render(<Planner embeddedTab="today" />);
+  const dialog = within(await screen.findByRole("dialog", { name: "할 일 옮기기" }));
+  expect(dialog.getByLabelText("새 계획 날짜")).toHaveProperty("value", "2026-09-23");
+  expect(dialog.getByRole("button", { name: "선택한 날로 옮기기" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(dialog.getByRole("alert").textContent).toContain("할 일이 바뀌었어요");
+  fireEvent.click(dialog.getByRole("button", { name: "취소" }));
+  expect(localStorage.getItem("comet:diary:planner-move-draft")).toBeNull();
+});
+
+it("restores an interrupted embedded wrap and blocks replay until latest items are selected again", async () => {
+  const original = item("one", "서류 챙기기");
+  useSnapshot(snapshot([original]));
+  let finish!: (value: unknown) => void;
+  vi.mocked(command).mockImplementation((name) =>
+    name === "execute_widget"
+      ? new Promise((resolve) => {
+          finish = resolve;
+        })
+      : Promise.resolve(undefined),
+  );
+  const view = render(<Planner embeddedTab="today" />);
+  fireEvent.click(screen.getByRole("button", { name: "하루 마무리" }));
+  let dialog = within(screen.getByRole("dialog", { name: "오늘은 여기까지" }));
+  fireEvent.change(dialog.getByLabelText("옮길 날짜"), { target: { value: "date" } });
+  fireEvent.change(dialog.getByLabelText(/^날짜/), { target: { value: "2026-09-25" } });
+  fireEvent.click(screen.getByRole("button", { name: "1개 옮기고 마치기" }));
+  expect(
+    JSON.parse(localStorage.getItem("comet:diary:planner-wrap-draft") || "null"),
+  ).toMatchObject({ attempted: true });
+  view.unmount();
+  render(<Planner embeddedTab="today" />);
+  dialog = within(await screen.findByRole("dialog", { name: "오늘은 여기까지" }));
+  expect(dialog.getByLabelText(/^날짜/)).toHaveProperty("value", "2026-09-25");
+  expect(screen.getByRole("button", { name: "1개 옮기고 마치기" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  await act(async () => finish(undefined));
+  expect(localStorage.getItem("comet:diary:planner-wrap-draft")).not.toBeNull();
+  fireEvent.click(dialog.getByRole("button", { name: "최신 내용 확인하고 다시 고르기" }));
+  expect(dialog.getByRole("checkbox", { name: /서류 챙기기/ })).toHaveProperty("checked", false);
 });
 afterEach(() => {
   cleanup();
@@ -521,6 +594,135 @@ it("keeps an edited task draft after a rejected save and lets the same draft be 
   expect(act.mock.calls[1]).toEqual(act.mock.calls[0]);
 });
 
+it.each([
+  ["calendar", "이 회차만 건너뛰기", "skip"],
+  ["completion", "이 회차만 삭제", "delete-occurrence"],
+  ["frequency", "이 회차만 삭제", "delete-occurrence"],
+])("asks how to delete a %s recurring task", async (mode, label, action) => {
+  const act = vi.fn<ToolAction>().mockResolvedValue(true);
+  render(
+    <TodoEditor
+      item={item("recurring", "반복 할 일", {
+        repeatRule: { mode, unit: "week", interval: 1, timesPerWeek: 2 },
+      })}
+      lists={LISTS}
+      busy={false}
+      act={act}
+      onClose={vi.fn()}
+    />,
+  );
+  fireEvent.click(
+    within(screen.getByRole("dialog", { name: "할 일 편집" })).getByRole("button", {
+      name: "삭제",
+    }),
+  );
+  const confirmation = within(
+    screen.getByRole("dialog", { name: "반복 할 일을 어떻게 삭제할까요?" }),
+  );
+  expect(confirmation.getByRole("button", { name: "앞으로의 반복 끝내기" })).toBeTruthy();
+  expect(act).not.toHaveBeenCalled();
+  fireEvent.click(confirmation.getByRole("button", { name: label }));
+  await waitFor(() => expect(act).toHaveBeenCalledWith(action, { id: "recurring" }));
+});
+
+it("asks before discarding a task edit or deleting a non-recurring task", () => {
+  const onClose = vi.fn();
+  const act = vi.fn<ToolAction>();
+  render(
+    <TodoEditor
+      item={item("single", "할 일")}
+      lists={LISTS}
+      busy={false}
+      act={act}
+      onClose={onClose}
+    />,
+  );
+  const editor = within(screen.getByRole("dialog", { name: "할 일 편집" }));
+  fireEvent.change(editor.getByLabelText("할 일 제목"), { target: { value: "바꾼 제목" } });
+  fireEvent.click(editor.getByRole("button", { name: "취소" }));
+  const closeConfirmation = within(screen.getByRole("dialog", { name: "변경 내용을 버릴까요?" }));
+  expect(onClose).not.toHaveBeenCalled();
+  fireEvent.click(closeConfirmation.getByRole("button", { name: "계속 편집" }));
+  fireEvent.click(editor.getByRole("button", { name: "삭제" }));
+  expect(screen.getByRole("dialog", { name: "할 일을 삭제할까요?" })).toBeTruthy();
+  expect(act).not.toHaveBeenCalled();
+});
+
+it("protects frequency history when ending a repeat", () => {
+  const act = vi.fn<ToolAction>();
+  render(
+    <TodoEditor
+      item={item("frequency", "주간 목표", {
+        repeatRule: { mode: "frequency", unit: "week", interval: 1, timesPerWeek: 2 },
+        frequencyRecords: [{ id: "record", date: TODAY }],
+      })}
+      lists={LISTS}
+      busy={false}
+      act={act}
+      onClose={vi.fn()}
+    />,
+  );
+  fireEvent.click(
+    within(screen.getByRole("dialog", { name: "할 일 편집" })).getByRole("button", {
+      name: "삭제",
+    }),
+  );
+  const confirmation = within(
+    screen.getByRole("dialog", { name: "반복 할 일을 어떻게 삭제할까요?" }),
+  );
+  expect(confirmation.getByText(/주간 횟수 기록을 보존하기 위해 반복을 바로 끝낼 수 없어요/)).toBeTruthy();
+  expect(confirmation.getByText(/반복 방식을 '없음'으로, 변경 적용을 '이번 및 이후 회차'로 선택해 저장한 뒤 삭제/)).toBeTruthy();
+  expect(confirmation.getByRole("button", { name: "앞으로의 반복 끝내기" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(confirmation.getByRole("button", { name: "이 회차만 삭제" })).toHaveProperty(
+    "disabled",
+    false,
+  );
+  expect(act).not.toHaveBeenCalled();
+});
+
+it("uses the guarded repeat-ending action when no frequency history exists", async () => {
+  const act = vi.fn<ToolAction>().mockResolvedValue(true);
+  render(
+    <TodoEditor
+      item={item("repeat", "반복", { repeat: "daily" })}
+      lists={LISTS}
+      busy={false}
+      act={act}
+      onClose={vi.fn()}
+    />,
+  );
+  fireEvent.click(
+    within(screen.getByRole("dialog", { name: "할 일 편집" })).getByRole("button", {
+      name: "삭제",
+    }),
+  );
+  fireEvent.click(
+    within(screen.getByRole("dialog", { name: "반복 할 일을 어떻게 삭제할까요?" })).getByRole(
+      "button",
+      { name: "앞으로의 반복 끝내기" },
+    ),
+  );
+  await waitFor(() => expect(act).toHaveBeenCalledWith("end-repeat", { id: "repeat" }));
+});
+
+it("keeps an already generated next occurrence when deleting a completed one", async () => {
+  const act = vi.fn<ToolAction>().mockResolvedValue(true);
+  render(<TodoEditor item={item("completed", "완료한 반복", {
+    repeat: "daily", completedAt: 123, generation: { id: "next", snapshot: {} },
+  })} lists={LISTS} busy={false} act={act} onClose={vi.fn()} />);
+  fireEvent.click(within(screen.getByRole("dialog", { name: "할 일 편집" })).getByRole("button", { name: "삭제" }));
+  const confirmation = within(screen.getByRole("dialog", { name: "반복 할 일을 어떻게 삭제할까요?" }));
+  expect(confirmation.getByText(/다음 회차는 유지돼요/)).toBeTruthy();
+  fireEvent.click(confirmation.getByRole("button", { name: "앞으로의 반복 끝내기" }));
+  expect(confirmation.getByRole("alert").textContent).toContain("다음 회차에서 반복을 끝내");
+  expect(act).not.toHaveBeenCalled();
+  fireEvent.click(confirmation.getByRole("button", { name: "이 회차만 삭제" }));
+  await waitFor(() => expect(act).toHaveBeenCalledWith("delete", { id: "completed" }));
+});
+
 it("renders no native date or time input until explicitly added and clears both when removing the due date", async () => {
   const act = vi.fn<ToolAction>().mockResolvedValue(false);
   render(
@@ -605,6 +807,59 @@ it("does not overwrite an externally changed task and reloads it only on request
   expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
   fireEvent.click(editor.getByRole("button", { name: "최신 내용 다시 불러오기" }));
   expect(screen.getByLabelText("할 일 제목")).toHaveProperty("value", "다른 화면에서 수정한 제목");
+});
+
+it("restores an embedded task edit against its original snapshot after restart", async () => {
+  const original = item("restart-conflict", "원래 할 일");
+  const first = render(
+    <TodoEditor
+      item={original}
+      lists={LISTS}
+      act={vi.fn<ToolAction>()}
+      busy={false}
+      onClose={vi.fn()}
+      widgetId="todo-id"
+      draftKey="comet:diary:planner-todo-editor"
+    />,
+  );
+  fireEvent.change(screen.getByLabelText("할 일 제목"), {
+    target: { value: "저장하지 않은 초안" },
+  });
+  first.unmount();
+  const newer = snapshot([{ ...original, title: "다른 화면의 수정" }]);
+  newer.widgets[0].revision = 8;
+  useSnapshot(newer);
+  render(<Planner embeddedTab="today" />);
+  const dialog = await screen.findByRole("dialog", { name: "할 일 편집" });
+  const editor = within(dialog);
+  expect(editor.getByLabelText("할 일 제목")).toHaveProperty("value", "저장하지 않은 초안");
+  fireEvent.click(editor.getByRole("button", { name: "저장" }));
+  await waitFor(() => expect(editor.getByRole("alert").textContent).toContain("저장하지 못했어요"));
+  expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
+  expect(localStorage.getItem("comet:diary:planner-todo-editor")).not.toBeNull();
+});
+
+it("offers calendar skip for legacy repeating tasks", () => {
+  render(
+    <TodoEditor
+      item={item("legacy", "매일 할 일", { repeat: "daily" })}
+      lists={LISTS}
+      act={vi.fn<ToolAction>()}
+      busy={false}
+      onClose={vi.fn()}
+    />,
+  );
+  fireEvent.click(
+    within(screen.getByRole("dialog", { name: "할 일 편집" })).getByRole("button", {
+      name: "삭제",
+    }),
+  );
+  expect(
+    within(screen.getByRole("dialog", { name: "반복 할 일을 어떻게 삭제할까요?" })).getByRole(
+      "button",
+      { name: "이 회차만 건너뛰기" },
+    ),
+  ).toBeTruthy();
 });
 
 it("clears task actions when the selected task is outside the displayed date", async () => {

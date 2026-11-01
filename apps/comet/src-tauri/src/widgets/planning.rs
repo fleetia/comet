@@ -494,7 +494,7 @@ fn todo(
         "rollover" => {
             rollover_todos(&mut state, input)?;
         }
-        "update" | "complete" | "undo" | "delete" => {
+        "update" | "complete" | "undo" | "delete" | "delete-occurrence" | "end-repeat" => {
             let key = text(input, "id", 200)?;
             let at = state
                 .items
@@ -504,6 +504,59 @@ fn todo(
             match action {
                 "delete" => {
                     state.items.remove(at);
+                }
+                "end-repeat" => {
+                    let item = &state.items[at];
+                    if item.generation.is_some()
+                        || state
+                            .items
+                            .iter()
+                            .any(|other| other.generated_from.as_deref() == Some(item.id.as_str()))
+                    {
+                        return Err("이미 만들어진 다음 회차에서 반복을 끝내 주세요.".into());
+                    }
+                    if !recurrence::repeats(item)
+                        && item
+                            .continuation
+                            .as_deref()
+                            .is_none_or(|template| !recurrence::repeats(template))
+                    {
+                        return Err("반복 할 일을 선택해 주세요.".into());
+                    }
+                    if !item.frequency_records.is_empty() {
+                        return Err("주간 횟수 기록을 보존하려면 반복을 끝낼 수 없습니다.".into());
+                    }
+                    state.items.remove(at);
+                }
+                "delete-occurrence" => {
+                    let item = &state.items[at];
+                    let template = item.continuation.as_deref().unwrap_or(item);
+                    if item.completed_at.is_some()
+                        || item.generation.is_some()
+                        || !template.repeat_rule.as_ref().is_some_and(|rule| {
+                            ["completion", "frequency"].contains(&rule.mode.as_str())
+                        })
+                    {
+                        return Err("이 회차는 삭제하고 다음 회차를 만들 수 없습니다.".into());
+                    }
+                    let mut next = if recurrence::is_frequency(template) {
+                        recurrence::advance_frequency(template, now)?
+                    } else {
+                        recurrence::advance(template, now)?
+                    };
+                    if item.continuation.is_some() {
+                        next.frequency_records.clone_from(&item.frequency_records);
+                    }
+                    next.id = format!("{}-next", new_id);
+                    if state.items.iter().any(|existing| existing.id == next.id) {
+                        return Err("다음 회차 ID가 이미 있습니다.".into());
+                    }
+                    next.generated_from = item.generated_from.clone();
+                    next.generation = None;
+                    next.continuation = None;
+                    next.completed_at = None;
+                    next.revision = 0;
+                    state.items[at] = next;
                 }
                 "update" => {
                     update_todo_scope(&mut state, at, input, now)?;
@@ -716,19 +769,34 @@ fn skip_todo(state: &mut TodoState, input: &Value, now: i64) -> Result<(), Strin
         .iter_mut()
         .find(|item| item.id == key)
         .ok_or_else(missing)?;
+    let template = item.continuation.as_deref().unwrap_or(item);
     if item.completed_at.is_some()
-        || !recurrence::repeats(item)
-        || item
+        || !recurrence::repeats(template)
+        || template
             .repeat_rule
             .as_ref()
             .is_some_and(|rule| rule.mode != "calendar")
     {
         return Err("날짜 기준 반복의 미완료 회차만 건너뛸 수 있습니다.".into());
     }
-    let mut next = recurrence::advance(item, now)?;
-    if let Some(template) = item.continuation.as_deref() {
-        next.continuation = Some(Box::new(recurrence::advance(template, now)?));
-    }
+    let mut next = if recurrence::repeats(item)
+        && item
+            .repeat_rule
+            .as_ref()
+            .is_none_or(|rule| rule.mode == "calendar")
+    {
+        let mut next = recurrence::advance(item, now)?;
+        if let Some(template) = item.continuation.as_deref() {
+            next.continuation = Some(Box::new(recurrence::advance(template, now)?));
+        }
+        next
+    } else {
+        let mut next = recurrence::advance(template, now)?;
+        next.id = item.id.clone();
+        next.frequency_records.clone_from(&item.frequency_records);
+        next.continuation = None;
+        next
+    };
     next.revision += 1;
     *item = next;
     Ok(())

@@ -82,6 +82,7 @@ export function DiaryNoteDetail(props: DetailProps): ReactElement {
   const [error, setError] = useState("");
   const [storageError, setStorageError] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [discardingConflict, setDiscardingConflict] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const current = useRef(draft);
   const latest = useRef(props);
@@ -277,6 +278,13 @@ export function DiaryNoteDetail(props: DetailProps): ReactElement {
           {message}
         </p>
       )}
+      {conflict && (
+        <div className={s.caption}>
+          <strong>최신 내용</strong>
+          <p style={{ whiteSpace: "pre-wrap" }}>{note.title}</p>
+          <p style={{ whiteSpace: "pre-wrap" }}>{note.body}</p>
+        </div>
+      )}
       {(message || dirty) && (
         <div className={s.actions}>
           {!conflict && (
@@ -294,14 +302,45 @@ export function DiaryNoteDetail(props: DetailProps): ReactElement {
             size="small"
             disabled={disabled}
             onClick={() => {
+              if (conflict) {
+                setDiscardingConflict(true);
+                return;
+              }
               keep(fromNote(latest.current.note));
               setError("");
             }}
           >
-            {conflict ? "최신 내용 다시 불러오기" : "변경 취소"}
+            {conflict ? "내 글 버리고 최신 내용으로 바꾸기" : "변경 취소"}
           </Button>
         </div>
       )}
+      <Dialog
+        isOpen={discardingConflict}
+        onOpenChange={setDiscardingConflict}
+        title="내 글을 버릴까요?"
+        closeLabel="취소"
+        variant="confirm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDiscardingConflict(false)}>
+              취소
+            </Button>
+            <Button
+              variant="danger"
+              disabled={disabled}
+              onClick={() => {
+                keep(fromNote(latest.current.note));
+                setError("");
+                setDiscardingConflict(false);
+              }}
+            >
+              내 글 버리고 최신 내용으로 바꾸기
+            </Button>
+          </>
+        }
+      >
+        <p>작성 중인 내용이 사라지고 최신 내용으로 바뀌어요.</p>
+      </Dialog>
       {!compact && (
         <div className={s.footer}>
           {status}

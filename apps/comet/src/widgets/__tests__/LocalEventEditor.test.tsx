@@ -2,6 +2,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { LocalEventEditor } from "../Planner/LocalEventEditor";
 import type { DataRecord } from "../toolData";
+import { useDiaryCalendarEvents } from "../Planner/useDiaryCalendarEvents";
+import type { DiaryWidgetActions } from "../Planner/useDiaryWidgetActions";
 
 const DAY = "2026-10-03";
 const EVENT: DataRecord = {
@@ -27,6 +29,37 @@ beforeEach(() => {
 });
 
 afterEach(cleanup);
+
+it("restores the event snapshot and unsaved inputs after a restart, and clears them on discard", () => {
+  localStorage.clear();
+  function DiaryEditor(): React.JSX.Element {
+    const diary = useDiaryCalendarEvents({ actions: {} as DiaryWidgetActions, reload: vi.fn() });
+    const draft = diary.calendarDraft;
+    return draft ? <LocalEventEditor
+      day={draft.date}
+      event={draft.event}
+      restoredValues={draft.values}
+      onDraftChange={diary.persistCalendarDraft}
+      busy={false}
+      onSave={vi.fn()}
+      onClose={() => diary.setCalendarDraft(null)}
+    /> : <button onClick={() => diary.setCalendarDraft({ date: DAY, event: EVENT, revision: 3 })}>열기</button>;
+  }
+  const first = render(<DiaryEditor />);
+  fireEvent.click(screen.getByText("열기"));
+  fireEvent.change(screen.getByLabelText("일정 제목"), { target: { value: "작성 중인 일정" } });
+  fireEvent.change(screen.getByLabelText("메모"), { target: { value: "보존할 메모" } });
+  const stored = JSON.parse(localStorage.getItem("comet:diary-calendar-draft") ?? "null");
+  expect(stored.event).toEqual(EVENT);
+  expect(stored.revision).toBe(3);
+  first.unmount();
+  render(<DiaryEditor />);
+  expect(screen.getByLabelText("일정 제목")).toHaveProperty("value", "작성 중인 일정");
+  expect(screen.getByLabelText("메모")).toHaveProperty("value", "보존할 메모");
+  fireEvent.click(screen.getByRole("button", { name: "취소" }));
+  fireEvent.click(screen.getByRole("button", { name: "변경 버리고 닫기" }));
+  expect(localStorage.getItem("comet:diary-calendar-draft")).toBeNull();
+});
 
 it("creates a multi-day all-day event with an exclusive end and keeps the entered details", async () => {
   const onSave = vi.fn().mockResolvedValue(true);

@@ -98,9 +98,80 @@ it("keeps note edits after save failure and refuses to overwrite a note changed 
   expect(screen.queryByRole("button", { name: "메모 저장" })).toBeNull();
   expect(diaryAction).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("alert").textContent).toContain("다른 곳에서 이 메모가 바뀌었어요");
-  fireEvent.click(screen.getByRole("button", { name: "최신 내용 다시 불러오기" }));
+  fireEvent.click(screen.getByRole("button", { name: "내 글 버리고 최신 내용으로 바꾸기" }));
+  fireEvent.click(
+    within(screen.getByRole("dialog", { name: "내 글을 버릴까요?" })).getByRole("button", {
+      name: "내 글 버리고 최신 내용으로 바꾸기",
+    }),
+  );
   expect(screen.getByLabelText("메모 내용")).toHaveProperty("value", "봉투에서 고친 생각");
   expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+});
+
+it("asks before deleting a checklist item or resource link", async () => {
+  const props = envelopeProps();
+  render(
+    <DiaryEnvelope
+      {...props}
+      envelope={{
+        ...envelope,
+        checks: [{ id: "check", text: "여권", done: true }],
+        links: [{ id: "link", title: "예약", url: "https://example.com" }],
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "준비 봉투 메뉴" }));
+  fireEvent.click(screen.getByRole("button", { name: "여권 체크 삭제" }));
+  let dialog = within(screen.getByRole("dialog", { name: "체크 항목을 삭제할까요?" }));
+  fireEvent.click(dialog.getByRole("button", { name: "취소" }));
+  expect(props.act).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "여권 체크 삭제" }));
+  dialog = within(screen.getByRole("dialog", { name: "체크 항목을 삭제할까요?" }));
+  fireEvent.click(dialog.getByRole("button", { name: "삭제" }));
+  await waitFor(() =>
+    expect(props.act).toHaveBeenCalledWith(
+      "check-delete",
+      { id: "envelope", checkId: "check" },
+      preparation,
+    ),
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: "예약 자료 삭제" }));
+  dialog = within(screen.getByRole("dialog", { name: "자료 링크를 삭제할까요?" }));
+  fireEvent.click(dialog.getByRole("button", { name: "삭제" }));
+  await waitFor(() =>
+    expect(props.act).toHaveBeenCalledWith(
+      "link-delete",
+      { id: "envelope", linkId: "link" },
+      preparation,
+    ),
+  );
+});
+
+it("restores embedded preparation inputs after remount and removes them after saving", async () => {
+  const props = envelopeProps();
+  const key = "comet:embedded-preparation:preparation:envelope";
+  const view = render(<DiaryEnvelope {...props} draftKey={key} />);
+  fireEvent.change(screen.getByLabelText("체크할 준비물"), { target: { value: "  여권  " } });
+  fireEvent.change(screen.getByLabelText("봉투에 추가할 할 일"), { target: { value: "표 확인" } });
+  view.unmount();
+  render(<DiaryEnvelope {...props} draftKey={key} />);
+  expect(screen.getByLabelText("체크할 준비물")).toHaveProperty("value", "  여권  ");
+  expect(screen.getByLabelText("봉투에 추가할 할 일")).toHaveProperty("value", "표 확인");
+  const form = screen.getByLabelText("체크할 준비물").closest("form");
+  if (!form) throw new Error("missing checklist form");
+  fireEvent.submit(form);
+  await waitFor(() =>
+    expect(props.act).toHaveBeenCalledWith(
+      "check-add",
+      { id: "envelope", text: "여권" },
+      preparation,
+    ),
+  );
+  expect(JSON.parse(localStorage.getItem(key) || "null")).toMatchObject({
+    check: "",
+    task: "표 확인",
+  });
 });
 
 it("plans and completes the same linked task while pinning the existing envelope note", async () => {
@@ -134,7 +205,10 @@ it("plans and completes the same linked task while pinning the existing envelope
   );
   fireEvent.click(screen.getByRole("button", { name: "세션 아이디어 메모 메뉴" }));
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "목록 위에 고정" })).toHaveProperty("disabled", false),
+    expect(screen.getByRole("button", { name: "목록 위에 고정" })).toHaveProperty(
+      "disabled",
+      false,
+    ),
   );
   fireEvent.click(screen.getByRole("button", { name: "목록 위에 고정" }));
   await waitFor(() =>

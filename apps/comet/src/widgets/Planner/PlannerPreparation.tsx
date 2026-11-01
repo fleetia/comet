@@ -1,6 +1,9 @@
 import { Button, Checkbox, Dialog } from "@comet/ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { PreparationTool } from "../PreparationTool/PreparationTool";
+import {
+  discardEmbeddedPreparationDraft,
+  PreparationTool,
+} from "../PreparationTool/PreparationTool";
 import { useConnectionCommand } from "../useConnectionCommand";
 import { record, rows, text, localDay, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
@@ -229,6 +232,14 @@ export function PlannerPreparation({
               variant="danger"
               disabled={saving}
               onClick={() => {
+                if (
+                  preparation &&
+                  envelope &&
+                  !discardEmbeddedPreparationDraft(preparation.id, text(envelope.id))
+                ) {
+                  setSaveError("이 기기에 보관한 초안을 지우지 못했어요. 다시 시도해 주세요.");
+                  return;
+                }
                 setEditorVersion((value) => value + 1);
                 setConfirmClose(false);
                 setOpened(false);
@@ -239,7 +250,12 @@ export function PlannerPreparation({
           </>
         }
       >
-        <p>저장하지 않은 일정 연결 선택이 있어요.</p>
+        <p>저장하지 않은 준비 내용이 있어요.</p>
+        {saveError && (
+          <p role="alert" className={s.error}>
+            {saveError}
+          </p>
+        )}
       </Dialog>
     </section>
   );

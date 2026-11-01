@@ -84,6 +84,8 @@ pub(crate) struct AppState {
     pub(crate) widget_jobs: Mutex<HashMap<String, Arc<AtomicBool>>>,
     pub(crate) widget_open_intents: Mutex<HashMap<String, widgets::commands::WidgetOpenIntent>>,
     pub(crate) widget_clocks: Mutex<std::collections::BTreeMap<String, i64>>,
+    pub(crate) failed_travel_notifications: Mutex<std::collections::BTreeMap<String, i64>>,
+    pub(crate) calendar_reminder_clocks: Mutex<std::collections::BTreeMap<String, i64>>,
     pub(crate) last_input: AtomicI64,
     pub(crate) last_foreground: AtomicI64,
     pub(crate) last_scene: AtomicI64,

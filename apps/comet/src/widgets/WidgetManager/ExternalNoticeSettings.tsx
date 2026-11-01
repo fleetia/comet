@@ -167,6 +167,18 @@ export function ExternalNoticeSettings({
           }
         />
         <SettingControlRow
+          title="OS 알림 소리"
+          description="조용한 시간에는 소리를 내지 않아요"
+          control={
+            <Switch
+              aria-label="바깥 알림 소리"
+              checked={data.soundEnabled === true}
+              disabled={busy || permissionBusy}
+              onChange={(event) => void configure({ soundEnabled: event.target.checked })}
+            />
+          }
+        />
+        <SettingControlRow
           title={`OS 알림 권한: ${({ granted: "허용됨", denied: notificationSettingsText(), prompt: "권한 요청 전", system: "시스템 설정을 따름", unknown: "확인 필요" } as Record<string, string>)[permission] || "확인 필요"}`}
           description={permission === "prompt" ? "허용 후 OS 알림 병행을 켤 수 있어요" : undefined}
           control={isDesktop() && permission !== "granted" && permission !== "system" ? (

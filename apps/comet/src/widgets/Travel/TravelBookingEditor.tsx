@@ -1,9 +1,10 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Button, Dialog, FormField, Select, TextInput, Textarea } from "@comet/ui";
-import { command, errorText } from "../../hooks/useSnapshot";
+import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
+import { canOpenNotificationSettings, notificationSettingsText, openSystemSettings } from "../../systemSettings";
 import type { DataRecord } from "../toolData";
 import type { DiaryLedgerCategory } from "../Planner/diaryLedgerTypes";
-import { ZONES } from "./TravelEditor";
+import { ZONES } from "./travelData";
 import { BOOKING_KINDS, STATUS_LABELS } from "./travelSummary";
 import {
   CURRENCIES,
@@ -36,6 +37,8 @@ export function TravelBookingEditor({
   onSave,
   onDelete,
   onClose,
+  onDirtyChange,
+  onRequestClose,
 }: {
   trip: TripData;
   booking?: Booking;
@@ -46,6 +49,8 @@ export function TravelBookingEditor({
   onSave: (input: DataRecord) => Promise<boolean>;
   onDelete?: () => Promise<boolean>;
   onClose: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+  onRequestClose: () => void;
 }): ReactElement {
   const { travel } = trip;
   const initialKind =
@@ -91,9 +96,55 @@ export function TravelBookingEditor({
   const [vouchers, setVouchers] = useState<Voucher[]>(
     booking?.vouchers ?? (draft?.voucher ? [draft.voucher] : []),
   );
+  const current = JSON.stringify([kind, title, vendor, confirmation, status, paidDate, currency, amount, rate, category, startDate, startTime, startZone, endDate, endTime, endZone, place, destination, cancelDate, cancelTime, link, memo, vouchers]);
+  const initial = useRef(current);
+  useEffect(() => onDirtyChange(Boolean(draft) || current !== initial.current), [current, draft, onDirtyChange]);
   const [attaching, setAttaching] = useState(false);
+  const attachingRef = useRef(false);
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [permission, setPermission] = useState("unknown");
+  const [permissionBusy, setPermissionBusy] = useState(false);
+  const permissionRequest = useRef(0);
+  const permissionPending = useRef(false);
+  useEffect(() => {
+    if (!isDesktop()) return;
+    let active = true;
+    function refresh(): void {
+      if (permissionPending.current) return;
+      const request = ++permissionRequest.current;
+      void command<string>("get_planner_notification_permission")
+        .then((value) => {
+          if (active && request === permissionRequest.current) setPermission(value);
+        })
+        .catch(() => {
+          if (active && request === permissionRequest.current) setPermission("unknown");
+        });
+    }
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => {
+      active = false;
+      permissionRequest.current += 1;
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
+
+  async function requestPermission(): Promise<void> {
+    if (permissionPending.current) return;
+    permissionPending.current = true;
+    setPermissionBusy(true);
+    const request = ++permissionRequest.current;
+    try {
+      const value = await command<string>("request_planner_notification_permission");
+      if (request === permissionRequest.current) setPermission(value);
+    } catch (cause: unknown) {
+      if (request === permissionRequest.current) setError(errorText(cause));
+    } finally {
+      permissionPending.current = false;
+      if (request === permissionRequest.current) setPermissionBusy(false);
+    }
+  }
   const moving = ["flight", "train", "bus", "car"].includes(kind);
   const caption = booking ? "예약 고치기" : draft ? "확인서로 만든 예약 초안" : "예약 더하기";
   const zones = [["", "여행 시간대"], ...ZONES.filter(([zone]) => zone !== travel.timeZone)];
@@ -106,6 +157,8 @@ export function TravelBookingEditor({
   }
 
   async function attach(): Promise<void> {
+    if (attachingRef.current) return;
+    attachingRef.current = true;
     setAttaching(true);
     try {
       const added = await command<Voucher[]>("travel_attach_vouchers", { travelId: travel.id });
@@ -113,11 +166,13 @@ export function TravelBookingEditor({
     } catch (cause) {
       setError(errorText(cause));
     } finally {
+      attachingRef.current = false;
       setAttaching(false);
     }
   }
 
   async function save(): Promise<void> {
+    if (attachingRef.current) return;
     const minor = amount.trim() ? parseAmount(amount, currency) : 0;
     if (!title.trim()) return setError("예약 이름을 적어 주세요.");
     if (minor === null) return setError(`금액은 ${currency === "KRW" ? "원 단위 숫자" : "숫자(소수점 둘째 자리까지)"}로 적어 주세요.`);
@@ -161,10 +216,14 @@ export function TravelBookingEditor({
       <Dialog
         isOpen
         size="large"
-        title={caption}
+        title={`${caption} · ${travel.title}`}
         closeLabel={`${caption} 닫기`}
+        onCancel={(event) => {
+          event.preventDefault();
+          if (!busy) onRequestClose();
+        }}
         onOpenChange={(open) => {
-          if (!open && !busy) onClose();
+          if (!open && !busy) onRequestClose();
         }}
       >
         <form
@@ -376,22 +435,42 @@ export function TravelBookingEditor({
                 ))}
               </Select>
             </FormField>
-            <FormField label="무료 취소 마감" description="하루 전 저녁에 한 번 알려 드려요.">
-              <div className={s.inline}>
-                <TextInput
-                  type="date"
-                  aria-label="무료 취소 마감 날짜"
-                  value={cancelDate}
-                  disabled={busy}
-                  onChange={(event) => setCancelDate(event.target.value)}
-                />
-                <TextInput
-                  type="time"
-                  aria-label="무료 취소 마감 시각"
-                  value={cancelTime}
-                  disabled={busy}
-                  onChange={(event) => setCancelTime(event.target.value)}
-                />
+            <FormField label="무료 취소 마감" description={permission === "granted" || permission === "system" ? "하루 전 저녁에 한 번 알려 드려요." : "OS 알림을 허용하지 않으면 가능한 때 말풍선으로 알려 드려요."}>
+              <div>
+                <div className={s.inline}>
+                  <TextInput
+                    type="date"
+                    aria-label="무료 취소 마감 날짜"
+                    value={cancelDate}
+                    disabled={busy}
+                    onChange={(event) => setCancelDate(event.target.value)}
+                  />
+                  <TextInput
+                    type="time"
+                    aria-label="무료 취소 마감 시각"
+                    value={cancelTime}
+                    disabled={busy}
+                    onChange={(event) => setCancelTime(event.target.value)}
+                  />
+                </div>
+                {isDesktop() && <div className={s.inline}>
+                  <span className={s.caption}>OS 알림: {({ granted: "허용됨", denied: notificationSettingsText(), prompt: "권한 요청 전", system: "시스템 설정을 따름", unknown: "확인 필요" } as Record<string, string>)[permission]}</span>
+                  {permission !== "granted" && permission !== "system" && <Button
+                    type="button"
+                    variant="ghost"
+                    size="small"
+                    disabled={busy || permissionBusy}
+                    onClick={() => {
+                      if (permission === "denied" && canOpenNotificationSettings()) {
+                        void openSystemSettings("notifications").catch((cause: unknown) => setError(errorText(cause)));
+                      } else {
+                        void requestPermission();
+                      }
+                    }}
+                  >
+                    {permission === "denied" && canOpenNotificationSettings() ? "시스템 설정 열기" : "OS 알림 권한 요청"}
+                  </Button>}
+                </div>}
               </div>
             </FormField>
           </div>
@@ -435,10 +514,10 @@ export function TravelBookingEditor({
                 예약 지우기
               </Button>
             )}
-            <Button variant="ghost" disabled={busy} onClick={onClose}>
+            <Button variant="ghost" disabled={busy} onClick={onRequestClose}>
               취소
             </Button>
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" disabled={busy || attaching}>
               저장
             </Button>
           </div>

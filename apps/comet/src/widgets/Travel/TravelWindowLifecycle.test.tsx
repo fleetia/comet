@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { listen } from "@tauri-apps/api/event";
 import { command } from "../../hooks/useSnapshot";
 import { PlanningWindow } from "../../components/PlanningWindow";
@@ -111,4 +111,40 @@ it("prevents Tauri's default destroy in a close callback retained after unmount"
   const preventDefault = vi.fn();
   act(() => handler({ preventDefault }));
   expect(preventDefault).toHaveBeenCalledOnce();
+});
+
+
+it.each([
+  { kind: "여행", tab: null, add: "고치기", input: /^여행 이름/, method: "native" },
+  { kind: "일정", tab: "일정", add: "일정 더하기", input: /^할 일/, method: "escape" },
+  { kind: "예약", tab: "예약", add: "예약 더하기", input: /^이름/, method: "backdrop" },
+  { kind: "비용", tab: "비용", add: "쓴 돈 적기", input: /^무엇에/, method: "cancel" },
+  { kind: "사람", tab: "사람", add: "사람 더하기", input: /^이름/, method: "close" },
+])("protects the dirty $kind editor until discard is confirmed ($method)", async ({ tab, add, input, method }) => {
+  const close = vi.fn();
+  render(<Travel onClose={close} />);
+  await screen.findByRole("heading", { name: "Trip b" });
+  if (tab) fireEvent.click(screen.getByRole("link", { name: tab }));
+  fireEvent.click(screen.getByRole("button", { name: add }));
+  const editor = screen.getByRole("dialog");
+  const field = within(editor).getByLabelText(input) as HTMLInputElement;
+  fireEvent.change(field, { target: { value: "아직 저장하지 않은 내용" } });
+  if (method === "native") {
+    await waitFor(() => expect(native.onCloseRequested).toHaveBeenCalled());
+    const preventDefault = vi.fn();
+    act(() => native.onCloseRequested.mock.calls.at(-1)![0]({ preventDefault }));
+    expect(preventDefault).toHaveBeenCalled();
+  } else if (method === "escape") fireEvent(editor, new Event("cancel", { cancelable: true }));
+  else if (method === "backdrop") fireEvent.click(editor);
+  else if (method === "cancel") fireEvent.click(within(editor).getByRole("button", { name: "취소" }));
+  else fireEvent.click(within(editor).getByRole("button", { name: /닫기/ }));
+  const confirmation = screen.getByRole("dialog", { name: "저장하지 않은 변경을 버릴까요?" });
+  fireEvent.click(within(confirmation).getByRole("button", { name: "계속 작성" }));
+  expect(field.value).toBe("아직 저장하지 않은 내용");
+  expect(close).not.toHaveBeenCalled();
+  if (method === "native") act(() => native.onCloseRequested.mock.calls.at(-1)![0]({ preventDefault: vi.fn() }));
+  else fireEvent.click(within(editor).getByRole("button", { name: "취소" }));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "저장하지 않은 변경을 버릴까요?" })).getByRole("button", { name: "버리기" }));
+  if (method === "native") expect(close).toHaveBeenCalledOnce();
+  else expect(screen.queryByRole("dialog", { name: /Trip b/ })).toBeNull();
 });

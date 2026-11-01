@@ -12,7 +12,14 @@ import {
 } from "@comet/ui";
 import { Icon } from "@comet/icon";
 import { errorText } from "../../hooks/useSnapshot";
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { localDay, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import { useConnectionCommand } from "../useConnectionCommand";
@@ -43,11 +50,13 @@ export function DiaryEnvelope({
   onFocusEnvelope,
   onOpenEvent,
   onCreateTask,
+  onCreatedTaskLinked,
   onOpenPage,
   onDirtyChange,
   onReturnToDay,
   onBusyChange,
   scheduleEditor,
+  draftKey,
 }: {
   envelope: DataRecord;
   preparation: WidgetView;
@@ -65,33 +74,56 @@ export function DiaryEnvelope({
   onFocusEnvelope?: () => void;
   onOpenEvent?: (event: DataRecord, day: string) => void;
   onCreateTask: (title: string) => Promise<string | null>;
+  onCreatedTaskLinked?: () => void;
   onOpenPage: (page: DiaryPage) => void;
   onDirtyChange?: (dirty: boolean) => void;
   onReturnToDay?: () => void;
   onBusyChange?: (busy: boolean) => void;
   scheduleEditor?: ReactNode;
+  draftKey?: string;
 }): ReactElement {
   const id = text(envelope.id);
-  const [titleDraft, setTitleDraft] = useState<{ value: string; base: string } | null>(null);
-  const [eventId, setEventId] = useState("");
-  const [check, setCheck] = useState("");
-  const [task, setTask] = useState("");
+  const [restored] = useState(() => {
+    try {
+      return record(JSON.parse(draftKey ? localStorage.getItem(draftKey) || "null" : "null"));
+    } catch {
+      return {};
+    }
+  });
+  const savedTitle = record(restored.titleDraft);
+  const [titleDraft, setTitleDraft] = useState<{ value: string; base: string } | null>(
+    typeof savedTitle.value === "string" && typeof savedTitle.base === "string"
+      ? { value: savedTitle.value, base: savedTitle.base }
+      : null,
+  );
+  const [eventId, setEventId] = useState(text(restored.eventId));
+  const [check, setCheck] = useState(text(restored.check));
+  const [task, setTask] = useState(text(restored.task));
   const [selectedTask, setSelectedTask] = useState("");
   const [selectedCheck, setSelectedCheck] = useState("");
-  const [pendingTodo, setPendingTodo] = useState<string | null>(null);
-  const [todoId, setTodoId] = useState("");
-  const [noteId, setNoteId] = useState("");
-  const [linkTitle, setLinkTitle] = useState("");
-  const [linkUrl, setLinkUrl] = useState("");
+  const [pendingTodo, setPendingTodo] = useState<string | null>(text(restored.pendingTodo) || null);
+  const [todoId, setTodoId] = useState(text(restored.todoId));
+  const [noteId, setNoteId] = useState(text(restored.noteId));
+  const [linkTitle, setLinkTitle] = useState(text(restored.linkTitle));
+  const [linkUrl, setLinkUrl] = useState(text(restored.linkUrl));
   const [notesDirty, setNotesDirty] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deletingItem, setDeletingItem] = useState<{
+    kind: "check" | "link";
+    id: string;
+    title: string;
+  } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [createMemoRequest, setCreateMemoRequest] = useState(0);
-  const [dateEditor, setDateEditor] = useState(false);
-  const [dateDraft, setDateDraft] = useState(text(envelope.date));
+  const [dateEditor, setDateEditor] = useState(restored.dateEditor === true);
+  const [dateDraft, setDateDraft] = useState(
+    typeof restored.dateDraft === "string" ? restored.dateDraft : text(envelope.date),
+  );
+  const storedDateBase = record(restored.dateBase);
   const [dateBase, setDateBase] = useState({
-    date: text(envelope.date),
-    eventId: text(envelope.eventId),
+    date: typeof storedDateBase.date === "string" ? storedDateBase.date : text(envelope.date),
+    eventId:
+      typeof storedDateBase.eventId === "string" ? storedDateBase.eventId : text(envelope.eventId),
   });
   const [planning, setPlanning] = useState(false);
   const [error, setError] = useState("");
@@ -113,8 +145,63 @@ export function DiaryEnvelope({
   report.current = onDirtyChange;
   const dirty =
     Boolean(titleDraft && titleDraft.value !== titleDraft.base) ||
-    Boolean(check || task || linkTitle || linkUrl || pendingTodo || notesDirty) ||
+    Boolean(
+      check || task || todoId || noteId || linkTitle || linkUrl || pendingTodo || notesDirty,
+    ) ||
     (dateEditor && (dateDraft !== text(envelope.date) || Boolean(eventId)));
+  const [storageError, setStorageError] = useState(false);
+  useLayoutEffect(() => {
+    if (!draftKey) return;
+    try {
+      if (
+        titleDraft ||
+        eventId ||
+        check ||
+        task ||
+        pendingTodo ||
+        todoId ||
+        noteId ||
+        linkTitle ||
+        linkUrl ||
+        dateEditor
+      ) {
+        localStorage.setItem(
+          draftKey,
+          JSON.stringify({
+            titleDraft,
+            eventId,
+            check,
+            task,
+            pendingTodo,
+            todoId,
+            noteId,
+            linkTitle,
+            linkUrl,
+            dateEditor,
+            dateDraft,
+            dateBase,
+          }),
+        );
+      } else localStorage.removeItem(draftKey);
+      setStorageError(false);
+    } catch {
+      setStorageError(true);
+    }
+  }, [
+    draftKey,
+    titleDraft,
+    eventId,
+    check,
+    task,
+    pendingTodo,
+    todoId,
+    noteId,
+    linkTitle,
+    linkUrl,
+    dateEditor,
+    dateDraft,
+    dateBase,
+  ]);
   useEffect(() => {
     report.current?.(dirty);
   }, [dirty]);
@@ -208,6 +295,11 @@ export function DiaryEnvelope({
   }
   return (
     <article className={s.page} aria-label={`${envelopeTitle(envelope)} 준비 봉투`}>
+      {storageError && (
+        <p className={s.error} role="alert">
+          이 기기에 초안을 임시 저장하지 못했어요.
+        </p>
+      )}
       <header className={s.form}>
         {titleDraft ? (
           <form
@@ -482,6 +574,7 @@ export function DiaryEnvelope({
                     if (!createdId) return false;
                     setPendingTodo(createdId);
                     if (!(await save("todo-link", { id, todoId: createdId }))) return false;
+                    onCreatedTaskLinked?.();
                     setTask("");
                     setPendingTodo(null);
                     return true;
@@ -498,6 +591,7 @@ export function DiaryEnvelope({
                     onClick={() =>
                       void perform(async () => {
                         if (!(await save("todo-link", { id, todoId: pendingTodo }))) return false;
+                        onCreatedTaskLinked?.();
                         setTask("");
                         setPendingTodo(null);
                         return true;
@@ -618,7 +712,7 @@ export function DiaryEnvelope({
                     disabled={disabled}
                     aria-label={`${text(item.text)} 체크 삭제`}
                     onClick={() =>
-                      void perform(() => save("check-delete", { id, checkId: text(item.id) }))
+                      setDeletingItem({ kind: "check", id: text(item.id), title: text(item.text) })
                     }
                   >
                     삭제
@@ -658,7 +752,11 @@ export function DiaryEnvelope({
                         disabled={disabled}
                         aria-label={`${text(link.title)} 자료 삭제`}
                         onClick={() =>
-                          void perform(() => save("link-delete", { id, linkId: text(link.id) }))
+                          setDeletingItem({
+                            kind: "link",
+                            id: text(link.id),
+                            title: text(link.title),
+                          })
                         }
                       >
                         삭제
@@ -790,6 +888,45 @@ export function DiaryEnvelope({
           </section>
         </div>
       </div>
+      <Dialog
+        isOpen={deletingItem !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeletingItem(null);
+        }}
+        title={
+          deletingItem?.kind === "check" ? "체크 항목을 삭제할까요?" : "자료 링크를 삭제할까요?"
+        }
+        closeLabel="취소"
+        variant="confirm"
+        footer={
+          <>
+            <Button variant="ghost" disabled={disabled} onClick={() => setDeletingItem(null)}>
+              취소
+            </Button>
+            <Button
+              variant="danger"
+              disabled={disabled}
+              onClick={async () => {
+                if (!deletingItem) return;
+                const ok =
+                  deletingItem.kind === "check"
+                    ? await perform(() => save("check-delete", { id, checkId: deletingItem.id }))
+                    : await perform(() => save("link-delete", { id, linkId: deletingItem.id }));
+                if (ok) setDeletingItem(null);
+              }}
+            >
+              삭제
+            </Button>
+          </>
+        }
+      >
+        <p>{deletingItem?.title} 항목은 삭제 후 복구할 수 없어요.</p>
+        {error && (
+          <p className={s.error} role="alert">
+            {error}
+          </p>
+        )}
+      </Dialog>
       <Dialog
         isOpen={planning}
         onOpenChange={setPlanning}

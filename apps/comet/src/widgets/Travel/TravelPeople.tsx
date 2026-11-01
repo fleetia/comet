@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Button, Dialog, FormField, Select, TextInput, TripInfoRow } from "@comet/ui";
 import { won } from "../Planner/diaryLedgerData";
 import type { DataRecord } from "../toolData";
@@ -28,16 +28,26 @@ export function TravelPeople({
   onSave,
   onDelete,
   onSettle,
+  onDirtyChange,
+  onRequestClose,
+  onEditingChange,
+  editing,
+  visible,
 }: {
   trip: TripData;
   busy: boolean;
   onSave: (input: DataRecord, person?: Person) => Promise<boolean>;
   onDelete: (person: Person) => Promise<boolean>;
   onSettle: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+  onRequestClose: () => void;
+  editing: Person | "new" | null;
+  visible: boolean;
+  onEditingChange: (editing: Person | "new" | null) => void;
 }): ReactElement {
-  const [editing, setEditing] = useState<Person | "new" | null>(null);
   return (
     <>
+      {visible && <>
       <div className={s.heading}>
         <h2 className={s.pageTitle}>함께 가는 {trip.people.length + 1}명</h2>
         <p className={s.caption}>여행의 비용을 나눌 사람들과 각자의 몫이에요. 이 컴퓨터에만 적어 둬요.</p>
@@ -62,26 +72,30 @@ export function TravelPeople({
             detail="함께 가는 사람"
             value={`나눌 몫 ${won(shareTotal(trip, person.id))}`}
             disabled={busy}
-            onClick={() => setEditing(person)}
+            onClick={() => onEditingChange(person)}
           />
         ))}
       </section>
       <div className={s.spreadActions}>
-        <Button disabled={busy || trip.people.length >= 30} onClick={() => setEditing("new")}>
+        <Button disabled={busy || trip.people.length >= 30} onClick={() => onEditingChange("new")}>
           사람 더하기
         </Button>
         <Button variant="ghost" onClick={onSettle}>
           정산 보기
         </Button>
       </div>
+      </>}
       {editing && (
         <PersonEditor
           person={editing === "new" ? undefined : editing}
           index={trip.people.length}
+          travelTitle={trip.travel.title}
           busy={busy}
           onSave={(input) => onSave(input, editing === "new" ? undefined : editing)}
           onDelete={editing === "new" ? undefined : () => onDelete(editing)}
-          onClose={() => setEditing(null)}
+          onDirtyChange={onDirtyChange}
+          onRequestClose={onRequestClose}
+          onClose={() => onEditingChange(null)}
         />
       )}
     </>
@@ -91,29 +105,42 @@ export function TravelPeople({
 function PersonEditor({
   person,
   index,
+  travelTitle,
   busy,
   onSave,
   onDelete,
   onClose,
+  onDirtyChange,
+  onRequestClose,
 }: {
   person?: Person;
   index: number;
+  travelTitle: string;
   busy: boolean;
   onSave: (input: DataRecord) => Promise<boolean>;
   onDelete?: () => Promise<boolean>;
   onClose: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+  onRequestClose: () => void;
 }): ReactElement {
   const [name, setName] = useState(person?.name ?? "");
   const [color, setColor] = useState(person?.color ?? PERSON_COLORS[index % PERSON_COLORS.length][0]);
+  const current = JSON.stringify([name, color]);
+  const initial = useRef(current);
+  useEffect(() => onDirtyChange(current !== initial.current), [current, onDirtyChange]);
   const caption = person ? "사람 고치기" : "함께 가는 사람 더하기";
   return (
     <Dialog
       isOpen
       size="small"
-      title={caption}
+      title={`${caption} · ${travelTitle}`}
       closeLabel={`${caption} 닫기`}
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busy) onRequestClose();
+      }}
       onOpenChange={(open) => {
-        if (!open && !busy) onClose();
+        if (!open && !busy) onRequestClose();
       }}
     >
       <form
@@ -147,7 +174,7 @@ function PersonEditor({
               빼기
             </Button>
           )}
-          <Button variant="ghost" disabled={busy} onClick={onClose}>
+          <Button variant="ghost" disabled={busy} onClick={onRequestClose}>
             취소
           </Button>
           <Button type="submit" disabled={busy}>

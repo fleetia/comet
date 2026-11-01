@@ -2,6 +2,7 @@ import { Button, MessageInput, SelectField, TextInput } from "@comet/ui";
 import type { ReactElement } from "react";
 import { Icon } from "@comet/icon";
 import { localDay, text, type DataRecord } from "../toolData";
+import { useCompositionGuard } from "../useCompositionGuard";
 import { dayDate } from "./plannerData";
 import * as s from "./planner.css";
 
@@ -39,6 +40,7 @@ export function PlannerQuickInput({
   onSubmit: () => Promise<void>;
 }): ReactElement {
   const diaryQuickAdd = embedded && isToday;
+  const compositionGuard = useCompositionGuard();
   const Input = diaryQuickAdd ? MessageInput : TextInput;
   return (
     <>
@@ -51,6 +53,7 @@ export function PlannerQuickInput({
           : `새 할 일 · ${planScope}${period === "inbox" ? "" : " · 계획일 없음"}`}
       </p>
       <form
+        {...compositionGuard}
         className={diaryQuickAdd ? s.diaryQuickAdd : s.quick}
         onSubmit={async (e) => {
           e.preventDefault();

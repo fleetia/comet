@@ -1,26 +1,11 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Button, Dialog, FormField, Select, TextInput } from "@comet/ui";
 import { localDay, text, type DataRecord } from "../toolData";
 import { envelopeTitle } from "../Planner/DiaryEnvelope";
-import { HOME_ZONE, addDays, daysBetween, isTimeZone } from "./travelData";
-import type { Travel } from "./travelTypes";
+import { HOME_ZONE, ZONES, addDays, daysBetween, isTimeZone } from "./travelData";
+import type { Travel, TripData } from "./travelTypes";
 import * as s from "./travel.css";
 
-export const ZONES: [string, string][] = [
-  ["Asia/Seoul", "한국"],
-  ["Asia/Tokyo", "일본"],
-  ["Asia/Shanghai", "중국·대만"],
-  ["Asia/Bangkok", "태국·베트남"],
-  ["Asia/Singapore", "싱가포르·말레이시아"],
-  ["Asia/Manila", "필리핀"],
-  ["Australia/Sydney", "시드니"],
-  ["Pacific/Guam", "괌·사이판"],
-  ["Pacific/Honolulu", "하와이"],
-  ["America/Los_Angeles", "미국 서부"],
-  ["America/New_York", "미국 동부"],
-  ["Europe/London", "영국"],
-  ["Europe/Paris", "파리·서유럽"],
-];
 const CURRENCIES = ["KRW", "JPY", "USD", "EUR", "CNY", "TWD", "THB", "VND", "GBP", "AUD"];
 export const NEW_ENVELOPE = "new";
 
@@ -29,17 +14,23 @@ export type TravelDraft = Omit<Travel, "id" | "finished" | "envelopeId"> & { env
 export function TravelEditor({
   travel,
   envelopes,
+  trip,
   busy,
   onSave,
   onDelete,
   onClose,
+  onDirtyChange,
+  onRequestClose,
 }: {
   travel?: Travel;
   envelopes: DataRecord[];
+  trip?: TripData;
   busy: boolean;
   onSave: (draft: TravelDraft) => Promise<boolean>;
   onDelete?: () => Promise<boolean>;
   onClose: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+  onRequestClose: () => void;
 }): ReactElement {
   const start = addDays(localDay(), 14);
   const [draft, setDraft] = useState<TravelDraft>(() => ({
@@ -53,6 +44,9 @@ export function TravelEditor({
     envelopeId: travel ? (travel.envelopeId ?? "") : NEW_ENVELOPE,
   }));
   const [budget, setBudget] = useState(draft.budget ? String(draft.budget) : "");
+  const current = JSON.stringify([draft, budget]);
+  const initial = useRef(current);
+  useEffect(() => onDirtyChange(current !== initial.current), [current, onDirtyChange]);
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState(false);
   const zones = ZONES.some(([zone]) => zone === draft.timeZone)
@@ -76,10 +70,14 @@ export function TravelEditor({
     <>
       <Dialog
         isOpen
-        title={caption}
+        title={travel ? `${caption} · ${travel.title}` : caption}
         closeLabel={`${caption} 닫기`}
+        onCancel={(event) => {
+          event.preventDefault();
+          if (!busy) onRequestClose();
+        }}
         onOpenChange={(open) => {
-          if (!open && !busy) onClose();
+          if (!open && !busy) onRequestClose();
         }}
       >
         <form
@@ -208,7 +206,7 @@ export function TravelEditor({
                 여행 지우기
               </Button>
             )}
-            <Button variant="ghost" disabled={busy} onClick={onClose}>
+            <Button variant="ghost" disabled={busy} onClick={onRequestClose}>
               취소
             </Button>
             <Button type="submit" disabled={busy}>
@@ -243,7 +241,7 @@ export function TravelEditor({
         }
       >
         <p className={s.caption}>
-          일정도 함께 지워져요. 연결한 준비 봉투는 그대로 남아요.
+          일정 {trip?.plans.length ?? 0}개, 예약 {trip?.bookings.length ?? 0}개, 비용 {trip?.expenses.length ?? 0}개, 사람 {trip?.people.length ?? 0}명, 보낸 기록 {trip?.transfers.length ?? 0}개, 사진 기록 {trip?.photos.length ?? 0}개가 함께 지워져요. 바우처 사본과 사진 미리보기, 만들어 둔 여행 페이지 파일도 지워져요. 가계부 기록, 준비 봉투와 사진 원본은 남아요. 되돌릴 수 없어요.
         </p>
       </Dialog>
     </>

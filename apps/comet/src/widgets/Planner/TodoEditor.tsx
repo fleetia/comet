@@ -44,6 +44,16 @@ export function TaskReadOnlyDetails({ item }: { item: DataRecord }): ReactElemen
 /** The field a task row opens the editor on: its plan date or its deadline. */
 export type TodoEditorField = "plan" | "deadline";
 
+export const PLANNER_TODO_EDITOR_DRAFT_KEY = "comet:diary:planner-todo-editor";
+
+export function readTodoEditorDraft(key: string): DataRecord {
+  try {
+    return record(JSON.parse(localStorage.getItem(key) || "null"));
+  } catch {
+    return {};
+  }
+}
+
 export function TodoEditor({
   item,
   lists,
@@ -54,6 +64,7 @@ export function TodoEditor({
   widgetId,
   focus,
   onMovePlan,
+  draftKey,
 }: {
   item: DataRecord;
   lists: DataRecord[];
@@ -65,6 +76,7 @@ export function TodoEditor({
   focus?: TodoEditorField;
   /** Changes the plan date the same way moving the task does; without it the field is hidden. */
   onMovePlan?: (item: DataRecord, date: string | null) => Promise<boolean>;
+  draftKey?: string;
 }): ReactElement {
   const titleRef = useRef<HTMLInputElement>(null);
   const planRef = useRef<HTMLDivElement>(null);
@@ -77,9 +89,20 @@ export function TodoEditor({
   const today = localDay();
   const tomorrow = moveDay(today, 1);
   const editsPlan = Boolean(onMovePlan) && typeof item.completedAt !== "number";
-  const [plan, setPlan] = useState(plannedDay(item));
+  const [storedDraft] = useState(() => (draftKey ? readTodoEditorDraft(draftKey) : {}));
+  const canRestore =
+    storedDraft.widgetId === (widgetId ?? null) &&
+    JSON.stringify(storedDraft.item) === JSON.stringify(item);
+  const draft = canRestore ? record(storedDraft.fields) : {};
+  const stringDraft = (key: string, fallback: string): string =>
+    typeof draft[key] === "string" ? text(draft[key]) : fallback;
+  const numberDraft = (key: string, fallback: number): number =>
+    typeof draft[key] === "number" ? number(draft[key]) : fallback;
+  const [plan, setPlan] = useState(() => stringDraft("plan", plannedDay(item)));
   const [planPicking, setPlanPicking] = useState(
-    Boolean(plan) && plan !== today && plan !== tomorrow,
+    typeof draft.planPicking === "boolean"
+      ? draft.planPicking
+      : Boolean(plan) && plan !== today && plan !== tomorrow,
   );
   const planChoice = planPicking
     ? "pick"
@@ -88,29 +111,46 @@ export function TodoEditor({
       : plan === tomorrow
         ? "tomorrow"
         : "none";
-  const [title, setTitle] = useState(text(item.title));
-  const [memo, setMemo] = useState(text(item.memo));
-  const [listId, setListId] = useState(text(item.listId) || "default");
-  const [period, setPeriod] = useState(text(item.planPeriod) || "none");
-  const [anchor, setAnchor] = useState(text(item.planAnchor) || localDay());
-  const [day, setDay] = useState(dueDay(item));
-  const [time, setTime] = useState(typeof item.dueAt === "number" ? clockLabel(item.dueAt) : "");
-  const originalRule = ruleOf(item);
-  const [mode, setMode] = useState(text(originalRule.mode) || "none");
-  const [unit, setUnit] = useState(text(originalRule.unit) || "week");
-  const [interval, setInterval] = useState(number(originalRule.interval) || 1);
-  const [weekdays, setWeekdays] = useState<number[]>(
-    Array.isArray(originalRule.weekdays)
-      ? originalRule.weekdays.filter((v): v is number => typeof v === "number")
-      : [0, 2, 4],
+  const [title, setTitle] = useState(() => stringDraft("title", text(item.title)));
+  const [memo, setMemo] = useState(() => stringDraft("memo", text(item.memo)));
+  const [listId, setListId] = useState(() => stringDraft("listId", text(item.listId) || "default"));
+  const [period, setPeriod] = useState(() =>
+    stringDraft("period", text(item.planPeriod) || "none"),
   );
-  const [monthlyMode, setMonthlyMode] = useState(text(originalRule.monthlyMode) || "day-of-month");
-  const [nth, setNth] = useState(number(originalRule.nth) || 1);
-  const [weekday, setWeekday] = useState(number(originalRule.weekday));
-  const [times, setTimes] = useState(number(originalRule.timesPerWeek) || 3);
-  const [scope, setScope] = useState("occurrence");
+  const [anchor, setAnchor] = useState(() =>
+    stringDraft("anchor", text(item.planAnchor) || localDay()),
+  );
+  const [day, setDay] = useState(() => stringDraft("day", dueDay(item)));
+  const [time, setTime] = useState(() =>
+    stringDraft("time", typeof item.dueAt === "number" ? clockLabel(item.dueAt) : ""),
+  );
+  const originalRule = ruleOf(item);
+  const [mode, setMode] = useState(() => stringDraft("mode", text(originalRule.mode) || "none"));
+  const [unit, setUnit] = useState(() => stringDraft("unit", text(originalRule.unit) || "week"));
+  const [interval, setInterval] = useState(() =>
+    numberDraft("interval", number(originalRule.interval) || 1),
+  );
+  const [weekdays, setWeekdays] = useState<number[]>(
+    Array.isArray(draft.weekdays)
+      ? draft.weekdays.filter((v): v is number => typeof v === "number")
+      : Array.isArray(originalRule.weekdays)
+        ? originalRule.weekdays.filter((v): v is number => typeof v === "number")
+        : [0, 2, 4],
+  );
+  const [monthlyMode, setMonthlyMode] = useState(() =>
+    stringDraft("monthlyMode", text(originalRule.monthlyMode) || "day-of-month"),
+  );
+  const [nth, setNth] = useState(() => numberDraft("nth", number(originalRule.nth) || 1));
+  const [weekday, setWeekday] = useState(() =>
+    numberDraft("weekday", number(originalRule.weekday)),
+  );
+  const [times, setTimes] = useState(() =>
+    numberDraft("times", number(originalRule.timesPerWeek) || 3),
+  );
+  const [scope, setScope] = useState(() => stringDraft("scope", "occurrence"));
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const [confirmClose, setConfirmClose] = useState(false);
   const [nextDates, setNextDates] = useState<string[]>([]);
   const [previewError, setPreviewError] = useState("");
@@ -204,13 +244,52 @@ export function TodoEditor({
     times,
     scope,
   });
-  const initial = useRef(fingerprint);
+  const initial = useRef(
+    canRestore && typeof storedDraft.baseline === "string" ? storedDraft.baseline : fingerprint,
+  );
   const savedInput = useRef<string | null>(null);
   const dirty = initial.current !== fingerprint;
+  useEffect(() => {
+    if (!draftKey || (storedDraft.item && !canRestore)) return;
+    try {
+      if (dirty)
+        localStorage.setItem(
+          draftKey,
+          JSON.stringify({
+            item,
+            widgetId: widgetId ?? null,
+            baseline: initial.current,
+            fields: { ...JSON.parse(fingerprint), planPicking },
+          }),
+        );
+      else localStorage.removeItem(draftKey);
+    } catch {
+      // Keep the in-memory draft if browser storage is unavailable.
+    }
+  }, [draftKey, storedDraft, canRestore, dirty, item, widgetId, fingerprint, planPicking]);
+  function clearDraft(): void {
+    if (draftKey && (!storedDraft.item || canRestore)) {
+      try {
+        localStorage.removeItem(draftKey);
+      } catch {
+        /* Keep the editor usable. */
+      }
+    }
+  }
+  function finish(): void {
+    clearDraft();
+    onClose();
+  }
+  const repeatMode = text(ruleOf(item.continuation ? record(item.continuation) : item).mode);
+  const hasRepeat = Boolean(repeatMode || item.generation);
+  const hasFrequencyHistory =
+    hasRepeat && Array.isArray(item.frequencyRecords) && item.frequencyRecords.length > 0;
+  const canAdvance =
+    typeof item.completedAt !== "number" && !item.generation && Boolean(repeatMode);
   function close(): void {
     if (busy) return;
     if (dirty) setConfirmClose(true);
-    else onClose();
+    else finish();
   }
   return (
     <Dialog
@@ -224,7 +303,10 @@ export function TodoEditor({
             variant="ghost"
             size="small"
             disabled={busy}
-            onClick={() => setConfirmDelete(true)}
+            onClick={() => {
+              setDeleteError("");
+              setConfirmDelete(true);
+            }}
           >
             삭제
           </Button>
@@ -284,7 +366,7 @@ export function TodoEditor({
             setError("다른 내용은 저장했지만 계획 날짜를 옮기지 못했어요. 다시 시도해 주세요.");
             return;
           }
-          onClose();
+          finish();
         }}
       >
         <fieldset className={s.form} disabled={busy} style={{ border: 0, padding: 0, margin: 0 }}>
@@ -622,7 +704,7 @@ export function TodoEditor({
                 size="small"
                 disabled={dirty}
                 onClick={async () => {
-                  if (await act("skip", { id: text(item.id) })) onClose();
+                  if (await act("skip", { id: text(item.id) })) finish();
                 }}
               >
                 이번 회차 건너뛰기
@@ -633,46 +715,104 @@ export function TodoEditor({
             <div role="alert" className={s.error}>
               {error}
               {onReload && (
-                <Button type="button" variant="ghost" onClick={onReload}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    clearDraft();
+                    onReload();
+                  }}
+                >
                   최신 내용 다시 불러오기
                 </Button>
               )}
             </div>
           )}
-          {confirmClose ? (
-            <div className={s.preview}>
-              <p>저장하지 않은 변경을 버릴까요?</p>
-              <div className={s.actions}>
-                <Button type="button" variant="danger" onClick={onClose}>
-                  변경 버리고 닫기
-                </Button>
-                <Button type="button" variant="ghost" onClick={() => setConfirmClose(false)}>
-                  계속 편집
-                </Button>
-              </div>
-            </div>
-          ) : null}
-          {confirmDelete ? (
-            <div className={s.preview}>
-              <p>이 회차를 삭제할까요? 다른 회차와 준비 자료는 유지됩니다.</p>
-              <div className={s.actions}>
-                <Button
-                  type="button"
-                  variant="danger"
-                  onClick={async () => {
-                    if (await act("delete", { id: text(item.id) })) onClose();
-                  }}
-                >
-                  이 회차 삭제
-                </Button>
-                <Button type="button" variant="ghost" onClick={() => setConfirmDelete(false)}>
-                  취소
-                </Button>
-              </div>
-            </div>
-          ) : null}
         </fieldset>
       </form>
+      <Dialog
+        isOpen={confirmClose}
+        variant="confirm"
+        title="변경 내용을 버릴까요?"
+        onOpenChange={setConfirmClose}
+        footer={
+          <>
+            <Button type="button" variant="ghost" onClick={() => setConfirmClose(false)}>
+              계속 편집
+            </Button>
+            <Button type="button" variant="danger" onClick={finish}>
+              변경 버리고 닫기
+            </Button>
+          </>
+        }
+      >
+        <p>저장하지 않은 변경을 버릴까요?</p>
+      </Dialog>
+      <Dialog
+        isOpen={confirmDelete}
+        variant="confirm"
+        title={hasRepeat ? "반복 할 일을 어떻게 삭제할까요?" : "할 일을 삭제할까요?"}
+        onOpenChange={setConfirmDelete}
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => setConfirmDelete(false)}
+            >
+              취소
+            </Button>
+            {hasRepeat && (
+              <Button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  if (
+                    await act(!canAdvance ? "delete" : repeatMode === "calendar" ? "skip" : "delete-occurrence", {
+                      id: text(item.id),
+                    })
+                  )
+                    finish();
+                }}
+              >
+                {canAdvance && repeatMode === "calendar" ? "이 회차만 건너뛰기" : "이 회차만 삭제"}
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="danger"
+              disabled={busy || hasFrequencyHistory}
+              onClick={async () => {
+                if (hasRepeat && item.generation) {
+                  setDeleteError("이미 만들어진 다음 회차에서 반복을 끝내 주세요. 이 회차를 삭제해도 다음 회차는 유지돼요.");
+                  return;
+                }
+                if (await act(hasRepeat ? "end-repeat" : "delete", { id: text(item.id) }))
+                  finish();
+                else setDeleteError("삭제하지 못했어요. 최신 내용을 확인한 뒤 다시 시도해 주세요.");
+              }}
+            >
+              {hasRepeat ? "앞으로의 반복 끝내기" : "삭제"}
+            </Button>
+          </>
+        }
+      >
+        <p>
+          {hasRepeat
+            ? hasFrequencyHistory
+              ? "주간 횟수 기록을 보존하기 위해 반복을 바로 끝낼 수 없어요. 편집 화면에서 반복 방식을 '없음'으로, 변경 적용을 '이번 및 이후 회차'로 선택해 저장한 뒤 삭제해 주세요."
+              : item.generation
+                ? "이 회차를 삭제해도 이미 만들어진 다음 회차는 유지돼요. 반복은 다음 회차에서 끝낼 수 있어요."
+                : "이 회차만 넘기거나 앞으로의 반복을 끝낼 수 있어요."
+            : "이 할 일을 삭제할까요?"}
+        </p>
+        {deleteError && (
+          <p role="alert" className={s.error}>
+            {deleteError}
+          </p>
+        )}
+      </Dialog>
     </Dialog>
   );
 }
