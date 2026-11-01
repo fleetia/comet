@@ -939,7 +939,7 @@ export function CalendarTool({
                       <p className={c.quiet}>비워 두면 저장된 클라이언트 정보를 사용해요.</p>
                     )}
                     <FormField
-                      className={c.field}
+                      className={settings.formRow}
                       label="Google OAuth 클라이언트 ID"
                       required={!editingConnectionId}
                     >
@@ -950,7 +950,7 @@ export function CalendarTool({
                         onChange={(e) => setClientId(e.target.value)}
                       />
                     </FormField>
-                    <FormField className={c.field} label="클라이언트 보안 비밀 (선택)">
+                    <FormField className={settings.formRow} label="클라이언트 보안 비밀 (선택)">
                       <TextInput
                         fill
                         type="password"
@@ -960,7 +960,7 @@ export function CalendarTool({
                       />
                     </FormField>
                     <FormField
-                      className={c.field}
+                      className={settings.formRow}
                       label="조회할 캘린더 ID (줄바꿈 또는 쉼표)"
                       required
                     >

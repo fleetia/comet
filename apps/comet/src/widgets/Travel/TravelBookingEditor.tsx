@@ -436,7 +436,7 @@ export function TravelBookingEditor({
               </Select>
             </FormField>
             <FormField label="무료 취소 마감" description={permission === "granted" || permission === "system" ? "하루 전 저녁에 한 번 알려 드려요." : "시스템 알림을 허용하지 않으면 가능한 때 말풍선으로 알려 드려요."}>
-              <div>
+              <div className={s.cancelDeadline}>
                 <div className={s.inline}>
                   <TextInput
                     type="date"
@@ -453,7 +453,7 @@ export function TravelBookingEditor({
                     onChange={(event) => setCancelTime(event.target.value)}
                   />
                 </div>
-                {isDesktop() && <div className={s.inline}>
+                {isDesktop() && <div className={`${s.inline} ${s.wrap}`}>
                   <span className={s.caption}>시스템 알림: {({ granted: "허용됨", denied: notificationSettingsText(), prompt: "권한 요청 전", system: "시스템 설정을 따름", unknown: "확인 필요" } as Record<string, string>)[permission]}</span>
                   {permission !== "granted" && permission !== "system" && <Button
                     type="button"

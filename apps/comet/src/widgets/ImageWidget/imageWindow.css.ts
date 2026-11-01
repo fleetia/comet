@@ -1,6 +1,8 @@
 import { style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 
+const controlSize = 24;
+
 export const frame = style({
   position: "relative",
   width: "100%",
@@ -32,17 +34,18 @@ export const control = style({
 export const close = style({
   top: 0,
   right: 0,
-  width: 24,
-  height: 24,
-  minWidth: 24,
+  width: controlSize,
+  height: controlSize,
+  minWidth: controlSize,
 });
 
-export const more = style({ top: 0, right: 28, width: 24, height: 24, minWidth: 24 });
+export const more = style({ top: 0, right: `calc(${controlSize}px + ${tokens["spacing/space-4"]})`, width: controlSize, height: controlSize, minWidth: controlSize });
 export const play = style({ bottom: 0, left: 0, width: 24, height: 24, minWidth: 24 });
 export const visible = style({ opacity: 1 });
 export const mediaError = style({
   margin: 0,
   padding: tokens["spacing/space-8"],
+  paddingRight: `calc(${controlSize * 2}px + ${tokens["spacing/space-4"]} + ${tokens["spacing/space-8"]})`,
   background: tokens["color/glass-panel"],
   color: tokens["color/danger"],
 });

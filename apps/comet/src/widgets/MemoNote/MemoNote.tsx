@@ -29,6 +29,7 @@ function NoteEditor({ id, note, revision }: { id: string; note: DataRecord; revi
   const flushRequest = useRef<string | null>(null);
   const inspectionRequest = useRef(false);
   const input = useRef<HTMLTextAreaElement>(null);
+  const failureArea = useRef<HTMLDivElement>(null);
   const latestNote = useRef({ revision, note });
   if (revision >= latestNote.current.revision) {
     latestNote.current = { revision, note };
@@ -37,6 +38,11 @@ function NoteEditor({ id, note, revision }: { id: string; note: DataRecord; revi
   useEffect(() => {
     input.current?.focus();
   }, []);
+  useEffect(() => {
+    if (error || failure) {
+      failureArea.current?.scrollIntoView?.({ block: "nearest" });
+    }
+  }, [error, failure, confirmDiscard]);
 
   const putAway = useCallback(async (): Promise<void> => {
     if (pending.current) {
@@ -188,7 +194,7 @@ function NoteEditor({ id, note, revision }: { id: string; note: DataRecord; revi
 
   return (
     <main
-      className={paper.stage}
+      className={error || failure ? paper.editorStage : paper.stage}
       aria-label={text(note.title) || "메모"}
       onPointerDown={(event) => {
         if (
@@ -201,31 +207,65 @@ function NoteEditor({ id, note, revision }: { id: string; note: DataRecord; revi
       onPointerUp={drag.reset}
       onPointerCancel={drag.reset}
     >
-      <div className={paper.sheet}>
-        <MemoWidget title={text(note.title) || "메모"}>
-          <textarea
-            ref={input}
-            className={paper.editor}
-            aria-label="메모 본문"
-            placeholder="메모를 적어 보세요."
-            maxLength={50000}
-            value={draft.body}
-            readOnly={busy}
-            style={{ fontSize: draft.fontSize }}
-            onChange={(event) => edit({ body: event.target.value })}
-            onBlur={() => void flush()}
+      <div className={error || failure ? paper.contentWithFailure : paper.content}>
+        <div className={paper.sheet}>
+          <MemoWidget title={text(note.title) || "메모"}>
+            <textarea
+              ref={input}
+              className={paper.editor}
+              aria-label="메모 본문"
+              placeholder="메모를 적어 보세요."
+              maxLength={50000}
+              value={draft.body}
+              readOnly={busy}
+              style={{ fontSize: draft.fontSize }}
+              onChange={(event) => edit({ body: event.target.value })}
+              onBlur={() => void flush()}
+            />
+          </MemoWidget>
+          <IconButton
+            className={paper.putAway}
+            icon="close"
+            aria-label="넣어두기"
+            size="compact"
+            disabled={busy}
+            onClick={() => void putAway()}
           />
-        </MemoWidget>
-        <IconButton
-          className={paper.putAway}
-          icon="close"
-          aria-label="넣어두기"
-          size="compact"
-          disabled={busy}
-          onClick={() => void putAway()}
-        />
+        </div>
+        {(error || failure) && (
+          <div ref={failureArea} className={`${s.failure} ${paper.failure}`}>
+            <p role="alert" className={c.error}>
+              {failure || error}
+            </p>
+            {error?.includes("다른 화면에서 이 메모가 변경됐어요") ? (
+              <>
+                <Button variant="ghost" size="small" disabled={busy} onClick={() => void resolveConflict(true)}>
+                  내 글을 새 메모로 저장
+                </Button>
+                <Button variant="danger" size="small" disabled={busy} onClick={() => setConfirmDiscard(true)}>
+                  내 글 버리고 최신 내용으로 바꾸기
+                </Button>
+                {confirmDiscard && (
+                  <div>
+                    <p>내 글을 버리고 최신 내용으로 바꿀까요?</p>
+                    <Button variant="danger" size="small" disabled={busy} onClick={() => void resolveConflict(false)}>
+                      버리고 바꾸기
+                    </Button>
+                    <Button variant="ghost" size="small" disabled={busy} onClick={() => setConfirmDiscard(false)}>
+                      취소
+                    </Button>
+                  </div>
+                )}
+              </>
+            ) : error && (
+              <Button variant="ghost" size="small" disabled={busy} onClick={() => void flush()}>
+                다시 저장
+              </Button>
+            )}
+          </div>
+        )}
       </div>
-      <footer className={paper.controls}>
+      <footer className={error || failure ? paper.controlsWithFailure : paper.controls}>
         <WidgetDragHandle
           payload={{ v: 1, kind: "memo", widgetId: id, itemId: noteId }}
           title={text(note.title) || "메모"}
@@ -273,38 +313,6 @@ function NoteEditor({ id, note, revision }: { id: string; note: DataRecord; revi
               }[status]}
         </span>
       </footer>
-      {(error || failure) && (
-        <div className={s.failure}>
-          <p role="alert" className={c.error}>
-            {failure || error}
-          </p>
-          {error?.includes("다른 화면에서 이 메모가 변경됐어요") ? (
-            <>
-              <Button variant="ghost" size="small" disabled={busy} onClick={() => void resolveConflict(true)}>
-                내 글을 새 메모로 저장
-              </Button>
-              <Button variant="danger" size="small" disabled={busy} onClick={() => setConfirmDiscard(true)}>
-                내 글 버리고 최신 내용으로 바꾸기
-              </Button>
-              {confirmDiscard && (
-                <div>
-                  <p>내 글을 버리고 최신 내용으로 바꿀까요?</p>
-                  <Button variant="danger" size="small" disabled={busy} onClick={() => void resolveConflict(false)}>
-                    버리고 바꾸기
-                  </Button>
-                  <Button variant="ghost" size="small" disabled={busy} onClick={() => setConfirmDiscard(false)}>
-                    취소
-                  </Button>
-                </div>
-              )}
-            </>
-          ) : error && (
-            <Button variant="ghost" size="small" disabled={busy} onClick={() => void flush()}>
-              다시 저장
-            </Button>
-          )}
-        </div>
-      )}
     </main>
   );
 }

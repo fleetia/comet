@@ -1,5 +1,6 @@
 import { style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
+import * as s from "../memo.css";
 
 export const stage = style({
   position: "relative",
@@ -11,6 +12,36 @@ export const stage = style({
   gap: 12,
   padding: "12px 16px 64px",
   background: "transparent",
+});
+export const editorStage = style([
+  stage,
+  {
+    boxSizing: "border-box",
+    height: "100dvh",
+    minHeight: 0,
+    gap: tokens["spacing/space-4"],
+    paddingBottom: tokens["spacing/space-4"],
+  },
+]);
+export const content = style({ display: "contents" });
+export const contentWithFailure = style({
+  display: "flex",
+  flex: 1,
+  width: "100%",
+  minHeight: 0,
+  flexDirection: "column",
+  alignItems: "center",
+  overflowY: "auto",
+  boxSizing: "border-box",
+  paddingTop: tokens["spacing/space-4"],
+  gap: tokens["spacing/space-12"],
+});
+export const failure = style({
+  minWidth: 0,
+  flexShrink: 0,
+  selectors: {
+    [`&.${s.failure}`]: { maxHeight: "none", overflowY: "visible" },
+  },
 });
 export const sheet = style({ position: "relative", flexShrink: 0 });
 export const putAway = style({
@@ -48,6 +79,10 @@ export const controls = style({
   transition: "opacity 120ms",
   selectors: { [`${stage}:hover &`]: { opacity: 1 }, [`${stage}:focus-within &`]: { opacity: 1 } },
 });
+export const controlsWithFailure = style([
+  controls,
+  { position: "static", flexShrink: 0, maxWidth: `calc(100% + ${tokens["spacing/space-16"]})` },
+]);
 export const status = style({ width: "100%", textAlign: "center", lineHeight: "14px" });
 export const editor = style({
   display: "block",
