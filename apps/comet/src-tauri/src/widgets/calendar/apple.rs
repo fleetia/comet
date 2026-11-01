@@ -98,7 +98,7 @@ async fn native_work<T: Send + 'static>(
     .map_err(|_| {
         error(
             "offline",
-            "Apple 캘린더 응답을 기다리는 시간이 지났습니다. 권한을 확인하고 다시 조회해 주세요.",
+            "Apple 캘린더 응답 시간이 초과됐어요. 권한을 확인하고 다시 시도해 주세요.",
         )
     })?
 }
@@ -223,7 +223,10 @@ mod native {
     ) -> Result<Refreshed, CalendarError> {
         autoreleasepool(|_| {
             if authorization() != EKAuthorizationStatus::FullAccess {
-                return Err(error("auth-error", "Apple 캘린더를 읽으려면 시스템 설정 → 개인정보 보호 및 보안 → 캘린더에서 comet을 허용해 주세요."));
+                return Err(CalendarError {
+                    status: "auth-error".into(),
+                    message: "Apple 캘린더를 읽으려면 시스템 설정 → 개인정보 보호 및 보안 → 캘린더에서 Comet을 허용해 주세요.".into(),
+                });
             }
             let store = unsafe { EKEventStore::new() };
             let available = unsafe { store.calendarsForEntityType(EKEntityType::Event) };
@@ -234,7 +237,10 @@ mod native {
                 })
                 .collect();
             if selected.len() != ids.len() {
-                return Err(error("auth-error", "선택했던 Apple 캘린더 일부를 찾을 수 없습니다. 캘린더 선택을 다시 확인해 주세요."));
+                return Err(CalendarError {
+                    status: "auth-error".into(),
+                    message: "선택했던 Apple 캘린더 일부를 찾을 수 없어요. 캘린더 선택을 다시 확인해 주세요.".into(),
+                });
             }
             let calendar_names = selected
                 .iter()

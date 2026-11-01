@@ -86,7 +86,7 @@ const connectionCard = (page: Page) =>
 const FAILURES = [
   {
     status: "auth-error",
-    error: "OS 자격 증명 읽기 권한을 확인한 뒤 다시 갱신해 주세요.",
+    error: "기기의 암호 저장소를 읽지 못했어요. 권한을 확인하고 다시 연결해 주세요.",
     badge: "다시 인증 필요",
   },
   { status: "permission-needed", error: "캘린더 접근 권한이 거부됐어요.", badge: "권한 필요" },
@@ -104,7 +104,14 @@ for (const failure of FAILURES) {
     await expect(card.getByText(failure.badge)).toBeVisible();
     await expect(card.getByText(/에 받은 정보를 흐리게 보여 줘요/)).toBeVisible();
 
-    await card.getByRole("button", { name: "다시 확인" }).click();
+    if (failure.status === "auth-error") {
+      await expect(card.getByRole("button", { name: "다시 연결", exact: true })).toBeVisible();
+      await expect(card.getByRole("button", { name: "다시 확인", exact: true })).toBeHidden();
+      await card.getByLabel("개인 캘린더 메뉴").click();
+      await card.getByRole("button", { name: "다시 조회", exact: true }).click();
+    } else {
+      await card.getByRole("button", { name: "다시 확인", exact: true }).click();
+    }
     await expect(card.getByText("연결됨")).toBeVisible();
     await expect(card.getByText(/^읽기만 해요 · .+에 확인$/)).toBeVisible();
     await expect(card.getByRole("button", { name: "다시 확인" })).toBeHidden();
@@ -122,13 +129,16 @@ test("a reauthorization failure on retry is shown, and the next manual refresh i
   await tauri.open("widgets");
   const card = connectionCard(page);
 
-  await card.getByRole("button", { name: "다시 확인" }).click();
+  await expect(card.getByRole("button", { name: "다시 연결", exact: true })).toBeVisible();
+  await expect(card.getByRole("button", { name: "다시 확인", exact: true })).toBeHidden();
+  await card.getByLabel("개인 캘린더 메뉴").click();
+  await card.getByRole("button", { name: "다시 조회", exact: true }).click();
   await expect(
     page.getByRole("alert").filter({ hasText: "다시 인증하지 못했어요." }).first(),
   ).toBeVisible();
   await expect(card.getByText("다시 인증 필요")).toBeVisible();
 
-  await card.getByRole("button", { name: "다시 확인" }).click();
+  await card.getByRole("button", { name: "다시 조회", exact: true }).click();
   await expect(card.getByText("연결됨")).toBeVisible();
   expect(tauri.called("refresh_calendar")).toHaveLength(2);
 });

@@ -352,6 +352,8 @@ pub fn run() {
             crate::widgets::desktop::fit_widget_editor,
             widgets::connection_host::connect_calendar_ics,
             widgets::connection_host::connect_calendar_google,
+            widgets::connection_host::cancel_calendar_google,
+            widgets::connection_host::reopen_calendar_google,
             widgets::connection_host::connect_calendar_apple,
             widgets::connection_host::list_apple_calendars,
             crate::widgets::planning::windows::get_planner_tab,

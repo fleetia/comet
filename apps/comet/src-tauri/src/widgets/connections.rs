@@ -346,27 +346,27 @@ fn client() -> Result<reqwest::Client, ConnectionError> {
         .timeout(Duration::from_secs(12))
         .redirect(reqwest::redirect::Policy::none())
         .build()
-        .map_err(|_| failure("offline", "조회 연결을 준비하지 못했어요."))
+        .map_err(|_| failure("offline", "연결을 준비하지 못했어요. 잠시 후 다시 시도해 주세요."))
 }
 
 async fn fetch_json(request: reqwest::RequestBuilder) -> Result<Value, ConnectionError> {
     let mut response = request.send().await.map_err(|_| {
         failure(
             "offline",
-            "정보 제공자에 연결하지 못했어요. 마지막 성공 정보는 보존합니다.",
+            "인터넷 연결을 확인하고 다시 시도해 주세요.",
         )
     })?;
     if !response.status().is_success() {
         return Err(match response.status().as_u16() {
             401 | 403 => failure(
                 "permission-needed",
-                "정보 제공자가 조회를 허용하지 않았어요.",
+                "연결 권한을 확인하고 다시 시도해 주세요.",
             ),
             429 => failure(
                 "offline",
-                "정보 제공자의 조회 한도에 도달했어요. 잠시 후 다시 조회해 주세요.",
+                "요청이 많아요. 잠시 후 다시 시도해 주세요.",
             ),
-            _ => failure("offline", "정보 제공자가 조회에 실패했어요."),
+            _ => failure("offline", "정보를 가져오지 못했어요. 잠시 후 다시 시도해 주세요."),
         });
     }
     if response
