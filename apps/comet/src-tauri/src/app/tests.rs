@@ -4030,6 +4030,78 @@ mod scene_events_tests {
     }
 
     #[test]
+    fn double_click_only_consumes_the_current_body_wait_once() {
+        for event in [StoryEvent::BodyClicked {}, StoryEvent::BodyDoubleClicked {}] {
+            let state = crate::app::tests::state();
+            let run = run(&state);
+            assert!(!consume_double_click(&state, "center").unwrap());
+            assert!(begin_wait(&state, &run, &event, &[]).unwrap());
+            assert!(!consume_double_click(&state, "other").unwrap());
+            assert!(consume_double_click(&state, "center").unwrap());
+            assert_eq!(take_event(&state, &run).unwrap(), Some(WaitResult::Matched));
+            assert!(!consume_double_click(&state, "center").unwrap());
+            assert_eq!(lock(&state.pack_stories).unwrap().run.as_ref().unwrap().run_id, run.run_id);
+        }
+    }
+
+    #[test]
+    fn double_click_does_not_consume_stale_or_unrelated_waits() {
+        let state = crate::app::tests::state();
+        let run = run(&state);
+        assert!(begin_wait(&state, &run, &StoryEvent::BodyMoved {}, &[]).unwrap());
+        assert!(!consume_double_click(&state, "center").unwrap());
+        assert!(begin_wait(&state, &run, &StoryEvent::BodyDoubleClicked {}, &[]).unwrap());
+        lock(&state.pack_stories).unwrap().run.as_mut().unwrap().phase_generation += 1;
+        assert!(!consume_double_click(&state, "center").unwrap());
+        lock(&state.pack_stories).unwrap().run.as_mut().unwrap().phase_generation -= 1;
+        state.epoch.store(run.epoch + 1, Ordering::SeqCst);
+        assert!(!consume_double_click(&state, "center").unwrap());
+    }
+
+    #[test]
+    fn double_click_delivers_a_body_cancel_event_without_cancelling_the_run() {
+        for cancel in [StoryEvent::BodyClicked {}, StoryEvent::BodyDoubleClicked {}] {
+            let state = crate::app::tests::state();
+            let run = run(&state);
+            let saved = StoryEvent::WidgetSaved {
+                widget: crate::pack_stories::SavedWidget::Memo,
+            };
+            assert!(begin_wait(&state, &run, &saved, &[cancel]).unwrap());
+            assert!(!consume_double_click(&state, "other").unwrap());
+            assert!(consume_double_click(&state, "center").unwrap());
+            assert_eq!(take_event(&state, &run).unwrap(), Some(WaitResult::Cancelled));
+            assert_eq!(lock(&state.pack_stories).unwrap().run.as_ref().unwrap().run_id, run.run_id);
+        }
+    }
+
+    #[test]
+    fn double_click_does_not_consume_an_unrelated_event_or_cancel_event() {
+        let state = crate::app::tests::state();
+        let run = run(&state);
+        let saved = StoryEvent::WidgetSaved {
+            widget: crate::pack_stories::SavedWidget::Memo,
+        };
+        assert!(begin_wait(&state, &run, &saved, &[StoryEvent::BodyMoved {}]).unwrap());
+        assert!(!consume_double_click(&state, "center").unwrap());
+        assert_eq!(take_event(&state, &run).unwrap(), None);
+    }
+
+    #[test]
+    fn double_click_prefers_matching_a_body_event_over_cancelling_it() {
+        let state = crate::app::tests::state();
+        let run = run(&state);
+        assert!(begin_wait(
+            &state,
+            &run,
+            &StoryEvent::BodyDoubleClicked {},
+            &[StoryEvent::BodyClicked {}],
+        )
+        .unwrap());
+        assert!(consume_double_click(&state, "center").unwrap());
+        assert_eq!(take_event(&state, &run).unwrap(), Some(WaitResult::Matched));
+    }
+
+    #[test]
     fn only_owned_memo_produces_first_save_and_close_can_cancel() {
         let state = crate::app::tests::state();
         let run = run(&state);
@@ -4252,6 +4324,139 @@ mod scene_events_tests {
         lock(&state.pack_stories).unwrap().run = Some(run.clone());
         mark_resumed_locked(state, &run).unwrap();
         run
+    }
+
+    #[test]
+    fn double_click_during_talk_line_queues_the_next_body_wait() {
+        for (event, event_name) in [
+            (StoryEvent::BodyClicked {}, "body.clicked"),
+            (StoryEvent::BodyDoubleClicked {}, "body.double-clicked"),
+        ] {
+            let state = crate::app::tests::state();
+            let mut run = run(&state);
+            let mut definition: serde_json::Value =
+                serde_json::from_str(include_str!("../../content/byulkkori-tutorial.json"))
+                    .unwrap();
+            let talk = definition["chapters"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|chapter| chapter["id"] == "talk")
+                .unwrap();
+            talk["steps"][1]["event"] = serde_json::json!(event_name);
+            run.definition = Some(serde_json::from_value(definition).unwrap());
+            run.chapter_id = Some("talk".into());
+            lock(&state.pack_stories).unwrap().run = Some(run.clone());
+
+            assert!(!consume_double_click(&state, "other").unwrap());
+            assert!(consume_double_click(&state, "center").unwrap());
+            assert!(consume_double_click(&state, "center").unwrap());
+            assert_eq!(lock(&state.pack_stories).unwrap().run.as_ref().unwrap().run_id, run.run_id);
+
+            run.step += 1;
+            run.phase_generation += 1;
+            lock(&state.pack_stories).unwrap().run = Some(run.clone());
+            assert!(begin_wait(&state, &run, &event, &[]).unwrap());
+            assert_eq!(take_event(&state, &run).unwrap(), Some(WaitResult::Matched));
+        }
+    }
+
+    #[test]
+    fn double_click_during_line_does_not_queue_unrelated_wait() {
+        let state = crate::app::tests::state();
+        let mut run = upcoming_tutorial_wait(&state, "move", 0);
+        assert!(!consume_double_click(&state, "center").unwrap());
+        run.step += 1;
+        run.phase_generation += 1;
+        lock(&state.pack_stories).unwrap().run = Some(run.clone());
+        assert!(begin_wait(&state, &run, &StoryEvent::BodyMoved {}, &[]).unwrap());
+        assert_eq!(take_event(&state, &run).unwrap(), None);
+    }
+
+    #[test]
+    fn double_click_during_line_queues_a_body_cancel_event() {
+        for (cancel, event_name) in [
+            (StoryEvent::BodyClicked {}, "body.clicked"),
+            (StoryEvent::BodyDoubleClicked {}, "body.double-clicked"),
+        ] {
+            let state = crate::app::tests::state();
+            let mut run = run(&state);
+            let mut definition: serde_json::Value =
+                serde_json::from_str(include_str!("../../content/byulkkori-tutorial.json"))
+                    .unwrap();
+            let talk = definition["chapters"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|chapter| chapter["id"] == "talk")
+                .unwrap();
+            talk["steps"][1]["event"] = serde_json::json!("widget.saved");
+            talk["steps"][1]["widget"] = serde_json::json!("memo");
+            talk["steps"][1]["cancelOn"] = serde_json::json!([{ "event": event_name }]);
+            run.definition = Some(serde_json::from_value(definition).unwrap());
+            run.chapter_id = Some("talk".into());
+            lock(&state.pack_stories).unwrap().run = Some(run.clone());
+
+            assert!(consume_double_click(&state, "center").unwrap());
+            assert_eq!(lock(&state.pack_stories).unwrap().run.as_ref().unwrap().run_id, run.run_id);
+            run.step += 1;
+            run.phase_generation += 1;
+            lock(&state.pack_stories).unwrap().run = Some(run.clone());
+            let saved = StoryEvent::WidgetSaved {
+                widget: crate::pack_stories::SavedWidget::Memo,
+            };
+            assert!(begin_wait(&state, &run, &saved, &[cancel]).unwrap());
+            assert_eq!(take_event(&state, &run).unwrap(), Some(WaitResult::Cancelled));
+        }
+    }
+
+    #[test]
+    fn queued_double_click_prefers_a_match_over_a_cancel_for_the_same_wait() {
+        let state = crate::app::tests::state();
+        let mut run = run(&state);
+        let mut definition: serde_json::Value =
+            serde_json::from_str(include_str!("../../content/byulkkori-tutorial.json")).unwrap();
+        let talk = definition["chapters"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|chapter| chapter["id"] == "talk")
+            .unwrap();
+        talk["steps"][1]["event"] = serde_json::json!("body.double-clicked");
+        talk["steps"][1]["cancelOn"] = serde_json::json!([{ "event": "body.clicked" }]);
+        run.definition = Some(serde_json::from_value(definition).unwrap());
+        run.chapter_id = Some("talk".into());
+        lock(&state.pack_stories).unwrap().run = Some(run.clone());
+
+        assert!(consume_double_click(&state, "center").unwrap());
+        run.step += 1;
+        run.phase_generation += 1;
+        lock(&state.pack_stories).unwrap().run = Some(run.clone());
+        assert!(begin_wait(
+            &state,
+            &run,
+            &StoryEvent::BodyDoubleClicked {},
+            &[StoryEvent::BodyClicked {}],
+        )
+        .unwrap());
+        assert_eq!(take_event(&state, &run).unwrap(), Some(WaitResult::Matched));
+    }
+
+    #[test]
+    fn queued_double_click_rejects_changed_run_or_generation() {
+        for change_run in [false, true] {
+            let state = crate::app::tests::state();
+            let mut run = upcoming_tutorial_wait(&state, "talk", 0);
+            assert!(consume_double_click(&state, "center").unwrap());
+            run.step += 1;
+            run.phase_generation += if change_run { 1 } else { 2 };
+            if change_run {
+                run.run_id = "another".into();
+            }
+            lock(&state.pack_stories).unwrap().run = Some(run.clone());
+            assert!(begin_wait(&state, &run, &StoryEvent::BodyDoubleClicked {}, &[]).unwrap());
+            assert_eq!(take_event(&state, &run).unwrap(), None);
+        }
     }
 
     #[test]

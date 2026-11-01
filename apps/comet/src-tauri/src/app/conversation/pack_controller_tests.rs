@@ -1956,6 +1956,31 @@ fn chapter_text_answer_is_single_line_ephemeral_and_only_accepted_once() {
 }
 
 #[tokio::test]
+async fn tutorial_double_click_completes_wait_and_advances_to_the_input_step() {
+    use crate::app::scene_events;
+    use pack_stories::{StoryEvent, StoryInput, StoryStep};
+    use scene_story::WaitOutcome;
+    let (state, mut run) = chapter_run_fixture();
+    let tutorial: pack_stories::ScenarioDefinition =
+        serde_json::from_str(include_str!("../../../content/byulkkori-tutorial.json")).unwrap();
+    run.definition = Some(tutorial);
+    run.chapter_id = Some("talk".into());
+    run.step = 1;
+    state.epoch.store(run.epoch, Ordering::SeqCst);
+    lock(&state.pack_stories).unwrap().run = Some(run.clone());
+    assert!(scene_events::begin_wait(&state, &run, &StoryEvent::BodyDoubleClicked {}, &[]).unwrap());
+    assert!(scene_events::consume_double_click(&state, &run.scope.center_id).unwrap());
+    assert_eq!(
+        scene_story::wait_for_event(&state, &run, Arc::new(AtomicBool::new(false)), tokio::time::Instant::now()).await.unwrap(),
+        WaitOutcome::Matched
+    );
+    assert!(scene_story::transition(&mut run, "next").unwrap());
+    let chapter = run.definition.as_ref().unwrap().chapters.as_ref().unwrap().iter()
+        .find(|chapter| chapter.id == "talk").unwrap();
+    assert!(matches!(chapter.steps[run.step], StoryStep::Ask { input: StoryInput::Text, .. }));
+}
+
+#[tokio::test]
 async fn chapter_wait_distinguishes_timeout_cancel_and_epoch_interruption() {
     use crate::app::scene_events;
     use pack_stories::StoryEvent;

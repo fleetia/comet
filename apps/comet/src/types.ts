@@ -113,14 +113,14 @@ export type ScenarioAction =
   | {
       do: "settings.open";
       tab: "friends" | "dialogue" | "desktop" | "widgets" | "ai" | "general";
-      highlight?: "ai.recommended" | "general.guide" | null;
+      highlight?: "ai.recommended" | "general.guide" | "general.autostart" | null;
     }
   | {
       do: "guide.open";
       page: GuidePage;
     };
 export type ScenarioEvent =
-  | { event: "body.clicked" | "body.moved" | "focus.started" | "focus.stopped" }
+  | { event: "body.clicked" | "body.double-clicked" | "body.moved" | "focus.started" | "focus.stopped" }
   | { event: "widget.saved"; widget: "memo" }
   | { event: "window.closed"; window: "settings" | ScenarioWidget };
 export type ScenarioLineStep = {

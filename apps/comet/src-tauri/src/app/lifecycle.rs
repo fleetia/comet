@@ -243,6 +243,7 @@ pub fn run() {
             crate::characters::gestures::cancel_character_drag,
             crate::characters::gestures::trigger_character_interaction,
             crate::characters::gestures::arm_character_move,
+            super::scene_events::consume_body_double_click,
             crate::characters::gestures::give_character_snack,
             crate::characters::life::begin_character_contact,
             crate::characters::life::set_character_sleep,

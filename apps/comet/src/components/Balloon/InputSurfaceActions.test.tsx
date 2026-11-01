@@ -12,6 +12,7 @@ it("keeps all three enabled desktop actions on the scoped surface and dispatches
   render(
     <InputSurfaceActions
       resumeDisabled={false}
+      resumeUnavailable={false}
       togetherDisabled={false}
       historyDisabled={false}
       onResume={onResume}
@@ -35,9 +36,15 @@ it("keeps all three enabled desktop actions on the scoped surface and dispatches
 it("preserves independent disabled states when navigation availability changes", () => {
   const callbacks = { onResume: vi.fn(), onTogether: vi.fn(), onHistory: vi.fn() };
   const { rerender } = render(
-    <InputSurfaceActions {...callbacks} resumeDisabled togetherDisabled historyDisabled={false} />,
+    <InputSurfaceActions
+      {...callbacks}
+      resumeDisabled
+      resumeUnavailable
+      togetherDisabled
+      historyDisabled={false}
+    />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "이어서 하기" }));
+  fireEvent.click(screen.getByRole("button", { name: "이어서 하기 (멈춘 대화가 없어요)" }));
   fireEvent.click(screen.getByRole("button", { name: "함께 이야기해 봐" }));
   fireEvent.click(screen.getByRole("button", { name: "지난 대화" }));
   expect(callbacks.onResume).not.toHaveBeenCalled();
@@ -48,6 +55,7 @@ it("preserves independent disabled states when navigation availability changes",
     <InputSurfaceActions
       {...callbacks}
       resumeDisabled={false}
+      resumeUnavailable={false}
       togetherDisabled={false}
       historyDisabled
     />,

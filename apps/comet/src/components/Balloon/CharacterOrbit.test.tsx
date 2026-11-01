@@ -3,7 +3,14 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { CharacterOrbit } from "./CharacterOrbit";
 import { PREVIEW_SNAPSHOT } from "../../previewSnapshot";
 
-const base = { name: "별꼬리", paused: false, sleeping: false, busy: false };
+const base = {
+  name: "별꼬리",
+  paused: false,
+  sleeping: false,
+  busy: false,
+  canResume: true,
+  resumeUnavailable: false,
+};
 let previousMotion: string | undefined;
 beforeEach(() => {
   previousMotion = document.documentElement.dataset.cometMotion;
@@ -59,6 +66,25 @@ it("locks orbit actions while the previous action is pending", () => {
   expect(chat).toHaveProperty("disabled", true);
   fireEvent.click(chat);
   expect(action).not.toHaveBeenCalled();
+});
+
+it("disables and explains resume when no conversation is paused", () => {
+  const action = vi.fn();
+  const view = render(
+    <CharacterOrbit
+      {...base}
+      canResume={false}
+      resumeUnavailable
+      onAction={action}
+      onClose={vi.fn()}
+    />,
+  );
+  const button = screen.getByRole("button", { name: "이어서 할 대화가 없어요" });
+  expect(button).toHaveProperty("disabled", true);
+  fireEvent.click(button);
+  expect(action).not.toHaveBeenCalled();
+  view.rerender(<CharacterOrbit {...base} onAction={action} onClose={vi.fn()} />);
+  expect(screen.getByRole("button", { name: "이어서 하기" })).toHaveProperty("disabled", false);
 });
 
 it("reserves a hidden character anchor without cloning the sprite or fallback", () => {

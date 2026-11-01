@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fn } from "storybook/test";
+import { expect, fn, within } from "storybook/test";
 import { InputSurfaceActions } from "../../../apps/comet/src/components/Balloon/InputSurfaceActions";
 
 const meta = {
@@ -8,6 +8,7 @@ const meta = {
   tags: ["autodocs"],
   args: {
     resumeDisabled: false,
+    resumeUnavailable: false,
     togetherDisabled: false,
     historyDisabled: false,
     onResume: fn(),
@@ -27,6 +28,21 @@ const meta = {
       ))}
     </div>
   ),
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    const resumeButtons = canvas.getAllByRole("button", {
+      name: args.resumeUnavailable ? "이어서 하기 (멈춘 대화가 없어요)" : "이어서 하기",
+    });
+    await expect(resumeButtons).toHaveLength(2);
+    for (const button of resumeButtons) {
+      await expect(button).toHaveProperty("disabled", args.resumeDisabled);
+      if (args.resumeUnavailable) {
+        await expect(button).toHaveAttribute("title", "멈춘 대화가 없어요");
+      } else {
+        await expect(button).not.toHaveAttribute("title");
+      }
+    }
+  },
   parameters: {
     docs: {
       description: {
@@ -40,6 +56,10 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Enabled: Story = { name: "모두 사용 가능" };
+export const NoPausedConversation: Story = {
+  name: "이어서 할 대화 없음",
+  args: { resumeDisabled: true, resumeUnavailable: true },
+};
 export const HistoryOnly: Story = {
   name: "지난 대화만 사용 가능",
   args: { resumeDisabled: true, togetherDisabled: true },

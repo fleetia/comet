@@ -119,11 +119,11 @@
           "kind": "line",
           "persona": "character-1",
           "expression": "평온",
-          "text": "나한테 할 말이 있으면 나를 눌러 봐."
+          "text": "나한테 할 말이 있으면 나를 두 번 눌러 봐."
         },
         {
           "kind": "wait",
-          "event": "body.clicked",
+          "event": "body.double-clicked",
           "timeoutSec": 60,
           "onTimeout": {
             "steps": [
@@ -131,7 +131,7 @@
                 "kind": "line",
                 "persona": "character-1",
                 "expression": "평온",
-                "text": "나중에 눌러 봐도 돼."
+                "text": "나중에 두 번 눌러 봐도 돼."
               }
             ],
             "then": "move"
@@ -172,7 +172,7 @@
           "kind": "line",
           "persona": "character-1",
           "expression": "장난",
-          "text": "나를 끌어서 다른 데로 옮겨 볼래?"
+          "text": "Command를 누른 채 나를 끌어 봐. Windows에서는 Ctrl이야."
         },
         {
           "kind": "wait",
@@ -184,7 +184,7 @@
                 "kind": "line",
                 "persona": "character-1",
                 "expression": "평온",
-                "text": "괜찮아, 나중에 옮겨 봐도 돼."
+                "text": "괜찮아, 나중에 옮겨 봐도 돼. 이 이야기가 끝난 뒤에는 오른쪽 버튼 메뉴의 교감에서 움직이기를 골라도 옮길 수 있어."
               }
             ],
             "then": "memo"
@@ -198,7 +198,7 @@
           "kind": "line",
           "persona": "character-1",
           "expression": "기쁨",
-          "text": "여기 좋다. 나는 네가 둔 곳에서 지낼게."
+          "text": "여기 좋다. 나는 네가 둔 곳에서 지낼게. 이 이야기가 끝난 뒤에는 오른쪽 버튼 메뉴의 교감에서 움직이기를 골라도 옮길 수 있어."
         }
       ],
       "next": "memo"
@@ -370,12 +370,46 @@
           "kind": "line",
           "persona": "character-1",
           "expression": "기쁨",
-          "text": "끝! 집중하는 동안엔 내가 먼저 말 걸지 않아.",
+          "text": "끝! 집중하는 동안엔 내가 먼저 말 걸지 않아. 집중 창은 접거나 닫을 수 있고, 메모도 닫을 수 있어.",
           "motion": {
             "mode": "clip",
             "clipId": "idle-stretch",
             "repeat": false,
             "intervalMs": 0
+          }
+        }
+      ],
+      "next": "entrances"
+    },
+    {
+      "id": "entrances",
+      "title": "위젯과 빠른 실행",
+      "steps": [
+        {
+          "kind": "line",
+          "persona": "character-1",
+          "expression": "평온",
+          "text": "이 이야기가 끝난 뒤에는 나를 오른쪽 버튼으로 누르면 함께하기 메뉴가 열려. 빠른 실행은 Command + Shift + Space, Windows에서는 Ctrl + Shift + Space로 열 수 있어."
+        },
+        {
+          "kind": "line",
+          "persona": "character-1",
+          "expression": "호기심",
+          "text": "설정의 위젯 목록도 보여 줄게. 마음에 들면 시계를 바탕화면에 놓아 봐. 다 봤으면 설정 창을 닫아 줘."
+        },
+        {
+          "kind": "action",
+          "do": "settings.open",
+          "tab": "widgets"
+        },
+        {
+          "kind": "wait",
+          "event": "window.closed",
+          "window": "settings",
+          "timeoutSec": 600,
+          "onTimeout": {
+            "steps": [],
+            "then": "ai"
           }
         }
       ],
@@ -475,12 +509,12 @@
             {
               "id": "later",
               "label": "나중에",
-              "goto": "ending"
+              "goto": "autostart"
             }
           ]
         }
       ],
-      "next": "ending"
+      "next": "autostart"
     },
     {
       "id": "guide",
@@ -490,6 +524,52 @@
           "kind": "action",
           "do": "guide.open",
           "page": "first-meeting"
+        }
+      ],
+      "next": "autostart"
+    },
+    {
+      "id": "autostart",
+      "title": "함께 시작하기",
+      "steps": [
+        {
+          "kind": "choice",
+          "persona": "character-1",
+          "expression": "호기심",
+          "prompt": "다음부터 같이 시작할까?",
+          "options": [
+            { "id": "yes", "label": "좋아", "goto": "autostart-settings" },
+            { "id": "later", "label": "나중에", "goto": "ending" }
+          ]
+        }
+      ],
+      "next": "ending"
+    },
+    {
+      "id": "autostart-settings",
+      "title": "자동 실행 설정",
+      "steps": [
+        {
+          "kind": "line",
+          "persona": "character-1",
+          "expression": "평온",
+          "text": "설정에서 로그인할 때 자동 실행을 켜 줘. 다 했으면 설정 창을 닫아 줘."
+        },
+        {
+          "kind": "action",
+          "do": "settings.open",
+          "tab": "general",
+          "highlight": "general.autostart"
+        },
+        {
+          "kind": "wait",
+          "event": "window.closed",
+          "window": "settings",
+          "timeoutSec": 600,
+          "onTimeout": {
+            "steps": [],
+            "then": "ending"
+          }
         }
       ],
       "next": "ending"

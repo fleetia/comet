@@ -62,6 +62,12 @@ it("restores one pending highlight, replaces it on a new request, and clears it 
     const target = document.querySelector('[data-settings-highlight="general.guide"]');
     expect(target?.classList.contains(settingsStyles.tutorialHighlight)).toBe(true);
   });
+  pending = { id: 3, value: "general.autostart" };
+  act(() => listeners.get("story-settings-highlight")?.({ event: "story-settings-highlight", id: 3, payload: pending }));
+  await waitFor(() => {
+    const target = document.querySelector('[data-settings-highlight="general.autostart"]');
+    expect(target?.classList.contains(settingsStyles.tutorialHighlight)).toBe(true);
+  });
 });
 
 it("consumes a pending guide failure once when settings opens", async () => {

@@ -25,7 +25,7 @@ import * as s from "../../common.css";
 import * as styles from "./settings.css";
 
 type Props = { snapshot: Snapshot; preview?: boolean; initialSection?: string };
-type HighlightRequest = { id: number; value: "ai.recommended" | "general.guide" };
+type HighlightRequest = { id: number; value: "ai.recommended" | "general.guide" | "general.autostart" };
 type GuideErrorRequest = { id: number; error: GuideOpenError };
 function DraftActions({
   draft,
@@ -106,7 +106,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
   const containerRef = useRef<HTMLElement>(null);
   const requestRevision = useRef(0);
   const [highlight, setHighlight] = useState<{
-    value: "ai.recommended" | "general.guide";
+    value: "ai.recommended" | "general.guide" | "general.autostart";
     revision: number;
   } | null>(null);
   const [guideOpenResult, setGuideOpenResult] = useState<{ error: GuideOpenError | null }>();
@@ -125,7 +125,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
     let lastHighlightId = 0;
     function applyHighlight(request: HighlightRequest | null, revision: number): void {
       if (!active || !request || request.id <= lastHighlightId) return;
-      if (request.value !== "ai.recommended" && request.value !== "general.guide") return;
+      if (request.value !== "ai.recommended" && request.value !== "general.guide" && request.value !== "general.autostart") return;
       if (revision !== requestRevision.current) return;
       lastHighlightId = request.id;
       navigateSection(request.value === "ai.recommended" ? "model" : "general");
