@@ -57,7 +57,7 @@ export function PlannerPreparation({
   const save: ToolAction = async (action, input, target) => {
     setSaveError("");
     const ok = await act(action, input, target);
-    if (!ok) setSaveError("저장하지 못했습니다. 입력한 내용을 확인하고 다시 시도해 주세요.");
+    if (!ok) setSaveError("저장하지 못했어요. 입력한 내용을 확인하고 다시 시도해 주세요.");
     return ok;
   };
   const { run, error, busy } = useConnectionCommand();
@@ -88,7 +88,7 @@ export function PlannerPreparation({
         {isLocalEvent ? "Comet에 저장한 일정" : `${text(connection?.name)} · 읽기 전용`}
       </p>
       {!isLocalEvent && connection?.status !== "ready" && (
-        <p className={s.caption}>이전에 확인한 일정입니다. 준비 내용은 계속 편집할 수 있어요.</p>
+        <p className={s.caption}>이전에 확인한 일정이에요. 준비 내용은 계속 편집할 수 있어요.</p>
       )}
       {rows(envelope?.checks).map((check) => (
         <Checkbox

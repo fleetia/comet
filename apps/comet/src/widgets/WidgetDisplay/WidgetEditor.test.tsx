@@ -408,7 +408,7 @@ it("edits a stack-only look per widget with theme following, opacity and corners
   expect(look.getByRole("slider", { name: "모서리" })).toHaveProperty("max", "9");
   expect(look.getByRole("slider", { name: "모서리" })).toHaveProperty("value", "9");
   expect(state.stackStyles.focus.radius).toBe(20);
-  fireEvent.change(look.getByRole("slider", { name: "배경 투명도" }), { target: { value: "35" } });
+  fireEvent.change(look.getByRole("slider", { name: "배경 불투명도" }), { target: { value: "35" } });
   await waitFor(() => expect(emit).toHaveBeenCalledWith("widget-stack-style-preview", {
     id: "focus", style: expect.objectContaining({ opacity: 35 }), revision: expect.any(Number),
   }));
@@ -443,7 +443,7 @@ it("cancels an unsaved style preview before restoring the edit snapshot", async 
   render(<WidgetEditor />);
   await waitFor(() => expect(command).toHaveBeenCalledWith("get_widget_desktop"));
   await select("focus");
-  fireEvent.change(screen.getByRole("slider", { name: "배경 투명도" }), { target: { value: "20" } });
+  fireEvent.change(screen.getByRole("slider", { name: "배경 불투명도" }), { target: { value: "20" } });
   fireEvent.click(screen.getByRole("button", { name: "되돌리기" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("restore_widget_desktop", expect.anything()));
   await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
@@ -478,7 +478,7 @@ it("flushes a pending stack style before finishing the edit session", async () =
   render(<WidgetEditor />);
   await waitFor(() => expect(command).toHaveBeenCalledWith("get_widget_desktop"));
   await select("focus");
-  fireEvent.change(screen.getByRole("slider", { name: "배경 투명도" }), { target: { value: "20" } });
+  fireEvent.change(screen.getByRole("slider", { name: "배경 불투명도" }), { target: { value: "20" } });
   fireEvent.click(screen.getByRole("button", { name: "완료" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("set_widget_desktop_editing", { editing: false }));
   const calls = vi.mocked(command).mock.calls.map(([name]) => name);
@@ -497,7 +497,7 @@ it("clears only the completed style revision after a newer preview is sent", asy
   render(<WidgetEditor />);
   await waitFor(() => expect(command).toHaveBeenCalledWith("get_widget_desktop"));
   await select("focus");
-  const slider = screen.getByRole("slider", { name: "배경 투명도" });
+  const slider = screen.getByRole("slider", { name: "배경 불투명도" });
   fireEvent.change(slider, { target: { value: "20" } });
   await waitFor(() => expect(command).toHaveBeenCalledWith("set_widget_stack_style", expect.objectContaining({ style: expect.objectContaining({ opacity: 20 }) })));
   fireEvent.change(slider, { target: { value: "40" } });
@@ -515,10 +515,10 @@ it("clears the preview and shows an error if saving the style fails", async () =
   render(<WidgetEditor />);
   await waitFor(() => expect(command).toHaveBeenCalledWith("get_widget_desktop"));
   await select("focus");
-  fireEvent.change(screen.getByRole("slider", { name: "배경 투명도" }), { target: { value: "20" } });
+  fireEvent.change(screen.getByRole("slider", { name: "배경 불투명도" }), { target: { value: "20" } });
   await screen.findByRole("alert");
   await waitFor(() => expect(emit).toHaveBeenCalledWith("widget-stack-style-preview", { id: "focus", revision: 1, clear: true }));
-  expect(screen.getByRole("slider", { name: "배경 투명도" })).toHaveProperty("value", "100");
+  expect(screen.getByRole("slider", { name: "배경 불투명도" })).toHaveProperty("value", "100");
 });
 
 it("restores the edit-start snapshot and finishes editing", async () => {

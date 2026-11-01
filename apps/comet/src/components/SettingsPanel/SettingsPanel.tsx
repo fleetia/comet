@@ -432,7 +432,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
               footer={
                 <DraftActions
                   draft={automatic}
-                  label="자동 대화"
+                  label="자동 잡담"
                   valid={automatic.validInterval && !quietHoursError(automatic.settings.quietHours)}
                   blocked={updateBusy}
                 />
@@ -474,7 +474,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
               draft={model}
               automaticDraft={automatic}
               automaticFooter={
-                <DraftActions draft={automatic} label="자동 대화" blocked={updateBusy} />
+                <DraftActions draft={automatic} label="자동 잡담" blocked={updateBusy} />
               }
               onOrganizerDirtyChange={setOrganizerDirty}
               onOpenOrganizer={() => navigate("organizer")}

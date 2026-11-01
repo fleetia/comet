@@ -395,7 +395,7 @@ it("reads a linked memo from its live source, opens the same note, and only unli
   view.rerender(<DiaryPage {...callbacks} widgets={[updated]} />);
   expect(screen.getByText("메모 창에서 고친 본문")).toBeTruthy();
   expect(screen.queryByText("연결 당시 메모")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "수정된 여행 메모 연결 해제" }));
+  fireEvent.click(screen.getByRole("button", { name: "수정된 여행 메모 페이지에서 빼기" }));
   await waitFor(() =>
     expect(callbacks.onDiaryAction).toHaveBeenCalledWith("entry-delete", {
       pageId: "page-1",
@@ -466,7 +466,7 @@ it("opens task details by mouse or keyboard without completing, editing, or focu
     "긴 상세 메모",
   );
   const meta = screen.getByText(/계획 · 2026-10-03/);
-  expect(within(meta).getByText(/^마감 2026-12-20/)).toBeTruthy();
+  expect(within(meta).getByText(/^마감 2026년 12월 20일/)).toBeTruthy();
   expect(callbacks.onToggleTask).not.toHaveBeenCalled();
   expect(callbacks.onEditTask).not.toHaveBeenCalled();
   expect(callbacks.onFocusTask).not.toHaveBeenCalled();

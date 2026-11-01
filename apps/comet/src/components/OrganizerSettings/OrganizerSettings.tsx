@@ -174,7 +174,7 @@ export function OrganizerSettings({
         setView("overview");
         setNotice("Vault를 연결했어요. 검색 색인과 정리는 진행 상황에서 확인할 수 있어요.");
       } else if (name === "organizer_disconnect_vault") {
-        setNotice("Vault 연결을 해제했어요. 원문과 정리 파일은 남아 있어요.");
+        setNotice("Vault 연결을 끊었어요. 원문과 정리 파일은 남아 있어요.");
       }
       await refresh();
     } catch (cause) {
@@ -481,7 +481,7 @@ export function OrganizerSettings({
                           disabled={disabled}
                           onClick={() => void run("organizer_disconnect_vault", { id: vault.id })}
                         >
-                          연결 해제
+                          연결 끊기
                         </Button>
                       </div>
                     </details>

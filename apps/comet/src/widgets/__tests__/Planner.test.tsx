@@ -517,7 +517,7 @@ it("counts today's frequency record as done today and excludes it from day-end c
       }),
     ]),
   );
-  expect(screen.getByText(`선택일 ${TODAY} · 할 일 1개 · 완료 1개`)).toBeTruthy();
+  expect(screen.getByText("선택일 2026년 9월 21일 · 할 일 1개 · 완료 1개")).toBeTruthy();
   const checkbox = within(screen.getByRole("region", { name: "오늘 할 일" })).getByRole(
     "checkbox",
     { name: /오늘 산책 목표/ },
@@ -1033,7 +1033,7 @@ it("keeps cached external events readable without exposing task completion or ca
   ).toBeTruthy();
   const today = within(screen.getByRole("tabpanel", { name: "오늘" }));
   expect(today.getByText(/개인 · 읽기 전용/)).toBeTruthy();
-  expect(today.getByText(/이전에 확인한 일정입니다/)).toBeTruthy();
+  expect(today.getByText(/이전에 확인한 일정이에요/)).toBeTruthy();
   expect(screen.queryByRole("checkbox", { name: /캐시된 독서 모임/ })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "원본 일정 ↗" }));
   await waitFor(() =>
@@ -1347,7 +1347,7 @@ it("embeds task tools without a second header, navigation, calendar or native cl
   expect(screen.queryByRole("button", { name: "플래너 닫기" })).toBeNull();
   expect(screen.queryByRole("tablist")).toBeNull();
   expect(screen.queryByRole("region", { name: "월간 캘린더", hidden: true })).toBeNull();
-  expect(screen.queryByRole("heading", { name: `선택일 ${TODAY} 일정 · 0개` })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "선택일 2026년 9월 21일 일정 · 0개" })).toBeNull();
   expect(native.onCloseRequested).not.toHaveBeenCalled();
   expect(listen).not.toHaveBeenCalledWith("planner-tab", expect.anything());
   expect(command).not.toHaveBeenCalledWith("get_planner_tab");
@@ -1444,13 +1444,13 @@ it("shows the plan date and deadline apart and opens the editor on the field tha
   const date = screen.getByRole("button", { name: "원고 다듬기 계획 날짜 바꾸기" });
   const deadline = screen.getByRole("button", { name: "원고 다듬기 마감 바꾸기" });
   expect(date.textContent).toBe("오늘");
-  expect(deadline.textContent).toBe("마감 2026-09-30");
+  expect(deadline.textContent).toBe("마감 2026년 9월 30일");
   expect(screen.queryByText(/계획 날짜와 기한은 별개입니다/)).toBeNull();
   // A due date that is the task's only date stays in the date column, red once it has passed.
   expect(screen.queryByRole("button", { name: "날짜 하나뿐인 일 마감 바꾸기" })).toBeNull();
   expect(
     screen.getByRole("button", { name: "날짜 하나뿐인 일 계획 날짜 바꾸기" }).textContent,
-  ).toBe("2026-09-20");
+  ).toBe("2026년 9월 20일");
 
   fireEvent.click(deadline);
   let editor = within(screen.getByRole("dialog", { name: "할 일 편집" }));
@@ -1750,7 +1750,7 @@ it("opens the saved template's selected period and anchor inside the controlled 
     <Planner embeddedTab="plans" onNavigate={onNavigate} onStateChange={onStateChange} />,
   );
   expect(screen.getByRole("button", { name: "이번 달" }).getAttribute("aria-pressed")).toBe("true");
-  expect(screen.getByText("2026-11-01")).toBeTruthy();
+  expect(screen.getByText("2026년 11월")).toBeTruthy();
 });
 
 it("reports an embedded modal as blocking until it closes", () => {
@@ -1866,7 +1866,7 @@ it("separates keyboard detail selection from completion and offers completion un
     "자세한 두 번째 줄",
   );
   expect(screen.getByRole("region", { name: "검토할 문서 상세" }).textContent).toContain(
-    "2026-10-09 14:30",
+    "2026년 10월 9일 14:30",
   );
   expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
   expect(screen.queryByRole("dialog")).toBeNull();
@@ -1934,10 +1934,13 @@ it("shows upcoming tasks beside an empty diary date without changing their plan 
   );
   const onDay = vi.fn();
   render(<Planner embeddedTab="today" selectedDay="2026-09-22" onSelectedDayChange={onDay} />);
-  expect(screen.getByText("2026-09-22에 계획한 할 일이 없어요.")).toBeTruthy();
+  expect(screen.getByText("2026년 9월 22일에 계획한 할 일이 없어요.")).toBeTruthy();
   const upcoming = within(screen.getByRole("region", { name: "예정 할 일" }));
   expect(upcoming.getByRole("checkbox", { name: "다른 날짜 작업" })).toBeTruthy();
-  expect(upcoming.getByText("마감 2026-09-30")).toBeTruthy();
+  expect(upcoming.getByRole("button", { name: "다른 날짜 작업 계획 날짜 바꾸기" }).textContent).toBe(
+    "2026년 9월 23일",
+  );
+  expect(upcoming.getByText("마감 2026년 9월 30일")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "다른 날짜 작업 상세 보기" }));
   expect(screen.getByRole("button", { name: "선택 날짜에서 빼기" })).toHaveProperty(
     "disabled",
@@ -1973,7 +1976,10 @@ it("keeps selected-day totals, quick additions and day-end review scoped while l
   const completed = within(screen.getByRole("region", { name: "완료한 일" }));
   expect(completed.queryByRole("checkbox", { name: "선택일에 마친 일" })).toBeNull();
   expect(completed.getByRole("checkbox", { name: "다른 날에 마친 일" })).toBeTruthy();
-  expect(screen.getByText(`새 할 일 계획일 · 선택일 ${day}`)).toBeTruthy();
+  expect(screen.getByText("새 할 일 계획일 · 선택일 2026년 9월 22일")).toBeTruthy();
+  expect(
+    screen.getByText("모든 날짜와 날짜 없는 할 일을 함께 봐요. 새 할 일의 계획일은 선택일 2026년 9월 22일이에요."),
+  ).toBeTruthy();
   expect(screen.getByRole("checkbox", { name: "날짜 없이 남긴 일" })).toBeTruthy();
   fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
     target: { value: "선택일에 추가할 일" },
@@ -2056,20 +2062,21 @@ it("labels inbox counts and period additions with their actual date scope withou
   expect(screen.getByRole("heading", { name: "수집함 · 날짜 없음 · 표시 2개" })).toBeTruthy();
   expect(screen.getByRole("checkbox", { name: "날짜 없이 마친 일" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "이번 주" }));
+  expect(screen.getByText("2026년 9월 21일")).toBeTruthy();
   expect(
-    screen.getByRole("heading", { name: "주간 계획 · 2026-09-21–2026-09-27 · 표시 1개" }),
+    screen.getByRole("heading", { name: "주간 계획 · 2026년 9월 21일 – 2026년 9월 27일 · 표시 1개" }),
   ).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "다음 계획 기간" }));
   expect(
-    screen.getByRole("heading", { name: "주간 계획 · 2026-09-28–2026-10-04 · 표시 0개" }),
+    screen.getByRole("heading", { name: "주간 계획 · 2026년 9월 28일 – 2026년 10월 4일 · 표시 0개" }),
   ).toBeTruthy();
   expect(
     screen.getByText(
-      "주간 계획 · 2026-09-28–2026-10-04에 표시할 할 일이 없어요. 위에서 하나씩 추가해 보세요.",
+      "주간 계획 · 2026년 9월 28일 – 2026년 10월 4일에 표시할 할 일이 없어요. 위에서 하나씩 추가해 보세요.",
     ),
   ).toBeTruthy();
   expect(
-    screen.getByText("새 할 일 · 주간 계획 · 2026-09-28–2026-10-04 · 계획일 없음"),
+    screen.getByText("새 할 일 · 주간 계획 · 2026년 9월 28일 – 2026년 10월 4일 · 계획일 없음"),
   ).toBeTruthy();
   fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
     target: { value: "다음 주에 해볼 일" },
@@ -2083,6 +2090,14 @@ it("labels inbox counts and period additions with their actual date scope withou
       planPeriod: "week",
       planAnchor: "2026-09-28",
     }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "이번 달" }));
+  expect(screen.getByRole("button", { name: "이전 계획 기간" }).nextElementSibling?.textContent).toBe(
+    "2026년 9월",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "올해" }));
+  expect(screen.getByRole("button", { name: "이전 계획 기간" }).nextElementSibling?.textContent).toBe(
+    "2026년",
   );
   expect(value).toEqual(original);
 });

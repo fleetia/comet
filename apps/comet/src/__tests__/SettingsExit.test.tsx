@@ -105,7 +105,7 @@ it("clears native unsaved state when settings are restored or another menu is op
     "value",
     String(PREVIEW_SNAPSHOT.settings.idleMinutes),
   );
-  expect(screen.queryByRole("button", { name: "자동 대화 저장" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "자동 잡담 저장" })).toBeNull();
 });
 
 it("keeps the current detail and its edit when native exit is canceled", async () => {

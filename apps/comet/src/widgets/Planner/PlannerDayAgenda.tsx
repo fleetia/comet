@@ -2,7 +2,7 @@ import { Button } from "@comet/ui";
 import type { ReactElement, ReactNode } from "react";
 import { text, type DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
-import { eventTime } from "./plannerData";
+import { eventTime, formatPlannerDate } from "./plannerData";
 import * as s from "./planner.css";
 
 export function PlannerDayAgenda({
@@ -32,7 +32,7 @@ export function PlannerDayAgenda({
   return (
     <aside className={s.column}>
       <h2 className={s.heading}>
-        선택일 {day} 일정 · {dailyEvents.length}개
+        선택일 {formatPlannerDate(day)} 일정 · {dailyEvents.length}개
       </h2>
       {!calendar || (!connections.length && !events.length) ? (
         <div className={s.empty}>
@@ -52,7 +52,9 @@ export function PlannerDayAgenda({
               </Button>
             </div>
           )}
-          {!dailyEvents.length && <p className={s.caption}>{day}에 조회된 일정이 없어요.</p>}
+          {!dailyEvents.length && (
+            <p className={s.caption}>{formatPlannerDate(day)}에 조회된 일정이 없어요.</p>
+          )}
           {dailyEvents.map((e) => (
             <button
               type="button"

@@ -248,7 +248,7 @@ export function FriendOverview({
     {
       page: "dialogue",
       title: "대사·반응",
-      description: "인사, 자동 수다, 키워드, 조합",
+      description: "인사, 자동 잡담, 키워드, 조합",
       icon: "quote",
     },
     {

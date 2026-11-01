@@ -31,7 +31,7 @@ type XConnection = RustConnection<DeadlineStream>;
 const SNAPSHOT_BUDGET: Duration = Duration::from_millis(250);
 const CURSOR_BUDGET: Duration = Duration::from_millis(20);
 const MAX_CLIENTS: u32 = 4096;
-const WAYLAND_UNSUPPORTED: &str = "Wayland에서는 다른 앱 창과 전체 화면 상태를 확인할 수 없어요. Linux 자동 대화는 X11 세션에서 사용할 수 있어요.";
+const WAYLAND_UNSUPPORTED: &str = "Wayland에서는 다른 앱 창과 전체 화면 상태를 확인할 수 없어요. Linux 자동 잡담은 X11 세션에서 사용할 수 있어요.";
 
 // A single absolute deadline bounds X11 socket I/O during setup and every
 // request, including a stalled server. Auth-file lookup has a bounded worker

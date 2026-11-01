@@ -958,7 +958,7 @@ pub(crate) async fn logout_chatgpt(
         // Clear memory before the OS prompt; do not resume requests while persistence waits.
         inner.saved = saved;
         inner.signing_out = None;
-        inner.notice = Some(if revoked { "ChatGPT 연결을 끊었어요." } else { "이 기기에서는 연결을 끊었지만 ChatGPT 쪽 해제는 확인하지 못했어요. ChatGPT 웹 설정에서 연결된 앱을 해제할 수 있어요." }.into());
+        inner.notice = Some(if revoked { "ChatGPT 연결을 끊었어요." } else { "이 기기에서는 연결을 끊었지만 ChatGPT 쪽 연결이 끊겼는지는 확인하지 못했어요. ChatGPT 웹 설정에서 연결된 앱을 끊을 수 있어요." }.into());
     }
     let persisted = service.persist().await;
     if let Err(error) = &persisted {
@@ -1217,10 +1217,10 @@ mod tests {
         {
             let mut state = lock(&service.0.state).unwrap();
             state.credential_cleanup_pending = true;
-            state.notice = Some("서버 연결 해제는 확인하지 못했어요.".into());
+            state.notice = Some("서버 연결이 끊겼는지는 확인하지 못했어요.".into());
         }
         let notice = service.status().unwrap().notice.unwrap();
-        assert!(notice.contains("서버 연결 해제는 확인하지 못했어요."));
+        assert!(notice.contains("서버 연결이 끊겼는지는 확인하지 못했어요."));
         assert!(notice.contains("이전 자격 증명 정리가 남았어요."));
         lock(&service.0.state).unwrap().notice = None;
         assert!(service

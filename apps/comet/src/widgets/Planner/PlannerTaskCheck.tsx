@@ -2,7 +2,7 @@ import { Checkbox } from "@comet/ui";
 import type { ReactElement } from "react";
 import { localDay, number, rows, text, type DataRecord } from "../toolData";
 import { TaskReadOnlyDetails } from "./TodoEditor";
-import { dueLabel, frequencyRecords, plannedDay, ruleOf } from "./plannerData";
+import { dueLabel, formatPlannerDate, frequencyRecords, plannedDay, ruleOf } from "./plannerData";
 import * as s from "./planner.css";
 
 export function PlannerTaskCheck({
@@ -55,7 +55,7 @@ export function PlannerTaskCheck({
         </button>
       </div>
       <p className={s.caption}>
-        계획 · {plannedDay(item) || "날짜 없음"}　{dueLabel(item) || "기한 없음"}
+        계획 · {plannedDay(item) ? formatPlannerDate(plannedDay(item)) : "날짜 없음"}　{dueLabel(item) || "기한 없음"}
       </p>
       {!!text(item.memo) && (
         <span className={s.memoPreview}>

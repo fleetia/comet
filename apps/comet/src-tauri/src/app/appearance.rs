@@ -72,7 +72,7 @@ impl Appearance {
         if !(MIN_OPACITY..=100).contains(&self.balloon_opacity)
             || !(MIN_OPACITY..=100).contains(&self.widget_opacity)
         {
-            return Err("투명도는 20~100% 사이로 정해 주세요.".into());
+            return Err("불투명도는 20~100% 사이로 정해 주세요.".into());
         }
         if let Some(skin) = &self.custom_skin {
             if ![&skin.background, &skin.balloon, &skin.widget, &skin.accent]

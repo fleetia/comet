@@ -722,7 +722,7 @@ export function CalendarTool({
                           size="small"
                           onClick={() => setDisconnect(connection)}
                         >
-                          연결 해제
+                          연결 끊기
                         </Button>
                         {connection.provider === "ics" && (
                           <div className={settings.menuColorControls}>
@@ -815,7 +815,7 @@ export function CalendarTool({
               </div>
               {editingConnectionId && (
                 <p className={c.quiet}>
-                  다시 연결하는 동안 마지막 조회 일정과 내장 할 일은 보존합니다.
+                  다시 연결하는 동안 마지막 조회 일정과 내장 할 일은 보존해요.
                 </p>
               )}
               {connectionOpen &&
@@ -844,8 +844,8 @@ export function CalendarTool({
                 ) : provider === "apple" ? (
                   <>
                     <p className={c.quiet}>
-                      이 Mac의 캘린더 목록을 읽어 연결할 캘린더를 직접 고릅니다. macOS는 조회에도
-                      전체 접근 권한을 요청합니다. comet은 일정을 생성·수정·삭제하지 않습니다.
+                      이 Mac의 캘린더 목록을 읽어 연결할 캘린더를 직접 골라요. macOS는 조회에도
+                      전체 접근 권한을 요청해요. comet은 일정을 생성·수정·삭제하지 않아요.
                     </p>
                     <p className={c.quiet}>
                       Google에도 연결한 캘린더가 있다면 한쪽에서만 선택해 중복 일정을 피하세요.
@@ -864,7 +864,7 @@ export function CalendarTool({
                     )}
                     {appleCalendars && !appleCalendars.supported && (
                       <p role="status">
-                        Apple 직접 연결은 macOS 전용입니다. 다른 기기에서는 Google 또는 ICS 구독을
+                        Apple 직접 연결은 macOS 전용이에요. 다른 기기에서는 Google 또는 ICS 구독을
                         사용하세요.
                       </p>
                     )}
@@ -892,7 +892,7 @@ export function CalendarTool({
                       <fieldset className={s.section}>
                         <legend>연결할 Apple 캘린더 선택</legend>
                         {appleCalendars.calendars.length === 0 && (
-                          <p>이 Mac에서 읽을 수 있는 캘린더가 없습니다.</p>
+                          <p>이 Mac에서 읽을 수 있는 캘린더가 없어요.</p>
                         )}
                         {appleCalendars.calendars.map((calendar) => (
                           <Checkbox
@@ -917,7 +917,7 @@ export function CalendarTool({
                               !appleCalendars.calendars.some((calendar) => calendar.id === id),
                         ) && (
                           <p role="alert" className={c.error}>
-                            이전 선택 중 목록에서 사라진 캘린더가 있습니다. 선택을 초기화하고 다시
+                            이전 선택 중 목록에서 사라진 캘린더가 있어요. 선택을 초기화하고 다시
                             골라 주세요.
                           </p>
                         )}
@@ -1137,7 +1137,7 @@ export function CalendarTool({
       )}
       <Dialog
         isOpen={active && disconnect !== null}
-        title="캘린더 연결을 해제할까요?"
+        title="캘린더 연결을 끊을까요?"
         closeLabel="닫기"
         variant="confirm"
         onOpenChange={(open) => {
@@ -1162,7 +1162,7 @@ export function CalendarTool({
                 }
               }}
             >
-              연결 해제 확인
+              연결 끊기 확인
             </Button>
             <Button variant="ghost" disabled={busy} onClick={() => setDisconnect(null)}>
               취소
@@ -1172,8 +1172,8 @@ export function CalendarTool({
       >
         <div className={s.body}>
           <p>
-              {text(disconnect?.name)}의 일정 조회를 중단합니다. 기존 준비 봉투의 체크리스트와
-              자료는 보존합니다.
+              {text(disconnect?.name)}의 일정 조회를 중단해요. 기존 준비 봉투의 체크리스트와
+              자료는 보존해요.
           </p>
           {error && (
             <p role="alert" className={c.error}>

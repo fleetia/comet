@@ -776,9 +776,9 @@ export function WidgetManager({
         }
       >
         <div className={styles.dialogBody}>
-          <Text as="p">작동과 대기 중인 반응을 멈춥니다. 작성한 데이터는 기본으로 보존합니다.</Text>
+          <Text as="p">작동과 대기 중인 반응을 멈춰요. 작성한 데이터는 기본으로 보존해요.</Text>
           <Text as="p" variant="caption" tone="muted">
-            위젯 정의·작성 데이터·설치 정보는 이 기기에 보존합니다.
+            위젯 정의·작성 데이터·설치 정보는 이 기기에 보존해요.
           </Text>
           {failure && (
             <Text as="p" role="alert" className={common.error}>

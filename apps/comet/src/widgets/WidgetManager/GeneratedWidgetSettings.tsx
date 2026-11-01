@@ -304,7 +304,7 @@ export function GeneratedWidgetSettings({
           </Button>
         </div>
         <Text as="p" variant="caption" tone="muted">
-          삭제해도 위젯 정의·작성 데이터·설치 정보는 이 기기에 보존합니다.
+          삭제해도 위젯 정의·작성 데이터·설치 정보는 이 기기에 보존해요.
         </Text>
       </section>
     </div>

@@ -4,7 +4,7 @@ import { localDay, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import { PlannerAlertNotice } from "../PlannerAlerts/PlannerAlerts";
 import { PlannerTodoEmpty } from "./PlannerTodoEmpty";
-import { repeatLabel } from "./plannerData";
+import { formatPlannerDate, repeatLabel } from "./plannerData";
 import * as s from "./planner.css";
 
 export function PlannerDayTaskList({
@@ -54,7 +54,7 @@ export function PlannerDayTaskList({
     >
       <div className={s.actions}>
         <h2 className={s.heading}>
-          {allTasks ? "모든 날짜 할 일" : `${day} 할 일`} · {displayedTasks.length}개
+          {allTasks ? "모든 날짜 할 일" : `${formatPlannerDate(day)} 할 일`} · {displayedTasks.length}개
         </h2>
         <Button variant="ghost" size="small" aria-pressed={allTasks} onClick={onToggleAllTasks}>
           {allTasks ? "선택 날짜만 보기" : "모든 할 일 보기"}
@@ -74,7 +74,7 @@ export function PlannerDayTaskList({
               <p>
                 {allTasks
                   ? "모든 날짜와 날짜 없는 항목에 저장한 할 일이 없어요."
-                  : `${day}에 계획한 할 일이 없어요.`}
+                  : `${formatPlannerDate(day)}에 계획한 할 일이 없어요.`}
               </p>
               <Button variant="ghost" size="small" onClick={onTemplates}>
                 템플릿에서 고르기

@@ -146,7 +146,7 @@ it("opens authored lines from the profile, previews the selected draft locally, 
 
   fireEvent.click(within(profile).getByRole("button", { name: "대사·반응 편집" }));
   const panel = within(screen.getByRole("tabpanel", { name: "대사·반응" }));
-  const line = panel.getByRole("textbox", { name: "자동 수다 1 대사" });
+  const line = panel.getByRole("textbox", { name: "자동 잡담 1 대사" });
   fireEvent.focus(line);
   fireEvent.change(line, { target: { value: "  선택한 원문.\n다음 줄.  " } });
   const preview = within(panel.getByLabelText("선택한 대사 미리보기"));
@@ -159,7 +159,7 @@ it("opens authored lines from the profile, previews the selected draft locally, 
 
   choose(/^B/);
   choose(/^A/);
-  expect(screen.getByRole("textbox", { name: "자동 수다 1 대사" })).toHaveProperty(
+  expect(screen.getByRole("textbox", { name: "자동 잡담 1 대사" })).toHaveProperty(
     "value",
     snapshot.characters.installed[0].definition.idleLines[0].text,
   );

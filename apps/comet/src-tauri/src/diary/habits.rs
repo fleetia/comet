@@ -126,7 +126,7 @@ fn number(input: &Value, key: &str, min: u32, max: u32) -> Result<u32> {
         .as_u64()
         .filter(|value| *value >= u64::from(min) && *value <= u64::from(max))
         .map(|value| value as u32)
-        .ok_or_else(|| format!("{key} 값은 {min}–{max} 사이의 정수여야 합니다."))
+        .ok_or_else(|| format!("{key} 값은 {min}–{max} 사이의 정수여야 해요."))
 }
 
 fn fields(input: &Value, id: String, archived: bool) -> Result<Habit> {
@@ -140,7 +140,7 @@ fn fields(input: &Value, id: String, archived: bool) -> Result<Habit> {
                 .as_u64()
                 .filter(|day| *day <= 6)
                 .map(|day| day as u32)
-                .ok_or("반복 요일이 올바르지 않습니다.")
+                .ok_or("반복 요일이 올바르지 않아요.")
         })
         .collect::<std::result::Result<Vec<_>, _>>()?;
     weekdays.sort_unstable();
@@ -152,15 +152,15 @@ fn fields(input: &Value, id: String, archived: bool) -> Result<Habit> {
     ]
     .contains(&color.as_str())
     {
-        return Err("습관 색상이 올바르지 않습니다.".into());
+        return Err("습관 색상이 올바르지 않아요.".into());
     }
     let mode = string(input, "mode", 20, true)?;
     if !["check", "count"].contains(&mode.as_str()) {
-        return Err("기록 방식이 올바르지 않습니다.".into());
+        return Err("기록 방식이 올바르지 않아요.".into());
     }
     let target = number(input, "target", 1, 10000)?;
     if mode == "check" && target != 1 {
-        return Err("완료 기록의 하루 목표는 1이어야 합니다.".into());
+        return Err("완료 기록의 하루 목표는 1이어야 해요.".into());
     }
     Ok(Habit {
         id,
@@ -246,7 +246,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
                 return Ok(());
             }
             if !["done", "missed"].contains(&status.as_str()) {
-                return Err("습관 완료 상태가 올바르지 않습니다.".into());
+                return Err("습관 완료 상태가 올바르지 않아요.".into());
             }
             if selected_date < habit.start_date && at.is_none() {
                 return Err("습관 시작일 이전에는 새 기록을 남길 수 없어요.".into());
@@ -284,7 +284,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
         "habit-settings" => {
             state.habit_feedback_enabled = boolean(input, "feedbackEnabled", false)?
         }
-        _ => return Err("지원하지 않는 습관 작업입니다.".into()),
+        _ => return Err("지원하지 않는 습관 작업이에요.".into()),
     }
     Ok(())
 }

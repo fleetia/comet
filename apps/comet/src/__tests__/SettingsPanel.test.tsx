@@ -335,7 +335,7 @@ it.each([5, 2])(
     expect(PREVIEW_SNAPSHOT.settings.idleMinutes).toBe(5);
     expect(screen.getByLabelText(/이야기 간격/)).toHaveProperty("value", String(idleMinutes));
     fireEvent.click(screen.getByRole("switch", { name: "가끔 자리 비우기" }));
-    fireEvent.click(screen.getByRole("button", { name: "자동 대화 저장" }));
+    fireEvent.click(screen.getByRole("button", { name: "자동 잡담 저장" }));
     await waitFor(() =>
       expect(command).toHaveBeenLastCalledWith("save_settings", {
         settings: { ...snapshot.settings, randomPresenceEnabled: true },
@@ -360,7 +360,7 @@ it("shows when a timed pause ends and resumes without saving automatic drafts", 
   const time = new Date(pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   expect(screen.getByText(`${time}까지 자동 잡담 쉬는 중`)).toBeTruthy();
   fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "12" } });
-  fireEvent.click(screen.getByRole("button", { name: "자동 잡담 다시 시작" }));
+  fireEvent.click(screen.getByRole("button", { name: "자동 잡담 다시 켜기" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledExactlyOnceWith("set_paused", { paused: false }),
   );
@@ -401,7 +401,7 @@ it("discards automatic and failed model drafts when navigating away without savi
     "value",
     String(PREVIEW_SNAPSHOT.settings.idleMinutes),
   );
-  expect(screen.queryByRole("button", { name: "자동 대화 저장" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "자동 잡담 저장" })).toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "AI 연결" }));
   expect(screen.getByLabelText("대화에 쓸 AI")).toHaveProperty("value", "local");
   expect(screen.getByRole("switch", { name: "로컬 추론 모드" })).toHaveProperty("checked", false);
@@ -627,7 +627,7 @@ it("discards an invalid interval and uses the latest saved values on returning",
     <SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="automatic" />,
   );
   fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "0" } });
-  expect(screen.getByRole("button", { name: "자동 대화 저장" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "자동 잡담 저장" })).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("tab", { name: "AI 연결" }));
   fireEvent.change(screen.getByLabelText("대화에 쓸 AI"), { target: { value: "custom" } });
   fireEvent.change(screen.getByLabelText("모델 이름"), { target: { value: "other-model" } });
@@ -784,7 +784,7 @@ it("saves opt-in local quiet hours with starting weekdays", async () => {
   fireEvent.click(screen.getByRole("button", { name: "일요일" }));
   expect(screen.getByText(/자정을 넘기면 시작한 요일/)).toBeTruthy();
   expect(screen.getByLabelText("조용한 시간 시작")).toHaveProperty("value", "23:30");
-  fireEvent.click(screen.getByRole("button", { name: "자동 대화 저장" }));
+  fireEvent.click(screen.getByRole("button", { name: "자동 잡담 저장" }));
   await waitFor(() =>
     expect(command).toHaveBeenLastCalledWith("save_settings", {
       settings: {
@@ -804,13 +804,13 @@ it("validates active quiet hours and cancel restores the latest saved schedule",
   fireEvent.click(screen.getByRole("switch", { name: "정해진 시간에 자동 잡담 쉬기" }));
   fireEvent.change(screen.getByLabelText("조용한 시간 종료"), { target: { value: "22:00" } });
   expect(screen.getByRole("alert").textContent).toContain("시작과 종료 시각을 다르게");
-  expect(screen.getByRole("button", { name: "자동 대화 저장" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "자동 잡담 저장" })).toHaveProperty("disabled", true);
   fireEvent.change(screen.getByLabelText("조용한 시간 종료"), { target: { value: "08:00" } });
   for (const name of ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]) {
     fireEvent.click(screen.getByRole("button", { name }));
   }
   expect(screen.getByRole("alert").textContent).toContain("요일을 하나 이상");
-  expect(screen.getByRole("button", { name: "자동 대화 저장" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "자동 잡담 저장" })).toHaveProperty("disabled", true);
   const latest = {
     ...PREVIEW_SNAPSHOT,
     settings: {

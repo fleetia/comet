@@ -141,9 +141,9 @@ it("shows both linked items and starts the first queued focus from idle", async 
   const todo = widget("todo", { items: [{ id: "task", title: "보고서", completedAt: null }] });
   render(<TimerTool widget={timer} widgets={[todo]} act={action} />);
   expect(screen.getByText("일정 · 회의")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "할 일 연결 해제" }).parentElement?.textContent).toContain("보고서");
-  expect(screen.getByRole("button", { name: "일정 연결 해제" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "할 일 연결 해제" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "할 일 빼기" }).parentElement?.textContent).toContain("보고서");
+  expect(screen.getByRole("button", { name: "일정 빼기" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "할 일 빼기" })).toBeTruthy();
   expect(screen.getByText("끝나면 할 일을 완료할지 물어봐요")).toBeTruthy();
   await click("다음 작업 집중 시작");
   expect(action).toHaveBeenCalledWith("continue", {});

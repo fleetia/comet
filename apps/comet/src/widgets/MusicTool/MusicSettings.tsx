@@ -418,7 +418,7 @@ export function MusicSettings({
                   variant="ghost"
                   onClick={() => setConfirmDisconnect(true)}
                 >
-                  로컬 연결 해제
+                  연결 끊기
                 </Button>
               )}
               <SettingsMenu label="Spotify 연결 방법">
@@ -510,13 +510,13 @@ export function MusicSettings({
       </fieldset>
       <Dialog
         isOpen={confirmDisconnect}
-        title="Spotify 연결을 해제할까요?"
+        title="Spotify 연결을 끊을까요?"
         closeLabel="닫기"
         variant="confirm"
         onOpenChange={(open) => { if (!open && !busy) setConfirmDisconnect(false); }}
         footer={
           <>
-            <Button variant="primary" disabled={busy} onClick={() => void disconnect()}>연결 해제 확인</Button>
+            <Button variant="primary" disabled={busy} onClick={() => void disconnect()}>연결 끊기 확인</Button>
             <Button variant="ghost" disabled={busy} onClick={() => setConfirmDisconnect(false)}>취소</Button>
           </>
         }

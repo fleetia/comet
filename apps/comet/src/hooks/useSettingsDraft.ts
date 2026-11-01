@@ -151,7 +151,7 @@ export function useSettingsDraft(savedSettings: Settings, scope: SettingsScope):
           else dirty.current.add(key);
         }
         const notices: Record<SettingsScope, string> = {
-          automatic: "자동 대화 설정을 저장했어요.",
+          automatic: "자동 잡담 설정을 저장했어요.",
           desktop: "바탕화면 설정을 저장했어요.",
           model: "AI 연결을 저장했어요.",
         };

@@ -171,11 +171,11 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
     >
       <div className={s.body}>
         <p>
-          상태가 조건을 충족하는 순간 캐릭터가 반응해요. 대사·표정·동작은 AI 없이 그대로 재생됩니다.
+          상태가 조건을 충족하는 순간 캐릭터가 반응해요. 대사·표정·동작은 AI 없이 그대로 재생돼요.
         </p>
         <p className={s.status}>
           저장할 때 이미 충족된 조건은 말하지 않아요. 조건이 해제됐다 다시 충족되면 반응해요.
-          숨김·일시정지·자동 대화 끄기 동안 발생한 반응은 나중에 재생하지 않아요.
+          숨김·쉬기·자동 잡담 끄기 동안 발생한 반응은 나중에 재생하지 않아요.
         </p>
         {error && (
           <p className={common.error} role="alert">

@@ -208,7 +208,7 @@ export function FocusTimerControls({
                   <Button
                     variant="ghost"
                     size="small"
-                    aria-label="일정 연결 해제"
+                    aria-label="일정 빼기"
                     onClick={async () => {
                       if (await configure({ eventRef: null }))
                         setDraft({ ...draft, eventRef: null });
@@ -225,7 +225,7 @@ export function FocusTimerControls({
                   <Button
                     variant="ghost"
                     size="small"
-                    aria-label="할 일 연결 해제"
+                    aria-label="할 일 빼기"
                     onClick={() => setDraft({ ...draft, todoId: "" })}
                   >
                     ×

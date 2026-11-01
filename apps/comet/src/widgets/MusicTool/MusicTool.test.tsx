@@ -371,17 +371,17 @@ it("lets a remembered Spotify connection be forgotten while awaiting automatic r
   render(<MusicSettings widget={widget({}, { provider: "spicetify" })} />);
   await screen.findByText("Spotify 확장의 자동 재연결을 기다리고 있어요.");
   expect(screen.getByRole("button", { name: "연결 코드 만들기" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "로컬 연결 해제" }));
+  fireEvent.click(screen.getByRole("button", { name: "연결 끊기" }));
   expect(command).not.toHaveBeenCalledWith("music_bridge_disconnect", expect.anything());
   expect(screen.getByRole("dialog").textContent).toContain("연결 코드");
-  fireEvent.click(screen.getByRole("button", { name: "연결 해제 확인" }));
+  fireEvent.click(screen.getByRole("button", { name: "연결 끊기 확인" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("music_bridge_disconnect", {
       id: "music",
       expectedRevision: 7,
     }),
   );
-  await waitFor(() => expect(screen.queryByRole("button", { name: "로컬 연결 해제" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("button", { name: "연결 끊기" })).toBeNull());
   expect(screen.getByText("Spotify 확장 연결을 기다리고 있어요.")).toBeTruthy();
 });
 

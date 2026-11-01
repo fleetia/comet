@@ -114,7 +114,7 @@ export function DiaryPageComposer({
           )}
           <p className={s.meta} id="diary-composer-mode">
             {kind === "todo"
-              ? "할 일 작성 · 체크할 수 있는 새 할 일을 만듭니다."
+              ? "할 일 작성 · 체크할 수 있는 새 할 일을 만들어요."
               : kind === "note"
                 ? "메모 작성 · 생각과 기록을 자유롭게 남겨요."
                 : kind === "event"

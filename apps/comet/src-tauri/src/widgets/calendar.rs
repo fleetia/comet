@@ -219,7 +219,7 @@ fn connection(name: String, provider: &str) -> Connection {
 }
 fn validate_name(name: &str) -> Result<(), CalendarError> {
     if name.trim().is_empty() || name.chars().count() > 200 {
-        return Err(invalid("연결 이름은 1~200자로 입력하세요."));
+        return Err(invalid("연결 이름은 1~200자로 입력해 주세요."));
     }
     Ok(())
 }
@@ -229,7 +229,7 @@ fn validate_calendar_ids(ids: &[String]) -> Result<(), CalendarError> {
         || ids.iter().any(|id| id.trim().is_empty() || id.len() > 1000)
         || ids.iter().collect::<std::collections::BTreeSet<_>>().len() != ids.len()
     {
-        return Err(invalid("조회할 캘린더를 중복 없이 1~20개 선택하세요."));
+        return Err(invalid("조회할 캘린더를 중복 없이 1~20개 선택해 주세요."));
     }
     Ok(())
 }
@@ -244,7 +244,7 @@ struct CalendarColorInput {
 
 pub fn set_calendar_color(data: &Value, input: &Value) -> Result<super::WidgetEffect, String> {
     let input: CalendarColorInput = serde_json::from_value(input.clone())
-        .map_err(|_| "캘린더 색상 입력 형식이 올바르지 않습니다.")?;
+        .map_err(|_| "캘린더 색상 입력 형식이 올바르지 않아요.")?;
     if input.color.len() != 7
         || !input.color.starts_with('#')
         || !input.color.as_bytes()[1..]
@@ -254,7 +254,7 @@ pub fn set_calendar_color(data: &Value, input: &Value) -> Result<super::WidgetEf
         return Err("캘린더 색상은 #rrggbb 형식으로 입력해 주세요.".into());
     }
     let connections: Vec<Connection> = serde_json::from_value(data["connections"].clone())
-        .map_err(|_| "저장된 캘린더 연결을 읽지 못했습니다.")?;
+        .map_err(|_| "저장된 캘린더 연결을 읽지 못했어요.")?;
     let connection = connections
         .iter()
         .find(|connection| connection.id == input.connection_id)
@@ -276,14 +276,14 @@ pub fn set_calendar_color(data: &Value, input: &Value) -> Result<super::WidgetEf
         _ => false,
     };
     if !selected {
-        return Err("이 연결에서 조회하도록 선택한 캘린더만 색상을 바꿀 수 있습니다.".into());
+        return Err("이 연결에서 조회하도록 선택한 캘린더만 색상을 바꿀 수 있어요.".into());
     }
     let mut colors: BTreeMap<String, BTreeMap<String, String>> = serde_json::from_value(
         data.get("calendarColors")
             .cloned()
             .unwrap_or_else(|| serde_json::json!({})),
     )
-    .map_err(|_| "저장된 캘린더 색상을 읽지 못했습니다.")?;
+    .map_err(|_| "저장된 캘린더 색상을 읽지 못했어요.")?;
     colors
         .entry(input.connection_id)
         .or_default()
@@ -484,12 +484,12 @@ pub fn disconnect(connection: &Connection) -> Result<(), CalendarError> {
     match key(&connection.id)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => {}
         Err(_) => {
-            return Err(credential_store_error("에서 연결 정보를 삭제하지", "연결 해제"))
+            return Err(credential_store_error("에서 연결 정보를 삭제하지", "연결 끊기를 시도"))
         }
     }
     match legacy_key(&connection.id)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(_) => Err(credential_store_error("에서 연결 정보를 삭제하지", "연결 해제")),
+        Err(_) => Err(credential_store_error("에서 연결 정보를 삭제하지", "연결 끊기를 시도")),
     }
 }
 fn subscription_url(value: &str) -> Result<reqwest::Url, CalendarError> {
@@ -778,7 +778,7 @@ fn string(value: &Value, key: &str) -> Result<String, CalendarError> {
         .as_str()
         .filter(|v| !v.is_empty() && v.len() < 10000)
         .map(str::to_owned)
-        .ok_or_else(|| invalid("캘린더 항목의 필수 정보가 없습니다."))
+        .ok_or_else(|| invalid("캘린더 항목의 필수 정보가 없어요."))
 }
 fn google_event(
     item: &Value,

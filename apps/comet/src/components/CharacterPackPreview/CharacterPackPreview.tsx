@@ -84,7 +84,7 @@ export function CharacterPackPreview({ pack }: Props): JSX.Element {
                 [{line.expression}] {line.text}
               </p>
             ))}
-            <strong>자동 수다</strong>
+            <strong>자동 잡담</strong>
             {character.idleLines.map((line, i) => (
               <p key={i}>
                 [{line.expression}] {line.text}

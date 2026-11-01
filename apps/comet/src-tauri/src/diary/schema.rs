@@ -33,7 +33,7 @@ fn migrate_travel_shares(db: &Connection) -> Result<(), String> {
         state.revision = state
             .revision
             .checked_add(1)
-            .ok_or("다이어리 버전 범위를 벗어났습니다.")?;
+            .ok_or("다이어리 버전 범위를 벗어났어요.")?;
         tx.execute(
             "UPDATE diary_state SET data=?1 WHERE id=1",
             [serde_json::to_string(&state).map_err(super::err)?],

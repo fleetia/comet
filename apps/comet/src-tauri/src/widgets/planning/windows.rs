@@ -467,7 +467,7 @@ pub(crate) fn preview_planner_recurrence(
     let db = crate::lock(&state.db)?;
     let widget = crate::widgets::storage::get(&db, &id)?;
     if widget.kind != "todo" {
-        return Err("사용 중인 할 일 도구가 필요합니다.".into());
+        return Err("사용 중인 할 일 도구가 필요해요.".into());
     }
     crate::widgets::planning::recurrence_preview(
         &widget.data,

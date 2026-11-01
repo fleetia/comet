@@ -343,7 +343,7 @@ export function TodoEditor({
           setError(null);
           if (time && (!day || input.dueAt === null)) {
             setError(
-              "선택한 날짜에 같은 지역 시각이 존재하지 않습니다. 날짜와 시각을 다시 선택해 주세요.",
+              "선택한 날짜에 같은 지역 시각이 없어요. 날짜와 시각을 다시 선택해 주세요.",
             );
             return;
           }
@@ -359,7 +359,7 @@ export function TodoEditor({
           if (savedInput.current !== inputKey) {
             if (!(await act("update", input))) {
               setError(
-                "저장하지 못했어요. 입력은 유지했습니다. 다른 곳에서 변경했다면 최신 내용을 다시 불러와 확인해 주세요.",
+                "저장하지 못했어요. 입력은 유지했어요. 다른 곳에서 변경했다면 최신 내용을 다시 불러와 확인해 주세요.",
               );
               return;
             }
@@ -698,10 +698,10 @@ export function TodoEditor({
               <p className={s.preview}>
                 {repeatLabel({ repeatRule: rule })} ·{" "}
                 {mode === "frequency"
-                  ? "하루 한 번 기록해요. 주간 기록은 기한과 별도로 보존합니다."
+                  ? "하루 한 번 기록해요. 주간 기록은 기한과 별도로 보존해요."
                   : mode === "completion"
                     ? "완료한 날짜를 기준으로 다음 회차를 만들어요."
-                    : "기기의 지역 시각을 유지합니다. 건너뛴 회차는 완료로 세지 않아요."}
+                    : "기기의 지역 시각을 유지해요. 건너뛴 회차는 완료로 세지 않아요."}
               </p>
             )}
             {nextDates.length > 0 && (

@@ -124,10 +124,10 @@ export function StackStyleEditor({
         <p className={s.hint}>투명한 배경에서는 바탕화면에 따라 글자가 읽기 어려울 수 있어요.</p>
       )}
       <label className={shape.row}>
-        <span>배경 투명도</span>
+        <span>배경 불투명도</span>
         <span className={shape.range}>
           <Slider
-            aria-label="배경 투명도"
+            aria-label="배경 불투명도"
             min={0}
             max={100}
             value={draft.opacity}

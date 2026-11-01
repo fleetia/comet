@@ -506,7 +506,7 @@ export function DiaryEnvelope({
                           void perform(() => save("todo-unlink", { id, todoId: linkedId }))
                         }
                       >
-                        연결 해제
+                        봉투에서 빼기
                       </Button>
                     </div>
                   );
@@ -699,7 +699,7 @@ export function DiaryEnvelope({
                       void perform(() => save("todo-unlink", { id, todoId: text(item.id) }))
                     }
                   >
-                    연결 해제
+                    봉투에서 빼기
                   </Button>
                 </div>
               ))}

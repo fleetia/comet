@@ -229,7 +229,7 @@ fn check_expected<T: for<'de> Deserialize<'de> + PartialEq>(
         input
             .get("expected")
             .cloned()
-            .ok_or("편집 전 내용이 필요합니다.")?,
+            .ok_or("편집 전 내용이 필요해요.")?,
     )
     .map_err(super::err)?;
     if &expected != current {
@@ -244,7 +244,7 @@ fn check_expected<T: for<'de> Deserialize<'de> + PartialEq>(
 fn zone(value: String) -> Result<String> {
     value
         .parse::<Tz>()
-        .map_err(|_| "시간대를 찾을 수 없습니다.")?;
+        .map_err(|_| "시간대를 찾을 수 없어요.")?;
     Ok(value)
 }
 
@@ -267,7 +267,7 @@ pub(crate) fn instant(day: &str, at: &str, zone: &str) -> Result<i64> {
         NaiveDate::parse_from_str(day, "%Y-%m-%d").map_err(super::err)?,
         NaiveTime::parse_from_str(at, "%H:%M").map_err(super::err)?,
     );
-    let tz: Tz = zone.parse().map_err(|_| "시간대를 찾을 수 없습니다.")?;
+    let tz: Tz = zone.parse().map_err(|_| "시간대를 찾을 수 없어요.")?;
     tz.from_local_datetime(&local)
         .earliest()
         .map(|value| value.timestamp())
@@ -287,7 +287,7 @@ fn money(input: &Value, key: &str, limit: u64) -> Result<u64> {
         .get(key)
         .and_then(Value::as_u64)
         .filter(|value| *value <= limit)
-        .ok_or_else(|| format!("{key} 금액은 0 이상의 정수여야 합니다."))
+        .ok_or_else(|| format!("{key} 금액은 0 이상의 정수여야 해요."))
 }
 
 /// KRW per one unit of `currency`, scaled by 10,000. Won is always 1:1.
@@ -323,14 +323,14 @@ fn coordinate(input: &Value, key: &str, limit: i64) -> Result<Option<i64>> {
             .as_i64()
             .filter(|value| value.abs() <= limit)
             .map(Some)
-            .ok_or_else(|| "위치가 올바르지 않습니다.".into()),
+            .ok_or_else(|| "위치가 올바르지 않아요.".into()),
     }
 }
 
 fn link(input: &Value) -> Result<String> {
     let value = string(input, "link", 2000, false)?;
     if !value.is_empty() && !(value.starts_with("https://") || value.starts_with("http://")) {
-        return Err("링크는 http:// 또는 https://로 시작해야 합니다.".into());
+        return Err("링크는 http:// 또는 https://로 시작해야 해요.".into());
     }
     Ok(value)
 }
@@ -341,13 +341,13 @@ fn owner<'a>(state: &'a DiaryState, input: &Value) -> Result<&'a Travel> {
         .travels
         .iter()
         .find(|value| value.id == id)
-        .ok_or_else(|| "여행을 찾을 수 없습니다.".into())
+        .ok_or_else(|| "여행을 찾을 수 없어요.".into())
 }
 
 fn ledger_category(state: &DiaryState, input: &Value) -> Result<String> {
     let id = string(input, "category", 100, true)?;
     if !state.ledger_settings.has_category(&id) {
-        return Err("가계부 분류를 찾을 수 없습니다.".into());
+        return Err("가계부 분류를 찾을 수 없어요.".into());
     }
     Ok(id)
 }
@@ -358,7 +358,7 @@ fn travel(input: &Value, id: String, finished: bool) -> Result<Travel> {
     let start = NaiveDate::parse_from_str(&start_date, "%Y-%m-%d").map_err(super::err)?;
     let end = NaiveDate::parse_from_str(&end_date, "%Y-%m-%d").map_err(super::err)?;
     if end < start || (end - start).num_days() >= MAX_DAYS {
-        return Err("여행 기간은 첫날부터 1년 안이어야 합니다.".into());
+        return Err("여행 기간은 첫날부터 1년 안이어야 해요.".into());
     }
     Ok(Travel {
         id,
@@ -383,12 +383,12 @@ fn plan(state: &DiaryState, input: &Value, id: String) -> Result<TravelPlan> {
             .iter()
             .any(|value| &value.id == booking && value.travel_id == owner.id)
     }) {
-        return Err("연결할 예약을 찾을 수 없습니다.".into());
+        return Err("연결할 예약을 찾을 수 없어요.".into());
     }
     let lat = coordinate(input, "lat", 90_000_000)?;
     let lng = coordinate(input, "lng", 180_000_000)?;
     if lat.is_some() != lng.is_some() {
-        return Err("위치는 위도와 경도를 함께 적어야 합니다.".into());
+        return Err("위치는 위도와 경도를 함께 적어야 해요.".into());
     }
     let mut value = TravelPlan {
         id,
@@ -435,7 +435,7 @@ fn plan(state: &DiaryState, input: &Value, id: String) -> Result<TravelPlan> {
             value.depart_zone = depart_zone;
             value.arrive_zone = arrive_zone;
         }
-        _ => return Err("일정 종류가 올바르지 않습니다.".into()),
+        _ => return Err("일정 종류가 올바르지 않아요.".into()),
     }
     Ok(value)
 }
@@ -453,11 +453,11 @@ fn booking(state: &DiaryState, input: &Value, id: String) -> Result<Booking> {
     let owner = owner(state, input)?;
     let kind = string(input, "kind", 10, true)?;
     if !BOOKING_KINDS.contains(&kind.as_str()) {
-        return Err("예약 종류가 올바르지 않습니다.".into());
+        return Err("예약 종류가 올바르지 않아요.".into());
     }
     let status = string(input, "status", 10, true)?;
     if !matches!(status.as_str(), "paid" | "onsite" | "unpaid") {
-        return Err("결제 상태가 올바르지 않습니다.".into());
+        return Err("결제 상태가 올바르지 않아요.".into());
     }
     let currency = currency(input)?;
     let vouchers: Vec<Voucher> = serde_json::from_value(
@@ -466,13 +466,13 @@ fn booking(state: &DiaryState, input: &Value, id: String) -> Result<Booking> {
             .cloned()
             .unwrap_or(Value::Array(vec![])),
     )
-    .map_err(|_| "바우처 목록이 올바르지 않습니다.")?;
+    .map_err(|_| "바우처 목록이 올바르지 않아요.")?;
     if vouchers.len() > 20
         || vouchers.iter().any(|value| {
             !voucher_file(&value.file) || value.name.trim().is_empty() || value.name.len() > 300
         })
     {
-        return Err("바우처는 20개까지, 올바른 파일만 붙일 수 있습니다.".into());
+        return Err("바우처는 20개까지, 올바른 파일만 붙일 수 있어요.".into());
     }
     let start_date = date(string(input, "startDate", 10, true)?)?;
     let start_time = time(input, "startTime")?;
@@ -481,7 +481,7 @@ fn booking(state: &DiaryState, input: &Value, id: String) -> Result<Booking> {
     let end_time = time(input, "endTime")?;
     let end_zone = optional_zone(input, "endZone")?;
     if end_time.is_some() && end_date.is_none() {
-        return Err("끝나는 시각에는 날짜가 필요합니다.".into());
+        return Err("끝나는 시각에는 날짜가 필요해요.".into());
     }
     if let (Some(start), Some(end_day), Some(end)) = (&start_time, &end_date, &end_time) {
         let begins = instant(
@@ -503,7 +503,7 @@ fn booking(state: &DiaryState, input: &Value, id: String) -> Result<Booking> {
     let cancel_date = optional_date(input, "cancelDate")?;
     let cancel_time = time(input, "cancelTime")?;
     if cancel_time.is_some() && cancel_date.is_none() {
-        return Err("무료 취소 마감 시각에는 날짜가 필요합니다.".into());
+        return Err("무료 취소 마감 시각에는 날짜가 필요해요.".into());
     }
     Ok(Booking {
         id,
@@ -559,7 +559,7 @@ fn everyone(state: &DiaryState, travel_id: &str) -> Vec<Share> {
 fn shares(state: &DiaryState, travel_id: &str, input: &Value) -> Result<Vec<Share>> {
     let value: Vec<Share> =
         serde_json::from_value(input.get("shares").cloned().unwrap_or_default())
-            .map_err(|_| "나눌 사람 목록이 올바르지 않습니다.")?;
+            .map_err(|_| "나눌 사람 목록이 올바르지 않아요.")?;
     let known = person_ids(state, travel_id);
     let mut seen = BTreeSet::new();
     if value.is_empty()
@@ -579,7 +579,7 @@ fn expense(state: &DiaryState, input: &Value, id: String) -> Result<Expense> {
     let currency = currency(input)?;
     let payer = string(input, "payer", 200, true)?;
     if !person_ids(state, &owner.id).contains(&payer) {
-        return Err("낸 사람을 찾을 수 없습니다.".into());
+        return Err("낸 사람을 찾을 수 없어요.".into());
     }
     let amount = money(input, "amount", MAX_MINOR)?;
     if amount == 0 {
@@ -889,7 +889,7 @@ fn sync_ledger(state: &mut DiaryState, expense_id: &str) -> Result<()> {
         state
             .ledger_settings
             .first_category()
-            .ok_or("가계부 분류가 없습니다.")?
+            .ok_or("가계부 분류가 없어요.")?
             .to_string()
     };
     let entry = LedgerEntry {
@@ -1003,7 +1003,7 @@ fn sync_travel_ledger(state: &mut DiaryState, travel_id: &str) -> Result<()> {
 fn person_ref(state: &DiaryState, travel_id: &str, input: &Value, key: &str) -> Result<String> {
     let value = string(input, key, 200, true)?;
     if !person_ids(state, travel_id).contains(&value) {
-        return Err("사람을 찾을 수 없습니다.".into());
+        return Err("사람을 찾을 수 없어요.".into());
     }
     Ok(value)
 }
@@ -1012,12 +1012,12 @@ fn photo(state: &DiaryState, travel_id: &str, value: &Value, id: String) -> Resu
     let path = string(value, "path", 4096, true)?;
     let thumb = optional_string(value, "thumb", 200)?;
     if thumb.as_deref().is_some_and(|file| !voucher_file(file)) {
-        return Err("미리보기 파일 이름이 올바르지 않습니다.".into());
+        return Err("미리보기 파일 이름이 올바르지 않아요.".into());
     }
     let taken_at = optional_string(value, "takenAt", 16)?;
     if let Some(at) = &taken_at {
         NaiveDateTime::parse_from_str(at, "%Y-%m-%dT%H:%M")
-            .map_err(|_| "찍은 시각이 올바르지 않습니다.")?;
+            .map_err(|_| "찍은 시각이 올바르지 않아요.")?;
     }
     let plan_id = optional_string(value, "planId", 200)?;
     if plan_id.as_ref().is_some_and(|plan| {
@@ -1026,12 +1026,12 @@ fn photo(state: &DiaryState, travel_id: &str, value: &Value, id: String) -> Resu
             .iter()
             .any(|value| &value.id == plan && value.travel_id == travel_id)
     }) {
-        return Err("붙일 장소를 찾을 수 없습니다.".into());
+        return Err("붙일 장소를 찾을 수 없어요.".into());
     }
     let lat = coordinate(value, "lat", 90_000_000)?;
     let lng = coordinate(value, "lng", 180_000_000)?;
     if lat.is_some() != lng.is_some() {
-        return Err("사진 위치가 올바르지 않습니다.".into());
+        return Err("사진 위치가 올바르지 않아요.".into());
     }
     Ok(Photo {
         id,
@@ -1080,7 +1080,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
                 &state.travel_plans,
                 input,
                 |v| v.id.as_str(),
-                "일정을 찾을 수 없습니다.",
+                "일정을 찾을 수 없어요.",
             )?;
             check_expected(input, &state.travel_plans[at])?;
             if action == "travel-plan-delete" {
@@ -1093,7 +1093,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
             } else {
                 let value = plan(state, input, state.travel_plans[at].id.clone())?;
                 if value.travel_id != state.travel_plans[at].travel_id {
-                    return Err("일정을 다른 여행으로 옮길 수 없습니다.".into());
+                    return Err("일정을 다른 여행으로 옮길 수 없어요.".into());
                 }
                 state.travel_plans[at] = value;
             }
@@ -1110,7 +1110,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
                 &state.travel_bookings,
                 input,
                 |v| v.id.as_str(),
-                "예약을 찾을 수 없습니다.",
+                "예약을 찾을 수 없어요.",
             )?;
             check_expected(input, &state.travel_bookings[at])?;
             let id = state.travel_bookings[at].id.clone();
@@ -1124,7 +1124,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
             } else {
                 let value = booking(state, input, id.clone())?;
                 if value.travel_id != state.travel_bookings[at].travel_id {
-                    return Err("예약을 다른 여행으로 옮길 수 없습니다.".into());
+                    return Err("예약을 다른 여행으로 옮길 수 없어요.".into());
                 }
                 state.travel_bookings[at] = value;
             }
@@ -1172,7 +1172,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
                 &state.travel_transfers,
                 input,
                 |v| v.id.as_str(),
-                "보낸 기록을 찾을 수 없습니다.",
+                "보낸 기록을 찾을 수 없어요.",
             )?;
             check_expected(input, &state.travel_transfers[at])?;
             state.travel_transfers.remove(at);
@@ -1204,7 +1204,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
                 &state.travel_photos,
                 input,
                 |v| v.id.as_str(),
-                "사진을 찾을 수 없습니다.",
+                "사진을 찾을 수 없어요.",
             )?;
             check_expected(input, &state.travel_photos[at])?;
             if action == "travel-photo-delete" {
@@ -1230,7 +1230,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
                 .get("minutes")
                 .and_then(Value::as_i64)
                 .filter(|value| *value != 0 && value.abs() <= 48 * 60)
-                .ok_or("옮길 시간은 48시간 안이어야 합니다.")?;
+                .ok_or("옮길 시간은 48시간 안이어야 해요.")?;
             for photo in state
                 .travel_photos
                 .iter_mut()
@@ -1251,7 +1251,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
                 address_search: boolean(input, "addressSearch", false)?,
             };
         }
-        _ => return Err("지원하지 않는 여행 동작입니다.".into()),
+        _ => return Err("지원하지 않는 여행 동작이에요.".into()),
     }
     Ok(())
 }
@@ -1261,7 +1261,7 @@ fn update_person(state: &mut DiaryState, action: &str, input: &Value) -> Result<
         &state.travel_people,
         input,
         |v| v.id.as_str(),
-        "사람을 찾을 수 없습니다.",
+        "사람을 찾을 수 없어요.",
     )?;
     check_expected(input, &state.travel_people[at])?;
     let current = state.travel_people[at].clone();
@@ -1346,7 +1346,7 @@ fn update_expense(state: &mut DiaryState, action: &str, input: &Value) -> Result
         &state.travel_expenses,
         input,
         |v| v.id.as_str(),
-        "비용을 찾을 수 없습니다.",
+        "비용을 찾을 수 없어요.",
     )?;
     check_expected(input, &state.travel_expenses[at])?;
     let current = state.travel_expenses[at].clone();
@@ -1359,7 +1359,7 @@ fn update_expense(state: &mut DiaryState, action: &str, input: &Value) -> Result
     }
     let mut value = expense(state, input, current.id.clone())?;
     if value.travel_id != current.travel_id {
-        return Err("비용을 다른 여행으로 옮길 수 없습니다.".into());
+        return Err("비용을 다른 여행으로 옮길 수 없어요.".into());
     }
     if current.booking_id.is_some() {
         // The booking owns the price, date and payment state; here only who pays and shares change.
@@ -1393,7 +1393,7 @@ fn update_travel(state: &mut DiaryState, action: &str, input: &Value) -> Result<
         &state.travels,
         input,
         |v| v.id.as_str(),
-        "여행을 찾을 수 없습니다.",
+        "여행을 찾을 수 없어요.",
     )?;
     check_expected(input, &state.travels[at])?;
     let id = state.travels[at].id.clone();

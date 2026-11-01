@@ -246,7 +246,7 @@ it("keeps an Apple permission denial recoverable without connecting or clearing 
   expect(command).not.toHaveBeenCalledWith("disconnect_calendar", expect.anything());
 });
 it("clears an earlier ICS command error during Apple setup while preserving the failed connection status", async () => {
-  const message = "ICS 반복 규칙 검증에 실패했습니다.";
+  const message = "ICS 반복 규칙 검증에 실패했어요.";
   vi.mocked(command).mockResolvedValueOnce("prompt").mockRejectedValueOnce(message);
   render(
     <CalendarTool
@@ -835,7 +835,7 @@ it("opens only stored meeting links and confirms disconnect while preserving pre
       url: "https://meet.example.com/one",
     }),
   );
-  expect(screen.queryByRole("button", { name: "연결 해제" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "연결 끊기" })).toBeNull();
   view.rerender(
     <CalendarTool
       mode="settings"
@@ -850,13 +850,13 @@ it("opens only stored meeting links and confirms disconnect while preserving pre
   );
   fireEvent.click(screen.getByLabelText("개인 메뉴"));
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "연결 해제" })).toHaveProperty("disabled", false),
+    expect(screen.getByRole("button", { name: "연결 끊기" })).toHaveProperty("disabled", false),
   );
-  fireEvent.click(screen.getByRole("button", { name: "연결 해제" }));
+  fireEvent.click(screen.getByRole("button", { name: "연결 끊기" }));
   expect(screen.getByText(/기존 준비 봉투의 체크리스트와 자료는 보존/)).toBeTruthy();
   expect(command).not.toHaveBeenCalledWith("disconnect_calendar", expect.anything());
   fireEvent.click(
-    within(screen.getByRole("dialog")).getByRole("button", { name: "연결 해제 확인" }),
+    within(screen.getByRole("dialog")).getByRole("button", { name: "연결 끊기 확인" }),
   );
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("disconnect_calendar", {

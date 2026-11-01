@@ -145,7 +145,7 @@ function RowActions({
       handle={
         handle && {
           label: `${label} 순서 바꾸기`,
-          "aria-description": "위아래 화살표로 순서를 바꿉니다.",
+          "aria-description": "위아래 화살표로 순서를 바꿔요.",
           draggable: true,
           ...handle,
         }
@@ -678,7 +678,7 @@ export function WidgetStack(): ReactElement {
         {folded ? (
           <div ref={dockRef} className={s.capsuleDock} {...dragHandlers}>
             <WidgetStackSummary
-              aria-label="접어 둔 위젯"
+              aria-label="접어 둔 모아두기"
               items={ordered.map((widget) => {
                 const summary = desktopSummary(widget, now, widgets);
                 const running =

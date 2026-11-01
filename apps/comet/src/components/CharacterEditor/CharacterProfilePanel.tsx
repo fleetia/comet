@@ -92,7 +92,7 @@ export function CharacterProfilePanel({ editor }: { editor: CharacterEditorState
                 }
                 badges={[
                   `인사 ${definition.greeting.length}줄`,
-                  `자동 수다 ${definition.idleLines.length}줄`,
+                  `자동 잡담 ${definition.idleLines.length}줄`,
                   `떠날 때 ${definition.departureLines.length}줄`,
                   `돌아올 때 ${definition.returnLines.length}줄`,
                 ]}

@@ -224,7 +224,7 @@ struct Move {
 
 fn decode<T: DeserializeOwned>(value: &Value) -> Result<T, String> {
     serde_json::from_value(value.clone())
-        .map_err(|error| format!("위젯 데이터가 올바르지 않습니다: {error}"))
+        .map_err(|error| format!("위젯 데이터가 올바르지 않아요: {error}"))
 }
 fn effect<T: Serialize>(data: T, events: Vec<EventDraft>) -> Result<WidgetEffect, String> {
     Ok(WidgetEffect {
@@ -243,7 +243,7 @@ fn position(x: f64, y: f64) -> Result<(), String> {
     if x.is_finite() && y.is_finite() && (0.0..=100.0).contains(&x) && (0.0..=100.0).contains(&y) {
         Ok(())
     } else {
-        Err("위치는 0부터 100 사이여야 합니다.".into())
+        Err("위치는 0부터 100 사이여야 해요.".into())
     }
 }
 fn empty(input: &Value) -> Result<(), String> {
@@ -355,7 +355,7 @@ pub fn act(
             effect(state, vec![])
         }
         "collection" => collection(data, action, input),
-        _ => Err("알 수 없는 장난감입니다.".into()),
+        _ => Err("알 수 없는 장난감이에요.".into()),
     }
 }
 
@@ -403,7 +403,7 @@ fn fishing(
                 }],
             )
         }
-        _ => Err("알 수 없는 낚시 동작입니다.".into()),
+        _ => Err("알 수 없는 낚시 동작이에요.".into()),
     }
 }
 
@@ -477,7 +477,7 @@ fn guessing(
             };
             effect(state, vec![draft])
         }
-        _ => Err("알 수 없는 맞히기 동작입니다.".into()),
+        _ => Err("알 수 없는 맞히기 동작이에요.".into()),
     }
 }
 
@@ -497,7 +497,7 @@ fn motion(
         return effect(state, vec![]);
     }
     if action != if kind == "ball" { "throw" } else { "launch" } {
-        return Err("알 수 없는 발사 동작입니다.".into());
+        return Err("알 수 없는 발사 동작이에요.".into());
     }
     let args: Launch = decode(input)?;
     position(args.x, args.y)?;
@@ -566,7 +566,7 @@ fn collection(data: &Value, action: &str, input: &Value) -> Result<WidgetEffect,
             empty(input)?;
             state.decorations.clear();
         }
-        _ => return Err("알 수 없는 소품 동작입니다.".into()),
+        _ => return Err("알 수 없는 소품 동작이에요.".into()),
     };
     effect(state, vec![])
 }
@@ -637,7 +637,7 @@ fn small_match(
             }
             .into();
         }
-        _ => return Err("알 수 없는 승부입니다.".into()),
+        _ => return Err("알 수 없는 승부예요.".into()),
     }
     state.game = action.into();
     state.rounds = state.rounds.saturating_add(1);
@@ -707,7 +707,7 @@ fn bubbles(
             empty(input)?;
             state.bubbles.clear();
         }
-        _ => return Err("알 수 없는 방울 동작입니다.".into()),
+        _ => return Err("알 수 없는 방울 동작이에요.".into()),
     }
     effect(state, vec![])
 }
@@ -752,7 +752,7 @@ fn interaction(
                 args.character, state.snacks
             )
         }
-        _ => return Err("알 수 없는 교감 동작입니다.".into()),
+        _ => return Err("알 수 없는 교감 동작이에요.".into()),
     };
     if !matches!(action, "drink" | "gift") {
         state.touches = state.touches.saturating_add(1);

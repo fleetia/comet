@@ -234,7 +234,7 @@ fn reconcile(
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit() || byte == b'-')
             {
-                return Err("메모 식별자가 올바르지 않습니다.".into());
+                return Err("메모 식별자가 올바르지 않아요.".into());
             }
             let window_label = label(&instance.id, note_id);
             desired.insert(window_label.clone());

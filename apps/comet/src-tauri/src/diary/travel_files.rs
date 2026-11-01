@@ -64,7 +64,7 @@ pub(crate) struct Draft {
 fn safe_id(id: &str) -> Result<&str> {
     if id.is_empty() || id.len() > 100 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
     {
-        return Err("여행을 찾을 수 없습니다.".into());
+        return Err("여행을 찾을 수 없어요.".into());
     }
     Ok(id)
 }
@@ -77,7 +77,7 @@ fn safe_file(file: &str) -> Result<&str> {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
     {
-        return Err("파일 이름이 올바르지 않습니다.".into());
+        return Err("파일 이름이 올바르지 않아요.".into());
     }
     Ok(file)
 }
@@ -93,7 +93,7 @@ fn diary(state: &AppState) -> Result<DiaryState> {
 fn require_trip(state: &AppState, travel_id: &str) -> Result<DiaryState> {
     let diary = diary(state)?;
     if !diary.travels.iter().any(|value| value.id == travel_id) {
-        return Err("여행을 찾을 수 없습니다.".into());
+        return Err("여행을 찾을 수 없어요.".into());
     }
     Ok(diary)
 }
@@ -238,7 +238,7 @@ pub(crate) fn travel_open_voucher(
         booking.travel_id == travel_id && booking.vouchers.iter().any(|value| value.file == file)
     });
     if !known {
-        return Err("바우처를 찾을 수 없습니다.".into());
+        return Err("바우처를 찾을 수 없어요.".into());
     }
     open_path(
         &trip_root(&state, &travel_id)?
@@ -272,7 +272,7 @@ pub(crate) fn travel_open_photo(
         .iter()
         .any(|photo| photo.path == path)
     {
-        return Err("사진을 찾을 수 없습니다.".into());
+        return Err("사진을 찾을 수 없어요.".into());
     }
     let path = PathBuf::from(path);
     if !path.exists() {
@@ -427,9 +427,9 @@ pub(crate) fn travel_save_thumb(
     require_trip(&state, &travel_id)?;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data)
-        .map_err(|_| "미리보기 형식이 올바르지 않습니다.")?;
+        .map_err(|_| "미리보기 형식이 올바르지 않아요.")?;
     if bytes.len() > THUMB_LIMIT || !bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
-        return Err("미리보기는 1MB 이하 JPEG여야 합니다.".into());
+        return Err("미리보기는 1MB 이하 JPEG여야 해요.".into());
     }
     let folder = trip_root(&state, &travel_id)?.join("thumbs");
     std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
@@ -668,7 +668,7 @@ pub(crate) async fn travel_booking_draft(
         .travels
         .into_iter()
         .find(|value| value.id == travel_id)
-        .ok_or("여행을 찾을 수 없습니다.")?;
+        .ok_or("여행을 찾을 수 없어요.")?;
     let settings = crate::store::settings(&*lock(&state.db)?)?;
     if !crate::organizer::runtime::ready(&state, &settings) {
         return Err(crate::inference::not_ready_message(&settings));

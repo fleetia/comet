@@ -140,7 +140,7 @@ export function useDiaryCalendarEvents({
           (value) => value.id === draft.event?.id,
         );
         if (!widget || !event || event.connectionId !== "local")
-          throw new Error("원본 일정을 찾을 수 없어요. 작성 중인 내용은 유지됩니다.");
+          throw new Error("원본 일정을 찾을 수 없어요. 작성 중인 내용은 유지돼요.");
         setCalendarDraft({
           date: draft.date,
           event,

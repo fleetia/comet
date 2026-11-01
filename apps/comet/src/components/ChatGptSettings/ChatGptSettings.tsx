@@ -537,7 +537,7 @@ export function ChatGptSettings({
         )}
         <p className={styles.caption}>
           계정 연결은 즉시 적용돼요. 대화 방식과 모델 선택은 아래 AI 연결 저장으로 적용해요. 자동
-          잡담은 자동 대화에서 별도로 허용할 수 있어요.
+          잡담에 쓸지는 설정 → 대화에서 따로 정해요.
         </p>
       </div>
       {footer}

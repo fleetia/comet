@@ -64,13 +64,13 @@ fn validate(rule: &RepeatRule) -> Result<(), String> {
         .day_of_month
         .is_some_and(|day| !(1..=31).contains(&day))
     {
-        return Err("반복 날짜는 1일부터 31일 사이여야 합니다.".into());
+        return Err("반복 날짜는 1일부터 31일 사이여야 해요.".into());
     }
     if let Some(mode) = rule.monthly_mode.as_deref() {
         if !["day-of-month", "last-day", "nth-weekday"].contains(&mode)
             || !["month", "year"].contains(&rule.unit.as_str())
         {
-            return Err("월 반복 설정이 올바르지 않습니다.".into());
+            return Err("월 반복 설정이 올바르지 않아요.".into());
         }
         if mode == "nth-weekday"
             && (!rule.nth.is_some_and(|n| n == -1 || (1..=5).contains(&n))
@@ -80,7 +80,7 @@ fn validate(rule: &RepeatRule) -> Result<(), String> {
         }
     }
     if rule.time_zone != "local" && rule.time_zone.parse::<chrono_tz::Tz>().is_err() {
-        return Err("지원하지 않는 시간대입니다.".into());
+        return Err("지원하지 않는 시간대예요.".into());
     }
     Ok(())
 }
@@ -94,7 +94,7 @@ pub(super) fn anchor(day: NaiveDate, period: &str) -> Result<Option<String>, Str
         _ => return Err("계획 기간을 확인해 주세요.".into()),
     };
     Ok(Some(
-        anchor.ok_or("계획 날짜 범위를 벗어났습니다.")?.to_string(),
+        anchor.ok_or("계획 날짜 범위를 벗어났어요.")?.to_string(),
     ))
 }
 
@@ -129,7 +129,7 @@ pub(super) fn apply(item: &mut Todo, input: &Value) -> Result<(), String> {
         let selected = item
             .plan_anchor
             .as_deref()
-            .ok_or("계획 기간의 기준 날짜가 필요합니다.")?;
+            .ok_or("계획 기간의 기준 날짜가 필요해요.")?;
         item.plan_anchor = anchor(date(selected)?, &item.plan_period)?;
     }
     if let Some(value) = input.get("repeatRule") {
@@ -137,7 +137,7 @@ pub(super) fn apply(item: &mut Todo, input: &Value) -> Result<(), String> {
             None
         } else {
             let mut rule: RepeatRule = serde_json::from_value(value.clone())
-                .map_err(|_| "반복 설정 형식이 올바르지 않습니다.")?;
+                .map_err(|_| "반복 설정 형식이 올바르지 않아요.")?;
             validate(&rule)?;
             if rule.mode == "calendar"
                 && ["month", "year"].contains(&rule.unit.as_str())
@@ -164,13 +164,13 @@ pub(super) fn apply(item: &mut Todo, input: &Value) -> Result<(), String> {
 
 pub(super) fn local_datetime(timestamp: i64, zone: &str) -> Result<NaiveDateTime, String> {
     let utc =
-        DateTime::<Utc>::from_timestamp_millis(timestamp).ok_or("시각 범위를 벗어났습니다.")?;
+        DateTime::<Utc>::from_timestamp_millis(timestamp).ok_or("시각 범위를 벗어났어요.")?;
     if zone == "local" {
         return Ok(utc.with_timezone(&Local).naive_local());
     }
     let tz = zone
         .parse::<chrono_tz::Tz>()
-        .map_err(|_| "지원하지 않는 시간대입니다.")?;
+        .map_err(|_| "지원하지 않는 시간대예요.")?;
     Ok(utc.with_timezone(&tz).naive_local())
 }
 
@@ -182,12 +182,12 @@ fn timestamp(local: NaiveDateTime, zone: &str) -> Result<i64, String> {
             .map(|dt| dt.timestamp_millis())
     } else {
         zone.parse::<chrono_tz::Tz>()
-            .map_err(|_| "지원하지 않는 시간대입니다.")?
+            .map_err(|_| "지원하지 않는 시간대예요.")?
             .from_local_datetime(&local)
             .single()
             .map(|dt| dt.timestamp_millis())
     };
-    resolved.ok_or_else(|| "다음 반복 시각이 서머타임 때문에 없거나 두 번 있습니다. 날짜와 시각을 직접 지정해 주세요.".into())
+    resolved.ok_or_else(|| "다음 반복 시각이 서머타임 때문에 없거나 두 번 있어요. 날짜와 시각을 직접 지정해 주세요.".into())
 }
 
 fn month_day(
@@ -233,7 +233,7 @@ fn next_day(day: NaiveDate, rule: &RepeatRule) -> Result<NaiveDate, String> {
                 return Ok(next);
             }
         }
-        return Err("다음 반복 요일을 계산하지 못했습니다.".into());
+        return Err("다음 반복 요일을 계산하지 못했어요.".into());
     }
     if ["month", "year"].contains(&rule.unit.as_str()) {
         let months = rule.interval * if rule.unit == "year" { 12 } else { 1 };
@@ -246,12 +246,12 @@ fn next_day(day: NaiveDate, rule: &RepeatRule) -> Result<NaiveDate, String> {
                 return Ok(next);
             }
         }
-        return Err("다음 반복 날짜를 계산하지 못했습니다.".into());
+        return Err("다음 반복 날짜를 계산하지 못했어요.".into());
     }
     day.checked_add_days(Days::new(
         u64::from(rule.interval) * if rule.unit == "week" { 7 } else { 1 },
     ))
-    .ok_or_else(|| "반복 날짜 범위를 벗어났습니다.".into())
+    .ok_or_else(|| "반복 날짜 범위를 벗어났어요.".into())
 }
 
 pub(super) fn advance(item: &Todo, now: i64) -> Result<Todo, String> {

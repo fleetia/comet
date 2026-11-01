@@ -12,6 +12,7 @@ import {
   dayDate,
   deadlineChipLabel,
   frequencyRecords,
+  formatPlannerDate,
   isOverdue,
   plannedDay,
   repeatLabel,
@@ -245,7 +246,9 @@ export function PlannerDiaryTasks({
                             due={
                               plannedDay(item) === day
                                 ? group.title
-                                : plannedDay(item) || "날짜 없음"
+                                : plannedDay(item)
+                                  ? formatPlannerDate(plannedDay(item))
+                                  : "날짜 없음"
                             }
                             dueLabel={`${text(item.title)} 계획 날짜 바꾸기`}
                             onDueClick={() => onEdit(item, "plan")}
@@ -283,7 +286,7 @@ export function PlannerDiaryTasks({
                   <p className={s.diaryGroupMeta}>
                     {group.title === "날짜 없음"
                       ? "날짜 없이 남긴 할 일이 없어요."
-                      : `${day}에 계획한 할 일이 없어요.`}
+                      : `${formatPlannerDate(day)}에 계획한 할 일이 없어요.`}
                   </p>
                 )}
               </section>

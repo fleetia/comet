@@ -22,7 +22,7 @@ fn moment(property: &Property<'_>) -> Result<Moment, CalendarError> {
     let all_day = parameter(property, "VALUE").as_deref() == Some("DATE");
     if all_day {
         if parameter(property, "TZID").is_some() {
-            return Err(invalid("종일 일정에 TZID를 지정할 수 없습니다."));
+            return Err(invalid("종일 일정에 TZID를 지정할 수 없어요."));
         }
         let day =
             NaiveDate::parse_from_str(value, "%Y%m%d").map_err(|_| invalid("ICS 날짜 오류"))?;
@@ -35,16 +35,16 @@ fn moment(property: &Property<'_>) -> Result<Moment, CalendarError> {
         });
     }
     if parameter(property, "VALUE").is_some_and(|x| x != "DATE-TIME") {
-        return Err(invalid("지원하지 않는 ICS 시각 값 형식입니다."));
+        return Err(invalid("지원하지 않는 ICS 시각 값 형식이에요."));
     }
     let timezone = parameter(property, "TZID");
     if timezone.is_none() && !value.ends_with('Z') {
         return Err(invalid(
-            "시간대 없는 floating ICS 시각은 지원하지 않습니다.",
+            "시간대 없는 floating ICS 시각은 지원하지 않아요.",
         ));
     }
     if timezone.is_some() && value.ends_with('Z') {
-        return Err(invalid("UTC 시각과 TZID를 함께 지정할 수 없습니다."));
+        return Err(invalid("UTC 시각과 TZID를 함께 지정할 수 없어요."));
     }
     let definition = if let Some(timezone) = timezone {
         format!("DTSTART;TZID={timezone}:{value}\nRRULE:FREQ=DAILY;COUNT=1")
@@ -53,13 +53,13 @@ fn moment(property: &Property<'_>) -> Result<Moment, CalendarError> {
     };
     let parsed: RRuleSet = definition
         .parse()
-        .map_err(|_| invalid("ICS 시각 또는 IANA 시간대를 읽을 수 없습니다."))?;
+        .map_err(|_| invalid("ICS 시각 또는 IANA 시간대를 읽을 수 없어요."))?;
     let at = *parsed.get_dt_start();
     let naive = NaiveDateTime::parse_from_str(value.trim_end_matches('Z'), "%Y%m%dT%H%M%S")
         .map_err(|_| invalid("ICS 시각 형식 오류"))?;
     if at.timezone().from_local_datetime(&naive).single().is_none() {
         return Err(invalid(
-            "일광 절약 시간 전환으로 모호하거나 존재하지 않는 ICS 시각입니다.",
+            "일광 절약 시간 전환으로 모호하거나 존재하지 않는 ICS 시각이에요.",
         ));
     }
     Ok(Moment { at, all_day: false })
@@ -79,7 +79,7 @@ fn required<'a, 'b>(
         .properties
         .iter()
         .find(|x| x.name.as_ref() == name)
-        .ok_or_else(|| invalid("ICS 일정의 필수 필드가 없습니다."))
+        .ok_or_else(|| invalid("ICS 일정의 필수 필드가 없어요."))
 }
 fn validate(component: &Component<'_>) -> Result<(), CalendarError> {
     for key in [
@@ -98,23 +98,23 @@ fn validate(component: &Component<'_>) -> Result<(), CalendarError> {
             .count()
             > 1
         {
-            return Err(invalid("ICS 단일 필드가 중복되었습니다."));
+            return Err(invalid("ICS 단일 필드가 중복되었어요."));
         }
     }
     if component.find_prop("EXRULE").is_some() {
         return Err(invalid(
-            "ICS EXRULE은 지원하지 않습니다. EXDATE를 사용해 주세요.",
+            "ICS EXRULE은 지원하지 않아요. EXDATE를 사용해 주세요.",
         ));
     }
     if component
         .find_prop("RECURRENCE-ID")
         .is_some_and(|p| parameter(p, "RANGE").is_some())
     {
-        return Err(invalid("ICS RECURRENCE-ID RANGE 변경은 지원하지 않습니다."));
+        return Err(invalid("ICS RECURRENCE-ID RANGE 변경은 지원하지 않아요."));
     }
     if component.find_prop("DURATION").is_some() {
         return Err(invalid(
-            "ICS DURATION은 지원하지 않습니다. DTEND가 필요합니다.",
+            "ICS DURATION은 지원하지 않아요. DTEND가 필요해요.",
         ));
     }
     if component
@@ -148,7 +148,7 @@ fn event(
         },
     };
     if end.all_day != start.all_day || end.at < start.at || (start.all_day && end.at == start.at) {
-        return Err(invalid("ICS 시작·종료 형식 또는 순서가 올바르지 않습니다."));
+        return Err(invalid("ICS 시작·종료 형식 또는 순서가 올바르지 않아요."));
     }
     let occurrence_id = occurrence(identity);
     let cancelled = component
@@ -211,7 +211,7 @@ fn recurrent(
                     ["FREQ=DAILY", "FREQ=WEEKLY", "FREQ=MONTHLY", "FREQ=YEARLY"].contains(&part)
                 }) {
                     return Err(invalid(
-                        "ICS 반복은 DAILY/WEEKLY/MONTHLY/YEARLY만 지원합니다.",
+                        "ICS 반복은 DAILY/WEEKLY/MONTHLY/YEARLY만 지원해요.",
                     ));
                 }
                 if start.all_day
@@ -221,7 +221,7 @@ fn recurrent(
                             || x.starts_with("BYSECOND=")
                     })
                 {
-                    return Err(invalid("종일 일정에 시각 반복을 적용할 수 없습니다."));
+                    return Err(invalid("종일 일정에 시각 반복을 적용할 수 없어요."));
                 }
                 let definition = value
                     .split(';')
@@ -246,9 +246,9 @@ fn recurrent(
                     .join(";");
                 let rule = definition
                     .parse::<rrule::RRule<rrule::Unvalidated>>()
-                    .map_err(|_| invalid("지원하지 않거나 잘못된 ICS 반복 규칙입니다."))?
+                    .map_err(|_| invalid("지원하지 않거나 잘못된 ICS 반복 규칙이에요."))?
                     .validate(start.at)
-                    .map_err(|_| invalid("ICS 반복 규칙 검증에 실패했습니다."))?;
+                    .map_err(|_| invalid("ICS 반복 규칙 검증에 실패했어요."))?;
                 set = set.rrule(rule);
             }
             "RDATE" | "EXDATE" => {
@@ -279,7 +279,7 @@ fn recurrent(
         .ok_or_else(|| invalid("조회 시각 오류"))?;
     let result = set.after(lower).before(upper).all((MAX_EVENTS + 1) as u16);
     if result.limited || result.dates.len() > MAX_EVENTS {
-        return Err(invalid("ICS 반복 계산 또는 5000개 회차 한도를 넘었습니다."));
+        return Err(invalid("ICS 반복 계산 또는 5000개 회차 한도를 넘었어요."));
     }
     Ok(result.dates)
 }
@@ -310,13 +310,13 @@ pub fn parse_ics(
     now: i64,
 ) -> Result<Vec<CalendarEvent>, CalendarError> {
     if text.len() > MAX_BYTES {
-        return Err(invalid("ICS 파일이 4 MiB 한도를 넘었습니다."));
+        return Err(invalid("ICS 파일이 4 MiB 한도를 넘었어요."));
     }
     let unfolded = icalendar::parser::unfold(text);
     let roots = icalendar::parser::read_calendar_simple(&unfolded)
-        .map_err(|_| invalid("ICS 문서 형식이 올바르지 않습니다."))?;
+        .map_err(|_| invalid("ICS 문서 형식이 올바르지 않아요."))?;
     if roots.len() != 1 || roots[0].name.as_ref() != "VCALENDAR" {
-        return Err(invalid("하나의 VCALENDAR 문서가 필요합니다."));
+        return Err(invalid("하나의 VCALENDAR 문서가 필요해요."));
     }
     let calendar = &roots[0];
     let mut groups: BTreeMap<String, Vec<&Component<'_>>> = BTreeMap::new();
@@ -328,7 +328,7 @@ pub fn parse_ics(
                 format!("DTSTART;TZID={timezone}:20260115T120000\nRRULE:FREQ=DAILY;COUNT=1");
             if probe.parse::<RRuleSet>().is_err() {
                 return Err(invalid(
-                    "사용자 정의 VTIMEZONE은 지원하지 않습니다. IANA TZID가 필요합니다.",
+                    "사용자 정의 VTIMEZONE은 지원하지 않아요. IANA TZID가 필요해요.",
                 ));
             }
             continue;
@@ -339,11 +339,11 @@ pub fn parse_ics(
         validate(component)?;
         total += 1;
         if total > MAX_EVENTS {
-            return Err(invalid("ICS 원본 일정이 5000개를 넘었습니다."));
+            return Err(invalid("ICS 원본 일정이 5000개를 넘었어요."));
         }
         let uid = required(component, "UID")?.val.to_string();
         if uid.is_empty() || uid.len() > 1000 {
-            return Err(invalid("ICS UID가 올바르지 않습니다."));
+            return Err(invalid("ICS UID가 올바르지 않아요."));
         }
         groups.entry(uid).or_default().push(component);
     }
@@ -354,7 +354,7 @@ pub fn parse_ics(
             .filter(|c| c.find_prop("RECURRENCE-ID").is_none())
             .collect();
         if masters.len() > 1 {
-            return Err(invalid("동일한 UID의 ICS 원본 일정이 중복되었습니다."));
+            return Err(invalid("동일한 UID의 ICS 원본 일정이 중복되었어요."));
         }
         let mut occurrences: BTreeMap<String, CalendarEvent> = BTreeMap::new();
         if let Some(master) = masters.first() {
@@ -417,12 +417,12 @@ pub fn parse_ics(
             .filter(|c| c.find_prop("RECURRENCE-ID").is_some())
         {
             if component.find_prop("RRULE").is_some() || component.find_prop("RDATE").is_some() {
-                return Err(invalid("개별 예외 회차의 반복 규칙은 지원하지 않습니다."));
+                return Err(invalid("개별 예외 회차의 반복 규칙은 지원하지 않아요."));
             }
             let identity = moment(required(component, "RECURRENCE-ID")?)?;
             let key = occurrence(&identity);
             if !seen.insert(key.clone()) {
-                return Err(invalid("ICS 예외 회차가 중복되었습니다."));
+                return Err(invalid("ICS 예외 회차가 중복되었어요."));
             }
             let cancelled = component
                 .find_prop("STATUS")
@@ -450,7 +450,7 @@ pub fn parse_ics(
                 .filter(|item| in_window(item, now)),
         );
         if result.len() > MAX_EVENTS {
-            return Err(invalid("조회 일정이 5000개를 넘었습니다."));
+            return Err(invalid("조회 일정이 5000개를 넘었어요."));
         }
     }
     result.sort_by(|a, b| {

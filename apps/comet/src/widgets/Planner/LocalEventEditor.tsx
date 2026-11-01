@@ -142,7 +142,7 @@ export function LocalEventEditor({
     pending.current = true;
     setWorking(true);
     setError("");
-    const failure = "최신 일정을 불러오지 못했어요. 입력은 유지했습니다.";
+    const failure = "최신 일정을 불러오지 못했어요. 입력은 유지했어요.";
     try {
       if (!(await onReload())) {
         setError(failure);
@@ -196,7 +196,7 @@ export function LocalEventEditor({
           location: location.trim() || null,
           description: description || null,
         }),
-      "저장하지 못했어요. 입력은 유지했습니다. 최신 일정을 확인한 뒤 다시 시도해 주세요.",
+      "저장하지 못했어요. 입력은 유지했어요. 최신 일정을 확인한 뒤 다시 시도해 주세요.",
     );
   }
 
@@ -407,7 +407,7 @@ export function LocalEventEditor({
                     } else if (confirmation === "reload") {
                       void reload();
                     } else if (onDelete) {
-                      void persist(onDelete, "삭제하지 못했어요. 일정과 입력은 유지했습니다.");
+                      void persist(onDelete, "삭제하지 못했어요. 일정과 입력은 유지했어요.");
                     }
                   }}
                 >

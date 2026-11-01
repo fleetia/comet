@@ -680,7 +680,7 @@ it("runs generated lifecycle actions with fresh revisions and preserves data on 
   expect(screen.queryByLabelText("이 위젯의 작성 데이터도 삭제")).toBeNull();
   expect(
     within(screen.getByRole("dialog")).getByText(
-      "위젯 정의·작성 데이터·설치 정보는 이 기기에 보존합니다.",
+      "위젯 정의·작성 데이터·설치 정보는 이 기기에 보존해요.",
     ),
   ).toBeTruthy();
   expect(command).not.toHaveBeenCalledWith("remove_generated_widget", expect.anything());

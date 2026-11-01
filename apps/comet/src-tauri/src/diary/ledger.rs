@@ -92,9 +92,9 @@ fn amount(input: &Value, key: &str, zero: bool) -> Result<u64> {
     let value = input
         .get(key)
         .and_then(Value::as_u64)
-        .ok_or("금액은 원 단위 정수여야 합니다.")?;
+        .ok_or("금액은 원 단위 정수여야 해요.")?;
     if value > MAX_AMOUNT || (!zero && value == 0) {
-        return Err("금액 범위가 올바르지 않습니다.".into());
+        return Err("금액 범위가 올바르지 않아요.".into());
     }
     Ok(value)
 }
@@ -114,7 +114,7 @@ fn category(state: &DiaryState, input: &Value) -> Result<String> {
         .iter()
         .any(|value| value.id == id)
     {
-        return Err("분류를 찾을 수 없습니다.".into());
+        return Err("분류를 찾을 수 없어요.".into());
     }
     Ok(id)
 }
@@ -126,7 +126,7 @@ fn check_expected<T: for<'de> Deserialize<'de> + PartialEq>(
         input
             .get("expected")
             .cloned()
-            .ok_or("편집 전 내용이 필요합니다.")?,
+            .ok_or("편집 전 내용이 필요해요.")?,
     )
     .map_err(super::err)?;
     if &expected != current {
@@ -139,7 +139,7 @@ fn check_recurring_expected(input: &Value, current: &RecurringExpense) -> Result
         input
             .get("expected")
             .cloned()
-            .ok_or("편집 전 내용이 필요합니다.")?,
+            .ok_or("편집 전 내용이 필요해요.")?,
     )
     .map_err(super::err)?;
     expected.recorded_dates.clone_from(&current.recorded_dates);
@@ -173,7 +173,7 @@ fn bounded(input: &Value, key: &str, min: u32, max: u32) -> Result<u32> {
     let value = input
         .get(key)
         .and_then(Value::as_u64)
-        .ok_or_else(|| format!("{key} 값이 올바르지 않습니다."))?;
+        .ok_or_else(|| format!("{key} 값이 올바르지 않아요."))?;
     if value < u64::from(min) || value > u64::from(max) {
         return Err(format!("{key} 범위를 확인해 주세요."));
     }
@@ -185,11 +185,11 @@ fn recurring(state: &DiaryState, input: &Value, id: String) -> Result<RecurringE
         frequency.as_str(),
         "weekly" | "monthly" | "yearly" | "interval" | "months"
     ) {
-        return Err("반복 주기가 올바르지 않습니다.".into());
+        return Err("반복 주기가 올바르지 않아요.".into());
     }
     let weekend = string(input, "weekend", 10, true)?;
     if !matches!(weekend.as_str(), "keep" | "before" | "after") {
-        return Err("주말 처리 방식이 올바르지 않습니다.".into());
+        return Err("주말 처리 방식이 올바르지 않아요.".into());
     }
     let start_date = date(string(input, "startDate", 10, true)?)?;
     let end_date = match input.get("endDate") {
@@ -353,7 +353,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
                 .ledger_entries
                 .iter()
                 .position(|value| value.id == id)
-                .ok_or("기록을 찾을 수 없습니다.")?;
+                .ok_or("기록을 찾을 수 없어요.")?;
             check_expected(input, &state.ledger_entries[at])?;
             if action == "ledger-entry-delete" {
                 state.ledger_entries.remove(at);
@@ -384,7 +384,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
                 .ledger_recurring
                 .iter()
                 .position(|value| value.id == id)
-                .ok_or("고정비를 찾을 수 없습니다.")?;
+                .ok_or("고정비를 찾을 수 없어요.")?;
             check_recurring_expected(input, &state.ledger_recurring[at])?;
             if action == "ledger-recurring-delete" {
                 state.ledger_recurring.remove(at);
@@ -396,7 +396,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
         }
         "ledger-settings-update" => {
             check_expected(input, &state.ledger_settings)?;
-            let settings = input.get("settings").ok_or("설정이 필요합니다.")?;
+            let settings = input.get("settings").ok_or("설정이 필요해요.")?;
             let mut value: LedgerSettings =
                 serde_json::from_value(settings.clone()).map_err(super::err)?;
             value.monthly_budget = amount(settings, "monthlyBudget", true)?;
@@ -404,7 +404,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
                 || value.categories.is_empty()
                 || value.categories.len() > 50
             {
-                return Err("가계부 설정 범위가 올바르지 않습니다.".into());
+                return Err("가계부 설정 범위가 올바르지 않아요.".into());
             }
             let mut ids = std::collections::BTreeSet::new();
             for item in &value.categories {
@@ -426,7 +426,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
                             | "subscription"
                     )
                 {
-                    return Err("분류 설정이 올바르지 않습니다.".into());
+                    return Err("분류 설정이 올바르지 않아요.".into());
                 }
             }
             if state
@@ -438,7 +438,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
                     .iter()
                     .any(|entry| !ids.contains(&entry.category))
             {
-                return Err("기록에서 사용 중인 분류는 지울 수 없습니다.".into());
+                return Err("기록에서 사용 중인 분류는 지울 수 없어요.".into());
             }
             state.ledger_settings = value;
         }
@@ -468,7 +468,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
                 additions.push(value);
             }
             if state.ledger_entries.len() + additions.len() > ENTRY_LIMIT {
-                return Err("기록 저장 공간이 가득 찼습니다.".into());
+                return Err("기록 저장 공간이 가득 찼어요.".into());
             }
             for value in additions {
                 if let Some(rule) = state
@@ -495,7 +495,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
                 });
             }
         }
-        _ => return Err("지원하지 않는 가계부 동작입니다.".into()),
+        _ => return Err("지원하지 않는 가계부 동작이에요.".into()),
     }
     Ok(())
 }

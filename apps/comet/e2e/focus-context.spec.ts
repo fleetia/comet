@@ -85,7 +85,7 @@ test("a focus the organizer starts for a task replaces the open window's context
 
   await expect(timer).toContainText("자료 검토");
   await expect(timer.getByText(/이전 작업/)).toHaveCount(0);
-  await expect(timer.getByRole("button", { name: "일정 연결 해제" })).toBeHidden();
+  await expect(timer.getByRole("button", { name: "일정 빼기" })).toBeHidden();
   await expect(page.getByRole("timer", { name: "남은 시간" })).toBeVisible();
 
   const panel = page.getByRole("complementary", { name: "일정과 집중 기록" });

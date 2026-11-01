@@ -67,7 +67,7 @@ it("opens read-only details from the title without completing or editing the tas
   expect(title.getAttribute("aria-controls")).toBe(detail.id);
   expect(within(detail).queryByRole("textbox")).toBeNull();
   expect(detail.textContent).toContain("계획 날짜2026-10-04");
-  expect(detail.textContent).toContain("기한마감 2026-10-08");
+  expect(detail.textContent).toContain("기한마감 2026년 10월 8일");
   const memo = within(detail).getByText("첫째 줄 둘째 줄");
   expect(memo.textContent).toBe("  첫째 줄\n둘째 줄  ");
   fireEvent.click(memo);
@@ -195,12 +195,12 @@ it("shows the full local deadline and device time zone separately from the plann
     dueAt: new Date("2026-10-08T00:30:00+09:00").getTime(),
   });
   render(<TodoTool widget={widget([item])} act={act} />);
-  expect(screen.getByText(/계획 날짜 2026-10-04 · 마감 2026-10-08 00:30/).textContent).toContain(
+  expect(screen.getByText(/계획 날짜 2026-10-04 · 마감 2026년 10월 8일 00:30/).textContent).toContain(
     "Asia/Seoul 기준",
   );
   fireEvent.click(screen.getByRole("button", { name: "자료 검토 상세 보기" }));
   const detail = screen.getByRole("region", { name: "자료 검토 상세" });
-  expect(detail.textContent).toContain("2026-10-08 00:30");
+  expect(detail.textContent).toContain("2026년 10월 8일 00:30");
   expect(detail.textContent).toContain("Asia/Seoul 기준");
   fireEvent.click(screen.getByRole("button", { name: "수정" }));
   const due = screen.getByLabelText(/^기한\s*\*?$/);
