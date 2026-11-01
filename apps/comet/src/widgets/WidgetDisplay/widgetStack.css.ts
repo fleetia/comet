@@ -3,14 +3,17 @@ import { tokens } from "@comet/token";
 
 export const window = style({
   boxSizing: "border-box",
-  minHeight: "100dvh",
-  overflow: "hidden",
+  height: "100dvh",
+  overflow: "auto",
   background: "transparent",
   color: tokens["color/ink"],
   fontFamily: "inherit",
   fontSize: 13,
   lineHeight: "18px",
 });
+globalStyle(`${window}${window}`, { scrollbarWidth: "thin" });
+globalStyle(`${window}${window}::-webkit-scrollbar`, { display: "block", width: 8, height: 8 });
+globalStyle(`${window}${window}::-webkit-scrollbar-thumb`, { background: tokens["color/ink-3"], borderRadius: 4 });
 /** Measured for fit_widget_stack: its box is the whole visible stack. */
 export const root = style({
   boxSizing: "border-box",
@@ -112,3 +115,5 @@ globalStyle(
   `${row}[data-styled] > :not([role="toolbar"]), ${bubble}[data-styled] > :not([aria-hidden]):not([role="toolbar"])`,
   { borderRadius: "var(--comet-stack-radius)" },
 );
+
+export const srOnly = style({ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clipPath: "inset(50%)", whiteSpace: "nowrap", border: 0 });

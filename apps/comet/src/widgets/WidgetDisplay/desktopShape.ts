@@ -3,6 +3,7 @@ import type { WidgetView } from "../types";
 import { desktopKind } from "./desktopState";
 
 export const SHAPE_LIMITS = { minWidth: 48, maxWidth: 800, minHeight: 24, maxHeight: 600 };
+export const SHAPE_SAVE_DELAY = 250;
 
 /**
  * Design-system skin drawn for each desktop kind (see desktopKinds.json), and the vector

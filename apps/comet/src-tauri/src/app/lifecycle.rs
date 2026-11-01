@@ -338,6 +338,7 @@ pub fn run() {
             crate::widgets::desktop::get_widget_desktop,
             crate::widgets::desktop::mark_widget_desktop_drag,
             crate::widgets::desktop::reset_widget_desktop_position,
+            crate::widgets::desktop::set_widget_desktop_position,
             crate::widgets::desktop::configure_widget_desktop,
             crate::widgets::desktop::restore_widget_desktop,
             crate::widgets::desktop::add_widget_desktop_item,
