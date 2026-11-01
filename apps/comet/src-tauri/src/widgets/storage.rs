@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS widget_events(seq INTEGER PRIMARY KEY AUTOINCREMENT,
 id TEXT UNIQUE NOT NULL,instance_id TEXT NOT NULL,data TEXT NOT NULL,pending INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS widget_journal(event_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS widget_preferences(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TRIGGER IF NOT EXISTS widget_music_preference_delete AFTER DELETE ON widget_instances BEGIN
+DELETE FROM widget_preferences WHERE key='music-launch:' || OLD.id;
+END;
 CREATE TABLE IF NOT EXISTS weather_history(day TEXT NOT NULL,lat REAL NOT NULL,lon REAL NOT NULL,code INTEGER NOT NULL,tMax REAL NOT NULL,tMin REAL NOT NULL,tObserved REAL,source TEXT NOT NULL DEFAULT 'live',PRIMARY KEY(day,lat,lon));
 CREATE TABLE IF NOT EXISTS character_touches(character_id TEXT NOT NULL,user_id TEXT NOT NULL,action TEXT NOT NULL,count INTEGER NOT NULL,last_at INTEGER NOT NULL,PRIMARY KEY(character_id,user_id,action));
 CREATE TABLE IF NOT EXISTS character_touch_events(character_id TEXT NOT NULL,user_id TEXT NOT NULL,created_at INTEGER NOT NULL);
@@ -1348,6 +1351,23 @@ pub fn advance_with_presence(db: &Connection, now: i64, continuous: bool, presen
 pub(crate) fn discard_automatic_desktop_pending(db: &Connection) -> Result<()> {
     db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND id IN (SELECT id FROM desktop_toy_results) AND json_extract(data,'$.payload.automatic')=1", [])
         .map_err(err)?;
+    Ok(())
+}
+
+pub(crate) fn music_launch_enabled(db: &Connection, id: &str) -> Result<bool> {
+    let value: Option<String> = db.query_row(
+        "SELECT value FROM widget_preferences WHERE key=?1",
+        [format!("music-launch:{id}")],
+        |row| row.get(0),
+    ).optional().map_err(err)?;
+    Ok(value.as_deref() != Some("0"))
+}
+
+pub(crate) fn set_music_launch(db: &Connection, id: &str, enabled: bool) -> Result<()> {
+    db.execute(
+        "INSERT INTO widget_preferences(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        params![format!("music-launch:{id}"), if enabled { "1" } else { "0" }],
+    ).map_err(err)?;
     Ok(())
 }
 

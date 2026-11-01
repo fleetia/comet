@@ -17,6 +17,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { Snapshot } from "../../types";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWidgets } from "../../widgets/useWidgets";
+import { useGeneratedWidgets } from "../../widgets/GeneratedWidgets/useGeneratedWidgets";
 import { useWidgetDesktop } from "../../widgets/WidgetManager/useWidgetDesktop";
 import {
   bindTarget,
@@ -51,6 +52,7 @@ const RESULT_ICONS = {
 export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
   const widgets = useWidgets();
   const desktop = useWidgetDesktop();
+  const generated = useGeneratedWidgets();
   const [query, setQuery] = useState("");
   const [binding, setBinding] = useState<TargetBinding | null>(null);
   const [state, setState] = useState<LauncherState | null>(isDesktop() ? null : PREVIEW_STATE);
@@ -58,10 +60,12 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
   const windowRef = useRef<HTMLElement>(null);
   const composing = useRef(false);
+  const pickerDraft = useRef<{ query: string; binding: TargetBinding | null } | null>(null);
   const pendingSession = useRef<number | null>(null);
   // A retry of the same task in the same session reuses its id, so a lost reply cannot add it twice.
   const todoRequest = useRef<{ sessionId: number; title: string; requestId: string } | null>(null);
   const [pending, setPending] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [travels, setTravels] = useState<LauncherTravel[]>([]);
@@ -72,6 +76,7 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
     binding,
     travels,
     desktop.state,
+    generated.workshop.widgets,
   );
   const selected = results.find((result) => result.id === selectedId) ?? results[0];
   const modelReady = aiAvailability(snapshot).ready;
@@ -95,6 +100,7 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
           .catch(() => undefined);
         pendingSession.current = null;
         setPending(false);
+        setSaved(false);
         setError(null);
         setSelectedId(null);
       }
@@ -114,6 +120,7 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
       });
     return () => {
       active = false;
+      stateRef.current = null;
       cleanup?.();
     };
   }, []);
@@ -156,8 +163,30 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
 
   function edit(value: string): void {
     if (pendingSession.current !== null) return;
-    setQuery(value);
-    setBinding((previous) => bindTarget(value, snapshot.characters, previous));
+    if (pickerDraft.current && !value.startsWith(">")) {
+      if (!value.trim()) {
+        setQuery(pickerDraft.current.query);
+        setBinding(pickerDraft.current.binding);
+        pickerDraft.current = null;
+        setSelectedId(null);
+        setError(null);
+        return;
+      }
+      pickerDraft.current = null;
+    }
+    const target = bindTarget(value, snapshot.characters, null);
+    if (target) {
+      setBinding(target);
+      const content = value.trimStart().replace(/^>\S+\s/, "");
+      setQuery(content || pickerDraft.current?.query || "");
+      pickerDraft.current = null;
+    } else {
+      if (value.startsWith(">") && binding) {
+        pickerDraft.current ??= { query, binding };
+        setBinding(null);
+      }
+      setQuery(value);
+    }
     setSelectedId(null);
     setError(null);
   }
@@ -173,7 +202,8 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
     if (pendingSession.current !== null || composing.current) return;
     if (result.kind === "target") {
       const target = result.recipient;
-      setQuery(target ? `>${target.token} ` : "> ");
+      setQuery(pickerDraft.current?.query ?? "");
+      pickerDraft.current = null;
       setBinding(target ?? null);
       setSelectedId(null);
       setError(null);
@@ -201,13 +231,24 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
     }
     try {
       await command("execute_launcher", { request: { sessionId, action } });
-      if (stateRef.current.sessionId === sessionId && !keepDraft) {
+      if (action.type === "addTodo" && stateRef.current?.sessionId === sessionId) {
         setQuery("");
         setBinding(null);
         setSelectedId(null);
+        setSaved(true);
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 900));
+        if (stateRef.current?.sessionId === sessionId) {
+          await command("close_launcher", { sessionId }).catch(() => undefined);
+        }
+      }
+      if (stateRef.current?.sessionId === sessionId && !keepDraft) {
+        setQuery("");
+        setBinding(null);
+        pickerDraft.current = null;
+        setSelectedId(null);
       }
     } catch (cause) {
-      if (stateRef.current.sessionId === sessionId) {
+      if (stateRef.current?.sessionId === sessionId) {
         setError(errorText(cause));
         inputRef.current?.focus();
       }
@@ -215,6 +256,7 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
       if (pendingSession.current === sessionId) {
         pendingSession.current = null;
         setPending(false);
+        setSaved(false);
       }
     }
   }
@@ -226,6 +268,19 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
       return;
     }
     if (pendingSession.current !== null) return;
+    if (event.key === "Backspace" && !query && binding) {
+      event.preventDefault();
+      setBinding(null);
+      return;
+    }
+    if (event.key === "Enter" && event.shiftKey) {
+      const todo = results.find((result) => result.kind === "todo");
+      if (todo) {
+        event.preventDefault();
+        void execute(todo);
+      }
+      return;
+    }
     if (["ArrowDown", "ArrowUp"].includes(event.key)) {
       event.preventDefault();
       const index = results.findIndex((result) => result.id === selected?.id);
@@ -265,6 +320,13 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
         <span className={styles.searchIcon} aria-hidden="true">
           <SearchIcon size={24} />
         </span>
+        {binding && (
+          <Button variant="ghost" size="small" className={styles.pickFriend}
+            aria-label={`${binding.name} 수신자 해제`} disabled={pending}
+            onClick={() => { setBinding(null); inputRef.current?.focus(); }}>
+            {binding.name} ×
+          </Button>
+        )}
         <input
           ref={inputRef}
           className={styles.input}
@@ -294,7 +356,10 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
           variant="ghost"
           size="small"
           className={styles.pickFriend}
+          disabled={pending}
           onClick={() => {
+            pickerDraft.current ??= { query, binding };
+            setBinding(null);
             edit(">");
             inputRef.current?.focus();
           }}
@@ -308,7 +373,7 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
           : "설정·위젯·여행을 찾아요. 메모는 다이어리에서 찾아요."}
       </p>
       <ul
-        className={styles.results}
+        className={`${styles.results} ${pending ? styles.pending : ""}`}
         id="launcher-results"
         role="listbox"
         aria-label="실행 후보"
@@ -406,11 +471,16 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
             <Keycap>↵</Keycap> 실행
           </span>
           <span>
+            <Keycap>⇧ ↵</Keycap> 할 일로 적기
+          </span>
+          <span>
             <Keycap>esc</Keycap> 닫기
           </span>
         </span>
         <span role="status">
-          {pending
+          {saved
+            ? "할 일을 저장했어요"
+            : pending
             ? "실행 중…"
             : !isDesktop()
               ? "화면 미리보기"
