@@ -187,19 +187,24 @@ export function useDesktopState(): {
   const configure = useCallback(
     (patch: Partial<LayoutSettings> | ((base: DesktopState) => Partial<LayoutSettings>)) =>
       serialized(async () => {
-        const attempt = (base: DesktopState): Promise<DesktopState> =>
-          command<DesktopState>("configure_widget_desktop", {
+        const attempt = async (base: DesktopState): Promise<DesktopState | null> => {
+          const changes = typeof patch === "function" ? patch(base) : patch;
+          if (Object.keys(changes).length === 0) return null;
+          return command<DesktopState>("configure_widget_desktop", {
             expectedRevision: base.revision,
-            input: { ...layoutSettings(base), ...(typeof patch === "function" ? patch(base) : patch) },
+            input: { ...layoutSettings(base), ...changes },
           });
+        };
         const base = latest.current ?? receive(await command<DesktopState>("get_widget_desktop"));
         if (!base) return null;
         try {
-          return receive(await attempt(base));
+          const next = await attempt(base);
+          return next ? receive(next) : null;
         } catch {
           // Another window saved first: retry once on the newest revision.
           const fresh = receive(await command<DesktopState>("get_widget_desktop"));
-          return fresh ? receive(await attempt(fresh)) : null;
+          const next = fresh ? await attempt(fresh) : null;
+          return next ? receive(next) : null;
         }
       }),
     [receive, serialized],

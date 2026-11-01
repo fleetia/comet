@@ -13,7 +13,9 @@ vi.mock("@tauri-apps/api/event", () => ({
   emit: vi.fn().mockResolvedValue(undefined),
 }));
 
-beforeEach(() => vi.mocked(command).mockReset());
+beforeEach(() => {
+  vi.mocked(command).mockReset();
+});
 afterEach(cleanup);
 
 it("recalculates queued relative changes from the latest saved order", async () => {
@@ -59,4 +61,24 @@ it("recalculates relative changes when another window wins the revision", async 
     await result.current.configure((base) => ({ order: [...base.order.slice(1), base.order[0]] }));
   });
   expect(saved.order).toEqual(["a", "b", "c"]);
+});
+
+it("skips a relative change that becomes empty after a revision conflict", async () => {
+  let saved: DesktopState = { ...DEFAULT_LAYOUT, revision: 1, editing: true, order: ["a", "b"] };
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_widget_desktop") return saved;
+    saved = { ...saved, revision: 2, order: ["b", "a"] };
+    throw new Error("conflict");
+  });
+  const { result } = renderHook(useDesktopState);
+  await waitFor(() => expect(result.current.state?.revision).toBe(1));
+  let response: DesktopState | null | undefined;
+  await act(async () => {
+    response = await result.current.configure((base) =>
+      base.order[0] === "a" ? { order: ["b", "a"] } : {},
+    );
+  });
+  expect(response).toBeNull();
+  expect(result.current.state?.revision).toBe(2);
+  expect(command).toHaveBeenCalledTimes(3);
 });

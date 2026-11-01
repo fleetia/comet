@@ -1,5 +1,6 @@
 import { useId, useState, type JSX } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect, userEvent, within } from "storybook/test";
 import { Button, Radio, SegmentedControl } from "@comet/ui";
 
 const options = [
@@ -78,7 +79,18 @@ export const WithDisabledOption: Story = {
   args: { options: options.map((option) => ({ ...option, disabled: option.value === "month" })) },
 };
 export const Disabled: Story = { name: "전체 비활성", args: { disabled: true } };
-export const InProgress: Story = { name: "작업 중", args: { "aria-disabled": true } };
+export const InProgress: Story = {
+  name: "작업 중",
+  args: { "aria-disabled": true },
+  render: (args) => <SegmentedControl {...args} value="week" onValueChange={() => {}} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup({ document: canvasElement.ownerDocument });
+    await user.click(canvas.getByRole("radio", { name: "월" }));
+    await expect(canvas.getByRole("radio", { name: "주" })).toBeChecked();
+    await expect(canvas.getByRole("radio", { name: "월" })).not.toBeChecked();
+  },
+};
 export const Controlled: Story = { name: "값 연결", render: () => <ControlledSegments /> };
 export const SharedForm: Story = {
   name: "폼 밖의 선택지 · 초기화",
