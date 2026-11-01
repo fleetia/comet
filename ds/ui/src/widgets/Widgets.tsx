@@ -224,7 +224,7 @@ export const widgetHoverHost = styles.hoverHost;
 
 export type WidgetHoverActionsProps = HTMLAttributes<HTMLDivElement> & {
   /** Settings or open action of the widget. */
-  settings?: { label: string; onClick: () => void; disabled?: boolean };
+  settings?: { label: string; onClick: () => void; disabled?: boolean; icon?: "settings" | "open" };
   onCollapse?: () => void;
   collapseLabel?: string;
   /** Drag handle; spread drag and keyboard handlers here. */
@@ -258,7 +258,7 @@ export function WidgetHoverActions({
           className={styles.hoverAction}
           onClick={settings.onClick}
         >
-          <Icon name="gear" size={14} />
+          <Icon name={settings.icon === "open" ? "external" : "gear"} size={14} />
         </button>
       )}
       {onCollapse && (
@@ -910,9 +910,11 @@ export function EnvelopeWidget({
         ))}
       </div>
       <div className={styles.actions}>
-        <Button size="small" variant="ghost" onClick={onFocus}>
-          {labels.focus}
-        </Button>
+        {onFocus && (
+          <Button size="small" variant="ghost" onClick={onFocus}>
+            {labels.focus}
+          </Button>
+        )}
         <Button size="small" variant="ghost" onClick={onOpen}>
           {labels.open}
         </Button>

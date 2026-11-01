@@ -123,7 +123,7 @@ function RowActions({
   }, [action?.error, onError]);
   const settings =
     open && action
-      ? { label: action.label, onClick: () => void action.open().then((success) => { if (success) onError(null); }), disabled: action.busy }
+      ? { label: action.label, icon: action.icon, onClick: () => void action.open().then((success) => { if (success) onError(null); }), disabled: action.busy }
       : undefined;
   const collapse = open && hasStackCard(widget.kind) ? onCollapse : undefined;
   if (!settings && !collapse && !handle) return null;
@@ -160,7 +160,7 @@ export function WidgetStack(): ReactElement {
   const lastFit = useRef("");
   const dragging = useRef<string | null>(null);
   const drag = useWindowDrag(isDesktop(), desktop.setError);
-  const widgets = useTravelWidgets(snapshot?.widgets ?? EMPTY);
+  const { widgets, status: travelStatus, reload: reloadTravel } = useTravelWidgets(snapshot?.widgets ?? EMPTY);
   const available = desktopWidgets(widgets);
   const ordered = layout.order
     .map((id) => available.find((widget) => widget.id === id))
@@ -668,6 +668,12 @@ export function WidgetStack(): ReactElement {
         )}
         {!side.above && bubbleView}
         <span role="status" className={s.srOnly}>{announcement}</span>
+        {travelStatus === "error" && ordered.some((widget) => widget.kind === "travel") && (
+          <p className={s.error} role="alert">
+            여행 정보를 불러오지 못했어요.
+            <button type="button" onClick={reloadTravel}>다시 불러오기</button>
+          </p>
+        )}
         {(desktop.error || widgetError) && (
           <p className={s.error} role="alert">
             {desktop.error || widgetError}

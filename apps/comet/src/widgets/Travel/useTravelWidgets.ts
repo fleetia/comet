@@ -33,30 +33,42 @@ function trips(state: TripState): TripData[] {
  * Trips live in the diary, so a travel widget gets its line here. The diary is read only
  * while a travel widget exists, and the line refreshes each minute for countdowns.
  */
-export function useTravelWidgets(widgets: WidgetView[]): WidgetView[] {
+export function useTravelWidgets(widgets: WidgetView[]): { widgets: WidgetView[]; status: "loading" | "ready" | "error"; reload: () => void } {
   const present = widgets.some((widget) => widget.kind === "travel");
   const [state, setState] = useState<TripState | null>(null);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">(() => isDesktop() ? "loading" : "ready");
+  const [attempt, setAttempt] = useState(0);
   const [minute, setMinute] = useState(() => Math.floor(Date.now() / 60_000));
   useEffect(() => {
     if (!present || !isDesktop()) return;
     let active = true;
+    let received = false;
     let unlisten: (() => void) | undefined;
     const receive = (value: TripState) => {
-      if (active) setState((current) => (current && current.revision > value.revision ? current : value));
+      if (!active) return;
+      received = true;
+      setState((current) => (current && current.revision > value.revision ? current : value));
+      setStatus("ready");
     };
-    void listen<TripState>("diary-updated", (event) => receive(event.payload)).then((cleanup) => {
-      if (active) unlisten = cleanup;
-      else cleanup();
-    });
-    void command<TripState>("get_diary").then(receive).catch(() => undefined);
+    setStatus("loading");
+    void (async () => {
+      try {
+        const cleanup = await listen<TripState>("diary-updated", (event) => receive(event.payload));
+        if (!active) { cleanup(); return; }
+        unlisten = cleanup;
+        receive(await command<TripState>("get_diary"));
+      } catch {
+        if (active && !received) setStatus("error");
+      }
+    })();
     const timer = window.setInterval(() => setMinute(Math.floor(Date.now() / 60_000)), 30_000);
     return () => {
       active = false;
       unlisten?.();
       window.clearInterval(timer);
     };
-  }, [present]);
-  return useMemo(() => {
+  }, [present, attempt]);
+  const result = useMemo(() => {
     if (!present) return widgets;
     const now = new Date(minute * 60_000);
     const trip = state ? widgetTrip(trips(state), now) : undefined;
@@ -69,9 +81,11 @@ export function useTravelWidgets(widgets: WidgetView[]): WidgetView[] {
       trip,
       envelope ? preparationProgress(envelope, rows(record(todo?.data).items)) : null,
       now,
+      status,
     );
     return widgets.map((widget) =>
       widget.kind === "travel" ? { ...widget, data: { ...record(widget.data), line } } : widget,
     );
-  }, [present, widgets, state, minute]);
+  }, [present, widgets, state, minute, status]);
+  return { widgets: result, status, reload: () => setAttempt((value) => value + 1) };
 }

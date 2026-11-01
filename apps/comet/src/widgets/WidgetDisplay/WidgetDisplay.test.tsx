@@ -14,7 +14,7 @@ vi.mock("../../hooks/useSnapshot", () => ({
 }));
 vi.mock("../useWidgets", () => ({ useWidgets: vi.fn() }));
 vi.mock("../Travel/useTravelWidgets", () => ({
-  useTravelWidgets: (widgets: WidgetView[]) => widgets,
+  useTravelWidgets: (widgets: WidgetView[]) => ({ widgets, status: "ready", reload: vi.fn() }),
 }));
 vi.mock("./DesktopWidget", () => ({ FreeformWidget: () => <div /> }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(), emit: vi.fn() }));

@@ -426,6 +426,7 @@ fn planner_settings_kind(kind: &str) -> bool {
         "clock",
         "focus-timer",
         "preparation",
+        "travel",
     ]
     .contains(&kind)
 }

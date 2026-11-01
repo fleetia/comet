@@ -41,7 +41,7 @@ import { readDraft, TimerTool } from "../PlanningTools/FocusTimerTool";
 import { MusicTool } from "../MusicTool/MusicTool";
 import { preparationFocusInput, preparationProgress } from "../PreparationTool/preparationData";
 import { useConnectionCommand } from "../useConnectionCommand";
-import { eventStart } from "../Planner/plannerData";
+import { eventEnd, eventStart, plannedDay } from "../Planner/plannerData";
 import type { WidgetView } from "../types";
 import { desktopKind } from "./desktopState";
 import { desktopSkin } from "./desktopShape";
@@ -98,18 +98,25 @@ export function desktopSummary(
   widget: WidgetView,
   now: number,
   widgets: readonly WidgetView[] = [],
-): { icon: IconName; title: string; description: string; value: string; meta: string } {
+): { icon: IconName; title: string; description: string; value: string; meta: string; chipValue?: string } {
   const data = record(widget.data),
     observation = record(data.observation);
   switch (widget.kind) {
     case "todo": {
-      const items = rows(data.items);
+      const day = localDay(new Date(now));
+      const allItems = rows(data.items);
+      const items = allItems.filter((item) => plannedDay(item) === day);
       const done = items.filter((item) => typeof item.completedAt === "number").length;
+      const overdue = allItems.filter((item) => {
+        const planned = plannedDay(item);
+        return planned !== "" && planned < day && typeof item.completedAt !== "number";
+      }).length;
+      const carryover = items.length === 0 && overdue > 0 ? `밀린 일 ${overdue}개` : "";
       return {
         icon: "check",
         title: "할 일",
-        description: `${items.length - done}개 남음`,
-        value: `${done} / ${items.length}`,
+        description: carryover || `${items.length - done}개 남음`,
+        value: carryover || `${done} / ${items.length}`,
         meta: "",
       };
     }
@@ -118,20 +125,26 @@ export function desktopSummary(
         .filter(
           (item) =>
             item.cancelled !== true &&
-            (typeof item.endAt === "number" ? item.endAt : eventStart(item)) >= now,
+            (item.allDay === true ? eventEnd(item) > now : eventEnd(item) >= now),
         )
         .sort((a, b) => eventStart(a) - eventStart(b))[0];
       const start = event ? eventStart(event) : null;
+      const failed = widget.status === "error" || Boolean(widget.error);
+      const date = start !== null && localDay(new Date(start)) !== localDay(new Date(now))
+        ? new Date(start).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" })
+        : "";
+      const time = event?.allDay
+        ? "종일"
+        : start !== null
+          ? new Date(start).toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" })
+          : "";
       return {
         icon: "calendar",
         title: "캘린더",
-        description: text(event?.title) || "예정된 일정이 없어요",
-        value: start
-          ? event?.allDay
-            ? "종일"
-            : new Date(start).toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" })
-          : "",
-        meta: data.error ? "이전 정보" : "",
+        description: event ? text(event.title) || "제목 없는 일정" : failed ? "확인 필요" : "예정된 일정이 없어요",
+        value: event ? [date, time].filter(Boolean).join(" ") : failed ? "확인 필요" : "",
+        meta: failed && event ? "이전 정보" : "",
+        chipValue: start !== null && date ? `${new Date(start).getMonth() + 1}/${new Date(start).getDate()}` : undefined,
       };
     }
     case "clock": {
@@ -182,16 +195,18 @@ export function desktopSummary(
         meta: rows(data.queue).length ? `다음 ${rows(data.queue).length}개` : "",
       };
     }
-    case "music":
+    case "music": {
+      const title = text(observation.title);
       return {
         icon: "music",
-        title: text(observation.title) || "재생 중인 곡이 없어요",
+        title: title || (data.configured !== true ? "음악 앱을 연결해 주세요" : observation.running === true ? "재생 중인 곡이 없어요" : "음악 앱이 닫혀 있어요"),
         description: [text(observation.artist), text(observation.source)]
           .filter(Boolean)
           .join(" · "),
-        value: `${musicTime(musicPosition(observation, now, musicIsFresh(data, now)))} / ${musicTime(finiteNumber(observation.durationMs))}`,
-        meta: musicIsFresh(data, now) ? "" : "이전 정보",
+        value: title ? `${musicTime(musicPosition(observation, now, musicIsFresh(data, now)))} / ${musicTime(finiteNumber(observation.durationMs))}` : "",
+        meta: title && !musicIsFresh(data, now) ? "이전 정보" : "",
       };
+    }
     case "preparation": {
       const { envelope, progress } = preparationState(widget, widgets, now);
       return {
@@ -259,7 +274,6 @@ export function FreeformWidget({
   now: number;
   interactive?: boolean;
 } & FreeformAppearanceProps): ReactElement {
-  const [failure, setFailure] = useState<string | null>(null);
   const data = record(widget.data),
     observation = record(data.observation),
     summary = desktopSummary(widget, now, widgets);
@@ -269,7 +283,7 @@ export function FreeformWidget({
     case "calendar":
     case "travel": {
       // The chip has room for one short value; the row uses the longer description instead.
-      const chip = summary.value || (widget.kind === "travel" ? "여행" : "일정 없음");
+      const chip = (widget.kind === "calendar" && summary.meta) || summary.chipValue || summary.value || (widget.kind === "travel" ? "여행" : "일정 없음");
       return (
         <div>
           <CompactFreeform
@@ -281,13 +295,12 @@ export function FreeformWidget({
             onClick={
               interactive
                 ? () =>
-                    void command("open_widget", { id: widget.id }).catch((cause: unknown) =>
-                      setFailure(String(cause)),
+                    void command("open_widget", { id: widget.id }).catch(() =>
+                      command("open_planner_settings", { kind: widget.kind }).catch(() => undefined),
                     )
                 : undefined
             }
           />
-          {failure && <p role="alert">{failure}</p>}
         </div>
       );
     }
@@ -350,7 +363,7 @@ export function FreeformWidget({
           {...look}
           title={summary.title}
           artist={text(observation.artist)}
-          caption={summary.meta ? "이전 정보" : "지금 듣는 곡"}
+          caption={text(observation.title) ? (summary.meta ? "이전 정보" : "지금 듣는 곡") : ""}
           elapsed={musicTime(musicPosition(observation, now, musicIsFresh(data, now)))}
           artwork={
             art ? (
@@ -426,6 +439,7 @@ export function CollapsedDesktopWidget({
   let description: string | undefined = summary.description;
   let value: string | undefined = summary.value;
   let meta: ReactElement | string = summary.meta;
+  if (value && value === description) value = undefined;
   if (widget.kind === "clock") {
     value = undefined;
     meta = (
@@ -513,6 +527,7 @@ export function opensWidgetWindow(kind: string): boolean {
 /** The settings or open action shown on a stacked widget; `null` for kinds without one. */
 export function useStackAction(widget: WidgetView): {
   label: string;
+  icon: "settings" | "open";
   busy: boolean;
   error: string | null;
   open: () => Promise<boolean>;
@@ -524,7 +539,7 @@ export function useStackAction(widget: WidgetView): {
     if (action.settings) return run("open_planner_settings", { kind: widget.kind });
     return run(...widgetWindowCommand(widget));
   }
-  return { label: action.label, busy, error, open };
+  return { label: action.label, icon: action.settings ? "settings" : "open", busy, error, open };
 }
 
 /** Opens the widget's own window; a memo opens its open or most recent nonempty note. */
@@ -642,7 +657,7 @@ export function ExpandedDesktopWidget({
               setFailure(String(cause)),
             )
           }
-          onFocus={() => void focus()}
+          onFocus={envelope ? () => void focus() : undefined}
           footer={
             envelope
               ? `${rows(envelope.links).length}개 내용과 연결한 할 일은 봉투에서 봐요.`
