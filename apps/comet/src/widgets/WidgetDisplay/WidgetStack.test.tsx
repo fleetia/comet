@@ -346,6 +346,18 @@ it("reorders stack rows from the hover handle by dragging or arrow keys", async 
   );
 });
 
+it("does not save or announce keyboard moves beyond either end of the order", async () => {
+  state.order = ["clock", "weather"];
+  render(<WidgetStack />);
+  await screen.findByText("21°C");
+  await act(async () => {
+    fireEvent.keyDown(screen.getByRole("button", { name: "시계 순서 바꾸기" }), { key: "ArrowUp" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "날씨 순서 바꾸기" }), { key: "ArrowDown" });
+  });
+  expect(command).not.toHaveBeenCalledWith("configure_widget_desktop", expect.anything());
+  expect(screen.queryByText(/순서 \d+번째/)).toBeNull();
+});
+
 it("shows in-place edit affordances only while the desktop is being edited", async () => {
   render(<WidgetStack />);
   await screen.findByText("21°C");

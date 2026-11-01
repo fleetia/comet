@@ -7,6 +7,11 @@ describe("particle", () => {
     ["구름양", "을", "은", "과"],
     ["Ruby", "를", "는", "와"],
     ["Sam", "을", "은", "과"],
+    ["Bob", "을(를)", "은(는)", "와(과)"],
+    ["Jack", "을(를)", "은(는)", "와(과)"],
+    ["별!", "을(를)", "은(는)", "와(과)"],
+    ["0", "을", "은", "과"],
+    ["2", "를", "는", "와"],
   ])("%s의 마지막 소리에 맞춘다", (word, object, topic, withWord) => {
     expect(particle(word, "object")).toBe(object);
     expect(particle(word, "topic")).toBe(topic);

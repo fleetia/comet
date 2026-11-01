@@ -88,7 +88,9 @@ export function useDiaryCreation({
   function discard(): void {
     setName("");
     setEnvelopeCreateDirty(false);
-    if (!envelopeCreateRequest.current) localStorage.removeItem(PREPARATION_DRAFT_KEY);
+    localStorage.removeItem(PREPARATION_DRAFT_KEY);
+    localStorage.removeItem(ENVELOPE_REQUEST_KEY);
+    envelopeCreateRequest.current = null;
     setCreating(null);
   }
   async function createPage(): Promise<string | null> {

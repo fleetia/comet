@@ -1599,6 +1599,10 @@ fn validate_prepared_music(
     Ok(())
 }
 
+fn should_focus_new_widget(has_open_intent: bool, is_restoring_focus: bool) -> bool {
+    !has_open_intent && !is_restoring_focus
+}
+
 async fn open_widget_inner(
     app: &tauri::AppHandle,
     state: &Arc<AppState>,
@@ -1853,7 +1857,7 @@ async fn open_widget_inner(
     .disable_drag_drop_handler()
     .maximizable(false)
     .visible(open_intent.is_none())
-    .focused(open_intent.is_none());
+    .focused(should_focus_new_widget(open_intent.is_some(), restore_focus.is_some()));
     let window = if let Some(point) = position {
         window.position(point.x, point.y)
     } else {
@@ -2288,6 +2292,14 @@ fn fallback_reaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restored_focus_window_does_not_take_focus() {
+        assert!(!should_focus_new_widget(false, true));
+        assert!(should_focus_new_widget(false, false));
+        assert!(!should_focus_new_widget(true, false));
+        assert!(!should_focus_new_widget(true, true));
+    }
 
     #[test]
     fn deleting_a_detached_note_requires_matching_explicit_discard() {
