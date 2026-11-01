@@ -277,7 +277,7 @@ it("opens the six Figma destinations with keyboard navigation and associated pan
   expect(screen.getByRole("tabpanel", { name: "친구들" })).toBeTruthy();
 });
 
-it("lets an unsupported device disable transferred activity awareness but not enable it", async () => {
+it("hides activity awareness on unsupported devices", async () => {
   vi.mocked(isDesktop).mockReturnValue(true);
   let enabled = true;
   vi.mocked(command).mockImplementation(async (name) => {
@@ -301,18 +301,8 @@ it("lets an unsupported device disable transferred activity awareness but not en
       initialSection="desktop"
     />,
   );
-  const toggle = await screen.findByRole("switch", { name: "지금 하는 앱 눈치채기" });
-  await waitFor(() => expect(toggle).toHaveProperty("checked", true));
-  expect(toggle).toHaveProperty("disabled", false);
-  fireEvent.click(toggle);
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("set_activity_preferences", {
-      enabled: false,
-      excludedApps: ["private-app"],
-    }),
-  );
-  await waitFor(() => expect(toggle).toHaveProperty("checked", false));
-  expect(toggle).toHaveProperty("disabled", true);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_desktop_preferences"));
+  expect(screen.queryByRole("switch", { name: "지금 하는 앱 눈치채기" })).toBeNull();
 });
 
 it("discards user and desktop edits when leaving their settings", () => {

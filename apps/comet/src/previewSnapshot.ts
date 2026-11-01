@@ -32,6 +32,7 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
     apiProvider: "custom",
     apiProfiles: {},
     autonomousEnabled: true,
+    wanderingEnabled: true,
     diaryRecallEnabled: true,
     showFollowUps: true,
     randomPresenceEnabled: false,

@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ActionBar, Inline, SaveStatus } from "../../primitives";
-import { Icon, CalendarIcon, RemoveIcon } from "@comet/icon";
+import { Icon, MonitorIcon } from "@comet/icon";
 import { Button, SettingControlRow, SettingsSummary, Switch, ToggleChip } from "@comet/ui";
 import { useWidgets } from "../../widgets/useWidgets";
 import * as figma from "../SettingsPanel/figmaSettings.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { readUsageTarget, type FocusUsageTarget } from "../../widgets/PlanningTools/FocusTimerData";
 import { rows, type DataRecord } from "../../widgets/toolData";
-import type { DeviceInfo } from "../../types";
+import type { DeviceInfo, Settings } from "../../types";
+import { useSettingsDraft } from "../../hooks/useSettingsDraft";
 import * as layout from "../SettingsPanel/settings.css";
 import * as styles from "./desktopPreferences.css";
 
@@ -32,15 +33,20 @@ function sameToys(left: string[], right: string[]): boolean {
 export function DesktopPreferences({
   hidden,
   platform,
+  settings,
+  onToggleCharacters,
   onDirtyChange,
   children,
 }: {
   hidden: boolean;
   platform?: DeviceInfo["platform"];
+  settings: Settings;
+  onToggleCharacters: () => void;
   onDirtyChange?: (dirty: boolean) => void;
   children?: ReactNode;
 }): JSX.Element {
   const widgets = useWidgets();
+  const wandering = useSettingsDraft(settings, "desktop");
   const [preferences, setPreferences] = useState<Preferences>({
     charactersVisible: !hidden,
     pranksEnabled: false,
@@ -72,8 +78,8 @@ export function DesktopPreferences({
     setNotice(null);
   }
   useEffect(() => {
-    onDirtyChange?.(dirty);
-  }, [dirty, onDirtyChange]);
+    onDirtyChange?.(dirty || wandering.hasChanges);
+  }, [dirty, wandering.hasChanges, onDirtyChange]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -165,7 +171,7 @@ export function DesktopPreferences({
       <aside className={figma.inspector}>
         <h1 className={figma.inspectorTitle}>
           <span className={figma.icon}>
-            <CalendarIcon size={18} />
+            <MonitorIcon size={18} />
           </span>
           바탕화면
         </h1>
@@ -182,26 +188,99 @@ export function DesktopPreferences({
               </span>
             ))}
         </div>
-        <Button
-          variant="ghost"
-          className={figma.fullButton}
-          disabled={pending || !loaded}
-          onClick={() =>
-            void command("clear_desktop_toys").catch((cause: unknown) => setError(errorText(cause)))
-          }
-        >
-          <RemoveIcon size={15} />
-          장난감 모두 정리
-        </Button>
       </aside>
       <div className={figma.right}>
         {children}
-        <ActivityPreferences
-          preferences={preferences}
-          loaded={loaded}
-          supported={isDesktop() && platform === "windows"}
-          onSaved={() => refreshPreferences.current()}
-        />
+        <section className={figma.section}>
+          <h2 className={figma.sectionTitle}>바탕화면</h2>
+          <div className={figma.group}>
+            <SettingControlRow
+              className={figma.row}
+              title="바탕화면 위젯 편집"
+              description="위젯의 배치와 모양을 바꿔요"
+              control={
+                <Button
+                  variant="ghost"
+                  size="small"
+                  disabled={!isDesktop()}
+                  onClick={() =>
+                    void command("set_widget_desktop_editing", { editing: true }).catch(
+                      (cause: unknown) => setError(errorText(cause)),
+                    )
+                  }
+                >
+                  편집
+                </Button>
+              }
+            />
+            <SettingControlRow
+              className={figma.row}
+              title="바탕화면 친구"
+              description="함께 지내는 친구와 말풍선"
+              control={
+                <Button variant="ghost" size="small" onClick={onToggleCharacters}>
+                  {hidden ? "친구 표시" : "친구 숨기기"}
+                </Button>
+              }
+            />
+            <SettingControlRow
+              className={figma.row}
+              title="자동 산책"
+              description="친구가 가끔 바탕화면을 산책해요"
+              control={
+                <Switch
+                  aria-label="자동 산책"
+                  checked={wandering.settings.wanderingEnabled}
+                  disabled={!!wandering.pending}
+                  onChange={(event) => wandering.change("wanderingEnabled", event.target.checked)}
+                />
+              }
+            />
+          </div>
+          {(wandering.hasChanges || wandering.pending || wandering.error || wandering.notice) && (
+            <ActionBar
+              status={
+                <SaveStatus
+                  state={
+                    wandering.pending
+                      ? "saving"
+                      : wandering.error
+                        ? "error"
+                        : wandering.notice
+                          ? "saved"
+                          : "idle"
+                  }
+                  message={wandering.error ?? wandering.notice ?? "저장하지 않은 변경이 있어요."}
+                />
+              }
+            >
+              <Inline gap="sm">
+                <Button
+                  variant="ghost"
+                  disabled={!!wandering.pending || !wandering.hasChanges}
+                  onClick={wandering.reset}
+                >
+                  변경 취소
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={!!wandering.pending || !wandering.hasChanges}
+                  onClick={() => void wandering.run("save_settings")}
+                >
+                  산책 설정 저장
+                </Button>
+              </Inline>
+            </ActionBar>
+          )}
+        </section>
+        {isDesktop() && platform === "windows" && (
+          <ActivityPreferences
+            preferences={preferences}
+            loaded={loaded}
+            supported
+            onSaved={() => refreshPreferences.current()}
+          />
+        )}
         <section className={figma.section}>
           <h2 className={figma.sectionTitle}>장난 모드</h2>
           <div className={figma.group}>

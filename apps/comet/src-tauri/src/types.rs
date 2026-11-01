@@ -194,6 +194,8 @@ pub struct Settings {
     #[serde(default = "default_autonomous_enabled")]
     pub autonomous_enabled: bool,
     #[serde(default = "default_autonomous_enabled")]
+    pub wandering_enabled: bool,
+    #[serde(default = "default_autonomous_enabled")]
     pub diary_recall_enabled: bool,
     #[serde(default = "default_autonomous_enabled")]
     pub show_follow_ups: bool,
@@ -231,6 +233,7 @@ impl Default for Settings {
             chatgpt_idle_enabled: false,
             apple_idle_enabled: false,
             autonomous_enabled: true,
+            wandering_enabled: true,
             diary_recall_enabled: true,
             show_follow_ups: true,
             random_presence_enabled: false,
@@ -704,12 +707,14 @@ mod tests {
             .unwrap()
             .remove("localReasoningEnabled");
         legacy.as_object_mut().unwrap().remove("autonomousEnabled");
+        legacy.as_object_mut().unwrap().remove("wanderingEnabled");
         legacy["idleMinutes"] = serde_json::json!(2);
         let settings: Settings = serde_json::from_value(legacy).unwrap();
         assert_eq!(settings.local_model, LocalModel::Qwen35_4B);
         assert_eq!(settings.local_model_path, "");
         assert!(!settings.local_reasoning_enabled);
         assert!(settings.autonomous_enabled);
+        assert!(settings.wandering_enabled);
         assert_eq!(settings.idle_minutes, 2);
         assert_eq!(Settings::default().idle_minutes, 5);
         let selected = Settings {

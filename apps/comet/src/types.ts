@@ -523,6 +523,7 @@ export type Settings = {
   apiProvider: ApiProvider;
   apiProfiles: Partial<Record<ApiProvider, ApiProfile>>;
   autonomousEnabled: boolean;
+  wanderingEnabled: boolean;
   diaryRecallEnabled: boolean;
   showFollowUps: boolean;
   randomPresenceEnabled: boolean;

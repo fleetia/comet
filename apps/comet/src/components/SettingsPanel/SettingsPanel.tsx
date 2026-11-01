@@ -307,7 +307,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
   const topSections = [
     { value: "characters", label: "친구들", icon: "look" as const, content: null },
     { value: "automatic", label: "대화", icon: "chat" as const, content: null },
-    { value: "desktop", label: "바탕화면", icon: "calendar" as const, content: null },
+    { value: "desktop", label: "바탕화면", icon: "monitor" as const, content: null },
     { value: "widgets", label: "위젯", icon: "grid" as const, content: null },
     { value: "model", label: "AI 연결", icon: "memory" as const, content: null },
     { value: "general", label: "일반", icon: "gear" as const, content: null },
@@ -452,6 +452,10 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
             <DesktopPreferences
               hidden={snapshot.runtime.hidden}
               platform={snapshot.device.platform}
+              settings={snapshot.settings}
+              onToggleCharacters={() =>
+                void act(snapshot.runtime.hidden ? "show_characters" : "hide_boxes")
+              }
               onDirtyChange={setGeneralDirty}
             />
           )}

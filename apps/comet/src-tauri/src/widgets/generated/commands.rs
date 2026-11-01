@@ -882,6 +882,21 @@ pub(crate) fn restore_previous_generated_widget(
 }
 
 #[tauri::command]
+pub(crate) fn restore_generated_widget(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    expected_revision: i64,
+) -> Result<()> {
+    crate::widgets::commands::change(&state, |db| {
+        generated::restore(db, &id, expected_revision)?;
+        Ok(())
+    })?;
+    publish(&app);
+    Ok(())
+}
+
+#[tauri::command]
 pub(crate) fn remove_generated_widget(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,

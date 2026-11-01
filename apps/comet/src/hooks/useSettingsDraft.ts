@@ -3,7 +3,7 @@ import type { AiProvider, ApiProvider, LocalModelTest, Settings } from "../types
 import { getApiProfile, selectAiProvider } from "../aiProviders";
 import { command, errorText } from "./useSnapshot";
 
-export type SettingsScope = "automatic" | "model";
+export type SettingsScope = "automatic" | "model" | "desktop";
 export type SettingsDraft = {
   settings: Settings;
   apiKey: string;
@@ -150,7 +150,12 @@ export function useSettingsDraft(savedSettings: Settings, scope: SettingsScope):
           if (sameValue(current.current[key], submitted[key])) dirty.current.delete(key);
           else dirty.current.add(key);
         }
-        setNotice(scope === "automatic" ? "자동 대화 설정을 저장했어요." : "AI 연결을 저장했어요.");
+        const notices: Record<SettingsScope, string> = {
+          automatic: "자동 대화 설정을 저장했어요.",
+          desktop: "바탕화면 설정을 저장했어요.",
+          model: "AI 연결을 저장했어요.",
+        };
+        setNotice(notices[scope]);
       } else if (name === "clear_api_key") {
         setApiKeys((previous) => {
           const next = { ...previous };

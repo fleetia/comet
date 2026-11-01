@@ -12,6 +12,7 @@ use std::time::Duration;
 pub(crate) enum SettingsScope {
     Automatic,
     Model,
+    Desktop,
 }
 
 #[tauri::command]
@@ -64,6 +65,11 @@ pub(crate) async fn save_settings(
     api_keys: Option<std::collections::BTreeMap<ApiProvider, ApiKeyInput>>,
     scope: Option<SettingsScope>,
 ) -> Result<(), String> {
+    if scope == Some(SettingsScope::Desktop) {
+        save_desktop_settings(&state, settings.wandering_enabled)?;
+        publish(&app, &state);
+        return Ok(());
+    }
     let (epoch, cancel) = apply_settings_with_keys(
         &state,
         &settings,
@@ -85,6 +91,23 @@ pub(crate) async fn save_settings(
         None,
         None,
     );
+    Ok(())
+}
+
+fn save_desktop_settings(state: &AppState, wandering_enabled: bool) -> Result<(), String> {
+    let _action = lock(&state.action)?;
+    if unavailable(state) {
+        return Err("앱을 정리하고 있어요.".into());
+    }
+    let db = lock(&state.db)?;
+    let tx = db
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    let mut current = store::settings(&tx)?;
+    current.wandering_enabled = wandering_enabled;
+    store::save_settings(&tx, &current)?;
+    store::bump_revision(&tx)?;
+    tx.commit().map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -189,6 +212,10 @@ pub(crate) fn apply_settings_with_keys(
             api_provider: settings.api_provider,
             api_profiles: profiles.clone(),
             chatgpt_model: settings.chatgpt_model.clone(),
+            ..current
+        },
+        Some(SettingsScope::Desktop) => Settings {
+            wandering_enabled: settings.wandering_enabled,
             ..current
         },
         None => settings.clone(),
@@ -586,6 +613,30 @@ pub(crate) async fn pick_model_file(app: tauri::AppHandle) -> Result<Option<Stri
 #[cfg(test)]
 mod api_profile_tests {
     use super::*;
+
+    #[test]
+    fn desktop_wandering_save_preserves_other_settings_and_automatic_work() {
+        let state = crate::app::tests::state();
+        let mut before = store::settings(&lock(&state.db).unwrap()).unwrap();
+        before.idle_minutes = 12;
+        store::save_settings(&lock(&state.db).unwrap(), &before).unwrap();
+        let epoch = state.epoch.load(Ordering::SeqCst);
+        save_desktop_settings(&state, false).unwrap();
+        let saved = store::settings(&lock(&state.db).unwrap()).unwrap();
+        assert!(!saved.wandering_enabled);
+        assert!(saved.autonomous_enabled);
+        assert_eq!(saved.idle_minutes, 12);
+        assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
+
+        let stale = Settings {
+            idle_minutes: 15,
+            ..before
+        };
+        apply_settings(&state, &stale, Some(SettingsScope::Automatic), None).unwrap();
+        let after = store::settings(&lock(&state.db).unwrap()).unwrap();
+        assert!(!after.wandering_enabled);
+        assert_eq!(after.idle_minutes, 15);
+    }
 
     #[test]
     fn clearing_a_saved_inactive_provider_requires_the_saved_endpoint() {

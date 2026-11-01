@@ -227,6 +227,7 @@ pub fn run() {
             crate::widgets::generated::commands::update_generated_state,
             crate::widgets::generated::commands::report_generated_result,
             crate::widgets::generated::commands::restore_previous_generated_widget,
+            crate::widgets::generated::commands::restore_generated_widget,
             crate::widgets::generated::commands::remove_generated_widget,
             crate::widgets::generated::commands::open_generated_widget,
             crate::widgets::generated::commands::close_generated_widget,
