@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CharacterOrbit } from "./CharacterOrbit";
 import { PREVIEW_SNAPSHOT } from "../../previewSnapshot";
+import * as styles from "../companion.css";
 
 const base = {
   name: "별꼬리",
@@ -66,6 +67,24 @@ it("locks orbit actions while the previous action is pending", () => {
   expect(chat).toHaveProperty("disabled", true);
   fireEvent.click(chat);
   expect(action).not.toHaveBeenCalled();
+});
+
+it("shows quiet hours even when a manual pause can be resumed", () => {
+  render(
+    <CharacterOrbit
+      {...base}
+      paused
+      quietHoursUntil="08:00"
+      onAction={vi.fn()}
+      onClose={vi.fn()}
+    />,
+  );
+  const quietStatus = screen.getByText("조용한 시간 · 08:00까지");
+  const pauseStatus = screen.getByText("다시 시작할 때까지 자동 잡담 쉬는 중");
+  expect(quietStatus.parentElement).toBe(pauseStatus.parentElement);
+  expect(quietStatus.parentElement?.tagName).toBe("P");
+  expect(quietStatus.parentElement?.className).toBe(styles.orbitPauseStatus);
+  expect(quietStatus.nextElementSibling?.tagName).toBe("BR");
 });
 
 it("disables and explains resume when no conversation is paused", () => {

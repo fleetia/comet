@@ -50,6 +50,24 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
+it("shows partial music permission warnings while playing and opens automation settings", async () => {
+  const data = { configured: true, status: "ready", config: {}, observation: { title: "노래", playing: true }, warnings: [{ provider: "music", status: "permission-needed", message: "Music 접근 권한이 필요해요" }] };
+  const { rerender } = render(<ConnectionTool widget={widget("music", data)} />);
+  expect(screen.getByText("Music 접근 권한이 필요해요")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "시스템 설정 열기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("open_system_settings", { page: "automation" }));
+  rerender(<ConnectionTool widget={widget("music", { ...data, status: "permission-needed", error: "조회 실패" })} />);
+  expect(screen.queryByText("Music 접근 권한이 필요해요")).toBeNull();
+  expect(screen.getByText("조회 실패")).toBeTruthy();
+});
+it("labels music tool close correctly even before configuration", () => {
+  const close = vi.fn();
+  const { rerender } = render(<ConnectionTool widget={widget("music", EMPTY)} collapseLabel="닫기" onCollapse={close} />);
+  fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+  expect(close).toHaveBeenCalledOnce();
+  rerender(<ConnectionTool widget={widget("music", { ...EMPTY, configured: true, status: "ready" })} collapseLabel="닫기" onCollapse={close} />);
+  expect(screen.getByRole("button", { name: "닫기" })).toBeTruthy();
+});
 it.each(["Linux x86_64", "Win32", "MacIntel"])(
   "describes local calendar storage without assuming macOS on %s",
   (platform) => {

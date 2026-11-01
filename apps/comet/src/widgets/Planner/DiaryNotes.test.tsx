@@ -223,6 +223,8 @@ it("filters both stores and autosaves the desktop original with both conflict gu
     widgets: [widget],
     busy: false,
     act: vi.fn().mockResolvedValue(true),
+    run: async <T,>(operation: () => Promise<T>) => ({ value: await operation() }),
+    execute: vi.fn().mockResolvedValue(null),
     onCreate: vi.fn().mockResolvedValue(true),
     onOpenNote: vi.fn().mockResolvedValue(true),
     onAdd: vi.fn(),

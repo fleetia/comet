@@ -172,8 +172,15 @@ pub(crate) fn reconcile_at(state: &AppState, at: NaiveDateTime) -> Result<bool, 
     clock.last_checked = Some(at);
     clock.active = active;
     drop(clock);
+    let quiet_hours_until = active.then(|| settings.quiet_hours.end.clone());
+    let status_changed = {
+        let mut runtime = lock(&state.runtime)?;
+        let changed = runtime.quiet_hours_until != quiet_hours_until;
+        runtime.quiet_hours_until = quiet_hours_until;
+        changed
+    };
     if !active && !boundary {
-        return Ok(false);
+        return Ok(status_changed);
     }
     // Refresh throughout silence and once on exit: a fresh randomized 80–120% interval,
     // never immediately replay the interval that elapsed while the app was quiet/asleep.
@@ -209,7 +216,7 @@ pub(crate) fn reconcile_at(state: &AppState, at: NaiveDateTime) -> Result<bool, 
         runtime.error = None;
         state.nlp.pause_indexing(false);
     }
-    Ok(boundary || cancel_automatic)
+    Ok(boundary || cancel_automatic || status_changed)
 }
 
 #[cfg(test)]
@@ -230,6 +237,19 @@ mod tests {
             weekdays: vec![0],
             ..QuietHours::default()
         }
+    }
+
+    #[test]
+    fn runtime_exposes_and_clears_quiet_hours_end() {
+        let state = crate::app::tests::state();
+        save(&state, schedule());
+        assert!(reconcile_at(&state, at("2026-09-28 22:00:00")).unwrap());
+        assert_eq!(
+            lock(&state.runtime).unwrap().quiet_hours_until.as_deref(),
+            Some("08:00")
+        );
+        assert!(reconcile_at(&state, at("2026-09-29 08:00:00")).unwrap());
+        assert_eq!(lock(&state.runtime).unwrap().quiet_hours_until, None);
     }
     fn save(state: &AppState, quiet_hours: QuietHours) {
         store::save_settings(

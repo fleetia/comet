@@ -1,7 +1,7 @@
 use crate::{
     app::{lock, AppState},
     models,
-    widgets::commands::publish_widgets,
+    widgets::commands::{publish_widget, publish_widgets},
     widgets::{calendar, connections, storage, WidgetInstance},
 };
 use serde::{Deserialize, Serialize};
@@ -306,7 +306,10 @@ fn complete_calendar_connect(
         ),
     };
     if previous.is_none() && data.connections.len() >= 20 {
-        return Err("캘린더 연결은 20개까지 추가할 수 있어요. 기존 연결을 해제하고 다시 시도해 주세요.".into());
+        return Err(
+            "캘린더 연결은 20개까지 추가할 수 있어요. 기존 연결을 해제하고 다시 시도해 주세요."
+                .into(),
+        );
     }
     if previous.is_none() {
         if let Some(color) = data
@@ -429,7 +432,10 @@ pub(crate) async fn connect_calendar_google(
             .find(|connection| connection.id == connection_id && connection.provider == "google");
         let Some(previous) = previous else {
             abandon(&state, &job);
-            return Err("다시 연결할 Google 캘린더를 찾지 못했어요. 목록을 확인하고 다시 시도해 주세요.".into());
+            return Err(
+                "다시 연결할 Google 캘린더를 찾지 못했어요. 목록을 확인하고 다시 시도해 주세요."
+                    .into(),
+            );
         };
         input = tokio::select! {
             _ = models::cancelled(job.cancel.clone()) => {
@@ -782,6 +788,122 @@ fn information_due_with_connection(instance: &WidgetInstance, now: i64, reconnec
         && (weather || !matches!(status, Some("permission-needed" | "unsupported")))
 }
 
+const MUSIC_REFRESH_FRESH_LIMIT: i64 = 20_000;
+const MUSIC_REFRESH_DEADLINE: i64 = 25_000;
+const MUSIC_POSITION_TOLERANCE: f64 = 2_000.0;
+
+fn music_observation_unchanged(previous: &Value, next: &Value, now: i64) -> bool {
+    let old = &previous["observation"];
+    let new = &next["observation"];
+    let (Some(old_at), Some(new_at)) = (old["observedAt"].as_i64(), new["observedAt"].as_i64())
+    else {
+        return false;
+    };
+    if old_at > now
+        || new_at < old_at
+        || now.saturating_sub(old_at) >= MUSIC_REFRESH_FRESH_LIMIT
+        || previous["status"] != next["status"]
+        || previous["error"] != next["error"]
+        || previous["failureCount"].as_u64().unwrap_or(0) != 0
+        || previous["warnings"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            != next["warnings"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+    {
+        return false;
+    }
+    let (Some(mut old_fields), Some(mut new_fields)) =
+        (old.as_object().cloned(), new.as_object().cloned())
+    else {
+        return false;
+    };
+    old_fields.remove("observedAt");
+    new_fields.remove("observedAt");
+    let old_position = old_fields.remove("positionMs").unwrap_or(Value::Null);
+    let new_position = new_fields.remove("positionMs").unwrap_or(Value::Null);
+    if old_fields != new_fields {
+        return false;
+    }
+    if old["playing"] != true {
+        return old_position == new_position;
+    }
+    match (old_position.as_f64(), new_position.as_f64()) {
+        (Some(position), Some(actual)) => {
+            let expected = position + new_at.saturating_sub(old_at) as f64;
+            let expected = old["durationMs"]
+                .as_f64()
+                .map_or(expected, |duration| expected.min(duration));
+            (expected - actual).abs() <= MUSIC_POSITION_TOLERANCE
+        }
+        (None, None) => old_position == new_position,
+        _ => false,
+    }
+}
+
+fn music_refresh_clock_key(id: &str, revision: i64) -> String {
+    format!("music-auto:{id}:{revision}")
+}
+
+fn music_refresh_waiting(
+    state: &AppState,
+    id: &str,
+    revision: i64,
+    observed_at: Option<i64>,
+    now: i64,
+) -> Result<bool, String> {
+    Ok(observed_at.is_some_and(|at| now >= at)
+        && lock(&state.widget_clocks)?
+            .get(&music_refresh_clock_key(id, revision))
+            .is_some_and(|due| now < *due))
+}
+
+fn finish_music_refresh(
+    state: &AppState,
+    job: &Job,
+    mut data: Value,
+    time: i64,
+    completed_at: i64,
+    manual: bool,
+    publish: impl FnOnce(),
+) -> Result<(), String> {
+    let mut committed = false;
+    finish(state, job, |db, current| {
+        if music_observation_unchanged(&current.data, &data, completed_at) {
+            let due = completed_at
+                .saturating_add(connections::min_interval("music"))
+                .min(
+                    current.data["observation"]["observedAt"]
+                        .as_i64()
+                        .unwrap_or(time)
+                        .saturating_add(MUSIC_REFRESH_DEADLINE),
+                );
+            let prefix = format!("music-auto:{}:", current.id);
+            let mut clocks = lock(&state.widget_clocks)?;
+            clocks.retain(|key, _| !key.starts_with(&prefix));
+            clocks.insert(music_refresh_clock_key(&current.id, current.revision), due);
+            return Ok(());
+        }
+        data["lastAttemptAt"] = json!(time);
+        data["failureCount"] = json!(0);
+        data["nextRefreshAt"] =
+            json!(timestamp().saturating_add(connections::refresh_interval("music", &data)));
+        if manual {
+            data["lastManualAttemptAt"] = json!(time);
+        }
+        storage::commit_data(db, &current.id, current.revision, data, vec![], timestamp())?;
+        committed = true;
+        Ok(())
+    })?;
+    if committed {
+        publish();
+    }
+    Ok(())
+}
+
 fn pairing_id(data: &Value) -> Option<&str> {
     data["spicetifyPairingId"]
         .as_str()
@@ -895,7 +1017,9 @@ pub(crate) async fn prepare_music_widget_for_story(
         if !crate::app::scene_events::current(state, run)? {
             return Err("이야기 실행이 바뀌었어요.".into());
         }
-        let cancel = lock(&state.cancellation)?.clone().ok_or("이야기 실행이 끝났어요.")?;
+        let cancel = lock(&state.cancellation)?
+            .clone()
+            .ok_or("이야기 실행이 끝났어요.")?;
         cancel
     };
     prepare_music_widget_inner(app, state, id, true, Some((run, &cancel))).await
@@ -905,7 +1029,9 @@ type StoryGuard<'a> = (&'a crate::pack_stories::RunTicket, &'a Arc<AtomicBool>);
 
 fn validate_story(state: &AppState, story: Option<StoryGuard<'_>>) -> Result<(), String> {
     if let Some((run, cancel)) = story {
-        if !crate::app::is_current(state, run.epoch, cancel) || !crate::app::scene_events::execution_current(state, run)? {
+        if !crate::app::is_current(state, run.epoch, cancel)
+            || !crate::app::scene_events::execution_current(state, run)?
+        {
             return Err("이야기 실행이 바뀌었어요.".into());
         }
     }
@@ -924,7 +1050,11 @@ fn validate_story_available(state: &AppState, story: Option<StoryGuard<'_>>) -> 
     Ok(())
 }
 
-async fn execute_story_job<T>(job: &Job, story: Option<StoryGuard<'_>>, work: impl std::future::Future<Output = Result<T, String>>) -> Result<T, String> {
+async fn execute_story_job<T>(
+    job: &Job,
+    story: Option<StoryGuard<'_>>,
+    work: impl std::future::Future<Output = Result<T, String>>,
+) -> Result<T, String> {
     if let Some((_, cancel)) = story {
         tokio::select! {
             _ = models::cancelled(cancel.clone()) => {
@@ -1005,7 +1135,9 @@ fn finish_music_preparation(
     finish(state, job, |db, current| {
         validate_story(state, story)?;
         if let Some((run, _)) = story {
-            if !crate::app::scene_events::available_locked(state, db, run)? { return Err("이야기가 중단되었어요.".into()); }
+            if !crate::app::scene_events::available_locked(state, db, run)? {
+                return Err("이야기가 중단되었어요.".into());
+            }
         }
         let mut data = current.data.clone();
         match result {
@@ -1515,9 +1647,19 @@ fn begin_information(
     manual: bool,
     time: i64,
 ) -> Result<Option<Job>, String> {
+    begin_information_with_recovery(state, id, manual, time, false)
+}
+
+fn begin_information_with_recovery(
+    state: &AppState,
+    id: &str,
+    manual: bool,
+    time: i64,
+    recovery: bool,
+) -> Result<Option<Job>, String> {
     let mut throttled = false;
     let result = begin(state, id, None, false, |instance| {
-        if !manual && lock(&state.widget_jobs)?.contains_key(id) {
+        if (!manual || recovery) && lock(&state.widget_jobs)?.contains_key(id) {
             return Err("이미 조회 중입니다.".into());
         }
         if !["weather", "music", "device"].contains(&instance.kind.as_str()) {
@@ -1528,15 +1670,35 @@ fn begin_information(
         }
         if manual {
             let minimum = connections::min_interval(&instance.kind).min(30000);
-            if instance.data["lastManualAttemptAt"]
-                .as_i64()
-                .is_some_and(|last| time.saturating_sub(last) < minimum)
+            let persisted = instance.data["lastManualAttemptAt"].as_i64();
+            let key = format!("music-manual:{id}");
+            let recent = if instance.kind == "music" {
+                lock(&state.widget_clocks)?.get(&key).copied().or(persisted)
+            } else {
+                persisted
+            };
+            if !recovery
+                && recent.is_some_and(|last| time >= last && time.saturating_sub(last) < minimum)
             {
                 throttled = true;
                 return Err(String::new());
             }
-        } else if !information_due(instance, time) {
+            if instance.kind == "music" {
+                lock(&state.widget_clocks)?.insert(key, time);
+            }
+        } else if !information_due(instance, time)
+            || music_refresh_waiting(
+                state,
+                &instance.id,
+                instance.revision,
+                instance.data["observation"]["observedAt"].as_i64(),
+                time,
+            )?
+        {
             return Err("아직 조회할 시간이 아닙니다.".into());
+        }
+        if instance.kind == "music" {
+            return Ok(None);
         }
         let mut data = instance.data.clone();
         if manual {
@@ -1575,6 +1737,16 @@ async fn refresh_information(
     id: &str,
     manual: bool,
 ) -> Result<(), String> {
+    refresh_information_with_recovery(app, state, id, manual, false).await
+}
+
+async fn refresh_information_with_recovery(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    id: &str,
+    manual: bool,
+    recovery: bool,
+) -> Result<(), String> {
     let time = timestamp();
     let (reaction_epoch, reaction_allowed) = {
         let _action = lock(&state.action)?;
@@ -1582,15 +1754,26 @@ async fn refresh_information(
         let allowed = storage::get(&db, id)?.kind != "device" || wake_event_allowed(state, &db)?;
         (state.epoch.load(Ordering::SeqCst), allowed)
     };
-    let job = begin_information(state, id, manual, time)?;
-    publish_widgets(app, state);
+    let job = if recovery {
+        begin_information_with_recovery(state, id, manual, time, true)?
+    } else {
+        begin_information(state, id, manual, time)?
+    };
     let Some(job) = job else {
         return Ok(());
     };
+    if job.instance.kind != "music" {
+        publish_widgets(app, state);
+    }
     let result = execute(&job, async {
         Ok(refresh_observation(&job.instance, time).await)
     })
     .await;
+    if let (true, Ok(Ok(data))) = (job.instance.kind == "music", &result) {
+        return finish_music_refresh(state, &job, data.clone(), time, timestamp(), manual, || {
+            publish_widget(app, state, id);
+        });
+    }
     let needs_notification = job.instance.kind == "device"
         && job.instance.data["config"]["criticalNotification"] == true
         && matches!(&result, Ok(Ok(value)) if {
@@ -1633,6 +1816,7 @@ async fn refresh_information(
     } else {
         None
     };
+    let mut committed = false;
     let outcome = match result {
         Ok(result) => finish(state, &job, |db, current| {
             let mut events = vec![];
@@ -1657,14 +1841,26 @@ async fn refresh_information(
                         .saturating_add(connections::refresh_interval(&current.kind, &value)));
                     value
                 }
-                Err(failure) => information_failure(
-                    &current.kind,
-                    &current.data,
-                    failure,
-                    timestamp(),
-                    connections::refresh_interval(&current.kind, &current.data),
-                ),
+                Err(failure) => {
+                    let mut previous = current.data.clone();
+                    if manual {
+                        previous["failureCount"] = json!(0);
+                    }
+                    information_failure(
+                        &current.kind,
+                        &previous,
+                        failure,
+                        timestamp(),
+                        connections::refresh_interval(&current.kind, &current.data),
+                    )
+                }
             };
+            if current.kind == "music" {
+                data["lastAttemptAt"] = json!(time);
+                if manual {
+                    data["lastManualAttemptAt"] = json!(time);
+                }
+            }
             if current.kind == "device"
                 && current.data["pendingWakeAt"].as_i64().is_some_and(|at| {
                     current.data["lastWakeAt"].as_i64() == Some(at)
@@ -1689,7 +1885,8 @@ async fn refresh_information(
                     events.clear();
                 }
             }
-            let notify = critical_transition && current.data["config"]["criticalNotification"] == true;
+            let notify =
+                critical_transition && current.data["config"]["criticalNotification"] == true;
             let os_event = notify.then(|| super::WidgetEvent {
                 id: uuid::Uuid::new_v4().to_string(),
                 instance_id: current.id.clone(),
@@ -1711,11 +1908,10 @@ async fn refresh_information(
                 events,
                 timestamp(),
             )?;
+            committed = true;
             if let Some(event) = os_event.filter(|_| notification_allowed) {
                 if crate::widgets::planning::notifications::deliver_automatic_widget(
-                    app,
-                    db,
-                    &event,
+                    app, db, &event,
                 )
                 .is_err()
                 {
@@ -1738,7 +1934,11 @@ async fn refresh_information(
             connections::cancel_weather_archive(&*lock(&state.db)?, request)?;
         }
     }
-    publish_widgets(app, state);
+    if job.instance.kind == "music" && committed {
+        publish_widget(app, state, id);
+    } else if job.instance.kind != "music" {
+        publish_widgets(app, state);
+    }
     outcome
 }
 #[tauri::command]
@@ -1797,11 +1997,19 @@ pub(crate) fn start_due_widget_refreshes(app: &AppHandle, state: &Arc<AppState>)
     if crate::unavailable(state) {
         return;
     }
-    let instances = match lock(&state.db).and_then(|db| storage::instances(&db)) {
+    let now = timestamp();
+    let instances = match lock(&state.db).and_then(|db| {
+        let mut instances = Vec::new();
+        for (id, revision, observed_at) in storage::refresh_candidates(&db, now)? {
+            if !music_refresh_waiting(state, &id, revision, observed_at, now)? {
+                instances.push(storage::get(&db, &id)?);
+            }
+        }
+        Ok(instances)
+    }) {
         Ok(value) => value,
         Err(_) => return,
     };
-    let now = timestamp();
     let occupied = match lock(&state.widget_jobs) {
         Ok(jobs) => jobs
             .keys()
@@ -1854,9 +2062,158 @@ pub(crate) fn refresh_device_after_wake(app: &AppHandle, state: &Arc<AppState>, 
     });
 }
 
+pub(crate) fn refresh_music_after_focus(app: &AppHandle, state: &Arc<AppState>) {
+    let app = app.clone();
+    let state = state.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let ids = match lock(&state.db).and_then(|db| storage::instances(&db)) {
+            Ok(instances) => instances
+                .into_iter()
+                .filter(|instance| {
+                    instance.kind == "music"
+                        && instance.data["configured"] == true
+                        && instance.data["status"] == "permission-needed"
+                })
+                .map(|instance| instance.id)
+                .collect::<Vec<_>>(),
+            Err(_) => return,
+        };
+        for id in ids {
+            let app = app.clone();
+            let state = state.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = refresh_information_with_recovery(&app, &state, &id, true, true).await;
+            });
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn music_data(at: i64, position: i64) -> Value {
+        json!({"configured": true, "status": "ready", "error": null,
+            "warnings": [{"provider":"music", "status":"permission-needed", "message":"권한"}],
+            "observation": {"observedAt":at, "playing":true, "positionMs":position,
+                "durationMs":120_000, "title":"song"}})
+    }
+
+    #[test]
+    fn music_refresh_compares_playback_and_preserves_freshness_and_warnings() {
+        let previous = music_data(100_000, 10_000);
+        let next = music_data(115_000, 25_000);
+        assert!(music_observation_unchanged(&previous, &next, 115_000));
+        assert!(music_observation_unchanged(
+            &previous,
+            &music_data(115_000, 27_000),
+            119_999
+        ));
+        assert!(!music_observation_unchanged(&previous, &next, 120_000));
+        assert!(!music_observation_unchanged(&previous, &next, 99_999));
+        assert!(!music_observation_unchanged(
+            &previous,
+            &music_data(115_000, 27_001),
+            115_000
+        ));
+        let mut changed = next.clone();
+        changed["warnings"] = json!([]);
+        assert!(!music_observation_unchanged(&previous, &changed, 115_000));
+        changed = next.clone();
+        changed["status"] = json!("offline");
+        assert!(!music_observation_unchanged(&previous, &changed, 115_000));
+        changed = next.clone();
+        changed["error"] = json!("error");
+        assert!(!music_observation_unchanged(&previous, &changed, 115_000));
+        changed = next.clone();
+        changed["observation"]["title"] = json!("another song");
+        assert!(!music_observation_unchanged(&previous, &changed, 115_000));
+        let mut paused = previous.clone();
+        paused["observation"]["playing"] = json!(false);
+        let mut paused_next = paused.clone();
+        paused_next["observation"]["observedAt"] = json!(115_000);
+        assert!(music_observation_unchanged(&paused, &paused_next, 115_000));
+        paused_next["observation"]["positionMs"] = json!(12_001);
+        assert!(!music_observation_unchanged(&paused, &paused_next, 115_000));
+    }
+
+    #[test]
+    fn music_refresh_skips_unchanged_commit_and_publishes_at_most_once_per_query() {
+        let state = crate::lifecycle_tests::state();
+        let id = installed_information(&state, "music", true);
+        {
+            let db = lock(&state.db).unwrap();
+            let current = storage::get(&db, &id).unwrap();
+            storage::commit_data(
+                &db,
+                &id,
+                current.revision,
+                music_data(100_000, 10_000),
+                vec![],
+                100_000,
+            )
+            .unwrap();
+        }
+        let job = begin_information(&state, &id, false, 115_000)
+            .unwrap()
+            .unwrap();
+        let revision = job.instance.revision;
+        let mut publications = 0;
+        finish_music_refresh(
+            &state,
+            &job,
+            music_data(115_000, 25_000),
+            115_000,
+            115_000,
+            false,
+            || publications += 1,
+        )
+        .unwrap();
+        assert_eq!(publications, 0);
+        let current = storage::get(&lock(&state.db).unwrap(), &id).unwrap();
+        assert_eq!(current.revision, revision);
+        assert_eq!(current.data["observation"]["observedAt"], 100_000);
+        assert!(
+            music_refresh_waiting(&state, &id, current.revision, Some(100_000), 124_999).unwrap()
+        );
+        assert!(
+            !music_refresh_waiting(&state, &id, current.revision, Some(100_000), 125_000).unwrap()
+        );
+        let job = begin_information(&state, &id, false, 125_000)
+            .unwrap()
+            .unwrap();
+        finish_music_refresh(
+            &state,
+            &job,
+            music_data(125_000, 35_000),
+            125_000,
+            125_000,
+            false,
+            || publications += 1,
+        )
+        .unwrap();
+        assert_eq!(publications, 1);
+        let current = storage::get(&lock(&state.db).unwrap(), &id).unwrap();
+        assert_eq!(current.revision, revision + 1);
+        assert_eq!(current.data["observation"]["observedAt"], 125_000);
+        assert!(
+            !music_refresh_waiting(&state, &id, current.revision, Some(125_000), 125_000).unwrap()
+        );
+        let job = begin_information(&state, &id, true, 126_000)
+            .unwrap()
+            .unwrap();
+        job.cancel.store(true, Ordering::SeqCst);
+        let mut changed = music_data(126_000, 36_000);
+        changed["warnings"] = json!([]);
+        assert!(
+            finish_music_refresh(&state, &job, changed, 126_000, 126_000, true, || {
+                publications += 1
+            })
+            .is_err()
+        );
+        assert_eq!(publications, 1);
+    }
+
     fn installed_information(state: &AppState, kind: &str, configured: bool) -> String {
         let directory = tempfile::tempdir().unwrap();
         let db = lock(&state.db).unwrap();
@@ -2099,9 +2456,14 @@ mod tests {
                 .unwrap()
                 .unwrap();
             assert_eq!(job.instance.kind, kind);
-            assert_eq!(job.instance.data["status"], "syncing");
-            assert_eq!(job.instance.data["lastAttemptAt"], 100_000);
-            assert_eq!(job.instance.data["failureCount"], 0);
+            if kind != "music" {
+                assert_eq!(job.instance.data["status"], "syncing");
+                assert_eq!(job.instance.data["lastAttemptAt"], 100_000);
+                assert_eq!(job.instance.data["failureCount"], 0);
+            } else {
+                let current = storage::get(&lock(&state.db).unwrap(), &id).unwrap();
+                assert_eq!(current.revision, job.instance.revision);
+            }
         }
         let id = installed_information(&state, "clock", true);
         assert_eq!(
@@ -2153,7 +2515,9 @@ mod tests {
                 .unwrap()
                 .unwrap();
             assert!(automatic.cancel.load(Ordering::SeqCst));
-            assert_eq!(manual.instance.data["lastManualAttemptAt"], 100_001);
+            if kind != "music" {
+                assert_eq!(manual.instance.data["lastManualAttemptAt"], 100_001);
+            }
             assert!(begin_information(&state, &id, true, 100_002)
                 .unwrap()
                 .is_none());
@@ -2161,6 +2525,23 @@ mod tests {
             let current = storage::get(&lock(&state.db).unwrap(), &id).unwrap();
             assert_eq!(current.revision, manual.instance.revision);
         }
+    }
+
+    #[test]
+    fn permission_recovery_bypasses_manual_throttle_without_cancelling_a_running_query() {
+        let state = crate::lifecycle_tests::state();
+        let id = installed_information(&state, "music", true);
+        let first = begin_information(&state, &id, true, 100_000)
+            .unwrap()
+            .unwrap();
+        assert!(begin_information_with_recovery(&state, &id, true, 100_001, true).is_err());
+        assert!(!first.cancel.load(Ordering::SeqCst));
+        abandon(&state, &first);
+        let recovery = begin_information_with_recovery(&state, &id, true, 100_002, true)
+            .unwrap()
+            .unwrap();
+        assert!(!recovery.cancel.load(Ordering::SeqCst));
+        abandon(&state, &recovery);
     }
 
     #[test]
@@ -2363,12 +2744,25 @@ mod tests {
         let epoch = state.epoch.load(Ordering::SeqCst);
         let cancel = Arc::new(AtomicBool::new(false));
         let run = crate::pack_stories::RunTicket {
-            run_id: "run".into(), input_id: "input".into(),
-            scope: crate::pack_stories::Scope { user_id: "user".into(), pack_id: "pack".into(), center_id: "center".into() },
-            scenario_id: None, stage: crate::pack_stories::Stage::Chapter,
-            chapter_id: Some("chapter".into()), step: 0, phase_generation: 1, epoch,
-            participants: vec![], pack_baseline: String::new(), definition_baselines: Default::default(),
-            last_playback_id: String::new(), definition: None, ready: false,
+            run_id: "run".into(),
+            input_id: "input".into(),
+            scope: crate::pack_stories::Scope {
+                user_id: "user".into(),
+                pack_id: "pack".into(),
+                center_id: "center".into(),
+            },
+            scenario_id: None,
+            stage: crate::pack_stories::Stage::Chapter,
+            chapter_id: Some("chapter".into()),
+            step: 0,
+            phase_generation: 1,
+            epoch,
+            participants: vec![],
+            pack_baseline: String::new(),
+            definition_baselines: Default::default(),
+            last_playback_id: String::new(),
+            definition: None,
+            ready: false,
         };
         lock(&state.pack_stories).unwrap().run = Some(run.clone());
         assert!(validate_story(&state, Some((&run, &cancel))).is_ok());
@@ -2390,7 +2784,10 @@ mod tests {
             status: "stale".into(),
             message: "실행 취소".into(),
         };
-        assert_eq!(music_launch_outcome(true, Err(error)), Err("실행 취소".into()));
+        assert_eq!(
+            music_launch_outcome(true, Err(error)),
+            Err("실행 취소".into())
+        );
     }
 
     #[test]
@@ -2399,7 +2796,10 @@ mod tests {
             status: "offline".into(),
             message: "실행 실패".into(),
         };
-        assert_eq!(music_launch_outcome(false, Err(error)), Err("실행 실패".into()));
+        assert_eq!(
+            music_launch_outcome(false, Err(error)),
+            Err("실행 실패".into())
+        );
     }
 
     #[test]
@@ -2436,7 +2836,8 @@ mod tests {
             let id = installed_information(&state, "music", true);
             let job = begin(&state, &id, Some("music"), false, |instance| {
                 let mut data = instance.data.clone();
-                data["config"] = json!({"provider":provider,"allowedProviders":["music","spotify"]});
+                data["config"] =
+                    json!({"provider":provider,"allowedProviders":["music","spotify"]});
                 data["status"] = json!(status);
                 data["error"] = if status == "offline" {
                     json!("Spotify를 실행하지 못했어요.")
@@ -2690,7 +3091,10 @@ mod tests {
         let result = information_failure("weather", &data, &failure, 1000, 60000);
         assert_eq!(result["observation"], data["observation"]);
         assert_eq!(result["lastSuccessAt"], 123);
-        assert_eq!(result["error"], "연결 실패 마지막으로 확인한 날씨를 보여 드려요.");
+        assert_eq!(
+            result["error"],
+            "연결 실패 마지막으로 확인한 날씨를 보여 드려요."
+        );
         assert_eq!(result["nextRefreshAt"], 121000);
         let links = json!({"events":[{"url":"https://example.com","cancelled":false},{"url":"https://cancelled.example.com","cancelled":true}]});
         assert!(allowed_link(&links, "calendar", "https://example.com"));
@@ -2733,7 +3137,10 @@ mod tests {
         assert!(failed["lastSuccessAt"].is_null());
         assert!(failed["forecast"].is_null());
         assert_eq!(failed["status"], "offline");
-        assert_eq!(failed["error"], "날씨를 확인하지 못했어요. 이전 지역에서 마지막으로 확인한 날씨를 보여 드려요.");
+        assert_eq!(
+            failed["error"],
+            "날씨를 확인하지 못했어요. 이전 지역에서 마지막으로 확인한 날씨를 보여 드려요."
+        );
         let first = connections::configure(
             "weather",
             &connections::initial("weather"),
@@ -2741,7 +3148,10 @@ mod tests {
         )
         .unwrap();
         let first_failure = information_failure("weather", &first, &failure, 200, 1_800_000);
-        assert_eq!(first_failure["error"], "날씨를 확인하지 못했어요. 아직 확인한 날씨가 없어요.");
+        assert_eq!(
+            first_failure["error"],
+            "날씨를 확인하지 못했어요. 아직 확인한 날씨가 없어요."
+        );
         let music_failure = information_failure("music", &first, &failure, 200, 15_000);
         assert_eq!(music_failure["error"], failure.message);
     }

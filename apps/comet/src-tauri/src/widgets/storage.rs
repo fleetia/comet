@@ -262,6 +262,26 @@ pub fn instances(db: &Connection) -> Result<Vec<WidgetInstance>> {
     })
 }
 
+pub(crate) fn refresh_candidates(db: &Connection, now: i64) -> Result<Vec<(String, i64, Option<i64>)>> {
+    let mut statement = db.prepare(
+        "SELECT id, revision, CASE WHEN json_type(data,'$.observation.observedAt') = 'integer'
+          THEN json_extract(data,'$.observation.observedAt') END FROM widget_instances WHERE
+        (kind IN ('weather','music','device') AND json_extract(data,'$.configured') = 1
+          AND (COALESCE(json_extract(data,'$.nextRefreshAt'),0) <= ?1
+            OR json_extract(data,'$.status') IN ('syncing','offline')
+            OR (kind='weather' AND json_extract(data,'$.nextRefreshAt') = 9223372036854775807)))
+        OR (kind='calendar' AND EXISTS (
+          SELECT 1 FROM json_each(data,'$.connections') AS c
+          WHERE COALESCE(json_extract(c.value,'$.status'),'') != 'auth-error'
+            AND (json_extract(c.value,'$.status') = 'syncing'
+              OR COALESCE(json_extract(c.value,'$.nextRefreshAt'),0) <= ?1
+              OR json_extract(c.value,'$.nextRefreshAt') = 9223372036854775807)))
+        ORDER BY rowid"
+    ).map_err(err)?;
+    let rows = statement.query_map([now], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).map_err(err)?;
+    rows.map(|row| row.map_err(err)).collect()
+}
+
 pub(crate) fn installed_and_enabled(db: &Connection, id: &str) -> Result<bool> {
     db.query_row(
         "SELECT EXISTS(SELECT 1 FROM widget_instances WHERE id=?1 AND installed=1 AND enabled=1)",

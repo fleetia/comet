@@ -26,6 +26,7 @@ import {
   WEEKDAYS,
 } from "./plannerData";
 import * as s from "./planner.css";
+import type { WidgetView } from "../types";
 
 export function TaskReadOnlyDetails({ item }: { item: DataRecord }): ReactElement {
   return (
@@ -65,6 +66,8 @@ export function TodoEditor({
   focus,
   onMovePlan,
   draftKey,
+  calendar,
+  onEnableReminders,
 }: {
   item: DataRecord;
   lists: DataRecord[];
@@ -77,6 +80,8 @@ export function TodoEditor({
   /** Changes the plan date the same way moving the task does; without it the field is hidden. */
   onMovePlan?: (item: DataRecord, date: string | null) => Promise<boolean>;
   draftKey?: string;
+  calendar?: WidgetView;
+  onEnableReminders?: () => Promise<boolean>;
 }): ReactElement {
   const titleRef = useRef<HTMLInputElement>(null);
   const planRef = useRef<HTMLDivElement>(null);
@@ -149,6 +154,8 @@ export function TodoEditor({
   );
   const [scope, setScope] = useState(() => stringDraft("scope", "occurrence"));
   const [error, setError] = useState<string | null>(null);
+  const [enablingReminders, setEnablingReminders] = useState(false);
+  const [enabledReminders, setEnabledReminders] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [confirmClose, setConfirmClose] = useState(false);
@@ -477,6 +484,40 @@ export function TodoEditor({
             </div>
             <div className={s.field}>
               <p className={s.caption}>기기 시간대 · {deviceTimeZone()}</p>
+              {day && (
+                <>
+                  {!enabledReminders &&
+                    record(record(calendar?.data).reminders).enabled !== true && (
+                      <p className={s.caption}>
+                        마감 알림이 꺼져 있어요.{" "}
+                        {onEnableReminders && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="small"
+                            disabled={busy || enablingReminders}
+                            onClick={async () => {
+                              setEnablingReminders(true);
+                              try {
+                                if (await onEnableReminders()) setEnabledReminders(true);
+                                else setError("알림을 켜지 못했어요. 다시 시도해 주세요.");
+                              } finally {
+                                setEnablingReminders(false);
+                              }
+                            }}
+                          >
+                            알림 켜기
+                          </Button>
+                        )}
+                      </p>
+                    )}
+                  {!time && record(record(calendar?.data).reminders).includeAllDay !== true && (
+                    <p className={s.caption}>
+                      시각 없이 날짜만 지정한 마감은 알림 대상이 아니에요.
+                    </p>
+                  )}
+                </>
+              )}
               <FormField id="planner-todo-due-time" label="마감 시각 (선택)" className={s.field}>
                 {time ? (
                   <TextInput
@@ -769,9 +810,16 @@ export function TodoEditor({
                 disabled={busy}
                 onClick={async () => {
                   if (
-                    await act(!canAdvance ? "delete" : repeatMode === "calendar" ? "skip" : "delete-occurrence", {
-                      id: text(item.id),
-                    })
+                    await act(
+                      !canAdvance
+                        ? "delete"
+                        : repeatMode === "calendar"
+                          ? "skip"
+                          : "delete-occurrence",
+                      {
+                        id: text(item.id),
+                      },
+                    )
                   )
                     finish();
                 }}
@@ -785,11 +833,12 @@ export function TodoEditor({
               disabled={busy || hasFrequencyHistory}
               onClick={async () => {
                 if (hasRepeat && item.generation) {
-                  setDeleteError("이미 만들어진 다음 회차에서 반복을 끝내 주세요. 이 회차를 삭제해도 다음 회차는 유지돼요.");
+                  setDeleteError(
+                    "이미 만들어진 다음 회차에서 반복을 끝내 주세요. 이 회차를 삭제해도 다음 회차는 유지돼요.",
+                  );
                   return;
                 }
-                if (await act(hasRepeat ? "end-repeat" : "delete", { id: text(item.id) }))
-                  finish();
+                if (await act(hasRepeat ? "end-repeat" : "delete", { id: text(item.id) })) finish();
                 else setDeleteError("삭제하지 못했어요. 최신 내용을 확인한 뒤 다시 시도해 주세요.");
               }}
             >

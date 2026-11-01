@@ -67,6 +67,7 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
     hidden: false,
     paused: false,
     pausedUntil: null,
+    quietHoursUntil: null,
   },
   hasApiKey: false,
   apiKeyProviders: [],

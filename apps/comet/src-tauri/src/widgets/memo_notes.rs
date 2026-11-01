@@ -8,7 +8,10 @@ use crate::{
 };
 use rusqlite::OptionalExtension;
 use serde_json::{json, Value};
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 use tauri::{Emitter, Listener, Manager};
 
 fn execute(
@@ -268,6 +271,7 @@ fn reconcile(
                 .transparent(true)
                 .shadow(false)
                 .always_on_top(true)
+            .accept_first_mouse(true)
                 .skip_taskbar(true)
                 .disable_drag_drop_handler()
                 .maximizable(false)
@@ -416,7 +420,7 @@ async fn sync_story(
     receive.await.map_err(|error| error.to_string())?
 }
 
-async fn sync(app: &tauri::AppHandle, focus: Option<String>) -> Result<(), String> {
+pub(crate) async fn sync(app: &tauri::AppHandle, focus: Option<String>) -> Result<(), String> {
     sync_story(app, focus, None).await
 }
 
@@ -730,6 +734,7 @@ pub(crate) struct FlushedNotes {
     labels: BTreeSet<String>,
     open_notes: BTreeSet<String>,
     id: Option<String>,
+    generations: Option<BTreeMap<String, Option<u64>>>,
     payload: Value,
     release: bool,
     _operation: tokio::sync::MutexGuard<'static, ()>,
@@ -746,7 +751,14 @@ impl FlushedNotes {
             .iter()
             .map(|window| window.label().into())
             .collect();
-        if self.labels != current || self.open_notes != open_notes(db, self.id.as_deref())? {
+        if self.labels != current
+            || self.open_notes != open_notes(db, self.id.as_deref())?
+            || self.generations.as_ref().is_some_and(|values| {
+                values.iter().any(|(label, generation)| {
+                    desktop::move_generation(app, label) != *generation
+                })
+            })
+        {
             return Err("열린 메모가 바뀌었어요. 다시 시도해 주세요.".into());
         }
         Ok(())
@@ -767,12 +779,13 @@ impl Drop for FlushedNotes {
     }
 }
 
+static LIFECYCLE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 pub(crate) async fn flush_notes(
     app: &tauri::AppHandle,
     state: &AppState,
     id: Option<&str>,
 ) -> Result<FlushedNotes, String> {
-    static LIFECYCLE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let operation = LIFECYCLE.lock().await;
     let (windows, open_notes) = {
         let _action = lock(&state.action)?;
@@ -788,6 +801,7 @@ pub(crate) async fn flush_notes(
         labels,
         open_notes,
         id: id.map(str::to_owned),
+        generations: None,
         payload: json!({"requestId":request_id}),
         release: true,
         _operation: operation,
@@ -835,6 +849,82 @@ pub(crate) async fn flush_notes(
     }
     result?;
     Ok(flushed)
+}
+
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InspectionResult {
+    request_id: String,
+    window_label: String,
+    success: bool,
+    token: Option<String>,
+    dirty: Option<bool>,
+}
+
+pub(crate) async fn inspect_note(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    id: &str,
+    note_id: &str,
+) -> Result<(FlushedNotes, Option<(String, bool)>), String> {
+    let operation = LIFECYCLE.lock().await;
+    let (windows, open_notes) = {
+        let _action = lock(&state.action)?;
+        if crate::unavailable(state) {
+            return Err("앱을 정리하고 있어요.".into());
+        }
+        (
+            note_windows(app, Some(id)),
+            open_notes(&*lock(&state.db)?, Some(id))?,
+        )
+    };
+    let labels: BTreeSet<String> = windows.iter().map(|window| window.label().into()).collect();
+    let target = label(id, note_id);
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let flushed = FlushedNotes {
+        windows,
+        labels: labels.clone(),
+        open_notes,
+        id: Some(id.to_owned()),
+        generations: Some(
+            labels.iter().map(|label| (label.clone(), desktop::move_generation(app, label))).collect(),
+        ),
+        payload: json!({"requestId":request_id, "inspect":true}),
+        release: true,
+        _operation: operation,
+    };
+    let Some(window) = flushed.windows.iter().find(|window| window.label() == target) else {
+        if flushed.open_notes.contains(&target) {
+            return Err("열린 메모 창을 확인하지 못했어요. 다시 시도해 주세요.".into());
+        }
+        return Ok((flushed, None));
+    };
+    let (send, mut receive) = tokio::sync::mpsc::unbounded_channel();
+    let listener_id = request_id.clone();
+    let listener_label = target.clone();
+    let listener = window.listen("memo-flush-result", move |event| {
+        if let Some(result) = serde_json::from_str::<InspectionResult>(event.payload())
+            .ok()
+            .filter(|result| result.request_id == listener_id && result.window_label == listener_label)
+        {
+            let _ = send.send(result);
+        }
+    });
+    let result = async {
+        window.emit_to(window.label(), "memo-flush-request", flushed.payload.clone())
+            .map_err(|error| error.to_string())?;
+        let result = tokio::time::timeout(std::time::Duration::from_secs(10), receive.recv())
+            .await.map_err(|_| "메모 확인 시간이 초과됐어요. 다시 시도해 주세요.".to_string())?
+            .ok_or("메모 확인 응답을 받지 못했어요.")?;
+        match (result.success, result.token, result.dirty) {
+            (true, Some(token), Some(dirty)) => Ok(Some((token, dirty))),
+            _ => Err(String::from("메모가 저장 중이거나 확인할 수 없어요. 다시 시도해 주세요.")),
+        }
+    }
+    .await;
+    window.unlisten(listener);
+    Ok((flushed, result?))
 }
 
 #[cfg(test)]

@@ -204,12 +204,32 @@ it("distinguishes failed calendar reads with and without a cached event", () => 
 it("shows music connection and running states without an empty-track caption", () => {
   const now = Date.now();
   expect(desktopSummary(widget("music", {}), now)).toMatchObject({ title: "음악 앱을 연결해 주세요", meta: "", value: "" });
+  expect(desktopSummary(widget("music", { configured: false, status: "permission-needed" }), now)).toMatchObject({ title: "음악 앱을 연결해 주세요", meta: "" });
   expect(desktopSummary(widget("music", { configured: true, observation: { running: false } }), now).title).toBe("음악 앱이 닫혀 있어요");
   const playing = widget("music", { configured: true, observation: { running: true } });
   expect(desktopSummary(playing, now)).toMatchObject({ title: "재생 중인 곡이 없어요", meta: "" });
+  expect(desktopSummary(widget("music", { configured: true, status: "permission-needed" }), now)).toMatchObject({ title: "음악 앱 접근 권한이 필요해요", meta: "음악 앱 접근 권한 필요" });
+  expect(desktopSummary(widget("music", { configured: true, status: "permission-needed", observation: { title: "이전 곡" } }), now)).toMatchObject({ title: "이전 곡", meta: "음악 앱 접근 권한 필요" });
   render(<FreeformWidget widget={playing} now={now} />);
   expect(screen.queryByText("지금 듣는 곡")).toBeNull();
   expect(screen.queryByText("이전 정보")).toBeNull();
+});
+
+it("shows the music status for a retained track in the freeform widget", () => {
+  const now = Date.now();
+  const observation = { title: "이전 곡", observedAt: now };
+  const permission = widget("music", { configured: true, status: "permission-needed", observation });
+  const { rerender } = render(<FreeformWidget widget={permission} now={now} />);
+  expect(screen.getByText("이전 곡")).toBeTruthy();
+  expect(screen.getByText("음악 앱 접근 권한 필요")).toBeTruthy();
+  expect(screen.queryByText("이전 정보")).toBeNull();
+
+  rerender(<FreeformWidget widget={widget("music", { configured: true, status: "ready", observation })} now={now + 31_000} />);
+  expect(screen.getByText("이전 정보")).toBeTruthy();
+  expect(screen.queryByText("음악 앱 접근 권한 필요")).toBeNull();
+
+  rerender(<FreeformWidget widget={widget("music", { configured: true, status: "ready", observation })} now={now} />);
+  expect(screen.getByText("지금 듣는 곡")).toBeTruthy();
 });
 
 it("omits the focus action when no preparation envelope exists", () => {

@@ -59,6 +59,7 @@ export function CalendarTool({
   sideContainer,
   onConnectionOpenChange,
   disabled = false,
+  alertsTarget = 0,
 }: {
   widget: WidgetView;
   act: ToolAction;
@@ -69,7 +70,12 @@ export function CalendarTool({
   sideContainer?: HTMLElement | null;
   onConnectionOpenChange?: (open: boolean) => void;
   disabled?: boolean;
+  alertsTarget?: number;
 }): ReactElement {
+  const alertsRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if (alertsTarget && alertsRef.current) alertsRef.current.open = true;
+  }, [alertsTarget]);
   const d = record(widget.data),
     connections = rows(d.connections);
   const connectedIds = new Set(connections.map((connection) => text(connection.id)));
@@ -103,7 +109,8 @@ export function CalendarTool({
         if (
           !connection ||
           (connection.status === "ready" && failure.status !== "ready") ||
-          (text(connection.error) !== failure.error && text(connection.error) !== failure.message) ||
+          (text(connection.error) !== failure.error &&
+            text(connection.error) !== failure.message) ||
           connection.lastSuccessAt !== failure.lastSuccessAt
         ) {
           delete next[id];
@@ -481,10 +488,8 @@ export function CalendarTool({
                   const started = connectionsRef.current.find(
                     (item) => text(item.id) === connectionId,
                   );
-                  await run(
-                    "refresh_calendar",
-                    { id: widget.id, connectionId },
-                    (message) => recordRefreshError(connectionId, message, true, started),
+                  await run("refresh_calendar", { id: widget.id, connectionId }, (message) =>
+                    recordRefreshError(connectionId, message, true, started),
                   );
                 }
               })()
@@ -565,7 +570,9 @@ export function CalendarTool({
                     {timeLabel(a)} – {b === nextDay.getTime() ? "24:00" : timeLabel(b)}
                   </p>
                 ))}
-                {freeTimes(events, day).length === 0 && <p>이 날짜에는 조회한 빈 시간이 없어요.</p>}
+                  {freeTimes(events, day).length === 0 && (
+                    <p>이 날짜에는 조회한 빈 시간이 없어요.</p>
+                  )}
               </>
             ) : (
               <>
@@ -592,6 +599,7 @@ export function CalendarTool({
               <h2 className={settings.heading}>연결한 캘린더</h2>
               <div className={settings.headingActions}>
                 <details
+                    ref={alertsRef}
                   className={settings.alerts}
                   onKeyDown={(event) => {
                     if (event.key === "Escape") {
@@ -842,7 +850,11 @@ export function CalendarTool({
                     <p className={c.quiet}>
                       Google에도 연결한 캘린더가 있다면 한쪽에서만 선택해 중복 일정을 피하세요.
                     </p>
-                    <Button type="button" variant="ghost" onClick={() => void loadAppleCalendars()}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => void loadAppleCalendars()}
+                      >
                       macOS 권한 확인하고 캘린더 목록 읽기
                     </Button>
                     {appleError && (
@@ -860,8 +872,8 @@ export function CalendarTool({
                       appleCalendars.authorization !== "full-access" && (
                         <>
                           <p role="status" className={c.error}>
-                            Apple 캘린더를 읽으려면 시스템 설정 → 개인정보 보호 및 보안 → 캘린더에서
-                            comet을 허용해 주세요.
+                              Apple 캘린더를 읽으려면 시스템 설정 → 개인정보 보호 및 보안 →
+                              캘린더에서 comet을 허용해 주세요.
                           </p>
                           <Button
                             type="button"
@@ -901,7 +913,8 @@ export function CalendarTool({
                           />
                         ))}
                         {appleIds.some(
-                          (id) => !appleCalendars.calendars.some((calendar) => calendar.id === id),
+                            (id) =>
+                              !appleCalendars.calendars.some((calendar) => calendar.id === id),
                         ) && (
                           <p role="alert" className={c.error}>
                             이전 선택 중 목록에서 사라진 캘린더가 있습니다. 선택을 초기화하고 다시
@@ -1159,8 +1172,8 @@ export function CalendarTool({
       >
         <div className={s.body}>
           <p>
-            {text(disconnect?.name)}의 일정 조회를 중단합니다. 기존 준비 봉투의 체크리스트와 자료는
-            보존합니다.
+              {text(disconnect?.name)}의 일정 조회를 중단합니다. 기존 준비 봉투의 체크리스트와
+              자료는 보존합니다.
           </p>
           {error && (
             <p role="alert" className={c.error}>

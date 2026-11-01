@@ -207,3 +207,24 @@ it("adopts the newer original received while the conflict copy is saving", async
   fireEvent.click(screen.getByRole("button", { name: "메모 넣기" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("save_memo_note", expect.objectContaining({ expectedBody: "더 최신 원문" })));
 });
+
+it("inspects a detached draft without saving and unlocks it on release", async () => {
+  render(<MemoNote id="memo" noteId="one" />);
+  await waitFor(() => expect(listen).toHaveBeenCalledWith("memo-flush-request", expect.any(Function), {
+    target: "widget-memo-note-one",
+  }));
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "보존할 낱장 초안" } });
+  const request = vi.mocked(listen).mock.calls.find(([name]) => name === "memo-flush-request")?.[1];
+  await act(async () => {
+    await request?.({ event: "memo-flush-request", id: 1, payload: { requestId: "inspect", inspect: true } });
+  });
+  expect(command).not.toHaveBeenCalled();
+  expect(screen.getByRole("textbox")).toHaveProperty("readOnly", true);
+  expect(emitTo).toHaveBeenCalledWith("widget-memo-note-one", "memo-flush-result", expect.objectContaining({
+    requestId: "inspect", success: true, dirty: true, token: expect.any(String),
+  }));
+  const release = vi.mocked(listen).mock.calls.find(([name]) => name === "memo-flush-release")?.[1];
+  act(() => { release?.({ event: "memo-flush-release", id: 2, payload: { requestId: "inspect" } }); });
+  expect(screen.getByRole("textbox")).toHaveProperty("readOnly", false);
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "보존할 낱장 초안");
+});

@@ -16,7 +16,7 @@ import * as paper from "./memoNote.css";
 
 function NoteEditor({ id, note, revision }: { id: string; note: DataRecord; revision: number }): ReactElement {
   const noteId = text(note.id);
-  const { draft, status, error, edit, flush, isConflict, adopt } = useMemoDraft({
+  const { draft, status, error, edit, flush, isConflict, adopt, inspect, release } = useMemoDraft({
     id,
     noteId,
     body: text(note.body),
@@ -27,6 +27,7 @@ function NoteEditor({ id, note, revision }: { id: string; note: DataRecord; revi
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const pending = useRef(false);
   const flushRequest = useRef<string | null>(null);
+  const inspectionRequest = useRef(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const latestNote = useRef({ revision, note });
   if (revision >= latestNote.current.revision) {
@@ -75,23 +76,31 @@ function NoteEditor({ id, note, revision }: { id: string; note: DataRecord; revi
         },
         options,
       ).then(keep),
-      listen<{ requestId: string }>(
+      listen<{ requestId: string; inspect?: boolean }>(
         "memo-flush-request",
         async ({ payload }) => {
           if (!active) return;
           const windowLabel = getCurrentWindow().label;
           let success = false;
+          let inspection: { token: string; dirty: boolean } | null = null;
           if (!pending.current) {
             pending.current = true;
             flushRequest.current = payload.requestId;
+            inspectionRequest.current = Boolean(payload.inspect);
             setBusy(true);
-            success = await flush();
+            if (payload.inspect) {
+              inspection = inspect();
+              success = inspection !== null;
+            } else {
+              success = await flush();
+            }
           }
           try {
             await emitTo(windowLabel, "memo-flush-result", {
               requestId: payload.requestId,
               windowLabel,
               success,
+              ...inspection,
               ...(success
                 ? {}
                 : { error: isConflict()
@@ -109,6 +118,8 @@ function NoteEditor({ id, note, revision }: { id: string; note: DataRecord; revi
         ({ payload }) => {
           if (active && flushRequest.current === payload.requestId) {
             flushRequest.current = null;
+            if (inspectionRequest.current) release();
+            inspectionRequest.current = false;
             pending.current = false;
             setBusy(false);
           }
@@ -120,7 +131,7 @@ function NoteEditor({ id, note, revision }: { id: string; note: DataRecord; revi
       active = false;
       cleanups.forEach((cleanup) => cleanup());
     };
-  }, [putAway, flush, isConflict]);
+  }, [putAway, flush, isConflict, inspect, release]);
 
   async function create(): Promise<void> {
     if (pending.current) {

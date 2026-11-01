@@ -6,11 +6,14 @@ import { WidgetDragHandle } from "../WidgetDragHandle";
 import { record, rows, text, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import type { WidgetDragPayload } from "../widgetDrag";
+import type { DiaryWidgetActions } from "./useDiaryWidgetActions";
 
 export type DesktopNotesProps = {
   widgets: WidgetView[];
   busy: boolean;
   act: ToolAction;
+  run: DiaryWidgetActions["run"];
+  execute: DiaryWidgetActions["execute"];
   onCreate: () => Promise<boolean>;
   onOpenNote: (widget: WidgetView, noteId: string, putAway?: boolean) => Promise<boolean>;
   linkTarget?: string;
@@ -61,7 +64,15 @@ export function DiaryDesktopNoteDetail({
           widget,
         )
       }
-      onDelete={() => props.act("delete", { id }, widget)}
+      onDelete={async (discardDraft) => {
+        const result = await props.run(() =>
+          props.execute("delete", { id, ...(discardDraft ? { discardDraft } : {}) }, widget),
+        );
+        if (!result) return false;
+        return result.value?.startsWith("memo-draft:")
+          ? result.value.slice("memo-draft:".length)
+          : true;
+      }}
       header={(disabled) => (
         <>
           {Boolean(note.isOpen) && <StatusChip>바탕화면에 있어요</StatusChip>}

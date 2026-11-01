@@ -70,7 +70,9 @@ function listener<T>(name: string): (payload: T) => Promise<void> {
 }
 
 let state: DesktopState;
+let pendingReveal: [number, string] | null;
 beforeEach(() => {
+  pendingReveal = null;
   state = {
     revision: 5,
     editing: false,
@@ -94,9 +96,13 @@ beforeEach(() => {
   vi.mocked(command).mockImplementation(async (name) =>
     name === "get_widget_desktop"
       ? state
-      : name.endsWith("_widget_desktop") || name.includes("_widget_desktop_")
-        ? { ...state, revision: ++revision }
-        : undefined,
+      : name === "take_widget_stack_reveal"
+        ? (() => { const value = pendingReveal; pendingReveal = null; return value; })()
+      : name === "get_widgets"
+        ? vi.mocked(useWidgets).mock.results.at(-1)?.value.snapshot
+        : name.endsWith("_widget_desktop") || name.includes("_widget_desktop_")
+          ? { ...state, revision: ++revision }
+          : undefined,
   );
   setWidgets([
     widget("clock", "clock"),
@@ -135,12 +141,13 @@ it("expands rows in place and moves settings and open actions to the hover toolb
   expect(screen.getAllByRole("button", { expanded: false })).toHaveLength(3);
   expect(command).not.toHaveBeenCalledWith("open_widget", expect.anything());
   await waitFor(() =>
-    expect(vi.mocked(command).mock.calls.filter(([name]) => name === "configure_widget_desktop"))
-      .toHaveLength(3),
+    expect(
+      vi.mocked(command).mock.calls.filter(([name]) => name === "configure_widget_desktop"),
+    ).toHaveLength(3),
   );
-  const configureCalls = vi.mocked(command).mock.calls.filter(
-    ([name]) => name === "configure_widget_desktop",
-  );
+  const configureCalls = vi
+    .mocked(command)
+    .mock.calls.filter(([name]) => name === "configure_widget_desktop");
   expect(configureCalls.map(([, args]) => args?.input)).toEqual(
     [["memo"], ["weather"], []].map((expanded) => ({
       mode: state.mode,
@@ -161,6 +168,146 @@ it("restores saved expanded rows when the stack window opens", async () => {
   render(<WidgetStack />);
   await screen.findByRole("button", { name: "날씨 접기" });
   expect(screen.getByRole("button", { name: "날씨 접기" })).toBeTruthy();
+});
+
+it("reveals the requested row or its capsule bubble", async () => {
+  state.order = ["clock", "weather"];
+  const view = render(<WidgetStack />);
+  await screen.findByText("21°C");
+  await waitFor(() =>
+    expect(listen).toHaveBeenCalledWith("widget-stack-reveal", expect.any(Function)),
+  );
+  pendingReveal = [1, "weather"];
+  await listener<string>("widget-stack-reveal")("weather");
+  expect(screen.getByRole("button", { name: "날씨 접기" })).toBeTruthy();
+  view.unmount();
+  vi.mocked(listen).mockClear();
+  state.overlapped = true;
+  render(<WidgetStack />);
+  await screen.findByRole("button", { name: /21°C/ });
+  await waitFor(() =>
+    expect(listen).toHaveBeenCalledWith("widget-stack-reveal", expect.any(Function)),
+  );
+  pendingReveal = [2, "weather"];
+  await listener<string>("widget-stack-reveal")("weather");
+  expect(screen.getByRole("dialog", { name: "날씨" })).toBeTruthy();
+});
+
+it("retains a reveal event received before the desktop layout loads", async () => {
+  state.order = ["weather"];
+  let finish: ((value: DesktopState) => void) | undefined;
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_widget_desktop") return new Promise<DesktopState>((resolve) => { finish = resolve; });
+    if (name === "configure_widget_desktop") return state;
+    if (name === "take_widget_stack_reveal") {
+      const value = pendingReveal;
+      pendingReveal = null;
+      return value;
+    }
+  });
+  pendingReveal = [1, "weather"];
+  render(<WidgetStack />);
+  await waitFor(() => expect(listen).toHaveBeenCalledWith("widget-stack-reveal", expect.any(Function)));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("take_widget_stack_reveal"));
+  await act(async () => finish?.(state));
+  expect(await screen.findByRole("button", { name: "날씨 접기" })).toBeTruthy();
+  expect(vi.mocked(listen).mock.calls.filter(([name]) => name === "widget-stack-reveal")).toHaveLength(1);
+});
+
+it("ignores an older consumed reveal that returns after a newer request", async () => {
+  state.order = ["clock", "weather"];
+  let finishOld: ((value: [number, string]) => void) | undefined;
+  let takes = 0;
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_widget_desktop") return state;
+    if (name === "configure_widget_desktop") return state;
+    if (name === "take_widget_stack_reveal") {
+      takes += 1;
+      if (takes === 1) return new Promise<[number, string]>((resolve) => { finishOld = resolve; });
+      return [2, "clock"];
+    }
+  });
+  render(<WidgetStack />);
+  await waitFor(() => expect(takes).toBe(1));
+  await listener<string>("widget-stack-reveal")("clock");
+  await screen.findByRole("button", { name: "시계 접기" });
+  await act(async () => finishOld?.([1, "weather"]));
+  expect(screen.getByRole("button", { name: "시계 접기" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "날씨 접기" })).toBeNull();
+});
+
+it("locks a timer action while it is pending in the capsule bubble", async () => {
+  const timer = {
+    ...widget("focus", "focus-timer"),
+    data: { status: "idle", durationMs: 60000, remainingMs: 60000 },
+  };
+  state.order = ["focus"];
+  state.overlapped = true;
+  setWidgets([timer]);
+  let finish: (() => void) | undefined;
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_widget_desktop") return state;
+    if (name === "execute_widget")
+      return new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    if (name === "get_widgets")
+      return { catalog: CATALOG, widgets: [{ ...timer, revision: 4 }], onboardingDone: true };
+  });
+  render(<WidgetStack />);
+  fireEvent.click(await screen.findByRole("button", { name: /집중 준비/ }));
+  const start = screen.getByRole("button", { name: "집중 시작" });
+  fireEvent.click(start);
+  fireEvent.click(start);
+  await waitFor(() =>
+    expect(
+      vi.mocked(command).mock.calls.filter(([name]) => name === "execute_widget"),
+    ).toHaveLength(1),
+  );
+  expect(start).toHaveProperty("disabled", true);
+  await act(async () => finish?.());
+});
+
+it("serializes different envelope checks using the revision returned after the first action", async () => {
+  const preparation = {
+    ...widget("preparation", "preparation"),
+    data: {
+      envelopes: [
+        {
+          id: "env",
+          title: "여행",
+          checks: [
+            { id: "a", text: "여권", done: false },
+            { id: "b", text: "표", done: false },
+          ],
+        },
+      ],
+    },
+  };
+  state.order = [preparation.id];
+  setWidgets([preparation]);
+  let finish: (() => void) | undefined;
+  let requests = 0;
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_widget_desktop") return state;
+    if (name === "execute_widget" && ++requests === 1)
+      return new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    if (name === "get_widgets")
+      return { catalog: CATALOG, widgets: [{ ...preparation, revision: 4 }], onboardingDone: true };
+  });
+  render(<WidgetStack />);
+  fireEvent.click((await screen.findByText("여행")).closest("button")!);
+  fireEvent.click(screen.getByRole("checkbox", { name: "여권" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "표" }));
+  await waitFor(() => expect(requests).toBe(1));
+  await act(async () => finish?.());
+  await waitFor(() => expect(requests).toBe(2));
+  const calls = vi.mocked(command).mock.calls.filter(([name]) => name === "execute_widget");
+  expect(
+    calls.map(([, args]) => (args?.request as { expectedRevision: number } | undefined)?.expectedRevision),
+  ).toEqual([3, 4]);
 });
 
 it("saves an expanded row in the desktop layout", async () => {
@@ -265,12 +412,16 @@ it("keeps remove buttons focusable during queued moves and ignores removal while
 
   await act(async () => release());
   await waitFor(() => {
-    const calls = vi.mocked(command).mock.calls.filter(([name]) => name === "configure_widget_desktop");
+    const calls = vi
+      .mocked(command)
+      .mock.calls.filter(([name]) => name === "configure_widget_desktop");
     expect(calls).toHaveLength(2);
-    expect(calls[1][1]).toEqual(expect.objectContaining({
-      expectedRevision: 6,
-      input: expect.objectContaining({ order: ["weather", "memo", "clock"] }),
-    }));
+    expect(calls[1][1]).toEqual(
+      expect.objectContaining({
+        expectedRevision: 6,
+        input: expect.objectContaining({ order: ["weather", "memo", "clock"] }),
+      }),
+    );
   });
   expect(document.activeElement).toBe(clockRemove);
   expect(clockRemove.hasAttribute("aria-disabled")).toBe(false);
@@ -687,7 +838,7 @@ it("routes the embedded timer lifecycle to its current widget revision", async (
     ["그만하기", "cancel", "idle"],
   ]) {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: label })));
-    expect(command).toHaveBeenLastCalledWith("execute_widget", {
+    expect(command).toHaveBeenCalledWith("execute_widget", {
       request: {
         requestId: expect.any(String),
         instanceId: timer.id,
@@ -789,7 +940,7 @@ it("binds embedded configure to the timer and preserves explicit linked todo tar
   await act(async () =>
     fireEvent.click(screen.getByRole("checkbox", { name: "원고 마무리 완료로 표시" })),
   );
-  expect(command).toHaveBeenLastCalledWith("execute_widget", {
+  expect(command).toHaveBeenCalledWith("execute_widget", {
     request: expect.objectContaining({
       instanceId: todo.id,
       expectedRevision: 9,
@@ -826,7 +977,6 @@ it("surfaces rejected embedded timer commands without losing its input", async (
   expect(screen.getByLabelText("집중할 일")).toHaveProperty("value", "남겨둘 초안");
 });
 
-
 it("moves focus into a bubble and returns it to its capsule on Escape", async () => {
   state.order = ["weather"];
   state.overlapped = true;
@@ -854,7 +1004,11 @@ it("keeps the bubble open for composing, prevented and dialog Escape", async () 
   const bubble = screen.getByRole("dialog", { name: "집중 타이머" });
   fireEvent.keyDown(bubble, { key: "Escape", isComposing: true });
   fireEvent.keyDown(bubble, { key: "Escape", keyCode: 229 });
-  const prevented = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+  const prevented = new KeyboardEvent("keydown", {
+    key: "Escape",
+    bubbles: true,
+    cancelable: true,
+  });
   prevented.preventDefault();
   fireEvent(bubble, prevented);
   expect(screen.getByRole("dialog", { name: "집중 타이머" })).toBeTruthy();
@@ -868,15 +1022,19 @@ it("returns focus to the same row after expanding and collapsing", async () => {
   const expanded = screen.getByRole("button", { expanded: true });
   expect(document.activeElement).toBe(expanded);
   fireEvent.click(expanded);
-  expect(document.activeElement).toBe(screen.getByRole("button", { name: /21°C/, expanded: false }));
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: /21°C/, expanded: false }),
+  );
 });
 
 it("returns focus to the collapse button when expanding a configured music row", async () => {
   state.order = ["music"];
-  setWidgets([{
-    ...widget("music", "music"),
-    data: { configured: true, observation: { title: "봄 노래" } },
-  }]);
+  setWidgets([
+    {
+      ...widget("music", "music"),
+      data: { configured: true, observation: { title: "봄 노래" } },
+    },
+  ]);
   render(<WidgetStack />);
   const collapsed = (await screen.findByText("봄 노래")).closest("button")!;
   collapsed.focus();
@@ -910,7 +1068,7 @@ it("uses each completed order for rapid repeated moves", async () => {
   vi.mocked(command).mockImplementation(async (name, args) => {
     if (name === "get_widget_desktop") return state;
     if (name !== "configure_widget_desktop") return undefined;
-    const input = (args as { input: { order: string[] }; expectedRevision: number });
+    const input = args as { input: { order: string[] }; expectedRevision: number };
     if (input.expectedRevision === 5) await first;
     state = { ...state, ...input.input, revision: input.expectedRevision + 1 };
     return state;
@@ -923,7 +1081,6 @@ it("uses each completed order for rapid repeated moves", async () => {
   await waitFor(() => expect(state.order).toEqual(["weather", "memo", "clock"]));
   expect(screen.getByRole("status").textContent).toContain("3번째");
 });
-
 
 it("clears a row action error after the next successful action", async () => {
   let fail = true;
@@ -944,15 +1101,28 @@ it("clears a row action error after the next successful action", async () => {
 
 it("keeps newer style previews when an earlier save finishes", async () => {
   state.editing = true;
-  const initial = { followTheme: false, backgroundColor: "#FFFFFF", textColor: "#000000", opacity: 50, radius: 9 };
+  const initial = {
+    followTheme: false,
+    backgroundColor: "#FFFFFF",
+    textColor: "#000000",
+    opacity: 50,
+    radius: 9,
+  };
   render(<WidgetStack />);
   await screen.findByText("21°C");
-  const preview = listener<{ id: string | null; style?: typeof initial | null; revision?: number; clear?: boolean }>("widget-stack-style-preview");
+  const preview = listener<{
+    id: string | null;
+    style?: typeof initial | null;
+    revision?: number;
+    clear?: boolean;
+  }>("widget-stack-style-preview");
   await preview({ id: "weather", style: initial, revision: 1 });
   await preview({ id: "weather", style: { ...initial, opacity: 80 }, revision: 2 });
   await preview({ id: "weather", revision: 1, clear: true });
   const row = document.querySelector<HTMLElement>('[data-desktop-widget="weather"]')!;
-  expect(row.style.getPropertyValue("--comet-color-glass-panel")).toBe("color-mix(in srgb, #FFFFFF 80%, transparent)");
+  expect(row.style.getPropertyValue("--comet-color-glass-panel")).toBe(
+    "color-mix(in srgb, #FFFFFF 80%, transparent)",
+  );
   await listener<boolean>("widget-desktop-editing")(false);
   expect(row.style.getPropertyValue("--comet-color-glass-panel")).toBe("");
 });

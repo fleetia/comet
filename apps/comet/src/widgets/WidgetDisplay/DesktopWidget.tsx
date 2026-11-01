@@ -49,15 +49,16 @@ import { desktopSkin } from "./desktopShape";
 import * as s from "./widgetDisplay.css";
 
 export function desktopWidgets(widgets: readonly WidgetView[]): WidgetView[] {
-  return widgets.filter(
-    (widget) => desktopKind(widget.kind) !== undefined,
-  );
+  return widgets.filter((widget) => desktopKind(widget.kind) !== undefined);
 }
 function memoNote(data: DataRecord): DataRecord | undefined {
   const notes = rows(data.notes);
-  return notes.find((note) => note.isOpen === true) ?? notes
-    .filter((note) => text(note.title) !== "" || text(note.body) !== "")
-    .sort((a, b) => number(b.updatedAt) - number(a.updatedAt))[0];
+  return (
+    notes.find((note) => note.isOpen === true) ??
+    notes
+      .filter((note) => text(note.title) !== "" || text(note.body) !== "")
+      .sort((a, b) => number(b.updatedAt) - number(a.updatedAt))[0]
+  );
 }
 export function focusRemaining(widget: WidgetView, now: number): number {
   const data = record(widget.data);
@@ -99,7 +100,14 @@ export function desktopSummary(
   widget: WidgetView,
   now: number,
   widgets: readonly WidgetView[] = [],
-): { icon: IconName; title: string; description: string; value: string; meta: string; chipValue?: string } {
+): {
+  icon: IconName;
+  title: string;
+  description: string;
+  value: string;
+  meta: string;
+  chipValue?: string;
+} {
   const data = record(widget.data),
     observation = record(data.observation);
   switch (widget.kind) {
@@ -131,9 +139,10 @@ export function desktopSummary(
         .sort((a, b) => eventStart(a) - eventStart(b))[0];
       const start = event ? eventStart(event) : null;
       const failed = widget.status === "error" || Boolean(widget.error);
-      const date = start !== null && localDay(new Date(start)) !== localDay(new Date(now))
-        ? new Date(start).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" })
-        : "";
+      const date =
+        start !== null && localDay(new Date(start)) !== localDay(new Date(now))
+          ? new Date(start).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" })
+          : "";
       const time = event?.allDay
         ? "종일"
         : start !== null
@@ -142,10 +151,17 @@ export function desktopSummary(
       return {
         icon: "calendar",
         title: "캘린더",
-        description: event ? text(event.title) || "제목 없는 일정" : failed ? "확인 필요" : "예정된 일정이 없어요",
+        description: event
+          ? text(event.title) || "제목 없는 일정"
+          : failed
+            ? "확인 필요"
+            : "예정된 일정이 없어요",
         value: event ? [date, time].filter(Boolean).join(" ") : failed ? "확인 필요" : "",
         meta: failed && event ? "이전 정보" : "",
-        chipValue: start !== null && date ? `${new Date(start).getMonth() + 1}/${new Date(start).getDate()}` : undefined,
+        chipValue:
+          start !== null && date
+            ? `${new Date(start).getMonth() + 1}/${new Date(start).getDate()}`
+            : undefined,
       };
     }
     case "clock": {
@@ -212,12 +228,27 @@ export function desktopSummary(
       const title = text(observation.title);
       return {
         icon: "music",
-        title: title || (data.configured !== true ? "음악 앱을 연결해 주세요" : observation.running === true ? "재생 중인 곡이 없어요" : "음악 앱이 닫혀 있어요"),
+        title:
+          title ||
+          (data.configured !== true
+            ? "음악 앱을 연결해 주세요"
+            : data.status === "permission-needed"
+              ? "음악 앱 접근 권한이 필요해요"
+              : observation.running === true
+                ? "재생 중인 곡이 없어요"
+                : "음악 앱이 닫혀 있어요"),
         description: [text(observation.artist), text(observation.source)]
           .filter(Boolean)
           .join(" · "),
-        value: title ? `${musicTime(musicPosition(observation, now, musicIsFresh(data, now)))} / ${musicTime(finiteNumber(observation.durationMs))}` : "",
-        meta: title && !musicIsFresh(data, now) ? "이전 정보" : "",
+        value: title
+          ? `${musicTime(musicPosition(observation, now, musicIsFresh(data, now)))} / ${musicTime(finiteNumber(observation.durationMs))}`
+          : "",
+        meta:
+          data.configured === true && data.status === "permission-needed"
+            ? "음악 앱 접근 권한 필요"
+            : title && !musicIsFresh(data, now)
+              ? "이전 정보"
+              : "",
       };
     }
     case "preparation": {
@@ -296,7 +327,11 @@ export function FreeformWidget({
     case "calendar":
     case "travel": {
       // The chip has room for one short value; the row uses the longer description instead.
-      const chip = (widget.kind === "calendar" && summary.meta) || summary.chipValue || summary.value || (widget.kind === "travel" ? "여행" : "일정 없음");
+      const chip =
+        (widget.kind === "calendar" && summary.meta) ||
+        summary.chipValue ||
+        summary.value ||
+        (widget.kind === "travel" ? "여행" : "일정 없음");
       return (
         <div>
           <CompactFreeform
@@ -309,7 +344,9 @@ export function FreeformWidget({
               interactive
                 ? () =>
                     void command("open_widget", { id: widget.id }).catch(() =>
-                      command("open_planner_settings", { kind: widget.kind }).catch(() => undefined),
+                      command("open_planner_settings", { kind: widget.kind }).catch(
+                        () => undefined,
+                      ),
                     )
                 : undefined
             }
@@ -350,9 +387,7 @@ export function FreeformWidget({
           temperature={summary.title}
           condition={
             data.observation
-              ? [summary.value, summary.meta, ...details]
-                  .filter(Boolean)
-                  .join(" · ")
+              ? [summary.value, summary.meta, ...details].filter(Boolean).join(" · ")
               : summary.meta
           }
           location={[summary.description, apparent].filter(Boolean).join(" · ")}
@@ -376,7 +411,7 @@ export function FreeformWidget({
           {...look}
           title={summary.title}
           artist={text(observation.artist)}
-          caption={text(observation.title) ? (summary.meta ? "이전 정보" : "지금 듣는 곡") : ""}
+          caption={text(observation.title) ? summary.meta || "지금 듣는 곡" : ""}
           elapsed={musicTime(musicPosition(observation, now, musicIsFresh(data, now)))}
           artwork={
             art ? (
@@ -593,12 +628,14 @@ export function ExpandedDesktopWidget({
   now,
   onCollapse,
   act,
+  busyActions = [],
 }: {
   widget: WidgetView;
   widgets: WidgetView[];
   now: number;
   onCollapse: () => void;
   act: ToolAction;
+  busyActions?: string[];
 }): ReactElement {
   const [failure, setFailure] = useState<string | null>(null);
   if (widget.kind === "focus-timer") {
@@ -609,7 +646,7 @@ export function ExpandedDesktopWidget({
         act={(action, input, target = widget) => act(action, input, target)}
         embedded
         onCollapse={onCollapse}
-        busy={false}
+        busy={busyActions.some((key) => key.startsWith(`${widget.id}:`))}
         active
       />
     );
@@ -622,16 +659,12 @@ export function ExpandedDesktopWidget({
     async function focus(): Promise<void> {
       if (!envelope) return;
       try {
-        const timer = widgets.find(
-          (item) => item.kind === "focus-timer",
-        );
+        const timer = widgets.find((item) => item.kind === "focus-timer");
         if (!timer) {
           await command("open_planner_settings", { kind: "focus-timer" });
           return;
         }
-        const calendar = widgets.find(
-          (item) => item.kind === "calendar",
-        );
+        const calendar = widgets.find((item) => item.kind === "calendar");
         const event = rows(record(calendar?.data).events).find(
           (item) => item.id === envelope.eventId,
         );
@@ -658,6 +691,7 @@ export function ExpandedDesktopWidget({
             id: text(check.id),
             title: text(check.text),
             completed: check.done === true,
+            disabled: busyActions.includes(`${widget.id}:check-toggle:${text(check.id)}`),
           }))}
           completedCount={progress.completed}
           totalCount={progress.total}

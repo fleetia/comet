@@ -167,7 +167,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
     : pages.find((value) => value.date === pageDay);
   const envelope = envelopes.find((value) => value.id === envelopeId);
   const actions = useDiaryWidgetActions({ snapshot, todo, reload, setFailure });
-  const { busy, pending, latestWidgets, run, act, ensureWidget } = actions;
+  const { busy, pending, latestWidgets, run, execute, act, ensureWidget } = actions;
   const diaryAction: DiaryAction = async (action, input) =>
     Boolean(await diary.mutate(action, input));
   const {
@@ -443,7 +443,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
     });
   }
   function openSettings(): void {
-    if (isDesktop()) void run(() => command("open_planner_settings", { kind: "calendar" }));
+    if (isDesktop()) void run(() => command("open_planner_settings", { kind: "calendar-alerts" }));
     else window.location.assign("/?view=settings&section=widgets&preview=installed");
   }
   function changeView(value: View): void {
@@ -640,6 +640,8 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
                 widgets: widgets.filter((widget) => widget.kind === "memo"),
                 busy: saving,
                 act,
+                run,
+                execute,
                 onCreate: () =>
                   run(async () => {
                     const widget = await ensureWidget("memo");
@@ -958,6 +960,20 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
         <TodoEditor
           key={text(editing.id)}
           item={editing}
+          calendar={calendar}
+          onEnableReminders={async () => {
+            try {
+              const target = await ensureWidget("calendar");
+              return await act(
+                "configure-alerts",
+                { ...record(record(target.data).reminders), enabled: true },
+                target,
+              );
+            } catch {
+              setFailure("캘린더를 찾지 못했어요. 연결·알림 설정을 확인해 주세요.");
+              return false;
+            }
+          }}
           widgetId={todo.id}
           lists={lists}
           busy={saving}

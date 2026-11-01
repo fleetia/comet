@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { errorText, isDesktop } from "../../hooks/useSnapshot";
+import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import cometIcon from "../../../src-tauri/icons/source.svg";
 import * as s from "./windowHeader.css";
 import * as ui from "../../common.css";
@@ -77,6 +77,7 @@ export function WindowHeader({
         return;
       }
       event.preventDefault();
+      void command("mark_widget_desktop_drag").catch(() => undefined);
       void getCurrentWindow()
         .startDragging()
         .catch((cause: unknown) => setError(errorText(cause)));

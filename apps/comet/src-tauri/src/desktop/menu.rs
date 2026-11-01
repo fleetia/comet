@@ -90,7 +90,11 @@ fn launcher_label(shortcut: Option<&str>) -> String {
     let shortcut = shortcut
         .replace(
             "CommandOrControl",
-            if cfg!(target_os = "macos") { "⌘" } else { "Ctrl" },
+            if cfg!(target_os = "macos") {
+                "⌘"
+            } else {
+                "Ctrl"
+            },
         )
         .replace("Super", super_label)
         .replace("Meta", super_label)
@@ -256,10 +260,7 @@ pub(crate) fn update_minimize(app: &tauri::AppHandle, label: &str, focused: bool
     }
 }
 
-fn menu(
-    app: &tauri::AppHandle,
-    show_stack_recovery: bool,
-) -> Result<Menu<tauri::Wry>, String> {
+fn menu(app: &tauri::AppHandle, show_stack_recovery: bool) -> Result<Menu<tauri::Wry>, String> {
     let state = app.state::<Arc<AppState>>();
     let snapshot = {
         let db = lock(&state.db)?;
@@ -282,8 +283,8 @@ fn menu(
     } else {
         ("hide", "캐릭터 숨기기")
     };
-    let item = MenuItem::with_id(app, id, text, true, None::<&str>)
-        .map_err(|error| error.to_string())?;
+    let item =
+        MenuItem::with_id(app, id, text, true, None::<&str>).map_err(|error| error.to_string())?;
     menu.append(&item).map_err(|error| error.to_string())?;
     if show_stack_recovery {
         let item = MenuItem::with_id(
@@ -319,7 +320,9 @@ fn menu(
             if group == "information" {
                 let separator =
                     PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?;
-                submenu.append(&separator).map_err(|error| error.to_string())?;
+                submenu
+                    .append(&separator)
+                    .map_err(|error| error.to_string())?;
             }
             let label = MenuItem::with_id(
                 app,
@@ -336,9 +339,11 @@ fn menu(
                 .widgets
                 .iter()
                 .find(|widget| widget.instance.kind == manifest.id);
-            let available = instance.is_some_and(|widget| widget.status != "setup");
+            let available = instance.is_some_and(|widget| widget.status != "setup" || matches!(manifest.id.as_str(), "clock" | "weather"));
             let id = match instance {
-                Some(widget) if available => format!("widget:{}:{}", manifest.id, widget.instance.id),
+                Some(widget) if available => {
+                    format!("widget:{}:{}", manifest.id, widget.instance.id)
+                }
                 _ => format!("widget-settings:{}", manifest.id),
             };
             let item = MenuItem::with_id(
@@ -358,11 +363,24 @@ fn menu(
     }
     submenu.append(&play).map_err(|error| error.to_string())?;
     let separator = PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?;
-    submenu.append(&separator).map_err(|error| error.to_string())?;
+    submenu
+        .append(&separator)
+        .map_err(|error| error.to_string())?;
     let manage = MenuItem::with_id(app, "widgets", "위젯 관리…", true, None::<&str>)
         .map_err(|error| error.to_string())?;
     submenu.append(&manage).map_err(|error| error.to_string())?;
     menu.append(&submenu).map_err(|error| error.to_string())?;
+    if let Some(until) = &runtime.quiet_hours_until {
+        let status = MenuItem::with_id(
+            app,
+            "quiet-hours-status",
+            format!("조용한 시간 · {until}까지"),
+            false,
+            None::<&str>,
+        )
+        .map_err(|error| error.to_string())?;
+        menu.append(&status).map_err(|error| error.to_string())?;
+    }
     if runtime.paused {
         let resume = MenuItem::with_id(app, "resume", "다시 시작", true, None::<&str>)
             .map_err(|error| error.to_string())?;

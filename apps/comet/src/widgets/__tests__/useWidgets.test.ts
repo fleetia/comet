@@ -15,8 +15,8 @@ it("subscribes first and does not overwrite a newer event with the initial read"
   let receive: ((event: Event<WidgetSnapshot>) => void) | undefined;
   let resolveInitial: ((snapshot: WidgetSnapshot) => void) | undefined;
   const unlisten = vi.fn();
-  vi.mocked(listen).mockImplementation(async (_name, callback) => {
-    receive = callback;
+  vi.mocked(listen).mockImplementation(async (name, callback) => {
+    if (name === "widgets-state") receive = callback;
     return unlisten;
   });
   vi.mocked(command).mockReturnValue(
@@ -31,5 +31,25 @@ it("subscribes first and does not overwrite a newer event with the initial read"
   await act(async () => resolveInitial?.(PREVIEW_WIDGETS));
   expect(result.current.snapshot).toEqual(newest);
   unmount();
-  expect(unlisten).toHaveBeenCalledOnce();
+  expect(unlisten).toHaveBeenCalledTimes(2);
+});
+
+it("merges single widget updates by id and preserves newer revisions during initial load", async () => {
+  const callbacks = new Map<string, (event: Event<never>) => void>();
+  let resolveInitial: ((snapshot: WidgetSnapshot) => void) | undefined;
+  vi.mocked(listen).mockImplementation(async (name, callback) => {
+    callbacks.set(name, callback as (event: Event<never>) => void);
+    return vi.fn<() => void>();
+  });
+  vi.mocked(command).mockReturnValue(new Promise<WidgetSnapshot>((resolve) => { resolveInitial = resolve; }));
+  const entry = { id: "music", kind: "music", version: 1, revision: 1, data: {}, error: null, status: "enabled" as const, reaction: true, missing: [], packageBytes: 0 };
+  const other = { ...entry, id: "other" };
+  const { result } = renderHook(useWidgets);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_widgets"));
+  const updated = { ...entry, revision: 2, data: { status: "ready" } };
+  act(() => callbacks.get("widget-state")?.({ event: "widget-state", id: 1, payload: updated } as Event<never>));
+  await act(async () => resolveInitial?.({ ...PREVIEW_WIDGETS, widgets: [entry, other] }));
+  expect(result.current.snapshot?.widgets).toEqual([updated, other]);
+  act(() => callbacks.get("widget-state")?.({ event: "widget-state", id: 2, payload: entry } as Event<never>));
+  expect(result.current.snapshot?.widgets).toEqual([updated, other]);
 });

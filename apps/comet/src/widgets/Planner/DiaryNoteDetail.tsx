@@ -16,7 +16,7 @@ type DetailProps = {
   leading?: ReactNode;
   onEditTitle?: () => void;
   onSave: (draft: NoteContent, base: NoteContent) => Promise<boolean>;
-  onDelete: () => Promise<boolean>;
+  onDelete: (discardDraft?: string) => Promise<boolean | string>;
   onDirtyChange: (id: string, dirty: boolean) => void;
   header?: (disabled: boolean) => ReactNode;
   details?: (disabled: boolean, status?: ReactNode) => ReactNode;
@@ -82,6 +82,7 @@ export function DiaryNoteDetail(props: DetailProps): ReactElement {
   const [error, setError] = useState("");
   const [storageError, setStorageError] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [discardDraft, setDiscardDraft] = useState<string | null>(null);
   const [discardingConflict, setDiscardingConflict] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const current = useRef(draft);
@@ -273,7 +274,7 @@ export function DiaryNoteDetail(props: DetailProps): ReactElement {
           임시 보관 공간에 초안을 남기지 못했어요. 저장이 끝날 때까지 창을 열어 두세요.
         </p>
       )}
-      {message && (
+      {message && !deleting && (
         <p className={s.error} role="alert">
           {message}
         </p>
@@ -358,8 +359,12 @@ export function DiaryNoteDetail(props: DetailProps): ReactElement {
       {!compact && (
         <Dialog
           isOpen={deleting}
-          onOpenChange={setDeleting}
-          title="메모를 삭제할까요?"
+          onOpenChange={(open) => {
+            if (!open && pending.current) return;
+            setDeleting(open);
+            if (!open) setDiscardDraft(null);
+          }}
+          title={discardDraft ? "낱장에 저장하지 않은 내용이 있어요" : "메모를 삭제할까요?"}
           closeLabel="취소"
           variant="confirm"
           footer={
@@ -371,28 +376,37 @@ export function DiaryNoteDetail(props: DetailProps): ReactElement {
                   if (pending.current) return;
                   pending.current = true;
                   setSaving(true);
+                  setError("");
                   try {
-                    if (await latest.current.onDelete()) {
+                    const result = await latest.current.onDelete(discardDraft ?? undefined);
+                    if (typeof result === "string") {
+                      setDiscardDraft(result);
+                    } else if (result) {
                       keep(fromNote(latest.current.note));
                       if (alive.current) setDeleting(false);
-                    } else setError("메모를 삭제하지 못했어요. 다시 시도해 주세요.");
-                  } catch {
-                    setError("메모를 삭제하지 못했어요. 다시 시도해 주세요.");
+                    } else {
+                      setDiscardDraft(null);
+                      setError("메모를 삭제하지 못했어요. 다시 확인해 주세요.");
+                    }
+                  } catch (cause) {
+                    setDiscardDraft(null);
+                    setError(String(cause).includes("바뀌었어요") ? "메모 초안이나 열린 창이 바뀌었어요. 다시 확인해 주세요." : "메모를 삭제하지 못했어요. 다시 시도해 주세요.");
                   } finally {
                     pending.current = false;
                     if (alive.current) setSaving(false);
                   }
                 }}
               >
-                메모 삭제
+                {discardDraft ? "초안 폐기하고 삭제" : "메모 삭제"}
               </Button>
-              <Button variant="ghost" onClick={() => setDeleting(false)}>
-                취소
+              <Button variant="ghost" disabled={disabled} onClick={() => { setDeleting(false); setDiscardDraft(null); }}>
+                {discardDraft ? "초안 보존" : "취소"}
               </Button>
             </>
           }
         >
-          <p>메모 내용도 함께 삭제됩니다.</p>
+          <p>{discardDraft ? "보존하면 삭제를 취소하고 낱장과 초안을 그대로 둘게요. 폐기하면 초안과 메모를 삭제해요." : "메모 내용도 함께 삭제됩니다."}</p>
+          {error && <p className={s.error} role="alert">{error}</p>}
         </Dialog>
       )}
     </article>

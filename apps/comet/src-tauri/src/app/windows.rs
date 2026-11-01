@@ -152,6 +152,7 @@ pub(crate) enum SystemSettingsPage {
     Notifications,
     AppleIntelligence,
     Calendar,
+    Automation,
 }
 
 #[tauri::command]
@@ -168,6 +169,9 @@ pub(crate) fn open_system_settings(page: SystemSettingsPage) -> Result<(), Strin
             }
             SystemSettingsPage::Calendar => {
                 "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars"
+            }
+            SystemSettingsPage::Automation => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
             }
         }],
     );

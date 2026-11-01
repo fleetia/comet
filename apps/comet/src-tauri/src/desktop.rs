@@ -63,8 +63,28 @@ fn face_label(id: &str) -> String {
     format!("{FACE_PREFIX}{id}")
 }
 
+pub(crate) fn set_join_all_spaces(window: &WebviewWindow, enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let target = window.clone();
+        window.run_on_main_thread(move || {
+            if let Ok(pointer) = target.ns_window() {
+                unsafe {
+                    let native = &*(pointer as *mut objc2::runtime::AnyObject);
+                    let behavior: usize = objc2::msg_send![native, collectionBehavior];
+                    let behavior = if enabled { behavior | 1 } else { behavior & !1 };
+                    let _: () = objc2::msg_send![native, setCollectionBehavior: behavior];
+                }
+            }
+        }).map_err(|error| error.to_string())?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (window, enabled);
+    Ok(())
+}
+
 // Displaying ambient content must not replace the foreground application's key window.
-fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
+pub(crate) fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
     let collision_token = crate::characters::collision_host::prepare_show(window);
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     {
@@ -77,6 +97,12 @@ fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
         window.run_on_main_thread(move || {
             let state = app.state::<Arc<AppState>>();
             let Some(window) = app.get_webview_window(&label).filter(|window| crate::characters::reaction_host::window_identity(window) == identity) else { return; };
+            if label == "widget-stack" || label.starts_with("widget-display-") || (label.starts_with("widget-") && label.contains("-image-")) {
+                if show_native_passive(&window) {
+                    crate::characters::collision_host::did_show(&window, collision_token);
+                }
+                return;
+            }
             // Never wait on locks from the UI thread: the next publish retries a skipped display.
             let (Ok(db), Ok(runtime), Ok(panel), Ok(playback), Ok(story), Ok(presence), Ok(guests)) = (
                 state.db.try_lock(), state.runtime.try_lock(),
@@ -105,25 +131,7 @@ fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
             if !wanted { return; }
             drop((db, runtime, panel, playback, story, presence, guests));
             if state.epoch.load(Ordering::SeqCst) != epoch { return; }
-            #[cfg(target_os = "macos")]
-            if let Ok(pointer) = window.ns_window() {
-                unsafe {
-                    let native = &*(pointer as *mut objc2::runtime::AnyObject);
-                    let _: () = objc2::msg_send![native, orderFront: std::ptr::null::<objc2::runtime::AnyObject>()];
-                }
-            }
-            #[cfg(target_os = "windows")]
-            if let Ok(handle) = window.hwnd() {
-                unsafe {
-                    windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
-                        handle.0 as _, windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE,
-                    );
-                }
-            }
-            #[cfg(target_os = "linux")]
-            if show_linux_passive(&window).is_err() {
-                return;
-            }
+            if !show_native_passive(&window) { return; }
             crate::characters::collision_host::did_show(&window, collision_token);
         }).map_err(|error| error.to_string())
     }
@@ -134,6 +142,29 @@ fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
         crate::characters::collision_host::did_show(window, collision_token);
         Ok(())
     }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+fn show_native_passive(window: &WebviewWindow) -> bool {
+    #[cfg(target_os = "macos")]
+    if let Ok(pointer) = window.ns_window() {
+        unsafe {
+            let native = &*(pointer as *mut objc2::runtime::AnyObject);
+            let _: () = objc2::msg_send![native, orderFront: std::ptr::null::<objc2::runtime::AnyObject>()];
+        }
+    }
+    #[cfg(target_os = "windows")]
+    if let Ok(handle) = window.hwnd() {
+        unsafe {
+            windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
+                handle.0 as _, windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE,
+            );
+        }
+    }
+    #[cfg(target_os = "linux")]
+    return show_linux_passive(window).is_ok();
+    #[cfg(not(target_os = "linux"))]
+    true
 }
 
 fn passive_show_current(state: &AppState, epoch: u64, hidden: bool) -> bool {
@@ -760,11 +791,13 @@ fn create_body(app: &AppHandle, state: &AppState, spec: BodySpec) -> Result<(), 
     .shadow(false)
     .maximizable(false)
     .always_on_top(true)
+    .accept_first_mouse(true)
     .skip_taskbar(true)
     .focused(false)
     .visible(false)
     .build()
     .map_err(|e| e.to_string())?;
+    set_join_all_spaces(&window, true)?;
     crate::characters::guests::record_window(
         state,
         &label,
@@ -979,11 +1012,13 @@ fn create_face(app: &AppHandle, id: &str, title: &str, _body_created: bool) -> R
     .shadow(false)
     .maximizable(false)
     .always_on_top(true)
+    .accept_first_mouse(true)
     .skip_taskbar(true)
     .focused(false)
     .visible(false)
     .build()
     .map_err(|e| e.to_string())?;
+    set_join_all_spaces(&window, true)?;
     let state = app.state::<Arc<AppState>>();
     let identity = crate::characters::reaction_host::window_identity(&body);
     let guest_generation =
@@ -1426,7 +1461,7 @@ fn get_conversation_surface(app: &AppHandle, input: bool) -> Result<WebviewWindo
     if let Some(window) = app.get_webview_window(label) {
         return Ok(window);
     }
-    tauri::WebviewWindowBuilder::new(
+    let window = tauri::WebviewWindowBuilder::new(
         app,
         label,
         tauri::WebviewUrl::App(format!("index.html?view={label}").into()),
@@ -1442,12 +1477,17 @@ fn get_conversation_surface(app: &AppHandle, input: bool) -> Result<WebviewWindo
     .shadow(false)
     .maximizable(false)
     .always_on_top(true)
+    .accept_first_mouse(true)
     .focused(false)
     .resizable(false)
     .skip_taskbar(true)
     .visible(false)
     .build()
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    if !input {
+        set_join_all_spaces(&window, true)?;
+    }
+    Ok(window)
 }
 
 fn balloon_owner_geometry(app: &AppHandle, id: &str) -> Result<(Rect, Rect, f64), String> {
@@ -1473,7 +1513,20 @@ fn balloon_owner_geometry(app: &AppHandle, id: &str) -> Result<(Rect, Rect, f64)
     ))
 }
 
-fn set_window_rect(window: &WebviewWindow, rect: Rect) -> Result<(), String> {
+fn set_window_rect(window: &WebviewWindow, rect: Rect, scale: f64) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        window
+            .set_position(tauri::LogicalPosition::new(rect.x / scale, rect.y / scale))
+            .map_err(|e| e.to_string())?;
+        window
+            .set_size(tauri::LogicalSize::new(rect.width / scale, rect.height / scale))
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+    let _ = scale;
     window
         .set_position(PhysicalPosition::new(
             rect.x.round() as i32,
@@ -1487,6 +1540,7 @@ fn set_window_rect(window: &WebviewWindow, rect: Rect) -> Result<(), String> {
         ))
         .map_err(|e| e.to_string())?;
     Ok(())
+    }
 }
 
 fn position_balloon(
@@ -1536,7 +1590,7 @@ fn position_balloon(
             .conversation_tail_x
             .map(|_| conversation_tail_x(body, rect, scale)),
     };
-    set_window_rect(window, rect)?;
+    set_window_rect(window, rect, scale)?;
     Ok(Some(placement))
 }
 
@@ -1716,7 +1770,7 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
                 let mut obstacles = widgets;
                 obstacles.extend(response);
                 let rect = avoid_widgets(rect, body, area, &obstacles, false);
-                set_window_rect(&input_window, rect)?;
+                set_window_rect(&input_window, rect, scale)?;
                 show_conversation_surface(&input_window, true)?;
                 if std::mem::take(&mut layout.focus_requested) {
                     input_window

@@ -121,3 +121,23 @@ it("restores task fields with the editing snapshot and clears them only after di
   fireEvent.click(screen.getByRole("button", { name: "변경 버리고 닫기" }));
   expect(localStorage.getItem(PLANNER_TODO_EDITOR_DRAFT_KEY)).toBeNull();
 });
+
+it("shows deadline notification availability and enables it without losing the draft", async () => {
+  const enable = vi.fn().mockResolvedValue(true);
+  render(
+    <TodoEditor
+      item={{ id: "one", title: "마감", dueDate: "2026-11-10" }}
+      lists={[]}
+      act={vi.fn()}
+      busy={false}
+      onClose={vi.fn()}
+      onEnableReminders={enable}
+    />,
+  );
+  expect(screen.getByText(/마감 알림이 꺼져 있어요/)).toBeTruthy();
+  expect(screen.getByText(/시각 없이 날짜만 지정한 마감/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "알림 켜기" }));
+  await waitFor(() => expect(screen.queryByText(/마감 알림이 꺼져 있어요/)).toBeNull());
+  expect(enable).toHaveBeenCalledOnce();
+  expect(screen.getByLabelText("할 일 제목")).toHaveProperty("value", "마감");
+});

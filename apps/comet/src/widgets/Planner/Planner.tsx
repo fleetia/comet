@@ -809,6 +809,17 @@ export function Planner({
           key={`${text(editing.item.id)}:${editing.widget.revision}`}
           widgetId={editing.widget.id}
           item={editing.item}
+          calendar={calendar}
+          onEnableReminders={
+            calendar
+              ? () =>
+                  act(
+                    "configure-alerts",
+                    { ...record(record(calendar.data).reminders), enabled: true },
+                    calendar,
+                  )
+              : undefined
+          }
           focus={editing.field}
           onMovePlan={moveTaskDate}
           lists={lists}

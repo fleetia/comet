@@ -411,6 +411,11 @@ pub(crate) async fn open_planner_settings(
     kind: Option<String>,
 ) -> Result<(), String> {
     let kind = kind.unwrap_or_else(|| "calendar".into());
+    if kind == "calendar-alerts" {
+        *crate::lock(&app.state::<Navigation>().settings_target)? = Some(kind.clone());
+        open_settings_section(app.clone(), SettingsSection::Widgets)?;
+        return app.emit_to("settings", "planner-settings-target", kind).map_err(|e| e.to_string());
+    }
     if !planner_settings_kind(&kind) {
         return Err("설정을 열 수 없는 위젯이에요.".into());
     }
@@ -442,18 +447,6 @@ pub(crate) fn open_widget_settings(app: tauri::AppHandle, kind: &str) -> Result<
     validate_widget_settings_kind(kind)?;
     *crate::lock(&app.state::<Navigation>().settings_target)? = Some(kind.into());
     open_settings_section(app.clone(), SettingsSection::Widgets)?;
-    app.emit_to("settings", "planner-settings-target", kind)
-        .map_err(|e| e.to_string())
-}
-
-pub(crate) fn show_widget_settings(
-    app: tauri::AppHandle,
-    kind: &str,
-    placement: Option<(f64, f64, f64, f64)>,
-) -> Result<(), String> {
-    validate_widget_settings_kind(kind)?;
-    *crate::lock(&app.state::<Navigation>().settings_target)? = Some(kind.into());
-    crate::app::windows::show_settings_section_with_placement(app.clone(), SettingsSection::Widgets, placement)?;
     app.emit_to("settings", "planner-settings-target", kind)
         .map_err(|e| e.to_string())
 }

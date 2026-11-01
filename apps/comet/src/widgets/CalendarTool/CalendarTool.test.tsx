@@ -35,6 +35,14 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it("opens the alert section when the diary requests it", () => {
+  const view = render(<CalendarTool mode="settings" widget={widget()} act={act} />);
+  const details = screen.getByTitle("일정과 생활 알림").closest("details");
+  expect(details?.open).toBe(false);
+  view.rerender(<CalendarTool mode="settings" widget={widget()} act={act} alertsTarget={1} />);
+  expect(details?.open).toBe(true);
+});
+
 it("opens reauthentication from an auth error and submits blank saved credentials", async () => {
   render(
     <CalendarTool
@@ -124,17 +132,30 @@ it("shows only one error when an individual refresh returns the stored connectio
     <CalendarTool
       mode="settings"
       widget={widget([
-        { id: "first", name: "첫 연결", provider: "ics", status: "offline", error: "조회하지 못했어요." },
+        {
+          id: "first",
+          name: "첫 연결",
+          provider: "ics",
+          status: "offline",
+          error: "조회하지 못했어요.",
+        },
       ])}
       act={act}
     />,
   );
   const card = screen.getByRole("heading", { name: "첫 연결" }).closest("section")!;
   fireEvent.click(within(card).getByRole("button", { name: "다시 확인" }));
-  await waitFor(() => expect(command).toHaveBeenCalledWith("refresh_calendar", {
-    id: "calendar", connectionId: "first",
-  }));
-  await waitFor(() => expect(within(card).getByRole("button", { name: "다시 확인" }).matches(":disabled")).toBe(false));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("refresh_calendar", {
+      id: "calendar",
+      connectionId: "first",
+    }),
+  );
+  await waitFor(() =>
+    expect(within(card).getByRole("button", { name: "다시 확인" }).matches(":disabled")).toBe(
+      false,
+    ),
+  );
   expect(within(card).getAllByText("조회하지 못했어요.")).toHaveLength(1);
 });
 
@@ -165,8 +186,16 @@ it("clears the previous failure and summary when a background refresh recovers",
     if (name === "refresh_calendar") throw new Error("첫 연결 실패");
     return null;
   });
-  const connection = { id: "first", name: "첫 연결", provider: "ics", status: "offline", error: "오프라인" };
-  const { rerender } = render(<CalendarTool mode="settings" widget={widget([connection])} act={act} />);
+  const connection = {
+    id: "first",
+    name: "첫 연결",
+    provider: "ics",
+    status: "offline",
+    error: "오프라인",
+  };
+  const { rerender } = render(
+    <CalendarTool mode="settings" widget={widget([connection])} act={act} />,
+  );
   const section = screen.getByRole("region", { name: "캘린더 가져오기" });
   const card = screen.getByRole("heading", { name: "첫 연결" }).closest("section")!;
   fireEvent.click(within(section).getByRole("button", { name: "다시 확인" }));
@@ -189,12 +218,30 @@ it("replaces an earlier failure when the connection error changes", async () => 
     if (name === "refresh_calendar") throw new Error("첫 연결 실패");
     return null;
   });
-  const connection = { id: "first", name: "첫 연결", provider: "ics", status: "offline", error: "오프라인" };
-  const { rerender } = render(<CalendarTool mode="settings" widget={widget([connection])} act={act} />);
+  const connection = {
+    id: "first",
+    name: "첫 연결",
+    provider: "ics",
+    status: "offline",
+    error: "오프라인",
+  };
+  const { rerender } = render(
+    <CalendarTool mode="settings" widget={widget([connection])} act={act} />,
+  );
   const card = screen.getByRole("heading", { name: "첫 연결" }).closest("section")!;
-  fireEvent.click(within(screen.getByRole("region", { name: "캘린더 가져오기" })).getByRole("button", { name: "다시 확인" }));
+  fireEvent.click(
+    within(screen.getByRole("region", { name: "캘린더 가져오기" })).getByRole("button", {
+      name: "다시 확인",
+    }),
+  );
   expect(await within(card).findByText("첫 연결 실패")).toBeTruthy();
-  rerender(<CalendarTool mode="settings" widget={widget([{ ...connection, error: "새 오류" }])} act={act} />);
+  rerender(
+    <CalendarTool
+      mode="settings"
+      widget={widget([{ ...connection, error: "새 오류" }])}
+      act={act}
+    />,
+  );
   expect(within(card).queryByText("첫 연결 실패")).toBeNull();
   expect(within(card).getByText("새 오류")).toBeTruthy();
 });
@@ -204,29 +251,64 @@ it("retains a failure summary when its matching connection error arrives later",
     if (name === "refresh_calendar") throw new Error("첫 연결 실패");
     return null;
   });
-  const connection = { id: "first", name: "첫 연결", provider: "ics", status: "offline", error: "오프라인" };
-  const { rerender } = render(<CalendarTool mode="settings" widget={widget([connection])} act={act} />);
+  const connection = {
+    id: "first",
+    name: "첫 연결",
+    provider: "ics",
+    status: "offline",
+    error: "오프라인",
+  };
+  const { rerender } = render(
+    <CalendarTool mode="settings" widget={widget([connection])} act={act} />,
+  );
   const section = screen.getByRole("region", { name: "캘린더 가져오기" });
   fireEvent.click(within(section).getByRole("button", { name: "다시 확인" }));
   expect(await within(section).findByRole("alert")).toBeTruthy();
-  rerender(<CalendarTool mode="settings" widget={widget([{ ...connection, error: "첫 연결 실패" }])} act={act} />);
+  rerender(
+    <CalendarTool
+      mode="settings"
+      widget={widget([{ ...connection, error: "첫 연결 실패" }])}
+      act={act}
+    />,
+  );
   expect(within(section).getByRole("alert")).toBeTruthy();
 });
 
 it("does not show a late failure after the connection has already recovered", async () => {
   let fail: (error: Error) => void = () => {};
   vi.mocked(command).mockImplementation(async (name) => {
-    if (name === "refresh_calendar") return new Promise((_, reject) => { fail = reject; });
+    if (name === "refresh_calendar")
+      return new Promise((_, reject) => {
+        fail = reject;
+      });
     return null;
   });
-  const connection = { id: "first", name: "첫 연결", provider: "ics", status: "offline", error: "오프라인" };
-  const { rerender } = render(<CalendarTool mode="settings" widget={widget([connection])} act={act} />);
+  const connection = {
+    id: "first",
+    name: "첫 연결",
+    provider: "ics",
+    status: "offline",
+    error: "오프라인",
+  };
+  const { rerender } = render(
+    <CalendarTool mode="settings" widget={widget([connection])} act={act} />,
+  );
   const section = screen.getByRole("region", { name: "캘린더 가져오기" });
   const card = screen.getByRole("heading", { name: "첫 연결" }).closest("section")!;
   fireEvent.click(within(section).getByRole("button", { name: "다시 확인" }));
-  rerender(<CalendarTool mode="settings" widget={widget([{ ...connection, status: "ready", error: null, lastSuccessAt: Date.now() }])} act={act} />);
+  rerender(
+    <CalendarTool
+      mode="settings"
+      widget={widget([{ ...connection, status: "ready", error: null, lastSuccessAt: Date.now() }])}
+      act={act}
+    />,
+  );
   fail(new Error("늦은 실패"));
-  await waitFor(() => expect(within(section).getByRole("button", { name: "다시 확인" }).matches(":disabled")).toBe(false));
+  await waitFor(() =>
+    expect(within(section).getByRole("button", { name: "다시 확인" }).matches(":disabled")).toBe(
+      false,
+    ),
+  );
   expect(within(section).queryByRole("alert")).toBeNull();
   expect(within(card).queryByText("늦은 실패")).toBeNull();
 });
@@ -234,17 +316,38 @@ it("does not show a late failure after the connection has already recovered", as
 it("does not replace a newer connection error with a late failure", async () => {
   let fail: (error: Error) => void = () => {};
   vi.mocked(command).mockImplementation(async (name) => {
-    if (name === "refresh_calendar") return new Promise((_, reject) => { fail = reject; });
+    if (name === "refresh_calendar")
+      return new Promise((_, reject) => {
+        fail = reject;
+      });
     return null;
   });
-  const connection = { id: "first", name: "첫 연결", provider: "ics", status: "offline", error: "오프라인" };
-  const { rerender } = render(<CalendarTool mode="settings" widget={widget([connection])} act={act} />);
+  const connection = {
+    id: "first",
+    name: "첫 연결",
+    provider: "ics",
+    status: "offline",
+    error: "오프라인",
+  };
+  const { rerender } = render(
+    <CalendarTool mode="settings" widget={widget([connection])} act={act} />,
+  );
   const section = screen.getByRole("region", { name: "캘린더 가져오기" });
   const card = screen.getByRole("heading", { name: "첫 연결" }).closest("section")!;
   fireEvent.click(within(section).getByRole("button", { name: "다시 확인" }));
-  rerender(<CalendarTool mode="settings" widget={widget([{ ...connection, error: "새 오류" }])} act={act} />);
+  rerender(
+    <CalendarTool
+      mode="settings"
+      widget={widget([{ ...connection, error: "새 오류" }])}
+      act={act}
+    />,
+  );
   fail(new Error("늦은 실패"));
-  await waitFor(() => expect(within(section).getByRole("button", { name: "다시 확인" }).matches(":disabled")).toBe(false));
+  await waitFor(() =>
+    expect(within(section).getByRole("button", { name: "다시 확인" }).matches(":disabled")).toBe(
+      false,
+    ),
+  );
   expect(within(card).getByText("새 오류")).toBeTruthy();
   expect(within(card).queryByText("늦은 실패")).toBeNull();
 });

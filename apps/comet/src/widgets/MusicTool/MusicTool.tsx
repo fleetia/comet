@@ -1,7 +1,7 @@
 import { TabPanel, externalTabPanels } from "../../primitives";
 import { useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { isDesktop } from "../../hooks/useSnapshot";
-import { record, text, type DataRecord } from "../toolData";
+import { record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetValue, WidgetView } from "../types";
 import { MusicLibrary } from "./MusicLibrary";
 import { Icon } from "@comet/icon";
@@ -126,10 +126,12 @@ export function MusicTool({
   widget,
   embedded = false,
   onCollapse,
+  collapseLabel,
 }: {
   widget: WidgetView;
   embedded?: boolean;
   onCollapse?: () => void;
+  collapseLabel?: string;
 }): ReactElement {
   const data = record(widget.data),
     observation = record(data.observation),
@@ -210,6 +212,7 @@ export function MusicTool({
         <h2>음악과 함께</h2>
         <p>설정창의 위젯에서 음악 앱을 연결해 주세요.</p>
         <p className={c.quiet}>곡 정보만 읽어요. 재생과 음량은 음악 앱에서 바꿔요.</p>
+        {onCollapse && <Button variant="ghost" onClick={onCollapse}>{collapseLabel ?? "접기"}</Button>}
         <Button
           variant="ghost"
           disabled={busy}
@@ -232,6 +235,7 @@ export function MusicTool({
             style={{ width: "100%" }}
             title={title || "지금은 조용한 시간"}
             onCollapse={onCollapse}
+            collapseLabel={collapseLabel}
             artist={artist}
             album={album}
             labels={{
@@ -325,6 +329,17 @@ export function MusicTool({
             {error || text(data.error)}
           </p>
         )}
+        {data.status === "permission-needed" && (
+          <Button variant="ghost" onClick={() => void invoke<void>("open_system_settings", { page: "automation" })}>시스템 설정 열기</Button>
+        )}
+        {data.status === "ready" && rows(data.warnings).map((warning, index) => (
+          <p role="status" className={s.notice} key={`${text(warning.provider)}-${index}`}>
+            {text(warning.message)}
+            {warning.status === "permission-needed" && (
+              <Button variant="ghost" onClick={() => void invoke<void>("open_system_settings", { page: "automation" })}>시스템 설정 열기</Button>
+            )}
+          </p>
+        ))}
         {!fresh && data.observation && (
           <p role="status" className={s.notice}>
             현재 상태를 확인하지 못했어요. 마지막으로 조회한 곡 정보를 보여 드려요.

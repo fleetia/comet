@@ -686,6 +686,7 @@ export type RuntimeStatus = {
   paused: boolean;
   /** Epoch milliseconds of a timed pause; null for an open-ended pause. */
   pausedUntil: number | null;
+  quietHoursUntil?: string | null;
 };
 export type ActiveRequest = { epoch: number; sessionId?: string; messageId?: string };
 export type Snapshot = {

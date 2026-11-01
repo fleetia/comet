@@ -503,6 +503,8 @@ pub struct RuntimeStatus {
     /// Milliseconds; `None` for an open-ended pause. Kept in memory like `paused`.
     #[serde(default)]
     pub paused_until: Option<i64>,
+    #[serde(default)]
+    pub quiet_hours_until: Option<String>,
 }
 
 impl Default for RuntimeStatus {
@@ -517,6 +519,7 @@ impl Default for RuntimeStatus {
             guest_character_ids: Vec::new(),
             paused: false,
             paused_until: None,
+            quiet_hours_until: None,
         }
     }
 }

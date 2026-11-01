@@ -291,10 +291,12 @@ fn position_window(
     window: &tauri::WebviewWindow,
     desired_height: f64,
 ) -> Result<(), String> {
-    let monitor = app
-        .cursor_position()
-        .ok()
-        .and_then(|point| app.monitor_from_point(point.x, point.y).ok().flatten())
+    #[cfg(target_os = "macos")]
+    let cursor = crate::desktop::geometry::cursor_position();
+    #[cfg(not(target_os = "macos"))]
+    let cursor = app.cursor_position().ok().map(|point| (point.x, point.y));
+    let monitor = cursor
+        .and_then(|(x, y)| app.monitor_from_point(x, y).ok().flatten())
         .or_else(|| window.current_monitor().ok().flatten())
         .or_else(|| app.primary_monitor().ok().flatten());
     if let Some(monitor) = monitor {
@@ -304,15 +306,20 @@ fn position_window(
         let height = (desired_height * scale)
             .min(f64::from(area.size.height))
             .round() as u32;
-        window
-            .set_size(tauri::PhysicalSize::new(width, height))
-            .map_err(|e| e.to_string())?;
-        window
-            .set_position(tauri::PhysicalPosition::new(
-                area.position.x + (area.size.width.saturating_sub(width) / 2) as i32,
-                area.position.y + (area.size.height.saturating_sub(height) / 3) as i32,
-            ))
-            .map_err(|e| e.to_string())?;
+        let x = area.position.x + (area.size.width.saturating_sub(width) / 2) as i32;
+        let y = area.position.y + (area.size.height.saturating_sub(height) / 3) as i32;
+        #[cfg(target_os = "macos")]
+        {
+            window.set_size(tauri::LogicalSize::new(f64::from(width) / scale, f64::from(height) / scale))
+                .map_err(|e| e.to_string())?;
+            window.set_position(tauri::LogicalPosition::new(f64::from(x) / scale, f64::from(y) / scale))
+                .map_err(|e| e.to_string())?;
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            window.set_size(tauri::PhysicalSize::new(width, height)).map_err(|e| e.to_string())?;
+            window.set_position(tauri::PhysicalPosition::new(x, y)).map_err(|e| e.to_string())?;
+        }
     }
     Ok(())
 }
@@ -536,6 +543,7 @@ pub(crate) enum LauncherAction {
     EditWidgetDesktop,
     GeneratedWidget { id: String },
     OpenWidgetStack,
+    FocusDesktopWidget { label: String },
     Settings {
         section: Option<windows::SettingsSection>,
         widget_kind: Option<String>,
@@ -633,6 +641,7 @@ pub(crate) async fn execute_launcher(
             .map(|widget| crate::behavior::DESKTOP_TOYS.contains(&widget.kind.as_str()))
             .unwrap_or(false),
         LauncherAction::Guide
+        | LauncherAction::FocusDesktopWidget { .. }
         | LauncherAction::Diary
         | LauncherAction::EditWidgetDesktop
         | LauncherAction::GeneratedWidget { .. }
@@ -679,6 +688,18 @@ pub(crate) async fn execute_launcher(
                 accept_direct_execution(&state, request.session_id)?;
                 widgets::desktop::open_widget_stack(app.clone(), app.state::<Arc<AppState>>())
                     .await
+            }
+            LauncherAction::FocusDesktopWidget { label } => {
+                if !(label == "widget-stack" || label.starts_with("widget-display-") || (label.starts_with("widget-") && label.contains("-image-"))) {
+                    return Err("바탕화면 위젯을 찾지 못했어요.".into());
+                }
+                let target = app.get_webview_window(&label)
+                    .filter(|window| window.is_visible().unwrap_or(false))
+                    .ok_or("표시된 바탕화면 위젯이 없어요.")?;
+                accept_direct_execution(&state, request.session_id)?;
+                target.set_focus().map_err(|error| error.to_string())?;
+                target.eval("document.querySelector('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex=\"0\"]')?.focus()")
+                    .map_err(|error| error.to_string())
             }
             LauncherAction::Guide | LauncherAction::Tutorial => {
                 accept_direct_execution(&state, request.session_id)?;
