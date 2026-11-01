@@ -171,6 +171,21 @@ it("confirms queue clearing and cycle reset and reports a queue title draft", as
   expect(action).not.toHaveBeenCalledWith("reset-cycle", {});
 });
 
+it("tracks the default queue duration until the user edits it", async () => {
+  const queueAction = vi.fn<ToolAction>().mockResolvedValue(true);
+  const view = render(<FocusTimerQueue data={{}} tasks={[]} act={queueAction} revision={1} defaultMinutes="25" />);
+  const minutes = screen.getByLabelText("집중 시간 (분)");
+  expect(minutes).toHaveProperty("value", "25");
+  view.rerender(<FocusTimerQueue data={{}} tasks={[]} act={queueAction} revision={1} defaultMinutes="50" />);
+  expect(minutes).toHaveProperty("value", "50");
+  fireEvent.change(screen.getByLabelText("다음 집중 제목"), { target: { value: "작업" } });
+  await click("다음 집중에 추가");
+  expect(queueAction).toHaveBeenCalledWith("queue-add", { title: "작업", focusDurationMs: 3000000, todoId: null });
+  fireEvent.change(minutes, { target: { value: "35" } });
+  view.rerender(<FocusTimerQueue data={{}} tasks={[]} act={queueAction} revision={2} defaultMinutes="60" />);
+  expect(minutes).toHaveProperty("value", "35");
+});
+
 it("serializes rapid queue moves after each updated revision", async () => {
   let finish: (ok: boolean) => void = () => {};
   action.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));

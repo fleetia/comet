@@ -94,6 +94,8 @@ export const fieldRow3 = style({
   gap: 12,
 });
 export const inline = style({ display: "flex", alignItems: "center", gap: 8, minWidth: 0 });
+export const cancelDeadline = style({ minWidth: 0 });
+export const wrap = style({ flexWrap: "wrap" });
 export const grow = style({ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" });
 export const footerRow = style({
   marginTop: "auto",

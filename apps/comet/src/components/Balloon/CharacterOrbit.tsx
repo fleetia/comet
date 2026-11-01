@@ -212,7 +212,8 @@ export function CharacterOrbit({
     { id: "chat", label: "말 걸기", icon: "chat", disabled: locked },
     {
       id: "resume",
-      label: resumeUnavailable ? "이어서 할 대화가 없어요" : "이어서 하기",
+      label: resumeUnavailable ? "대화 없음" : "이어서 하기",
+      accessibleLabel: resumeUnavailable ? "이어서 할 대화가 없어요" : undefined,
       icon: "resume",
       disabled: locked || !canResume,
     },

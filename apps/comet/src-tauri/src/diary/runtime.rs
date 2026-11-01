@@ -216,7 +216,6 @@ pub(super) fn defer_habits(state: &AppState, db: &Connection) -> Result<bool> {
         || !settings.autonomous_enabled
         || status.hidden
         || status.paused
-        || crate::behavior::reactions_blocked(state)?
         || crate::widgets::storage::focus_active(db, chrono::Utc::now().timestamp_millis())?
         || app::quiet_hours::automatic_blocked(state, &settings)?
     {
@@ -225,6 +224,7 @@ pub(super) fn defer_habits(state: &AppState, db: &Connection) -> Result<bool> {
     Ok(
         !matches!(status.phase, RuntimePhase::Idle | RuntimePhase::Error)
             || state.launcher_open.load(Ordering::SeqCst)
+            || crate::behavior::reactions_blocked(state)?
             || lock(&state.panel)?.is_some()
             || lock(&state.pack_stories)?.run.is_some()
             || app::now() - state.last_input.load(Ordering::SeqCst) < 15,

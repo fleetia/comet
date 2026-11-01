@@ -131,6 +131,8 @@ it("keeps layout controls focusable and ignores input while a save is pending", 
   anchor.focus();
   fireEvent.click(anchor);
   await waitFor(() => expect(anchor.getAttribute("aria-disabled")).toBe("true"));
+  expect(screen.getByRole("radiogroup", { name: "평소 모습" }).getAttribute("aria-disabled")).toBe("true");
+  expect(screen.getByRole("radiogroup", { name: "배치 방식" }).getAttribute("aria-disabled")).toBe("true");
   expect(document.activeElement).toBe(anchor);
   expect(anchor).toHaveProperty("disabled", false);
   fireEvent.click(anchor);

@@ -733,6 +733,10 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
                         setFollowingToday(false);
                       })
                     }
+                    onRestoreDay={(date) => {
+                      setDay(date);
+                      setFollowingToday(false);
+                    }}
                     onNavigate={openTool}
                     onStateChange={setToolState}
                     habitSummary={habitSummary(diary.state, day)}

@@ -126,13 +126,13 @@ it("restores an embedded quick input and its selected day after remount", async 
   useSnapshot(snapshot([]));
   const selectDay = vi.fn();
   const first = render(
-    <Planner embeddedTab="today" selectedDay="2026-09-20" onSelectedDayChange={selectDay} />,
+    <Planner embeddedTab="today" selectedDay="2026-09-20" onRestoreDay={selectDay} />,
   );
   fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
     target: { value: "다시 열 계획" },
   });
   first.unmount();
-  render(<Planner embeddedTab="today" selectedDay={TODAY} onSelectedDayChange={selectDay} />);
+  render(<Planner embeddedTab="today" selectedDay={TODAY} onRestoreDay={selectDay} />);
   expect(screen.getByRole("textbox", { name: "새 할 일" })).toHaveProperty("value", "다시 열 계획");
   await waitFor(() => expect(selectDay).toHaveBeenCalledWith("2026-09-20"));
 });
@@ -837,6 +837,10 @@ it("restores an embedded task edit against its original snapshot after restart",
   await waitFor(() => expect(editor.getByRole("alert").textContent).toContain("저장하지 못했어요"));
   expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
   expect(localStorage.getItem("comet:diary:planner-todo-editor")).not.toBeNull();
+  fireEvent.click(editor.getByRole("button", { name: "최신 내용 다시 불러오기" }));
+  expect(within(screen.getByRole("dialog", { name: "할 일 편집" })).getByLabelText("할 일 제목"))
+    .toHaveProperty("value", "다른 화면의 수정");
+  expect(localStorage.getItem("comet:diary:planner-todo-editor")).toBeNull();
 });
 
 it("offers calendar skip for legacy repeating tasks", () => {

@@ -182,6 +182,7 @@ export function SegmentedControl({
   defaultValue,
   onValueChange,
   className,
+  "aria-disabled": ariaDisabled,
   ...props
 }: SegmentedControlProps): ReactElement {
   const id = useId();
@@ -214,7 +215,7 @@ export function SegmentedControl({
       ref={containerRef}
       role="radiogroup"
       aria-label={label}
-      aria-disabled={disabled || undefined}
+      aria-disabled={disabled || ariaDisabled || undefined}
       className={[
         styles.segmentedControl,
         appearance === "contained" && styles.contained,

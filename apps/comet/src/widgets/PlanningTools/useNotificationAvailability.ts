@@ -39,7 +39,7 @@ export function useNotificationAvailability(id: string): { bubble: boolean | nul
 }
 
 export function notificationUnavailable(channel: string, bubble: boolean | null, permission: string): boolean {
-  const bubbleUnavailable = channel === "os" || bubble === false;
+  const bubbleUnavailable = bubble === false;
   const osUnavailable = channel === "bubble" || ["denied", "prompt"].includes(permission);
   return bubbleUnavailable && osUnavailable;
 }

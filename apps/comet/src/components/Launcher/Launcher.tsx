@@ -358,7 +358,7 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
           className={styles.pickFriend}
           disabled={pending}
           onClick={() => {
-            pickerDraft.current ??= { query, binding };
+            if (!query.trimStart().startsWith(">")) pickerDraft.current ??= { query, binding };
             setBinding(null);
             edit(">");
             inputRef.current?.focus();
