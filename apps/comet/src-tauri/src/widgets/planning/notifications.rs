@@ -49,7 +49,7 @@ pub(crate) async fn request_planner_notification_permission(
 pub(crate) async fn preview_planner_notification(app: tauri::AppHandle) -> Result<(), String> {
     let permission = native::permission(&app, false).await?;
     if permission != "granted" && permission != "system" {
-        return Err("OS 알림 권한을 먼저 허용해 주세요.".into());
+        return Err("시스템 알림 권한을 먼저 허용해 주세요.".into());
     }
     let sequence = next_delivery();
     let result = native::show(
@@ -72,8 +72,8 @@ async fn wait_for_delivery(
     let receive = result?;
     tokio::time::timeout(std::time::Duration::from_secs(10), receive)
         .await
-        .map_err(|_| "OS 알림 확인 시간이 지났어요.".to_string())?
-        .map_err(|_| "OS 알림 확인이 중단됐어요.".to_string())?
+        .map_err(|_| "시스템 알림 확인 시간이 지났어요.".to_string())?
+        .map_err(|_| "시스템 알림 확인이 중단됐어요.".to_string())?
 }
 
 async fn wait_for_travel_delivery(
@@ -83,12 +83,12 @@ async fn wait_for_travel_delivery(
 ) -> Result<(), String> {
     let mut receive = result?;
     match tokio::time::timeout(timeout, &mut receive).await {
-        Ok(result) => result.map_err(|_| "OS 알림 확인이 중단됐어요.".to_string())?,
+        Ok(result) => result.map_err(|_| "시스템 알림 확인이 중단됐어요.".to_string())?,
         Err(_) => {
             on_timeout();
             receive
                 .await
-                .map_err(|_| "OS 알림 확인이 중단됐어요.".to_string())?
+                .map_err(|_| "시스템 알림 확인이 중단됐어요.".to_string())?
         }
     }
 }
@@ -112,7 +112,7 @@ pub(crate) async fn show_plain(
     let result = wait_for_travel_delivery(
         native::show(app, &id, 0, text, sound, false, &key),
         std::time::Duration::from_secs(10),
-        || save_delivery_result(app, sequence, Some("OS 알림 확인 시간이 지났어요.".into())),
+        || save_delivery_result(app, sequence, Some("시스템 알림 확인 시간이 지났어요.".into())),
     )
     .await;
     save_delivery_result(app, sequence, result.as_ref().err().cloned());
@@ -256,7 +256,7 @@ pub(crate) fn deliver(
             let result = if permitted {
                 show_delivery(&app, &delivery, observed_at)
             } else {
-                Err("OS 알림 권한을 먼저 허용해 주세요.".into())
+                Err("시스템 알림 권한을 먼저 허용해 주세요.".into())
             };
             (sequence, result)
         };
@@ -651,7 +651,7 @@ mod native {
 
     pub async fn permission(_: &tauri::AppHandle, request: bool) -> Result<String, String> {
         if !bundled_app() {
-            return Err("OS 알림은 빌드된 Comet 앱에서 사용할 수 있어요.".into());
+            return Err("시스템 알림은 빌드된 Comet 앱에서 사용할 수 있어요.".into());
         }
         let (send, receive) = tokio::sync::oneshot::channel();
         // Completion handlers own only the sender; native references do not cross await.
@@ -707,8 +707,8 @@ mod native {
         }
         tokio::time::timeout(Duration::from_secs(if request { 180 } else { 10 }), receive)
             .await
-            .map_err(|_| "OS 알림 권한 확인 시간이 지났어요. 다시 확인해 주세요.".to_string())?
-            .map_err(|_| "OS 알림 권한 확인이 중단됐어요.".to_string())?
+            .map_err(|_| "시스템 알림 권한 확인 시간이 지났어요. 다시 확인해 주세요.".to_string())?
+            .map_err(|_| "시스템 알림 권한 확인이 중단됐어요.".to_string())?
     }
 
     pub fn show(
@@ -721,7 +721,7 @@ mod native {
         notification_key: &str,
     ) -> Result<tokio::sync::oneshot::Receiver<Result<(), String>>, String> {
         if !bundled_app() {
-            return Err("OS 알림은 빌드된 Comet 앱에서 사용할 수 있어요.".into());
+            return Err("시스템 알림은 빌드된 Comet 앱에서 사용할 수 있어요.".into());
         }
         let content = UNMutableNotificationContent::new();
         content.setTitle(&NSString::from_str("Comet · 생활 알림"));
@@ -753,7 +753,7 @@ mod native {
             let result = if error.is_null() {
                 Ok(())
             } else {
-                Err("OS 알림을 표시하지 못했어요. 시스템 알림 설정을 확인해 주세요.".into())
+                Err("시스템 알림을 표시하지 못했어요. 시스템 알림 설정을 확인해 주세요.".into())
             };
             if let Ok(mut sender) = send.lock() {
                 if let Some(sender) = sender.take() {
@@ -802,7 +802,7 @@ mod native {
         let (send, receive) = tokio::sync::oneshot::channel();
         let result = notification
             .show()
-            .map_err(|_| "OS 알림을 표시하지 못했어요. 시스템 알림 설정을 확인해 주세요.".into());
+            .map_err(|_| "시스템 알림을 표시하지 못했어요. 시스템 알림 설정을 확인해 주세요.".into());
         let _ = send.send(result);
         Ok(receive)
     }

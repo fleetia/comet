@@ -232,7 +232,7 @@ export function OrganizerRecords(): JSX.Element {
             <>
               {entries.length === 0 && (
                 <p className={s.caption}>
-                  아직 정리 기록이 없어요. AI 연결의 Ex-brain에서 자료를 연결하거나 캐릭터에게
+                  아직 정리 기록이 없어요. AI 연결의 Ex-brain에서 자료를 연결하거나 친구에게
                   기록을 부탁해 보세요.
                 </p>
               )}
@@ -289,7 +289,7 @@ export function OrganizerRecords(): JSX.Element {
               )}
               {selectedAction && (
                 <p className={s.caption}>
-                  캐릭터에게 직접 요청해 저장한 기록이에요. 결과와 원문을 열어 확인할 수 있어요.
+                  친구에게 직접 요청해 저장한 기록이에요. 결과와 원문을 열어 확인할 수 있어요.
                 </p>
               )}
               {selectedAction?.undoSupported === false && !selectedAction.undone && (

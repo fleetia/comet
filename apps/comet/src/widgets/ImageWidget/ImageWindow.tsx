@@ -128,7 +128,7 @@ export function ImageWindow({ id, imageId }: { id: string; imageId: string }): R
                 restore: true,
               }),
           },
-          { text: "바탕화면에서 빼기", action: () => void run("close_widget_image") },
+          { text: "닫기", action: () => void run("close_widget_image") },
           { text: "지우기", action: () => void remove() },
         ],
       });
@@ -215,8 +215,8 @@ export function ImageWindow({ id, imageId }: { id: string; imageId: string }): R
         <>
           <IconButton
             className={`${s.control} ${s.close}`}
-            icon="minus"
-            aria-label="이미지 바탕화면에서 빼기"
+            icon="close"
+            aria-label="이미지 닫기"
             size="compact"
             onPointerDown={(event) => event.stopPropagation()}
             onClick={() => void run("close_widget_image")}

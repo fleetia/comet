@@ -142,14 +142,14 @@ it("keeps window dragging available on the widget", () => {
 
 it.each([
   [null, null, "위젯을 불러오고 있어요.", false],
-  [{ ...PREVIEW_WIDGETS, widgets: [] }, null, "바탕화면에 놓을 수 없는 위젯이에요.", true],
+  [{ ...PREVIEW_WIDGETS, widgets: [] }, null, "바탕화면에 꺼낼 수 없는 위젯이에요.", true],
 ])(
   "reports a missing widget (%#) and only then offers closing",
   async (data, error, message, closable) => {
     vi.mocked(useWidgets).mockReturnValue({ snapshot: data, error, reload: vi.fn() });
     render(<WidgetDisplay id="clock" />);
     expect(screen.getByText(message)).toBeTruthy();
-    const close = screen.queryByRole("button", { name: "바탕화면 위젯 닫기" });
+    const close = screen.queryByRole("button", { name: "바탕화면에서 빼기" });
     expect(Boolean(close)).toBe(closable);
     if (close) {
       vi.mocked(command).mockRejectedValueOnce(new Error("창을 닫지 못했어요."));

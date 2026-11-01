@@ -87,20 +87,20 @@ it("keeps the selected companion while following current roster slots", () => {
   expect(act).toHaveBeenLastCalledWith("stroke", { character: "A", owner: first });
   roster([first, second]);
   view.rerender(<ToyTool widget={widget} act={act} characters={characters} />);
-  fireEvent.change(screen.getByRole("combobox", { name: "함께할 캐릭터" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "함께할 친구" }), {
     target: { value: "B" },
   });
   fireEvent.click(screen.getByRole("button", { name: "간식 나누기" }));
   expect(act).toHaveBeenLastCalledWith("snack", { character: "B", owner: second });
   roster([second, first]);
   view.rerender(<ToyTool widget={widget} act={act} characters={characters} />);
-  expect(screen.getByRole("combobox", { name: "함께할 캐릭터" })).toHaveProperty("value", "A");
+  expect(screen.getByRole("combobox", { name: "함께할 친구" })).toHaveProperty("value", "A");
   fireEvent.click(screen.getByRole("button", { name: "콕 찌르기" }));
   expect(act).toHaveBeenLastCalledWith("poke", { character: "A", owner: second });
   roster([first]);
   view.rerender(<ToyTool widget={widget} act={act} characters={characters} />);
   expect(screen.queryByRole("option", { name: /나디르/ })).toBeNull();
-  expect(screen.getByRole("combobox", { name: "함께할 캐릭터" })).toHaveProperty("value", "A");
+  expect(screen.getByRole("combobox", { name: "함께할 친구" })).toHaveProperty("value", "A");
 });
 
 it.each([
@@ -136,7 +136,7 @@ it("disables targeted interaction until a companion is available", () => {
   const view = render(<ToyTool widget={widget} act={act} />);
   expect(screen.getByRole("button", { name: "쓰다듬기" })).toHaveProperty("disabled", true);
   view.rerender(<ToyTool widget={widget} act={act} characters={{ installed: [], active: [] }} />);
-  expect(screen.getByRole("option", { name: "함께 지내는 캐릭터가 없어요" })).toBeTruthy();
+  expect(screen.getByRole("option", { name: "함께 지내는 친구가 없어요" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "간식 나누기" })).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("button", { name: "쓰다듬기" }));
   expect(act).not.toHaveBeenCalled();
@@ -180,13 +180,13 @@ it("routes game and fortune actions to the selected companion identity", () => {
       characters={characters}
     />,
   );
-  fireEvent.change(screen.getByRole("combobox", { name: "함께할 캐릭터" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "함께할 친구" }), {
     target: { value: second },
   });
   fireEvent.click(screen.getByRole("button", { name: "주사위 굴리기" }));
   expect(act).toHaveBeenLastCalledWith("dice", { character: "B", owner: second });
   view.rerender(<ToyTool widget={toyWidget("fortune")} act={act} characters={characters} />);
-  fireEvent.change(screen.getByRole("combobox", { name: "함께할 캐릭터" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "함께할 친구" }), {
     target: { value: second },
   });
   fireEvent.click(screen.getByRole("button", { name: "운세 뽑기" }));

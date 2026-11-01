@@ -64,9 +64,9 @@ it("has no save buttons and saves timer-owned settings immediately without chang
   render(<FocusTimerSettings widget={timer} calendar={calendar} act={act} />);
   expect(screen.queryByRole("button", { name: /저장/ })).toBeNull();
   expect(screen.getByLabelText("연결한 일정 시작 전 알리기")).toHaveProperty("value", "custom");
-  expect(screen.getByLabelText("알람 시간 직접 입력 (분 전)")).toHaveProperty("value", "17");
+  expect(screen.getByLabelText("알림 시간 직접 입력 (분 전)")).toHaveProperty("value", "17");
   fireEvent.click(screen.getByRole("radio", { name: "둘 다" }));
-  fireEvent.change(screen.getByLabelText("알림 소리"), { target: { value: "system" } });
+  fireEvent.change(screen.getByLabelText("시스템 알림 소리"), { target: { value: "system" } });
   fireEvent.click(screen.getByRole("switch", { name: "집중이 끝나면 휴식 바로 시작" }));
   await waitFor(() =>
     expect(act).toHaveBeenCalledExactlyOnceWith(
@@ -87,6 +87,20 @@ it("has no save buttons and saves timer-owned settings immediately without chang
   );
   await settle();
   expect(act).toHaveBeenCalledTimes(1);
+});
+it("keeps the sound choice while disabling it for bubble-only notifications", () => {
+  render(<FocusTimerSettings widget={widget("focus-timer", { settings: { finishNotification: "bubble", finishSoundEnabled: true } })} act={vi.fn<ToolAction>()} />);
+  const sound = screen.getByLabelText("시스템 알림 소리");
+  expect(sound).toHaveProperty("disabled", true);
+  expect(sound).toHaveProperty("value", "system");
+  expect(screen.getByText("연결한 일정의 사전 알림에도 채널과 소리가 적용돼요.")).toBeTruthy();
+  expect(screen.getByText("끝날 때 알리기의 채널과 소리를 따라요. 집중 중에는 말풍선 대신 타이머 배너와 선택한 시스템 알림으로 확인해요.")).toBeTruthy();
+  fireEvent.click(screen.getByRole("radio", { name: "시스템 알림" }));
+  expect(sound).toHaveProperty("disabled", false);
+  expect(sound).toHaveProperty("value", "system");
+  fireEvent.click(screen.getByRole("radio", { name: "말풍선" }));
+  expect(sound).toHaveProperty("disabled", true);
+  expect(sound).toHaveProperty("value", "system");
 });
 it("keeps focus settings available without a calendar and disables unsupported cheering", async () => {
   const act = vi.fn<ToolAction>().mockResolvedValue(true);
@@ -120,10 +134,10 @@ it("retains invalid rest and lead drafts with an error and never sends them", as
     target: { value: "custom" },
   });
   for (const value of ["", "1.5", "-1", "121"]) {
-    fireEvent.change(screen.getByLabelText("알람 시간 직접 입력 (분 전)"), { target: { value } });
+    fireEvent.change(screen.getByLabelText("알림 시간 직접 입력 (분 전)"), { target: { value } });
     await settle();
     expect(screen.getByRole("alert").textContent).toContain("120분");
-    expect(screen.getByLabelText("알람 시간 직접 입력 (분 전)")).toHaveProperty("value", value);
+    expect(screen.getByLabelText("알림 시간 직접 입력 (분 전)")).toHaveProperty("value", value);
   }
   expect(save).not.toHaveBeenCalled();
 });
@@ -236,13 +250,13 @@ it("keeps the latest permission result and ignores unmounted completion", async 
     />,
   );
   fireEvent.click(screen.getByText("알림 설정"));
-  fireEvent.click(screen.getByRole("button", { name: "OS 알림 권한 요청" }));
+  fireEvent.click(screen.getByRole("button", { name: "시스템 알림 권한 요청" }));
   await reactAct(async () => request.resolve("granted"));
   await reactAct(async () => initial.resolve("denied"));
-  expect(screen.getByText(/OS 알림: 허용됨/)).toBeTruthy();
+  expect(screen.getByText(/시스템 알림: 허용됨/)).toBeTruthy();
   const later = deferred<string>();
   vi.mocked(command).mockReturnValue(later.promise);
-  fireEvent.click(screen.getByRole("button", { name: "OS 알림 권한 요청" }));
+  fireEvent.click(screen.getByRole("button", { name: "시스템 알림 권한 요청" }));
   view.unmount();
   await reactAct(async () => later.resolve("denied"));
   expect(screen.queryByRole("alert")).toBeNull();

@@ -1,4 +1,5 @@
 import catalog from "../../../widgets/catalog.json";
+import { particle } from "../../particle";
 import type { CharacterCollection, Snapshot } from "../../types";
 import type { WidgetSnapshot, WidgetView } from "../../widgets/types";
 import type { WidgetDesktopState } from "../../widgets/WidgetManager/useWidgetDesktop";
@@ -94,7 +95,7 @@ function chatResult(content: string, snapshot: Snapshot, target?: TargetBinding)
     id: `chat:${target?.id ?? "all"}`,
     title: `${recipient} 말 걸기`,
     detail: snapshot.runtime.hidden
-      ? "캐릭터 표시 후 말 걸기"
+      ? "친구 표시 후 말 걸기"
       : target
         ? `받는 친구: ${target.name}`
         : names.join(" · "),
@@ -114,7 +115,7 @@ function targetResults(snapshot: Snapshot, token: string): LauncherResult[] {
     id: `target:${target.id}`,
     title: `${target.token} · ${target.name}`,
     detail: "이 친구에게만 말 걸기",
-    preview: `${target.name}을 선택한 다음 하고 싶은 말을 적어 주세요.`,
+    preview: `${target.name}${particle(target.name, "object")} 선택한 다음 하고 싶은 말을 적어 주세요.`,
     kind: "target",
     recipient: target,
   }));
@@ -181,11 +182,11 @@ function widgetResult(
     id: `widget:${entry.id}`,
     title:
       available && entry.id === "image"
-        ? "이미지 띄우기"
+        ? "이미지 바탕화면에 꺼내기"
         : available
           ? entry.id === "memo"
             ? "새 메모 꺼내기"
-            : `${entry.name} ${toy ? "꺼내기" : "열기"}`
+            : `${entry.name} ${toy ? "바탕화면에 꺼내기" : "열기"}`
           : `${entry.name} 설정 열기`,
     detail:
       available && entry.id === "image"
@@ -201,7 +202,7 @@ function widgetResult(
       ? entry.id === "memo"
         ? "새 낱장을 꺼내요. 저장한 메모 목록과 검색은 다이어리에서 볼 수 있어요."
         : toy
-          ? `${entry.name}을 바탕화면에 꺼내요. 우클릭으로 정리할 수 있어요.`
+          ? `${entry.name}${particle(entry.name, "object")} 바탕화면에 꺼내요. 우클릭으로 정리할 수 있어요.`
           : entry.description
       : `${entry.name} 사용 준비가 필요해요. 설정 → 위젯 → ${entry.name}에서 연결을 확인해 주세요.`,
     kind: "widget",

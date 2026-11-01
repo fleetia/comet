@@ -378,7 +378,7 @@ function LegacyMemories({ snapshot }: { snapshot: Snapshot }): JSX.Element | nul
           <span className={styles.caption}>미배분 {snapshot.legacyMemoryCount}개</span>
         </div>
         <p className={styles.caption}>
-          기억과 간직할 캐릭터를 골라요. 지정하기 전에는 대화에서 떠올리지 않아요.
+          기억과 간직할 친구를 골라요. 지정하기 전에는 대화에서 떠올리지 않아요.
         </p>
         <fieldset disabled={pending} className={styles.form}>
           <div className={styles.memoryList}>
@@ -429,7 +429,7 @@ function LegacyMemories({ snapshot }: { snapshot: Snapshot }): JSX.Element | nul
             </span>
           </div>
           <div className={styles.recipients}>
-            <span className={styles.recipientLabel}>간직할 캐릭터</span>
+            <span className={styles.recipientLabel}>간직할 친구</span>
             {snapshot.characters.installed.map((character) => (
               <Checkbox
                 key={character.id}
@@ -466,7 +466,7 @@ function LegacyMemories({ snapshot }: { snapshot: Snapshot }): JSX.Element | nul
                 .filter((character) => characterIds.includes(character.id))
                 .map((character) => character.definition.name)
                 .join(" · ")}`
-            : " · 간직할 캐릭터를 선택해요."}
+            : " · 간직할 친구를 선택해요."}
         </span>
         <Button
           className={styles.assignButton}

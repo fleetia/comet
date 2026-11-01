@@ -435,7 +435,7 @@ export function TravelBookingEditor({
                 ))}
               </Select>
             </FormField>
-            <FormField label="무료 취소 마감" description={permission === "granted" || permission === "system" ? "하루 전 저녁에 한 번 알려 드려요." : "OS 알림을 허용하지 않으면 가능한 때 말풍선으로 알려 드려요."}>
+            <FormField label="무료 취소 마감" description={permission === "granted" || permission === "system" ? "하루 전 저녁에 한 번 알려 드려요." : "시스템 알림을 허용하지 않으면 가능한 때 말풍선으로 알려 드려요."}>
               <div>
                 <div className={s.inline}>
                   <TextInput
@@ -454,7 +454,7 @@ export function TravelBookingEditor({
                   />
                 </div>
                 {isDesktop() && <div className={s.inline}>
-                  <span className={s.caption}>OS 알림: {({ granted: "허용됨", denied: notificationSettingsText(), prompt: "권한 요청 전", system: "시스템 설정을 따름", unknown: "확인 필요" } as Record<string, string>)[permission]}</span>
+                  <span className={s.caption}>시스템 알림: {({ granted: "허용됨", denied: notificationSettingsText(), prompt: "권한 요청 전", system: "시스템 설정을 따름", unknown: "확인 필요" } as Record<string, string>)[permission]}</span>
                   {permission !== "granted" && permission !== "system" && <Button
                     type="button"
                     variant="ghost"
@@ -468,7 +468,7 @@ export function TravelBookingEditor({
                       }
                     }}
                   >
-                    {permission === "denied" && canOpenNotificationSettings() ? "시스템 설정 열기" : "OS 알림 권한 요청"}
+                    {permission === "denied" && canOpenNotificationSettings() ? "시스템 설정 열기" : "시스템 알림 권한 요청"}
                   </Button>}
                 </div>}
               </div>

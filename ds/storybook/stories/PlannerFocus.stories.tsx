@@ -22,7 +22,7 @@ function ProgramExample(): JSX.Element {
   return (
     <div className="comet-catalog-stack">
       <FocusProgramPicker
-        label="측정할 프로그램"
+        label="측정할 앱"
         options={options}
         value={value}
         onValueChange={setValue}
@@ -95,7 +95,7 @@ export const DisabledPicker: Story = {
   parameters: { controls: { disable: true } },
   name: "Program Picker · 비활성",
   render: () => (
-    <FocusProgramPicker label="측정할 프로그램" options={options} defaultValue="word" disabled />
+    <FocusProgramPicker label="측정할 앱" options={options} defaultValue="word" disabled />
   ),
 };
 export const RecordRow: Story = {

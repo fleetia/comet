@@ -104,7 +104,7 @@ pub(crate) fn pending_interaction_target(
     }
     let slot = request.input["character"]
         .as_str()
-        .ok_or("캐릭터를 골라 주세요.")?;
+        .ok_or("친구를 골라 주세요.")?;
     let character = characters::active_character(db, &slot.to_ascii_lowercase())?;
     Ok(Some((character.id, request.action.clone())))
 }

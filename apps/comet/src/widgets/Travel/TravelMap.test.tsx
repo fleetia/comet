@@ -77,3 +77,11 @@ it("shows a custom trip time zone when it has no predefined label", () => {
   expect(row.textContent).toContain("오전 9:00 (America/Chicago 시각)");
   expect(row.textContent).toContain("도착 오전 11:00 (America/Chicago 시각)");
 });
+
+it("uses particles matching a destination with a final consonant", () => {
+  const travel = { ...trip.travel, destination: "서울" };
+  const { rerender } = render(<TravelSchedule travel={travel} plans={[]} bookings={[]} days={[plan.date]} date={plan.date} busy={false} onSelectDay={vi.fn()} onAdd={vi.fn()} onEdit={vi.fn()} />);
+  expect(screen.getByText(/서울과 한국의 시차는 없어요/)).toBeTruthy();
+  rerender(<TravelSchedule travel={{ ...travel, timeZone: "America/Chicago" }} plans={[]} bookings={[]} days={[plan.date]} date={plan.date} busy={false} onSelectDay={vi.fn()} onAdd={vi.fn()} onEdit={vi.fn()} />);
+  expect(screen.getByText(/서울은 /)).toBeTruthy();
+});

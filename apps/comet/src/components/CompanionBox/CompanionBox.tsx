@@ -157,7 +157,7 @@ export function CompanionBox({
           className={s.bodyClose}
           size="compact"
           icon="close"
-          aria-label="캐릭터 숨기기"
+          aria-label="친구 숨기기"
           disabled={!isDesktop() || preview}
           onClick={() => {
             setError(null);

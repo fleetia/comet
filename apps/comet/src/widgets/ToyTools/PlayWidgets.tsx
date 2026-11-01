@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Icon, type IconName } from "@comet/icon";
 import { Balloon, Button, TextInput } from "@comet/ui";
+import { particle } from "../../particle";
 import type { WidgetView } from "../types";
 import { number, record, text, type ToolAction } from "../toolData";
 import type { CharacterCollection } from "../../types";
@@ -23,11 +24,6 @@ const CATCHES: { id: string; name: string; icon: IconName }[] = [
   { id: "stone", name: "동그란 돌", icon: "marble" },
 ];
 
-/** Picks 을/를 from whether the last Hangul syllable has a final consonant. */
-function objectParticle(word: string): string {
-  const code = word.charCodeAt(word.length - 1) - 0xac00;
-  return code >= 0 && code < 11172 && code % 28 === 0 ? "를" : "을";
-}
 
 function Card({
   icon,
@@ -76,7 +72,7 @@ export function FishingTool({ widget, act }: Props): ReactElement {
         {text(d.lastCatch) ? (
           <p className={s.headline} role="status">
             {text(d.lastCatch)}
-            {objectParticle(text(d.lastCatch))} 낚았어요!
+            {particle(text(d.lastCatch), "object")} 낚았어요!
           </p>
         ) : (
           <p className={s.status} role="status">

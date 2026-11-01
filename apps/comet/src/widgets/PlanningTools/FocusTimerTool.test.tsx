@@ -99,6 +99,26 @@ it("announces the ready task only once in the collapsed timer", () => {
   expect(screen.getByRole("button", { name: "집중 타이머 · 보고서 · 시작 전 · 25:00 · 펼쳐 보기" })).toBeTruthy();
 });
 
+it("distinguishes resuming a paused timer from starting a focus after rest", () => {
+  const resume = vi.fn();
+  const start = vi.fn();
+  const view = render(<FocusTimerView phase="running" task="보고서" time="25:00" paused onPause={resume} onRecords={() => {}} onSettings={() => {}} />);
+  fireEvent.click(screen.getByRole("button", { name: "계속" }));
+  expect(resume).toHaveBeenCalledOnce();
+  view.rerender(<FocusTimerView phase="rest" task="보고서" time="05:00" paused onPause={resume} onRecords={() => {}} onSettings={() => {}} />);
+  fireEvent.click(screen.getByRole("button", { name: "계속" }));
+  expect(resume).toHaveBeenCalledTimes(2);
+  view.rerender(<FocusTimerView phase="rest-complete" task="보고서" time="00:00" duration={25} nextTitle="보고서" onStart={start} onRecords={() => {}} onSettings={() => {}} />);
+  fireEvent.click(screen.getByRole("button", { name: "25분 집중 시작" }));
+  expect(start).toHaveBeenCalledOnce();
+});
+
+it("uses the queued focus duration for the start label after rest", () => {
+  const timer = widget("focus-timer", { status: "finished", mode: "rest", focusDurationMs: 1500000, durationMs: 300000, queue: [{ id: "next", title: "보고서", focusDurationMs: 3000000 }] });
+  render(<TimerTool widget={timer} widgets={[]} act={action} />);
+  expect(screen.getByRole("button", { name: "50분 집중 시작" })).toBeTruthy();
+});
+
 it("confirms cancellation after a minute of focus and retains cancellation before it", async () => {
   const timer = widget("focus-timer", { status: "paused", mode: "focus", durationMs: 1500000, remainingMs: 1440000 });
   const view = render(<TimerTool widget={timer} widgets={[]} act={action} />);
@@ -140,13 +160,13 @@ it("confirms queue clearing and cycle reset and reports a queue title draft", as
   render(<FocusTimerQueue data={{ cycle: 2, queue: [{ id: "a", title: "A" }, { id: "b", title: "B" }] }} tasks={[]} act={action} revision={1} defaultMinutes="25" onDirtyChange={dirty} />);
   fireEvent.change(screen.getByLabelText("다음 집중 제목"), { target: { value: "초안" } });
   expect(dirty).toHaveBeenLastCalledWith(true);
-  await click("큐 비우기");
+  await click("모두 비우기");
   expect(action).not.toHaveBeenCalled();
   const clearDialog = screen.getByRole("dialog", { name: "다음 집중을 모두 비울까요?" });
   await reactAct(async () => fireEvent.click(clearDialog.querySelector("button:last-child")!));
   expect(action).toHaveBeenCalledWith("queue-clear", {});
-  await click("회차 초기화");
-  expect(screen.getByRole("dialog", { name: "회차를 초기화할까요?" })).toBeTruthy();
+  await click("긴 휴식까지 세기 처음부터");
+  expect(screen.getByRole("dialog", { name: "긴 휴식까지 세기를 처음부터 시작할까요?" })).toBeTruthy();
   await click("취소");
   expect(action).not.toHaveBeenCalledWith("reset-cycle", {});
 });

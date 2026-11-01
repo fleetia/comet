@@ -129,11 +129,11 @@ it("returns to the text body when only another expression has an image", () => {
     <CompanionBox id="byul" snapshot={{ ...partial, playback: playing("기쁨") }} />,
   );
   expect(bodyImage()).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "캐릭터 숨기기" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "친구 숨기기" })).toBeNull();
   rerender(<CompanionBox id="byul" snapshot={partial} />);
   expect(bodyImage()).toBeNull();
   expect(screen.getByText("[기본]")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "캐릭터 숨기기" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "친구 숨기기" })).toBeTruthy();
   expect(document.documentElement.className).toBe("");
 });
 
@@ -142,7 +142,7 @@ it("sizes the sprite from the character, drops the box controls, and clears the 
   expect(bodyImage()?.style.width).toBe("128px");
   expect(bodyImage()?.crossOrigin).toBe("anonymous");
   expect(screen.queryByText("기쁨")).toBeNull();
-  expect(screen.queryByRole("button", { name: "캐릭터 숨기기" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "친구 숨기기" })).toBeNull();
   expect(document.documentElement.className).not.toBe("");
   cleanup();
   expect(document.documentElement.className).toBe("");

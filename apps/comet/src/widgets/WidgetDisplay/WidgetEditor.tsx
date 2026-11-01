@@ -486,8 +486,8 @@ export function WidgetEditor(): ReactElement {
             {addable.length === 0 ? (
               <p className={s.hint}>
                 {available.length === 0
-                  ? "바탕화면에 놓을 수 있는 위젯이 없어요."
-                  : "위젯을 모두 바탕화면에 놓았어요."}
+                  ? "바탕화면에 꺼낼 수 있는 위젯이 없어요."
+                  : "위젯을 모두 바탕화면에 꺼냈어요."}
               </p>
             ) : (
               <ul className={s.addList}>
@@ -500,14 +500,14 @@ export function WidgetEditor(): ReactElement {
                     <Button
                       size="small"
                       variant="ghost"
-                      aria-label={`${name(widget)} 바탕화면에 놓기`}
+                      aria-label={`${name(widget)} 바탕화면에 꺼내기`}
                       aria-disabled={desktop.busy || undefined}
                       onClick={() => {
                         if (!desktop.busy) void desktop.run("add_widget_desktop_item", { id: widget.id });
                       }}
                     >
                       <Icon name="plus" size={14} />
-                      놓기
+                      바탕화면에 꺼내기
                     </Button>
                   </li>
                 ))}

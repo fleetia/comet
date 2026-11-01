@@ -374,7 +374,7 @@ export function FocusTimerSettings({
     setNotice("");
     try {
       await command("preview_planner_notification");
-      if (mounted.current) setNotice("OS에 미리보기 알림을 보냈어요.");
+      if (mounted.current) setNotice("시스템 알림으로 미리보기를 보냈어요.");
     } catch (cause: unknown) {
       if (mounted.current) setError(errorText(cause));
     }
@@ -477,6 +477,7 @@ export function FocusTimerSettings({
             <SettingControlRow
               className={s.settingRow}
               title="끝날 때 알리기"
+              description="연결한 일정의 사전 알림에도 채널과 소리가 적용돼요."
               control={
                 <SegmentedControl
                   label="끝날 때 알리기"
@@ -485,7 +486,7 @@ export function FocusTimerSettings({
                   disabled={busy}
                   options={[
                     { value: "bubble", label: "말풍선" },
-                    { value: "os", label: "OS 알림" },
+                    { value: "os", label: "시스템 알림" },
                     { value: "both", label: "둘 다" },
                   ]}
                   onValueChange={(value) => setDraft({ ...draft, finishNotification: value })}
@@ -494,12 +495,12 @@ export function FocusTimerSettings({
             />
             <SettingControlRow
               className={s.settingRow}
-              title="알림 소리"
+              title="시스템 알림 소리"
               control={
                 <SelectField
                   controlSize={34}
-                  aria-label="알림 소리"
-                  disabled={busy}
+                  aria-label="시스템 알림 소리"
+                  disabled={busy || draft.finishNotification === "bubble"}
                   value={draft.finishSoundEnabled ? "system" : "off"}
                   onChange={(event) =>
                     setDraft({ ...draft, finishSoundEnabled: event.target.value === "system" })
@@ -513,7 +514,7 @@ export function FocusTimerSettings({
             <SettingControlRow
               className={s.settingRow}
               title="연결한 일정 시작 전 알리기"
-              description="끝날 때 알리기 채널을 따라요. 집중 중에는 말풍선 대신 타이머 배너와 선택한 OS 알림으로 확인해요."
+              description="끝날 때 알리기의 채널과 소리를 따라요. 집중 중에는 말풍선 대신 타이머 배너와 선택한 시스템 알림으로 확인해요."
               control={
                 <SelectField
                   controlSize={34}
@@ -540,7 +541,7 @@ export function FocusTimerSettings({
               }
             />
             {customLead && (
-              <FormField label="알람 시간 직접 입력 (분 전)">
+              <FormField label="알림 시간 직접 입력 (분 전)">
                 <TextInput
                   fill
                   type="number"
@@ -554,7 +555,7 @@ export function FocusTimerSettings({
             )}
           </div>
           <div className={s.settingsCaption}>
-            <span>OS 알림을 받으려면 시스템 알림 권한이 필요해요. 다른 Space에서 말풍선이 보이는지는 확인할 수 없어요. </span>
+            <span>시스템 알림을 받으려면 알림 권한이 필요해요. 다른 Space에서 말풍선이 보이는지는 확인할 수 없어요. </span>
             {notificationUnavailable(draft.finishNotification, availability.bubble, permission) && (
               <p role="status">지금은 알림이 나가지 않아요.</p>
             )}
@@ -562,7 +563,7 @@ export function FocusTimerSettings({
               <summary>알림 설정</summary>
               <div className={s.row}>
                 <span className={s.quiet}>
-                  OS 알림:{" "}
+                  시스템 알림:{" "}
                   {(
                     {
                       granted: "허용됨",
@@ -584,10 +585,10 @@ export function FocusTimerSettings({
                   disabled={busy || permissionBusy}
                   onClick={() => void requestPermission()}
                 >
-                  OS 알림 권한 요청
+                  시스템 알림 권한 요청
                 </Button>}
                 <Button type="button" variant="ghost" onClick={() => void previewAlarm()}>
-                  알림 미리보기
+                  시스템 알림 미리보기
                 </Button>
               </div>
             </details>

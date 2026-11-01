@@ -41,6 +41,9 @@ it("filters by name and restores every group when search is cleared", () => {
   expect(screen.queryByRole("button", { name: "할 일 켜짐" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "날씨 켜짐" }));
   expect(select).toHaveBeenCalledExactlyOnceWith("weather");
+  fireEvent.change(search, { target: { value: "투두" } });
+  expect(screen.getByRole("button", { name: "할 일 켜짐" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "날씨 켜짐" })).toBeNull();
   fireEvent.change(search, { target: { value: "없는 위젯" } });
   expect(screen.getByText("찾는 위젯이 없어요. 검색어를 바꿔 보세요.")).toBeTruthy();
   fireEvent.change(search, { target: { value: "" } });

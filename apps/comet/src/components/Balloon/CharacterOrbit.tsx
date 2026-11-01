@@ -219,7 +219,7 @@ export function CharacterOrbit({
     { id: "together", label: "함께 이야기해 봐", icon: "together", disabled: locked },
     { id: "history", label: "지난 대화", icon: "history", disabled: locked },
     { id: "settings", label: "설정", icon: "gear", disabled: locked },
-    { id: "hide", label: "캐릭터 숨기기", icon: "hide", disabled: locked },
+    { id: "hide", label: "친구 숨기기", icon: "hide", disabled: locked },
     { id: "play", label: "같이 놀기", icon: "ball2", disabled: locked },
     { id: "interact", label: "교감", icon: "heart", disabled: locked },
   ];
@@ -238,7 +238,7 @@ export function CharacterOrbit({
     },
     {
       id: "pause",
-      label: paused ? "다시 시작" : "자동 잡담 쉬기",
+      label: paused ? "자동 잡담 다시 켜기" : "자동 잡담 쉬기",
       icon: paused ? "play" : "pause",
       disabled: locked,
     },

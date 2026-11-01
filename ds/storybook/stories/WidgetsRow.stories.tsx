@@ -144,7 +144,7 @@ export const RestComplete: Story = {
   args: {
     title: "휴식 끝",
     phase: "rest-complete",
-    description: "다시 시작할까요?",
+    description: "다시 집중할까요?",
     value: "25:00",
   },
 };

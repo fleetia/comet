@@ -160,7 +160,7 @@ fn play_target(input: &Value, has_choice: bool) -> Result<PlayTarget, String> {
             owner.is_empty() || owner.len() > 128 || target.character.is_none()
         })
     {
-        return Err("함께 지내는 캐릭터를 골라 주세요.".into());
+        return Err("함께 지내는 친구를 골라 주세요.".into());
     }
     Ok(target)
 }
@@ -633,7 +633,7 @@ fn small_match(
             } else if (player + 2) % 3 == opponent {
                 "사용자 승리"
             } else {
-                "캐릭터 승리"
+                "친구 승리"
             }
             .into();
         }
@@ -650,7 +650,7 @@ fn small_match(
             state.result
         ),
         _ => format!(
-            "가위바위보: 사용자 {}, 캐릭터 {} — {}",
+            "가위바위보: 사용자 {}, 친구 {} — {}",
             choice_label(&state.a),
             choice_label(&state.b),
             state.result
@@ -734,7 +734,7 @@ fn interaction(
         .as_ref()
         .is_some_and(|owner| owner.is_empty() || owner.len() > 128)
     {
-        return Err("함께 지내는 캐릭터를 골라 주세요.".into());
+        return Err("함께 지내는 친구를 골라 주세요.".into());
     }
     let text = match action {
         "stroke" => format!("{}를 쓰다듬었어요.", args.character),
@@ -953,7 +953,7 @@ mod tests {
                 json!({"choice":"paper"}),
                 "paper",
                 "rock",
-                "가위바위보: 사용자 보, 캐릭터 바위 — 사용자 승리",
+                "가위바위보: 사용자 보, 친구 바위 — 사용자 승리",
             ),
         ] {
             let result = act(

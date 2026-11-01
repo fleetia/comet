@@ -155,11 +155,11 @@ export function ExternalNoticeSettings({
           }
         />
         <SettingControlRow
-          title="OS 알림 병행"
+          title="시스템 알림 병행"
           description="말풍선과 함께 시스템 알림도 보내요"
           control={
             <Switch
-              aria-label="OS 알림 병행"
+              aria-label="시스템 알림 병행"
               checked={data.osNotifications === true}
               disabled={busy || permissionBusy || (data.osNotifications !== true && !["granted", "system"].includes(permission))}
               onChange={(event) => void configure({ osNotifications: event.target.checked })}
@@ -167,7 +167,7 @@ export function ExternalNoticeSettings({
           }
         />
         <SettingControlRow
-          title="OS 알림 소리"
+          title="시스템 알림 소리"
           description="조용한 시간에는 소리를 내지 않아요"
           control={
             <Switch
@@ -179,8 +179,8 @@ export function ExternalNoticeSettings({
           }
         />
         <SettingControlRow
-          title={`OS 알림 권한: ${({ granted: "허용됨", denied: notificationSettingsText(), prompt: "권한 요청 전", system: "시스템 설정을 따름", unknown: "확인 필요" } as Record<string, string>)[permission] || "확인 필요"}`}
-          description={permission === "prompt" ? "허용 후 OS 알림 병행을 켤 수 있어요" : undefined}
+          title={`시스템 알림 권한: ${({ granted: "허용됨", denied: notificationSettingsText(), prompt: "권한 요청 전", system: "시스템 설정을 따름", unknown: "확인 필요" } as Record<string, string>)[permission] || "확인 필요"}`}
+          description={permission === "prompt" ? "허용 후 시스템 알림 병행을 켤 수 있어요" : undefined}
           control={isDesktop() && permission !== "granted" && permission !== "system" ? (
             <Button type="button" variant="ghost" disabled={busy || permissionBusy} onClick={() => {
               if (permission === "denied" && canOpenNotificationSettings()) {
@@ -189,7 +189,7 @@ export function ExternalNoticeSettings({
                 void requestPermission();
               }
             }}>
-              {permission === "denied" && canOpenNotificationSettings() ? "시스템 설정 열기" : "OS 알림 권한 요청"}
+              {permission === "denied" && canOpenNotificationSettings() ? "시스템 설정 열기" : "시스템 알림 권한 요청"}
             </Button>
           ) : undefined}
         />

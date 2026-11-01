@@ -559,7 +559,7 @@ it.each([{ orbitAnchor: null, conversationTailX: 219 }, { orbitAnchor: null }])(
     });
     const first = { ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "input" as const } };
     const { rerender } = render(<ConversationResponse snapshot={first} />);
-    const host = () => screen.getByLabelText("캐릭터 대답");
+    const host = () => screen.getByLabelText("친구 대답");
     const tail = () => host().style.getPropertyValue("--comet-response-tail-x");
     await waitFor(() =>
       expect(command).toHaveBeenCalledWith("resize_balloon", {
@@ -645,7 +645,7 @@ it("keeps a speaker's tail while the next playback waits for its native placemen
   const first = { ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "input" as const } };
   const { rerender } = render(<ConversationResponse snapshot={first} />);
   const tail = () =>
-    screen.getByLabelText("캐릭터 대답").style.getPropertyValue("--comet-response-tail-x");
+    screen.getByLabelText("친구 대답").style.getPropertyValue("--comet-response-tail-x");
   await waitFor(() => expect(command).toHaveBeenCalledWith("resize_balloon", expect.anything()));
   await act(async () => resolveResize({ orbitAnchor: null, conversationTailX: 219 }));
   const previousListener = vi.mocked(listen).mock.calls.at(-1)?.[1];

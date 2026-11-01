@@ -447,7 +447,7 @@ function ActivityPreferences({
     setError(null);
     try {
       const result = await command<DataRecord>("list_usage_applications");
-      if (result.supported !== true) throw new Error("프로그램 목록을 불러올 수 없어요.");
+      if (result.supported !== true) throw new Error("앱 목록을 불러올 수 없어요.");
       setApplications(
         rows(result.applications).flatMap((item) => {
           const app = readUsageTarget(item);

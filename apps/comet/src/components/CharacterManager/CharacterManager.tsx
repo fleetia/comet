@@ -5,6 +5,7 @@ import { FriendArtwork, FriendsLibrary } from "./FriendsLibrary";
 import { FriendsSubpage } from "./FriendsSubpage";
 import * as friends from "./friends.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
+import { particle } from "../../particle";
 import type {
   AnimationAsset,
   CharacterAnimation,
@@ -63,12 +64,6 @@ function moved(ids: string[], from: number, to: number): string[] {
   const [id] = next.splice(from, 1);
   next.splice(to, 0, id);
   return next;
-}
-// "구름양과", "별꼬리와": pick the particle from the final syllable's batchim.
-function withParticle(name: string): string {
-  const code = name.charCodeAt(name.length - 1) - 0xac00;
-  if (code < 0 || code > 11171) return `${name}와(과)`;
-  return `${name}${code % 28 ? "과" : "와"}`;
 }
 function newDefinition(): CharacterDefinition {
   return {
@@ -409,7 +404,7 @@ export function CharacterManager({
 
   return (
     <section className={embedded ? s.embedded : s.page} aria-label="캐릭터 관리">
-      {!embedded && <WindowHeader className={s.header} label="캐릭터 관리 닫기" title="캐릭터" />}
+      {!embedded && <WindowHeader className={s.header} label="캐릭터 관리 닫기" title="친구" />}
       {(error || notice) && (
         <p className={error ? ui.error : ui.success} role={error ? "alert" : "status"}>
           {error || notice}
@@ -469,7 +464,7 @@ export function CharacterManager({
                   ? "함께 지내기"
                   : active.includes(picked.id)
                     ? "함께 지내는 중"
-                    : `${withParticle(picked.definition.name)} 함께 지내기`}
+                    : `${picked.definition.name}${particle(picked.definition.name, "with")} 함께 지내기`}
               </Button>
               {picked?.definition.presenceRole === "npc" && (
                 <p className={friends.caption}>

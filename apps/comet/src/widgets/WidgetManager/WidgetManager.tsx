@@ -25,6 +25,7 @@ import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWidgets } from "../useWidgets";
 import { useGeneratedWidgets } from "../GeneratedWidgets/useGeneratedWidgets";
 import { useWidgetRuntime } from "../useWidgetRuntime";
+import { particle } from "../../particle";
 import type { WidgetView } from "../types";
 import { record, rows, type ToolAction } from "../toolData";
 import * as common from "../../common.css";
@@ -286,7 +287,7 @@ export function WidgetManager({
         id: "open",
         label:
           target.kind === "image"
-            ? "이미지 띄우기"
+            ? "바탕화면에 꺼내기"
             : target.kind === "memo"
               ? "새 메모 꺼내기"
               : DESKTOP_TOYS.includes(target.kind)
@@ -301,7 +302,7 @@ export function WidgetManager({
           ? { id: "desktop-remove", label: "바탕화면에서 빼기", icon: "minus", disabled: !canAct }
           : {
               id: "desktop-add",
-              label: "바탕화면에 놓기",
+              label: "바탕화면에 꺼내기",
               icon: "plus",
               disabled: !canAct || !desktop.state,
             },
@@ -315,7 +316,7 @@ export function WidgetManager({
       );
       actions.push({
         id: "close-images",
-        label: "띄운 이미지 정리",
+        label: "열린 이미지 모두 닫기",
         disabled: !canAct || !images.some((image) => image.isOpen === true),
       });
       actions.push({
@@ -603,7 +604,7 @@ export function WidgetManager({
                             onClick={() => void run("add_widget_desktop_item", { id: widget.id })}
                           >
                             <Icon name="plus" size={15} />
-                            바탕화면에 놓기
+                            바탕화면에 꺼내기
                           </Button>
                         )}
                         {desktop.error && (
@@ -676,7 +677,7 @@ export function WidgetManager({
                         <Text as="p" variant="caption" tone="muted">
                           {widget.kind === "memo"
                             ? "새 낱장을 꺼내요. 저장한 메모는 다이어리의 메모에서 찾아 다시 열어요."
-                            : `${entry.name}은 목록에서 바로 열어 써요.`}
+                            : `${entry.name}${particle(entry.name, "topic")} 목록에서 바로 열어 써요.`}
                         </Text>
                         <Button
                           variant="primary"

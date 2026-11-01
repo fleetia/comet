@@ -1166,7 +1166,7 @@ it("offers every friend on the desktop as an interaction target and names the pe
   );
   expect(screen.getAllByRole("option")).toHaveLength(3);
   expect(screen.getByRole("option", { name: "C · 셋째" })).toBeTruthy();
-  fireEvent.change(screen.getByRole("combobox", { name: "함께할 캐릭터" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "함께할 친구" }), {
     target: { value: "C" },
   });
   fireEvent.click(screen.getByRole("button", { name: "쓰다듬기" }));

@@ -170,7 +170,7 @@ export function FocusTimerView({
         ? "할 일을 완료로 표시할 수 있어요"
         : "메모를 남기거나 쉬어 갈 수 있어요",
       rest: timeDescription,
-      "rest-complete": "다시 시작할까요?",
+      "rest-complete": "집중을 시작할까요?",
     };
     return (
       <div className={s.compactTimerHost} data-closable={Boolean(onCloseWidget)}>
@@ -307,7 +307,7 @@ export function FocusTimerView({
                 <div className={s.timerActions}>
                   {phase === "running" ? (
                     <Button className={s.primaryAction} disabled={busy} onClick={onPause}>
-                      {paused ? "다시 시작" : "일시정지"}
+                      {paused ? "계속" : "일시정지"}
                     </Button>
                   ) : (
                     <>
@@ -318,7 +318,7 @@ export function FocusTimerView({
                           disabled={busy}
                           onClick={onPause}
                         >
-                          다시 시작
+                          계속
                         </Button>
                       )}
                       <Button
@@ -418,7 +418,7 @@ export function FocusTimerView({
                       disabled={startDisabled || busy}
                       onClick={onStart}
                     >
-                      {nextTitle ? `${nextTitle} 집중 시작` : `${duration}분 다시 시작`}
+                      {duration}분 집중 시작
                     </Button>
                     <Button
                       className={s.stopAction}

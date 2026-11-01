@@ -167,7 +167,7 @@ export function WidgetDisplay({ id }: { id: string }): ReactElement {
         <div className={s.unavailable} role={error ? "alert" : "status"}>
           <p>
             {error ||
-              (snapshot ? "바탕화면에 놓을 수 없는 위젯이에요." : "위젯을 불러오고 있어요.")}
+              (snapshot ? "바탕화면에 꺼낼 수 없는 위젯이에요." : "위젯을 불러오고 있어요.")}
           </p>
           {error && (
             <button type="button" onClick={reload}>
@@ -176,8 +176,8 @@ export function WidgetDisplay({ id }: { id: string }): ReactElement {
           )}
           {snapshot && (
             <IconButton
-              icon="close"
-              aria-label="바탕화면 위젯 닫기"
+              icon="minus"
+              aria-label="바탕화면에서 빼기"
               disabled={!isDesktop()}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={() =>

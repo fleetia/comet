@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import { Button, TripInfoRow } from "@comet/ui";
+import { particle } from "../../particle";
 import {
   HOME_ZONE,
   clock,
@@ -72,8 +73,8 @@ export function TravelSchedule({
         <p className={s.caption}>
           일정 시각은 여행지 시각이며, 이동 시각은 각각 출발지와 도착지 시간대예요. 시간대를 따로 정하지 않으면 여행지 시간대를 써요.{" "}
           {travel.timeZone === HOME_ZONE
-            ? `${place}와 한국의 시차는 없어요.`
-            : `${place}는 ${zoneNote(travel.timeZone)}.`}
+            ? `${place}${particle(place, "with")} 한국의 시차는 없어요.`
+            : `${place}${particle(place, "topic")} ${zoneNote(travel.timeZone)}.`}
         </p>
       </div>
       <section className={s.list} aria-label={`${dayLabel(date)} 일정`}>

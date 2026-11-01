@@ -34,8 +34,19 @@ it("opens the same menu from the button and Shift+F10", async () => {
   const main = screen.getByRole("main", { name: "이미지 위젯 1" });
   fireEvent.click(screen.getByRole("button", { name: "더 보기" }));
   await waitFor(() => expect(popup).toHaveBeenCalledTimes(1));
+  expect(newMenu).toHaveBeenCalledWith(expect.objectContaining({
+    items: expect.arrayContaining([expect.objectContaining({ text: "닫기" })]),
+  }));
   fireEvent.keyDown(main, { key: "F10", shiftKey: true });
   await waitFor(() => expect(popup).toHaveBeenCalledTimes(2));
+});
+
+it("closes the image without deleting it", async () => {
+  vi.mocked(command).mockClear();
+  show();
+  fireEvent.click(screen.getByRole("button", { name: "이미지 닫기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("close_widget_image", { id: "widget", imageId: "one" }));
+  expect(command).not.toHaveBeenCalledWith("remove_widget_image", expect.anything());
 });
 
 it("sends keyboard resize dimensions in the resize request", async () => {

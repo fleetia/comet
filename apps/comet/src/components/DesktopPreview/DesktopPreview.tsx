@@ -345,7 +345,7 @@ export function DesktopPreview({ initial }: { initial: Snapshot }): JSX.Element 
       <p className={ui.quiet}>
         화면 동작 미리보기 · 대사는 미리 정해진 예시예요.
         <br />
-        말풍선을 클릭하면 답장할 수 있어요. 캐릭터 우클릭은 메뉴, 두 번 클릭은 새 대화예요.
+        말풍선을 클릭하면 답장할 수 있어요. 친구 우클릭은 메뉴, 두 번 클릭은 새 대화예요.
         미리보기의 대화는 이 화면에서만 유지돼요.
       </p>
       {settingsOpen && <SettingsPanel snapshot={state} preview />}

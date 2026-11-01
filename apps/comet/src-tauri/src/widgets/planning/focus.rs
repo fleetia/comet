@@ -331,13 +331,13 @@ fn configure(
             None
         } else {
             let target: crate::widgets::AppUsageTarget = serde_json::from_value(value.clone())
-                .map_err(|_| "프로그램 선택 정보가 올바르지 않습니다.")?;
+                .map_err(|_| "앱 선택 정보가 올바르지 않습니다.")?;
             if !bounded(&target.id, 1024)
                 || !bounded(&target.name, 200)
                 || target.id.chars().any(char::is_control)
                 || target.name.chars().any(char::is_control)
             {
-                return Err("프로그램 식별자가 올바르지 않습니다.".into());
+                return Err("앱 식별자가 올바르지 않습니다.".into());
             }
             Some(target)
         };

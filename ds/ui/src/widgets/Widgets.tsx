@@ -608,7 +608,7 @@ export function FocusTimerWidget({
           />
           <div className={styles.actions}>
             <Button size="small" onClick={onPause}>
-              {paused ? "다시 시작" : "일시정지"}
+              {paused ? "계속" : "일시정지"}
             </Button>
             <Button size="small" variant="ghost" onClick={onStop}>
               그만하기
@@ -665,7 +665,7 @@ export function FocusTimerWidget({
           <div className={styles.actions}>
             {onPause && (
               <Button size="small" onClick={onPause}>
-                {paused ? "다시 시작" : "일시정지"}
+                {paused ? "계속" : "일시정지"}
               </Button>
             )}
             <Button size="small" variant="ghost" onClick={onSkipRest}>
@@ -688,7 +688,7 @@ export function FocusTimerWidget({
           </div>
           {summary}
           <Button onClick={onStart} disabled={startDisabled}>
-            {duration}분 다시 시작
+            {duration}분 집중 시작
           </Button>
           <Button variant="ghost" onClick={onStop}>
             오늘은 여기까지
@@ -961,7 +961,7 @@ export function AppUsagePicker({
             clipPath: "inset(50%)",
           }}
         >
-          측정할 프로그램
+          측정할 앱
         </legend>
         {options.map((option) => (
           <label key={option.id} className={styles.pickerOption}>
@@ -1014,14 +1014,14 @@ export function AppUsageSummary({
     >
       <div className={styles.actions}>
         <span className={styles.small} style={{ flex: 1 }}>
-          앱 전면 사용
+          이 앱을 쓴 시간
         </span>
         <button type="button" className={styles.minorButton} onClick={onChoose}>
           고르기...
         </button>
       </div>
-      <strong>{program ?? "선택한 프로그램 없음"}</strong>
-      <span className={styles.small}>한 프로그램의 사용 시간을 따로 세요</span>
+      <strong>{program ?? "선택한 앱 없음"}</strong>
+      <span className={styles.small}>한 앱의 사용 시간을 따로 세요</span>
     </div>
   );
 }

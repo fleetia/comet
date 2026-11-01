@@ -33,7 +33,7 @@ beforeEach(() => {
 it("hides the characters from the internal X without opening their menu", async () => {
   vi.mocked(isDesktop).mockReturnValue(true);
   render(<CompanionBox id="builtin-a" snapshot={PREVIEW_SNAPSHOT} />);
-  fireEvent.click(screen.getByRole("button", { name: "캐릭터 숨기기" }));
+  fireEvent.click(screen.getByRole("button", { name: "친구 숨기기" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("hide_boxes"));
   expect(command).not.toHaveBeenCalledWith("open_panel", expect.anything());
   expect(command).not.toHaveBeenCalledWith("trigger_character_interaction", expect.anything());
@@ -51,7 +51,7 @@ it("closes only the current NPC through its internal X", async () => {
       }}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "캐릭터 숨기기" }));
+  fireEvent.click(screen.getByRole("button", { name: "친구 숨기기" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("leave_character_guest"));
   expect(command).not.toHaveBeenCalledWith("hide_boxes");
 });
@@ -393,7 +393,7 @@ it("routes grouped menu actions and retains an input draft through a menu round 
   rerender(
     <Balloon snapshot={{ ...menuSnapshot, runtime: { ...snapshot.runtime, paused: true } }} />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "다시 시작" }));
+  fireEvent.click(screen.getByRole("button", { name: "자동 잡담 다시 켜기" }));
   await waitFor(() => expect(command).toHaveBeenLastCalledWith("set_paused", { paused: false }));
   rerender(<Balloon snapshot={menuSnapshot} />);
   fireEvent.click(screen.getByRole("button", { name: "자동 잡담 쉬기" }));
@@ -401,7 +401,7 @@ it("routes grouped menu actions and retains an input draft through a menu round 
   await waitFor(() =>
     expect(command).toHaveBeenLastCalledWith("set_paused", { paused: true, minutes: 60 }),
   );
-  fireEvent.click(screen.getByRole("button", { name: "캐릭터 숨기기" }));
+  fireEvent.click(screen.getByRole("button", { name: "친구 숨기기" }));
   await waitFor(() => expect(command).toHaveBeenLastCalledWith("hide_boxes", undefined));
   reopenMenu();
   fireEvent.click(screen.getByRole("button", { name: "말 걸기" }));
@@ -427,7 +427,7 @@ it("shows when a timed pause ends and offers only resume while paused", () => {
   expect(screen.getByText(`${end}까지 자동 잡담 쉬는 중`)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "1시간" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "교감" }));
-  expect(screen.getByRole("button", { name: "다시 시작" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "자동 잡담 다시 켜기" })).toBeTruthy();
 });
 
 it("opens the third character by identity and can address the full roster", async () => {

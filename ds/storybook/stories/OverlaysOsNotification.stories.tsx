@@ -71,7 +71,7 @@ export const QuietHours: Story = {
   name: "조용한 시간",
   args: {
     title: "내일 오전 9:00 · 팀 회의",
-    description: "종일 알림 · 조용한 시간이라 OS 알림으로만 왔어요",
+    description: "종일 알림 · 조용한 시간이라 시스템 알림으로만 왔어요",
     kind: "quiet-hours",
     actions: [],
   },

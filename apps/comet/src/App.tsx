@@ -162,7 +162,7 @@ function SnapshotWindow({ query }: { query: URLSearchParams }): JSX.Element {
                 : view === "settings"
                   ? "설정"
                   : view === "characters"
-                    ? "캐릭터"
+                    ? "친구"
                     : view === "widgets"
                       ? "위젯"
                       : view === "conversation-history"
@@ -217,7 +217,7 @@ function SnapshotWindow({ query }: { query: URLSearchParams }): JSX.Element {
     return (
       <LazySurface
         desktop
-        title={view === "settings" ? "설정" : view === "characters" ? "캐릭터" : "위젯"}
+        title={view === "settings" ? "설정" : view === "characters" ? "친구" : "위젯"}
       >
         <SettingsPanel
           snapshot={snapshot}

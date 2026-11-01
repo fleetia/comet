@@ -83,7 +83,7 @@ export function PlannerAlerts({
   }
   async function notification(action: "permission" | "preview"): Promise<void> {
     if (!isDesktop()) {
-      setError("OS 알림은 데스크톱 앱에서 사용할 수 있어요.");
+      setError("시스템 알림은 데스크톱 앱에서 사용할 수 있어요.");
       return;
     }
     setPermissionBusy(true);
@@ -97,7 +97,7 @@ export function PlannerAlerts({
         if (request === permissionRequest.current) setPermission(result);
       } else {
         await command("preview_planner_notification");
-        setNotice("OS에 미리보기 알림을 보냈어요. 표시 방식은 시스템 알림 설정을 따릅니다.");
+        setNotice("시스템 알림으로 미리보기를 보냈어요. 표시 방식은 시스템 알림 설정을 따릅니다.");
       }
     } catch (cause: unknown) {
       setError(errorText(cause));
@@ -130,7 +130,7 @@ export function PlannerAlerts({
             <Checkbox
               checked={values.characterEnabled === true}
               onChange={(event) => change({ characterEnabled: event.target.checked })}
-              label="캐릭터 말풍선"
+              label="친구 말풍선"
             />
             <Checkbox
               checked={values.osEnabled === true}
@@ -141,14 +141,14 @@ export function PlannerAlerts({
                   void notification("permission");
                 }
               }}
-              label="OS 알림"
+              label="시스템 알림"
             />
             <Checkbox
               checked={values.soundEnabled === true}
               onChange={(event) => change({ soundEnabled: event.target.checked })}
-              label="OS 알림 소리"
+              label="시스템 알림 소리"
             />
-            <p className={c.quiet}>말풍선을 닫거나 캐릭터를 숨겨도 OS 알림 설정은 유지돼요.</p>
+            <p className={c.quiet}>말풍선을 닫거나 친구를 숨겨도 시스템 알림 설정은 유지돼요.</p>
           </div>
           <div className={a.group}>
             <FormField className={c.field} label="몇 분 전에 알릴까요?" required>
@@ -177,7 +177,7 @@ export function PlannerAlerts({
         </div>
         <div className={a.permission}>
           <span>
-            OS 알림:{" "}
+            시스템 알림:{" "}
             {
               {
                 granted: "허용됨",
@@ -199,7 +199,7 @@ export function PlannerAlerts({
             disabled={permissionBusy}
             onClick={() => void notification("permission")}
           >
-            OS 알림 권한 요청
+            시스템 알림 권한 요청
           </Button>}
           <Button
             type="button"
@@ -207,7 +207,7 @@ export function PlannerAlerts({
             disabled={permissionBusy}
             onClick={() => void notification("preview")}
           >
-            OS 알림 미리보기
+            시스템 알림 미리보기
           </Button>
         </div>
         <h3 className={a.heading}>무드메이커</h3>
@@ -256,7 +256,7 @@ export function PlannerAlerts({
           </div>
         </div>
         <p className={c.quiet}>
-          캐릭터 말풍선으로 가끔 이야기해요. 하루 시작·마무리는 각각 한 번, 집중 인사는 10분 이상
+          친구 말풍선으로 가끔 이야기해요. 하루 시작·마무리는 각각 한 번, 집중 인사는 10분 이상
           간격을 둡니다. 놓친 알림을 몰아서 보내지 않아요.
         </p>
         <div className={s.row}>
@@ -276,12 +276,12 @@ export function PlannerAlerts({
             </Button>
           )}
           <Button type="button" variant="ghost" onClick={() => void act("preview-alert")}>
-            캐릭터 인사 미리보기
+            친구 인사 미리보기
           </Button>
         </div>
         {saved && <p role="status">알림 설정을 저장했어요.</p>}
         {saved && savedOsEnabled && permission === "denied" && (
-          <p role="alert" className={c.error}>OS 알림 권한이 꺼져 있어 알림이 표시되지 않을 수 있어요.</p>
+          <p role="alert" className={c.error}>시스템 알림 권한이 꺼져 있어 알림이 표시되지 않을 수 있어요.</p>
         )}
         {notice && <p role="status">{notice}</p>}
         <DeliveryError error={text(record(data.alertState).lastDeliveryError)} act={act} />
