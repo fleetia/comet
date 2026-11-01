@@ -1,12 +1,14 @@
 import { useState, type JSX } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
+  Button,
   FocusAppUsage,
   FocusProgramPicker,
   FocusProgramRow,
   FocusRecordRow,
   FocusRecordsPanel,
   type FocusProgramOption,
+  type FocusRecordsPanelProps,
 } from "@comet/ui";
 
 const options: FocusProgramOption[] = [
@@ -118,11 +120,19 @@ const bars = [110, 145, 70, 160, 50, 0, 80].map((value, index) => ({
   max: 180,
   current: index === 6,
 }));
+function RecordsPanelExample(props: FocusRecordsPanelProps): JSX.Element {
+  const [isOpen, setIsOpen] = useState(true);
+  return isOpen ? (
+    <FocusRecordsPanel {...props} onClose={() => setIsOpen(false)} />
+  ) : (
+    <Button onClick={() => setIsOpen(true)}>집중 기록 펼치기</Button>
+  );
+}
 export const RecordsPanel: Story = {
   parameters: { controls: { disable: true } },
   name: "Records Panel · 기록",
   render: () => (
-    <FocusRecordsPanel
+    <RecordsPanelExample
       periodLabel="10월 5일 – 11일 · 지난주"
       total="10시간 15분"
       summary="23번 집중"
@@ -152,7 +162,7 @@ export const NotesPanel: Story = {
   parameters: { controls: { disable: true } },
   name: "Records Panel · 노트",
   render: () => (
-    <FocusRecordsPanel
+    <RecordsPanelExample
       defaultTab="notes"
       notesHeader={<FocusAppUsage state="measuring" program="기획서 초안 다듬기" duration="18분" />}
       note={{

@@ -516,6 +516,14 @@ describe("planner composition", () => {
     expect(screen.queryByLabelText("이번 집중 메모")).toBeNull();
   });
 
+  it("calls the collapse handler from the focus records panel", async () => {
+    const user = userEvent.setup();
+    const close = vi.fn();
+    render(<FocusRecordsPanel onClose={close} />);
+    await user.click(screen.getByRole("button", { name: "집중 기록 접기" }));
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it("submits the original ledger fields and leaves disabled input inactive", async () => {
     const user = userEvent.setup();
     const add = vi.fn();

@@ -101,21 +101,6 @@ export const timer = style({
   },
   "@media": { "(max-width: 760px)": { gridColumn: 1, gridRow: 1 } },
 });
-export const companionRows = style({
-  display: "flex",
-  flexDirection: "column",
-  gap: 10,
-  minWidth: 0,
-  border: 0,
-  padding: 0,
-  margin: 0,
-});
-globalStyle(`${companionRows} > button[aria-expanded]`, {
-  boxSizing: "border-box",
-  height: 56,
-  minHeight: 56,
-  flexShrink: 0,
-});
 export const inlineField = style({
   display: "grid",
   gridTemplateColumns: "auto minmax(0, 1fr)",

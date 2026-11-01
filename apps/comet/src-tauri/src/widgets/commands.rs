@@ -244,13 +244,44 @@ pub(crate) fn cancel_widget_opens(state: &AppState, id: Option<&str>) -> Result<
     Ok(())
 }
 
-fn widget_open_current(state: &AppState, id: &str, token: &Arc<AtomicBool>) -> Result<(), String> {
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum WidgetOpenError {
+    Cancelled,
+    Failed(String),
+}
+
+impl From<String> for WidgetOpenError {
+    fn from(error: String) -> Self {
+        Self::Failed(error)
+    }
+}
+
+impl From<&str> for WidgetOpenError {
+    fn from(error: &str) -> Self {
+        Self::Failed(error.into())
+    }
+}
+
+impl From<WidgetOpenError> for String {
+    fn from(error: WidgetOpenError) -> Self {
+        match error {
+            WidgetOpenError::Cancelled => "위젯 열기를 취소했어요.".into(),
+            WidgetOpenError::Failed(message) => message,
+        }
+    }
+}
+
+fn widget_open_current(
+    state: &AppState,
+    id: &str,
+    token: &Arc<AtomicBool>,
+) -> Result<(), WidgetOpenError> {
     if token.load(Ordering::SeqCst)
         || !lock(&state.widget_open_intents)?
             .get(id)
             .is_some_and(|current| Arc::ptr_eq(current, token))
     {
-        return Err("위젯 열기를 취소했어요.".into());
+        return Err(WidgetOpenError::Cancelled);
     }
     Ok(())
 }
@@ -298,7 +329,10 @@ mod music_open_tests {
         let state = crate::app::tests::state();
         let first = begin_widget_open(&state, "music").unwrap();
         let second = begin_widget_open(&state, "music").unwrap();
-        assert!(widget_open_current(&state, "music", &first).is_err());
+        assert_eq!(
+            widget_open_current(&state, "music", &first),
+            Err(WidgetOpenError::Cancelled)
+        );
         assert!(widget_open_current(&state, "music", &second).is_ok());
         assert!(lock(&state.widget_jobs).unwrap().is_empty());
     }
@@ -312,11 +346,17 @@ mod music_open_tests {
             .insert("music".into(), reading.clone());
         let pending = begin_widget_open(&state, "music").unwrap();
         cancel_widget_opens(&state, Some("music")).unwrap();
-        assert!(widget_open_current(&state, "music", &pending).is_err());
+        assert_eq!(
+            widget_open_current(&state, "music", &pending),
+            Err(WidgetOpenError::Cancelled)
+        );
         assert!(!reading.load(Ordering::SeqCst));
         let reopened = begin_widget_open(&state, "music").unwrap();
         assert!(widget_open_current(&state, "music", &reopened).is_ok());
-        assert!(widget_open_current(&state, "music", &pending).is_err());
+        assert_eq!(
+            widget_open_current(&state, "music", &pending),
+            Err(WidgetOpenError::Cancelled)
+        );
     }
 
     #[test]
@@ -745,6 +785,16 @@ pub(crate) async fn open_widget(
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
 ) -> Result<(), String> {
+    open_widget_with_result(app, state, id)
+        .await
+        .map_err(String::from)
+}
+
+pub(crate) async fn open_widget_with_result(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+) -> Result<(), WidgetOpenError> {
     let interrupted = {
         let _action = lock(&state.action)?;
         if lock(&state.pack_stories)?.run.as_ref().is_some_and(|run| run.stage == crate::pack_stories::Stage::Chapter) {
@@ -978,7 +1028,9 @@ pub(crate) async fn open_play_widget(
     })?;
     publish_widgets(&app, &state);
     match prepared {
-        Some(id) => open_widget_inner(&app, &state, &id, None, None, None).await,
+        Some(id) => open_widget_inner(&app, &state, &id, None, None, None)
+            .await
+            .map_err(String::from),
         None => crate::widgets::planning::windows::open_widget_settings(app.clone(), &kind),
     }
 }
@@ -1046,6 +1098,7 @@ pub(crate) async fn open_widget_for_launcher(
         None,
     )
     .await
+    .map_err(String::from)
 }
 
 struct ConversationOpen<'a> {
@@ -1155,7 +1208,9 @@ pub(crate) async fn open_widget_for_story(
     };
     let guard = ConversationOpen { expected_revision: instance.revision, epoch: run.epoch, cancel, story: Some(run) };
     let managed = app.state::<Arc<AppState>>();
-    open_widget_inner(app, managed.inner(), &instance.id, None, Some(&guard), None).await
+    open_widget_inner(app, managed.inner(), &instance.id, None, Some(&guard), None)
+        .await
+        .map_err(String::from)
 }
 
 fn validate_open_widget(
@@ -1255,7 +1310,7 @@ async fn open_widget_inner(
     launcher: Option<(i64, u64)>,
     conversation: Option<&ConversationOpen<'_>>,
     playback: Option<&str>,
-) -> Result<(), String> {
+) -> Result<(), WidgetOpenError> {
     uuid::Uuid::parse_str(id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
     let (instance, open_intent) = change(state, |db| {
         validate_playback_open(state, playback)?;
@@ -1296,14 +1351,17 @@ async fn open_widget_inner(
         if let Some(playback) = playback {
             let _action = lock(&state.action)?;
             validate_playback_open(state, Some(playback))?;
-            return crate::widgets::planning::windows::open_playback_travel(app, None);
+            return crate::widgets::planning::windows::open_playback_travel(app, None)
+                .map_err(Into::into);
         }
         if let Some((_, session)) = launcher {
             change(state, |_| {
                 crate::app::launcher::accept_execution(state, session)
             })?;
         }
-        return crate::widgets::planning::windows::open_travel(app.clone(), None).await;
+        return crate::widgets::planning::windows::open_travel(app.clone(), None)
+            .await
+            .map_err(Into::into);
     }
     if crate::behavior::DESKTOP_TOYS.contains(&instance.kind.as_str()) {
         let token = crate::desktop::toys::launch_token(app, id)?;
@@ -1329,7 +1387,8 @@ async fn open_widget_inner(
                 crate::app::scene_events::register_window_locked(state, run, &current.kind, actor_id)?;
             }
             Ok(())
-        });
+        })
+        .map_err(Into::into);
     }
     if crate::widgets::connection_host::spotify_widget(&instance) {
         if let Some(run) = conversation.and_then(|guard| guard.story) {
@@ -1366,9 +1425,10 @@ async fn open_widget_inner(
     }
     if let Some(tab) = planner_tab_for_widget(&current.kind) {
         if let Some(run) = conversation.and_then(|guard| guard.story) {
-            return crate::widgets::planning::windows::open_for_story(app, tab, run.clone());
+            return crate::widgets::planning::windows::open_for_story(app, tab, run.clone())
+                .map_err(Into::into);
         }
-        return crate::widgets::planning::windows::open(app, tab);
+        return crate::widgets::planning::windows::open(app, tab).map_err(Into::into);
     }
     let label = format!("widget-{id}");
     if let Some(window) = app.get_webview_window(&label) {

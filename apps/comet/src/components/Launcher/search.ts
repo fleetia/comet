@@ -1,6 +1,7 @@
 import catalog from "../../../widgets/catalog.json";
 import type { CharacterCollection, Snapshot } from "../../types";
 import type { WidgetSnapshot, WidgetView } from "../../widgets/types";
+import type { WidgetDesktopState } from "../../widgets/WidgetManager/useWidgetDesktop";
 import { SETTINGS_SECTIONS, type SettingsSection } from "../SettingsPanel/useSettingsNavigation";
 import { isDesktopToy } from "../../widgets/ToyTools/desktopToys";
 
@@ -19,7 +20,8 @@ export type LauncherAction =
   | { type: "addTodo"; id: string; expectedRevision: number; title: string; requestId: string }
   | { type: "travel"; id: string }
   | { type: "guide" }
-  | { type: "tutorial" };
+  | { type: "tutorial" }
+  | { type: "openWidgetStack" };
 export type LauncherTravel = {
   id: string;
   title: string;
@@ -271,6 +273,7 @@ export function launcherResults(
   widgets: WidgetSnapshot | null,
   binding: TargetBinding | null,
   travels: LauncherTravel[] = [],
+  desktop: WidgetDesktopState | null = null,
 ): LauncherResult[] {
   const input = query.trimStart();
   if (input.startsWith(">")) {
@@ -310,6 +313,22 @@ export function launcherResults(
   }
   const normalized = query.trim();
   const candidates: { result: LauncherResult; rank: number }[] = [];
+  if (desktop?.mode === "stack" && desktop.stackHidden && desktop.order.length > 0) {
+    const rank = score(normalized, ["모아두기", "모아두기 다시 표시"]);
+    if (!normalized || rank >= 0) {
+      candidates.push({
+        rank,
+        result: {
+          id: "widget-stack",
+          title: "모아두기 다시 표시",
+          detail: "숨겨 둔 모아두기 열기",
+          preview: "바탕화면에 모아두기를 다시 표시해요.",
+          kind: "widget",
+          action: { type: "openWidgetStack" },
+        },
+      });
+    }
+  }
   const helpRanks = HELP_RESULTS.map(({ aliases }) => score(normalized, aliases));
   if (normalized && helpRanks.some((rank) => rank >= 0)) {
     HELP_RESULTS.forEach(({ result }, index) => {

@@ -629,7 +629,53 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn should_prevent_widget_close(label: &str, is_close_requested: bool) -> bool {
+    is_close_requested && (label == "widget-stack" || label.starts_with("widget-display-"))
+}
+
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, PartialEq, Eq)]
+enum ReopenPanelAction {
+    Ignore,
+    Keep,
+    Restore,
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn reopen_panel_action(label: &str, is_visible: bool, is_minimized: bool) -> ReopenPanelAction {
+    if !desktop::menu::panel_window(label) && !matches!(label, "launcher" | "widget-editor") {
+        return ReopenPanelAction::Ignore;
+    }
+    if is_minimized {
+        ReopenPanelAction::Restore
+    } else if is_visible {
+        ReopenPanelAction::Keep
+    } else {
+        ReopenPanelAction::Ignore
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn reopen_should_open_settings(actions: &[ReopenPanelAction]) -> bool {
+    actions
+        .iter()
+        .all(|action| *action == ReopenPanelAction::Ignore)
+}
+
 fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
+    #[cfg(target_os = "macos")]
+    if let WindowEvent::Focused(focused) = event {
+        desktop::menu::update_minimize(window.app_handle(), window.label(), *focused);
+    }
+    if let (true, WindowEvent::CloseRequested { api, .. }) = (
+        should_prevent_widget_close(
+            window.label(),
+            matches!(event, WindowEvent::CloseRequested { .. }),
+        ),
+        event,
+    ) {
+        api.prevent_close();
+    }
     if matches!(event, WindowEvent::CloseRequested { .. }) {
         if let Some(id) = window.label().strip_prefix("widget-") {
             if uuid::Uuid::parse_str(id).is_ok() {
@@ -868,6 +914,31 @@ fn on_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
         tauri::RunEvent::Opened { urls } => {
             for url in urls {
                 crate::external_notice::receive_url(app, &url);
+            }
+        }
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Reopen { .. } => {
+            let mut actions = Vec::new();
+            for window in app.webview_windows().into_values() {
+                let action = reopen_panel_action(
+                    window.label(),
+                    window.is_visible().unwrap_or(false),
+                    window.is_minimized().unwrap_or(false),
+                );
+                if action == ReopenPanelAction::Restore {
+                    window.unminimize().unwrap_or_else(|error| {
+                        crate::report_error!("dock_reopen", "Dock window restore failed: {error}");
+                    });
+                }
+                actions.push(action);
+            }
+            if reopen_should_open_settings(&actions) {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = windows::open_settings(app).await {
+                        crate::report_error!("dock_reopen", "Dock settings reopen failed: {error}");
+                    }
+                });
             }
         }
         tauri::RunEvent::Ready => {
@@ -1109,6 +1180,51 @@ pub(crate) fn restore_update_install(app: &tauri::AppHandle) -> Result<(), Strin
 #[cfg(test)]
 mod migration_tests {
     use super::*;
+
+    #[test]
+    fn desktop_widget_windows_reject_close_requests() {
+        for label in ["widget-stack", "widget-display-clock"] {
+            assert!(should_prevent_widget_close(label, true));
+            assert!(!should_prevent_widget_close(label, false));
+        }
+        for label in ["widget-editor", "widget-123"] {
+            assert!(!should_prevent_widget_close(label, true));
+        }
+    }
+
+    #[test]
+    fn dock_reopen_keeps_visible_panels_and_restores_minimized_panels() {
+        assert_eq!(
+            reopen_panel_action("widget-123", true, false),
+            ReopenPanelAction::Keep
+        );
+        for visible in [false, true] {
+            assert_eq!(
+                reopen_panel_action("widget-123", visible, true),
+                ReopenPanelAction::Restore
+            );
+        }
+        assert_eq!(
+            reopen_panel_action("widget-123", false, false),
+            ReopenPanelAction::Ignore
+        );
+        assert_eq!(
+            reopen_panel_action("widget-editor", false, true),
+            ReopenPanelAction::Restore
+        );
+        assert_eq!(
+            reopen_panel_action("launcher", true, false),
+            ReopenPanelAction::Keep
+        );
+        assert_eq!(
+            reopen_panel_action("widget-stack", true, true),
+            ReopenPanelAction::Ignore
+        );
+        assert!(reopen_should_open_settings(&[]));
+        assert!(reopen_should_open_settings(&[ReopenPanelAction::Ignore]));
+        assert!(!reopen_should_open_settings(&[ReopenPanelAction::Keep]));
+        assert!(!reopen_should_open_settings(&[ReopenPanelAction::Restore]));
+    }
 
     #[test]
     fn qa_profile_does_not_import_or_move_legacy_data() {

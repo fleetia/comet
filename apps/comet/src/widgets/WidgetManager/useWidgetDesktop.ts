@@ -9,6 +9,7 @@ export type WidgetDesktopState = {
   revision: number;
   mode: "freeform" | "stack";
   order: string[];
+  stackHidden?: boolean;
   shapes?: Record<string, WidgetShape>;
 };
 

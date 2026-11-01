@@ -17,6 +17,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { Snapshot } from "../../types";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWidgets } from "../../widgets/useWidgets";
+import { useWidgetDesktop } from "../../widgets/WidgetManager/useWidgetDesktop";
 import {
   bindTarget,
   DEFAULT_SHORTCUT,
@@ -49,6 +50,7 @@ const RESULT_ICONS = {
 };
 export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
   const widgets = useWidgets();
+  const desktop = useWidgetDesktop();
   const [query, setQuery] = useState("");
   const [binding, setBinding] = useState<TargetBinding | null>(null);
   const [state, setState] = useState<LauncherState | null>(isDesktop() ? null : PREVIEW_STATE);
@@ -63,7 +65,14 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [travels, setTravels] = useState<LauncherTravel[]>([]);
-  const results = launcherResults(query, snapshot, widgets.snapshot, binding, travels);
+  const results = launcherResults(
+    query,
+    snapshot,
+    widgets.snapshot,
+    binding,
+    travels,
+    desktop.state,
+  );
   const selected = results.find((result) => result.id === selectedId) ?? results[0];
   const modelReady = aiAvailability(snapshot).ready;
 

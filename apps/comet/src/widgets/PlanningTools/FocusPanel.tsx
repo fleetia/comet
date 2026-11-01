@@ -57,7 +57,7 @@ export function FocusPanel({
               onValueChange={onPeriodChange}
             />
           )}
-          {onClose && <IconButton icon="close" aria-label="집중 기록 닫기" onClick={onClose} />}
+          {onClose && <IconButton icon="chevleft" aria-label="집중 기록 접기" onClick={onClose} />}
         </div>
       </header>
       {children}

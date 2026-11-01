@@ -4,6 +4,7 @@ import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWidgets } from "../useWidgets";
 import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
 import { useWindowCloseGuard } from "../useWindowCloseGuard";
+import { useWindowDrag } from "../../hooks/useWindowDrag";
 import type { DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
 import type { CharacterCollection } from "../../types";
@@ -15,7 +16,6 @@ import { CalendarTool } from "../CalendarTool/CalendarTool";
 import { ConnectionTool } from "../ConnectionTools/ConnectionTools";
 import { BatteryTool } from "../ConnectionTools/BatteryTool";
 import { CompletionJarTool } from "../CompletionJar/CompletionJarTool";
-import { CollapsedDesktopWidget } from "../WidgetDisplay/DesktopWidget";
 import { DESKTOP_TOYS } from "../ToyTools/desktopToys";
 
 /** Kinds drawn as a floating card or companion scene instead of a tool window. */
@@ -60,6 +60,45 @@ export function WidgetTool({
     draftBusy || (widget?.kind === "preparation" && busy),
     () => command("close_widget", { id }),
   );
+  const musicDrag = useWindowDrag(widget?.kind === "music", setFailure);
+  const requestClose = useRef(closeGuard.requestClose);
+  requestClose.current = closeGuard.requestClose;
+  useEffect(() => {
+    if (
+      !widget ||
+      ![
+        "music",
+        "clock",
+        "weather",
+        "interaction",
+        "small-match",
+        "fortune",
+        "guessing",
+        "fishing",
+        "plant",
+        ...DESKTOP_TOYS,
+      ].includes(widget.kind)
+    )
+      return;
+    function onKeyDown(event: KeyboardEvent): void {
+      if (
+        event.key !== "Escape" ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.keyCode === 229 ||
+        (event.target instanceof Element &&
+          event.target.closest(
+            "input, textarea, select, [contenteditable]:not([contenteditable='false'])",
+          )) ||
+        document.querySelector("dialog[open], [role='dialog'], [role='menu']")
+      )
+        return;
+      event.preventDefault();
+      void requestClose.current().catch((cause: unknown) => setFailure(errorText(cause)));
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [widget?.kind]);
   async function run(operation: () => Promise<void>): Promise<boolean> {
     if (!isDesktop()) {
       setFailure(
@@ -135,35 +174,10 @@ export function WidgetTool({
     switch (widget.kind) {
       case "todo":
         content = <TodoTool {...props} />;
-        footer = (
-          <p className={s.previewNote}>
-            이 창을 닫아도 작성한 할 일은 유지됩니다.
-          </p>
-        );
+        footer = <p className={s.previewNote}>이 창을 닫아도 작성한 할 일은 유지됩니다.</p>;
         break;
       case "focus-timer":
-        content = (
-          <TimerTool
-            {...props}
-            onClose={closeGuard.requestClose}
-            busy={busy}
-            companionRows={(now) =>
-              ["clock", "weather", "music", "preparation"].flatMap((kind) =>
-                snapshot.widgets
-                  .filter((item) => item.kind === kind)
-                  .map((item) => (
-                    <CollapsedDesktopWidget
-                      key={item.id}
-                      widget={item}
-                      widgets={snapshot.widgets}
-                      now={now}
-                      onExpand={() => void run(() => command("open_widget", { id: item.id }))}
-                    />
-                  )),
-              )
-            }
-          />
-        );
+        content = <TimerTool {...props} onClose={closeGuard.requestClose} busy={busy} />;
         break;
       case "clock":
         content = <ClockTool {...props} />;
@@ -288,6 +302,21 @@ export function WidgetTool({
               : s.body
         }
         disabled={busy && widget?.kind !== "focus-timer"}
+        onPointerDown={(event) => {
+          if (widget?.kind !== "music") return;
+          musicDrag.reset();
+          if (
+            !(event.target instanceof Element) ||
+            !event.target.closest(
+              "button, input, select, textarea, a, [contenteditable], [role='slider'], [role='region'][aria-label='음악 상세 내용']",
+            )
+          ) {
+            musicDrag.onPointerDown(event);
+          }
+        }}
+        onPointerMove={musicDrag.onPointerMove}
+        onPointerUp={musicDrag.reset}
+        onPointerCancel={musicDrag.reset}
       >
         {content}
       </fieldset>

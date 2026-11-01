@@ -196,23 +196,28 @@ export function FocusTimerView({
       data-wide={wide && !pickerOpen}
       data-phase={phase}
     >
+      {!pickerOpen && (
+        <header className={s.cardHeader}>
+          <Icon name="timer" size={18} className={s.headerTimerIcon} />
+          <h2 className={s.cardTitle}>집중 타이머</h2>
+          <Button
+            size="small"
+            variant="ghost"
+            className={s.collapseButton}
+            disabled={resizing || busy}
+            onClick={onCollapse}
+            trailingIcon={<Icon name="chevdown" size={15} />}
+          >
+            접기
+          </Button>
+          {onCloseWidget && (
+            <IconButton icon="close" aria-label="위젯 닫기" onClick={onCloseWidget} />
+          )}
+        </header>
+      )}
       <fieldset className={s.controlFields} disabled={busy}>
         {!pickerOpen && (
           <>
-            <header className={s.cardHeader}>
-              <Icon name="timer" size={18} className={s.headerTimerIcon} />
-              <h2 className={s.cardTitle}>집중 타이머</h2>
-              <Button
-                size="small"
-                variant="ghost"
-                className={s.collapseButton}
-                disabled={resizing}
-                onClick={onCollapse}
-                trailingIcon={<Icon name="chevdown" size={15} />}
-              >
-                접기
-              </Button>
-            </header>
             {phase === "ready" && (
               <>
                 <div className={s.timerSetup}>
