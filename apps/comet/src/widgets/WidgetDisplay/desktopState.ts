@@ -16,6 +16,7 @@ export type StackStyle = {
 };
 export const STACK_WIDTH = { min: 280, max: 600, default: 370 } as const;
 export const STACK_RADIUS = { min: 0, max: 9, default: 9 } as const;
+export const STACK_INK_3_PERCENT = 70;
 export const DEFAULT_STACK_STYLE: StackStyle = {
   followTheme: true,
   backgroundColor: "#FFFFFF",
@@ -31,6 +32,7 @@ export type DesktopLayout = {
   width: number;
   overlapped: boolean;
   oneExpanded: boolean;
+  expanded?: string[];
   positions: Record<string, { x: number; y: number }>;
   shapes: Record<string, DesktopShape>;
   stackStyles?: Record<string, StackStyle>;
@@ -42,7 +44,7 @@ export type DesktopLayout = {
 export type DesktopState = DesktopLayout & { revision: number; editing: boolean };
 export type LayoutSettings = Pick<
   DesktopLayout,
-  "mode" | "order" | "anchor" | "width" | "overlapped" | "oneExpanded" | "snapToGrid" | "showGuides"
+  "mode" | "order" | "anchor" | "width" | "overlapped" | "oneExpanded" | "expanded" | "snapToGrid" | "showGuides"
 >;
 
 type DesktopKind = { width: number; height: number; appearance: boolean };
@@ -94,7 +96,7 @@ export function useDesktopState(): {
   selected: string | null;
   select: (id: string | null) => void;
   run: (name: string, args?: Record<string, unknown>) => Promise<DesktopState | null>;
-  configure: (patch: Partial<LayoutSettings>) => Promise<DesktopState | null>;
+  configure: (patch: Partial<LayoutSettings> | ((base: DesktopState) => Partial<LayoutSettings>)) => Promise<DesktopState | null>;
   restore: () => Promise<DesktopState | null>;
 } {
   const [state, setState] = useState<DesktopState | null>(() =>
@@ -183,12 +185,12 @@ export function useDesktopState(): {
   );
 
   const configure = useCallback(
-    (patch: Partial<LayoutSettings>) =>
+    (patch: Partial<LayoutSettings> | ((base: DesktopState) => Partial<LayoutSettings>)) =>
       serialized(async () => {
         const attempt = (base: DesktopState): Promise<DesktopState> =>
           command<DesktopState>("configure_widget_desktop", {
             expectedRevision: base.revision,
-            input: { ...layoutSettings(base), ...patch },
+            input: { ...layoutSettings(base), ...(typeof patch === "function" ? patch(base) : patch) },
           });
         const base = latest.current ?? receive(await command<DesktopState>("get_widget_desktop"));
         if (!base) return null;

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent, type ReactElement } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { Menu } from "@tauri-apps/api/menu";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { IconButton } from "@comet/ui";
 import { transparentDocument } from "../../components/companion.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -19,12 +20,22 @@ const RESIZE_KEYS: Record<string, [number, number]> = {
 export function ImageWindow({ id, imageId }: { id: string; imageId: string }): ReactElement {
   const { snapshot, error } = useWidgets();
   const [failure, setFailure] = useState<string | null>(null);
+  const [mediaFailure, setMediaFailure] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(
+    () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
+  );
+  const [playing, setPlaying] = useState(!reducedMotion);
+  const video = useRef<HTMLVideoElement>(null);
+  const pendingResize = useRef<{ dimensions: Record<string, unknown>; origin?: Promise<{ x: number; y: number } | null> }[]>([]);
+  const resizeBusy = useRef(false);
   const resizing = useRef<{
     pointerId: number;
     x: number;
     y: number;
     width: number;
     height: number;
+    hasPreview: boolean;
+    origin: Promise<{ x: number; y: number } | null>;
   } | null>(null);
   const menu = useRef<Menu | null>(null);
   const drag = useWindowDrag(isDesktop(), setFailure);
@@ -32,6 +43,22 @@ export function ImageWindow({ id, imageId }: { id: string; imageId: string }): R
   const image = rows(record(widget?.data).images).find((item) => item.id === imageId);
   const width = number(image?.width);
   const height = number(image?.height);
+  const imageNumber = rows(record(widget?.data).images).findIndex((item) => item.id === imageId) + 1;
+
+  useEffect(() => {
+    const query = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!query) return;
+    const update = (): void => setReducedMotion(query.matches);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    if (reducedMotion) {
+      video.current?.pause();
+      setPlaying(false);
+    }
+  }, [reducedMotion]);
 
   useEffect(() => {
     document.documentElement.classList.add(transparentDocument);
@@ -48,6 +75,28 @@ export function ImageWindow({ id, imageId }: { id: string; imageId: string }): R
     } catch (cause: unknown) {
       setFailure(errorText(cause));
     }
+  }
+
+  function queueResize(dimensions: Record<string, unknown>, origin?: Promise<{ x: number; y: number } | null>): void {
+    const queue = pendingResize.current;
+    if (queue.at(-1)?.dimensions.preview === true) queue.pop();
+    queue.push({ dimensions, origin });
+    if (resizeBusy.current) return;
+    resizeBusy.current = true;
+    void (async () => {
+      while (pendingResize.current.length > 0) {
+        const next = pendingResize.current.shift();
+        if (!next) break;
+        try {
+          const point = await next.origin;
+          if (next.origin && !point) continue;
+          await run("resize_widget_image", { resize: { ...next.dimensions, originX: point?.x, originY: point?.y } });
+        } catch (cause: unknown) {
+          setFailure(errorText(cause));
+        }
+      }
+      resizeBusy.current = false;
+    })();
   }
 
   async function remove(): Promise<void> {
@@ -73,7 +122,7 @@ export function ImageWindow({ id, imageId }: { id: string; imageId: string }): R
           {
             text: "크기 원래대로",
             action: () =>
-              void run("resize_widget_image", {
+              queueResize({
                 width: number(image.naturalWidth),
                 height: number(image.naturalHeight),
                 restore: true,
@@ -93,22 +142,30 @@ export function ImageWindow({ id, imageId }: { id: string; imageId: string }): R
     event.stopPropagation();
     if (event.button !== 0 || !image) return;
     event.currentTarget.setPointerCapture(event.pointerId);
+    const currentWindow = getCurrentWindow();
+    const origin = Promise.all([currentWindow.outerPosition(), currentWindow.scaleFactor()])
+      .then(([point, scale]) => ({ x: point.x / scale, y: point.y / scale }))
+      .catch((cause: unknown) => { setFailure(errorText(cause)); return null; });
     resizing.current = {
       pointerId: event.pointerId,
       x: event.screenX,
       y: event.screenY,
       width,
       height,
+      hasPreview: false,
+      origin,
     };
   }
 
-  function endResize(event: PointerEvent<HTMLButtonElement>): void {
+  function resize(event: PointerEvent<HTMLButtonElement>, preview: boolean): void {
     const start = resizing.current;
     if (!start || start.pointerId !== event.pointerId) return;
-    resizing.current = null;
     const dx = event.screenX - start.x;
     const dy = event.screenY - start.y;
-    if (dx === 0 && dy === 0) return;
+    if (dx === 0 && dy === 0 && !start.hasPreview) {
+      if (!preview) resizing.current = null;
+      return;
+    }
     const naturalWidth = number(image?.naturalWidth);
     const naturalHeight = number(image?.naturalHeight);
     if (naturalWidth <= 0 || naturalHeight <= 0) return;
@@ -117,17 +174,23 @@ export function ImageWindow({ id, imageId }: { id: string; imageId: string }): R
         ? (start.width + dx) / naturalWidth
         : (start.height + dy) / naturalHeight;
     const next = Math.max(scale, 48 / naturalWidth, 48 / naturalHeight);
-    void run("resize_widget_image", {
-      width: naturalWidth * next,
-      height: naturalHeight * next,
-    });
+    const dimensions = { width: naturalWidth * next, height: naturalHeight * next, preview };
+    queueResize(dimensions, start.origin);
+    if (preview) start.hasPreview = true;
+    else resizing.current = null;
   }
 
   const src = image && isDesktop() ? convertFileSrc(`image:${imageId}`, "widget") : undefined;
   return (
     <main
       className={s.frame}
-      aria-label="이미지 위젯"
+      aria-label={`이미지 위젯 ${imageNumber}`}
+      onKeyDown={(event) => {
+        if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+          event.preventDefault();
+          void openMenu();
+        }
+      }}
       onPointerDown={(event) => {
         if (!(event.target instanceof Element) || !event.target.closest("button"))
           drag.onPointerDown(event);
@@ -140,11 +203,13 @@ export function ImageWindow({ id, imageId }: { id: string; imageId: string }): R
         void openMenu();
       }}
     >
-      {src &&
+      {mediaFailure ? (
+        <p className={s.mediaError} role="alert">표시할 수 없는 파일이에요. 이미지를 지우고 다시 추가해 주세요.</p>
+      ) : src &&
         (text(image?.mime) === "video/mp4" ? (
-          <video className={s.media} src={src} autoPlay loop muted playsInline />
+          <video ref={video} className={s.media} src={src} autoPlay={!reducedMotion} loop muted playsInline onError={() => setMediaFailure(true)} />
         ) : (
-          <img className={s.media} src={src} alt="" draggable={false} />
+          <img className={s.media} src={src} alt="" draggable={false} onError={() => setMediaFailure(true)} />
         ))}
       {image && (
         <>
@@ -156,14 +221,42 @@ export function ImageWindow({ id, imageId }: { id: string; imageId: string }): R
             onPointerDown={(event) => event.stopPropagation()}
             onClick={() => void run("close_widget_image")}
           />
+          <IconButton
+            className={`${s.control} ${s.more} ${mediaFailure ? s.visible : ""}`}
+            icon="more"
+            aria-label="더 보기"
+            size="compact"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => void openMenu()}
+          />
+          {text(image.mime) === "video/mp4" && !mediaFailure && (
+            <IconButton
+              className={`${s.control} ${s.play}`}
+              icon={playing ? "pause" : "play"}
+              aria-label={playing ? "영상 정지" : "영상 재생"}
+              size="compact"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={() => {
+                if (playing) {
+                  video.current?.pause();
+                  setPlaying(false);
+                } else {
+                  void video.current?.play().then(() => setPlaying(true)).catch((cause: unknown) => setFailure(errorText(cause)));
+                }
+              }}
+            />
+          )}
           <button
             type="button"
             className={`${s.control} ${s.resize}`}
             aria-label="이미지 크기 조절"
             onPointerDown={startResize}
-            onPointerUp={endResize}
+            onPointerMove={(event) => resize(event, true)}
+            onPointerUp={(event) => resize(event, false)}
             onPointerCancel={() => {
+              const origin = resizing.current?.origin;
               resizing.current = null;
+              if (origin) queueResize({ width, height, preview: true, restore: true }, origin);
             }}
             onKeyDown={(event) => {
               const step = RESIZE_KEYS[event.key];
@@ -176,7 +269,7 @@ export function ImageWindow({ id, imageId }: { id: string; imageId: string }): R
                 ? (width + step[0]) / naturalWidth
                 : (height + step[1]) / naturalHeight;
               const next = Math.max(scale, 48 / naturalWidth, 48 / naturalHeight);
-              void run("resize_widget_image", {
+              queueResize({
                 width: naturalWidth * next,
                 height: naturalHeight * next,
               });

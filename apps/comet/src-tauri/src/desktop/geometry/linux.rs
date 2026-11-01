@@ -18,7 +18,7 @@ use x11rb::{
     errors::ReplyError,
     protocol::{
         randr::{self, ConnectionExt as _},
-        xproto::{Atom, AtomEnum, ConnectionExt as _, MapState, Window},
+        xproto::{Atom, AtomEnum, ConnectionExt as _, KeyButMask, MapState, Window},
         ErrorKind,
     },
     reexports::x11rb_protocol::{parse_display, xauth},
@@ -536,6 +536,17 @@ pub(super) fn cursor_position() -> Option<(f64, f64)> {
             return Err("포인터가 다른 X11 화면에 있어요.".into());
         }
         Ok((pointer.root_x as f64, pointer.root_y as f64))
+    })
+    .ok()
+}
+
+pub(super) fn primary_button_pressed() -> Option<bool> {
+    with_session(CURSOR_BUDGET, |session| {
+        let pointer = session.connection.query_pointer(session.root)?.reply()?;
+        if !pointer.same_screen {
+            return Err("포인터가 다른 X11 화면에 있어요.".into());
+        }
+        Ok(u16::from(pointer.mask) & u16::from(KeyButMask::BUTTON1) != 0)
     })
     .ok()
 }

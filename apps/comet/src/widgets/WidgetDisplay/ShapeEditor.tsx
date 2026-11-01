@@ -3,6 +3,7 @@ import { Icon } from "@comet/icon";
 import {
   Button,
   Checkbox,
+  Dialog,
   IconButton,
   SegmentedControl,
   Slider,
@@ -27,6 +28,7 @@ export function ShapeEditor({
   onReset,
   disabled = false,
   onBusyChange,
+  onDrawingChange,
 }: {
   widget: WidgetView;
   value: WidgetShape;
@@ -35,16 +37,18 @@ export function ShapeEditor({
   onReset?: () => void;
   disabled?: boolean;
   onBusyChange?: (busy: boolean) => void;
+  onDrawingChange?: (drawing: boolean) => void;
 }): ReactElement {
   const [tab, setTab] = useState<WidgetShape["source"]>(value.source);
   const [pointEditing, setPointEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   useEffect(() => {
     onBusyChange?.(busy);
     return () => onBusyChange?.(false);
   }, [busy, onBusyChange]);
-  const pointer = useRef<{ id: number; stroke: number; point?: number } | null>(null);
+  const pointer = useRef<{ id: number; stroke: number; point?: number; previous: WidgetShape } | null>(null);
   const draftRef = useRef(value);
   draftRef.current = value;
   function change(patch: Partial<WidgetShape>): void {
@@ -68,9 +72,11 @@ export function ShapeEditor({
     const target = event.target instanceof Element ? event.target.getAttribute("data-point") : null;
     if (pointEditing && target) {
       const [stroke, point] = target.split(":").map(Number);
-      pointer.current = { id: event.pointerId, stroke, point };
+      pointer.current = { id: event.pointerId, stroke, point, previous: value };
+      onDrawingChange?.(true);
     } else if (!pointEditing && value.strokes.length < 8) {
-      pointer.current = { id: event.pointerId, stroke: value.strokes.length };
+      pointer.current = { id: event.pointerId, stroke: value.strokes.length, previous: value };
+      onDrawingChange?.(true);
       const next = {
         ...value,
         source: "drawing" as const,
@@ -94,12 +100,19 @@ export function ShapeEditor({
     onChange(next);
   }
   function end(): void {
+    const active = pointer.current;
+    if (!active) return;
     pointer.current = null;
-    if (disabled || busy) return;
     const previous = draftRef.current;
     const strokes = previous.strokes.filter((stroke) => stroke.length >= 3);
-    if (strokes.length !== previous.strokes.length) onChange({ ...previous, strokes });
+    const next = strokes.length !== previous.strokes.length ? active.previous : { ...previous, strokes };
+    draftRef.current = next;
+    onChange(next);
+    onDrawingChange?.(false);
   }
+  const endRef = useRef(end);
+  endRef.current = end;
+  useEffect(() => () => endRef.current(), []);
   function editPoints(): void {
     if (disabled || busy) return;
     if (value.source !== "drawing" || !value.strokes.length) {
@@ -305,7 +318,7 @@ export function ShapeEditor({
             size="small"
             variant="ghost"
             disabled={!widgetBackgroundUrl(widget)}
-            onClick={() => void image("remove_widget_background")}
+            onClick={() => setConfirmRemove(true)}
           >
             이미지 제거
           </Button>
@@ -450,6 +463,23 @@ export function ShapeEditor({
         </Button>
       </div>
       {error && <p role="alert">{error}</p>}
+      <Dialog
+        variant="confirm"
+        isOpen={confirmRemove}
+        title="이미지를 제거할까요?"
+        onOpenChange={setConfirmRemove}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmRemove(false)}>취소</Button>
+            <Button variant="danger" onClick={() => {
+              setConfirmRemove(false);
+              void image("remove_widget_background");
+            }}>제거</Button>
+          </>
+        }
+      >
+        <p>저장된 이미지가 제거되며 되돌리기로 복원할 수 없어요.</p>
+      </Dialog>
     </fieldset>
   );
 }

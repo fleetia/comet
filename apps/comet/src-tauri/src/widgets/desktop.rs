@@ -7,8 +7,11 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    sync::{atomic::Ordering, Arc, Mutex},
-    time::Duration,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+    time::{Duration, Instant},
 };
 use tauri::{Emitter, Manager};
 
@@ -115,6 +118,10 @@ pub(crate) struct Layout {
     pub snap_to_grid: bool,
     pub show_guides: bool,
     pub stack_position: Option<Point>,
+    pub stack_monitor: Option<String>,
+    #[serde(default)]
+    pub stack_monitor_origin: Option<Point>,
+    pub expanded: Vec<String>,
     /// The user closed the stack; it stays closed across restarts until opened again.
     pub stack_hidden: bool,
 }
@@ -133,6 +140,9 @@ impl Default for Layout {
             snap_to_grid: false,
             show_guides: true,
             stack_position: None,
+            stack_monitor: None,
+            stack_monitor_origin: None,
+            expanded: vec![],
             stack_hidden: false,
         }
     }
@@ -155,6 +165,8 @@ pub(crate) struct LayoutSettings {
     pub snap_to_grid: bool,
     #[serde(default = "default_show_guides")]
     pub show_guides: bool,
+    #[serde(default)]
+    pub expanded: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -232,12 +244,19 @@ pub(crate) struct DesktopState {
     layout: Layout,
 }
 
+type WorkAreas = Vec<(Option<String>, Rect)>;
+
 /// Native window bookkeeping that never enters the database.
 #[derive(Default)]
 pub(crate) struct Runtime {
     snapshot: Mutex<Option<Layout>>,
     moves: Mutex<HashMap<String, u64>>,
     placed: Mutex<HashMap<String, (i32, i32)>>,
+    keyboard_positions: Mutex<HashMap<String, Vec<Point>>>,
+    drag_marks: Mutex<HashMap<String, Instant>>,
+    dragging: Mutex<HashSet<String>>,
+    drag_epoch: AtomicU64,
+    work_areas: Mutex<Option<WorkAreas>>,
     /// Where the stack's anchor content (the capsule bar) sits inside the window while a
     /// bubble opens above or before it. The saved stack position always describes that content.
     stack_lead: Mutex<(f64, f64)>,
@@ -292,6 +311,262 @@ fn display_size(shape: Option<&Shape>, kind: &str) -> (f64, f64) {
     )
 }
 
+// The paths are shared with the renderer; unknown or malformed artwork accepts input.
+fn path_points(path: &str) -> Option<Vec<Vec<Point>>> {
+    let bytes = path.as_bytes();
+    let mut index = 0;
+    let mut command = b' ';
+    let mut current = Point { x: 0.0, y: 0.0 };
+    let mut paths: Vec<Vec<Point>> = Vec::new();
+    while index < bytes.len() {
+        while index < bytes.len() && (bytes[index].is_ascii_whitespace() || bytes[index] == b',') {
+            index += 1;
+        }
+        if index == bytes.len() {
+            break;
+        }
+        if bytes[index].is_ascii_alphabetic() {
+            command = bytes[index];
+            index += 1;
+            if command == b'Z' {
+                command = b' ';
+                continue;
+            }
+        }
+        let count = match command {
+            b'M' | b'L' => 2,
+            b'H' | b'V' => 1,
+            b'C' => 6,
+            _ => return None,
+        };
+        let mut values = Vec::with_capacity(count);
+        for _ in 0..count {
+            while index < bytes.len()
+                && (bytes[index].is_ascii_whitespace() || bytes[index] == b',')
+            {
+                index += 1;
+            }
+            let start = index;
+            if index < bytes.len() && (bytes[index] == b'-' || bytes[index] == b'+') {
+                index += 1;
+            }
+            while index < bytes.len() && (bytes[index].is_ascii_digit() || bytes[index] == b'.') {
+                index += 1;
+            }
+            if start == index {
+                return None;
+            }
+            values.push(path[start..index].parse::<f64>().ok()?);
+        }
+        match command {
+            b'M' => {
+                current = Point {
+                    x: values[0],
+                    y: values[1],
+                };
+                paths.push(vec![current.clone()]);
+                command = b'L';
+            }
+            b'L' | b'H' | b'V' => {
+                current = match command {
+                    b'L' => Point {
+                        x: values[0],
+                        y: values[1],
+                    },
+                    b'H' => Point {
+                        x: values[0],
+                        y: current.y,
+                    },
+                    _ => Point {
+                        x: current.x,
+                        y: values[0],
+                    },
+                };
+                paths.last_mut()?.push(current.clone());
+            }
+            b'C' => {
+                let start = current.clone();
+                for step in 1..=16 {
+                    let t = step as f64 / 16.0;
+                    let u = 1.0 - t;
+                    paths.last_mut()?.push(Point {
+                        x: u * u * u * start.x
+                            + 3.0 * u * u * t * values[0]
+                            + 3.0 * u * t * t * values[2]
+                            + t * t * t * values[4],
+                        y: u * u * u * start.y
+                            + 3.0 * u * u * t * values[1]
+                            + 3.0 * u * t * t * values[3]
+                            + t * t * t * values[5],
+                    });
+                }
+                current = Point {
+                    x: values[4],
+                    y: values[5],
+                };
+            }
+            _ => return None,
+        }
+    }
+    (!paths.is_empty() && paths.iter().all(|path| path.len() >= 3)).then_some(paths)
+}
+
+fn preset_paths() -> &'static HashMap<String, Vec<Vec<Point>>> {
+    static PATHS: std::sync::OnceLock<HashMap<String, Vec<Vec<Point>>>> =
+        std::sync::OnceLock::new();
+    PATHS.get_or_init(|| {
+        let source = include_str!("../../../../../ds/ui/src/widgets/shapePaths.ts");
+        (1..=22)
+            .map(|n| format!("{n:02}"))
+            .chain(["circle".into(), "cloud".into()])
+            .filter_map(|key| {
+                let marker = if key == "circle" || key == "cloud" {
+                    format!("{key}:")
+                } else {
+                    format!("\"{key}\":")
+                };
+                let tail = source.split_once(&marker)?.1;
+                let path = tail.split_once('"')?.1.split_once('"')?.0;
+                Some((key, path_points(path)?))
+            })
+            .collect()
+    })
+}
+
+fn skin_paths() -> &'static HashMap<String, Vec<Vec<Point>>> {
+    static PATHS: std::sync::OnceLock<HashMap<String, Vec<Vec<Point>>>> =
+        std::sync::OnceLock::new();
+    PATHS.get_or_init(|| {
+        let source = include_str!("../../../../../ds/ui/src/widgets/skinOutlines.ts");
+        ["clock", "weather", "focus", "music", "envelope", "memo"]
+            .into_iter()
+            .filter_map(|key| {
+                let tail = source
+                    .split_once(&format!("  {key}: {{"))?
+                    .1
+                    .split_once("d: \"")?
+                    .1;
+                let path = tail.split_once('"')?.0;
+                Some((key.to_string(), path_points(path)?))
+            })
+            .collect()
+    })
+}
+
+fn winding(paths: &[Vec<Point>], point: &Point) -> bool {
+    let mut winding = 0i32;
+    for path in paths {
+        for index in 0..path.len() {
+            let a = &path[index];
+            let b = &path[(index + 1) % path.len()];
+            let side = (b.x - a.x) * (point.y - a.y) - (point.x - a.x) * (b.y - a.y);
+            if a.y <= point.y && b.y > point.y && side > 0.0 {
+                winding += 1;
+            }
+            if a.y > point.y && b.y <= point.y && side < 0.0 {
+                winding -= 1;
+            }
+        }
+    }
+    winding != 0
+}
+
+// Cursor is relative to the center of the window in logical pixels.
+fn shape_contains(
+    shape: &Shape,
+    kind: &str,
+    custom_color: bool,
+    cursor: (f64, f64),
+) -> Option<bool> {
+    if !shape.valid() || !cursor.0.is_finite() || !cursor.1.is_finite() {
+        return None;
+    }
+    let angle = shape.rotation.to_radians();
+    let (sin, cos) = angle.sin_cos();
+    let mut x = cursor.0 * cos + cursor.1 * sin;
+    let mut y = -cursor.0 * sin + cursor.1 * cos;
+    if shape.flip_x {
+        x = -x;
+    }
+    if shape.flip_y {
+        y = -y;
+    }
+    let point = Point {
+        x: (x / shape.width + 0.5) * 24.0,
+        y: (y / shape.height + 0.5) * 24.0,
+    };
+    if shape.source == "drawing" && !shape.strokes.is_empty() {
+        return Some(winding(&shape.strokes, &point));
+    }
+    if shape.preset == "cloud" && (shape.cloud_count != 4 || shape.roundness != 70) {
+        let cloud: Vec<Point> = (0..=96)
+            .map(|index| {
+                let angle = std::f64::consts::PI + index as f64 / 96.0 * std::f64::consts::TAU;
+                let radius = 9.0
+                    + (1.0 - (angle * f64::from(shape.cloud_count)).cos())
+                        * (0.7 + f64::from(shape.roundness) / 100.0);
+                Point {
+                    x: 12.0 + angle.cos() * radius,
+                    y: 12.0 + angle.sin() * radius * 0.66,
+                }
+            })
+            .collect();
+        return Some(winding(&[cloud], &point));
+    }
+    if shape.preset != "default" {
+        return preset_paths()
+            .get(&shape.preset)
+            .map(|paths| winding(paths, &point));
+    }
+    let (skin, width, height, left, top) = match kind {
+        "clock" => ("clock", 184.0, 184.0, 0.0, 0.0),
+        "weather" => ("weather", 230.0, 150.0, 8.41, 16.38),
+        "focus-timer" => ("focus", 156.0, 168.0, 0.0, 0.0),
+        "music" => ("music", 336.0, 112.0, 0.0, 0.0),
+        "preparation" => ("envelope", 180.0, 200.0, -6.77, -6.46),
+        "memo" => ("memo", 214.0, 150.0, 0.0, 0.0),
+        "todo" | "calendar" | "travel" => {
+            return preset_paths().get("13").map(|paths| winding(paths, &point))
+        }
+        _ => return None,
+    };
+    if shape.source != "preset" || custom_color {
+        let preset = match kind {
+            "clock" => "circle",
+            "weather" => "cloud",
+            "focus-timer" => "07",
+            "music" => "10",
+            "preparation" => "22",
+            "memo" => "14",
+            _ => return None,
+        };
+        return preset_paths()
+            .get(preset)
+            .map(|paths| winding(paths, &point));
+    }
+    let point = Point {
+        x: (x / shape.width + 0.5) * width - left,
+        y: (y / shape.height + 0.5) * height - top,
+    };
+    skin_paths().get(skin).map(|paths| winding(paths, &point))
+}
+
+fn add_saved_widget_areas(
+    occupied: &mut Vec<Rect>,
+    layout: &Layout,
+    kinds: &HashMap<String, String>,
+    exclude: &str,
+) {
+    occupied.extend(layout.order.iter().filter_map(|id| {
+        if id == exclude {
+            return None;
+        }
+        let point = layout.positions.get(id)?;
+        let kind = kinds.get(id)?;
+        Some(Rect::at(point, display_size(layout.shapes.get(id), kind)))
+    }));
+}
+
 fn overlap(start: f64, length: f64, other: f64, other_length: f64) -> f64 {
     ((start + length).min(other + other_length) - start.max(other)).max(0.0)
 }
@@ -319,6 +594,37 @@ pub(crate) fn clamp_point(point: &Point, size: (f64, f64), areas: &[Rect]) -> Po
         .iter()
         .min_by(|a, b| distance(a).total_cmp(&distance(b)))
         .expect("areas is not empty");
+    Point {
+        x: point
+            .x
+            .clamp(area.x, (area.x + area.width - size.0).max(area.x)),
+        y: point
+            .y
+            .clamp(area.y, (area.y + area.height - size.1).max(area.y)),
+    }
+}
+
+pub(crate) fn restore_point(point: &Point, size: (f64, f64), areas: &[Rect]) -> Point {
+    let center = (point.x + size.0 / 2.0, point.y + size.1 / 2.0);
+    let overlap_area = |area: &Rect| {
+        overlap(point.x, size.0, area.x, area.width) * overlap(point.y, size.1, area.y, area.height)
+    };
+    let distance = |area: &Rect| {
+        let dx = (area.x - center.0)
+            .max(center.0 - area.x - area.width)
+            .max(0.0);
+        let dy = (area.y - center.1)
+            .max(center.1 - area.y - area.height)
+            .max(0.0);
+        dx * dx + dy * dy
+    };
+    let Some(area) = areas.iter().max_by(|a, b| {
+        overlap_area(a)
+            .total_cmp(&overlap_area(b))
+            .then_with(|| distance(b).total_cmp(&distance(a)))
+    }) else {
+        return point.clone();
+    };
     Point {
         x: point
             .x
@@ -487,7 +793,7 @@ fn pruned(mut layout: Layout, placeable: &HashMap<String, String>) -> Layout {
     }
     layout
         .positions
-        .retain(|id, point| layout.order.contains(id) && point.valid());
+        .retain(|id, point| placeable.contains_key(id) && point.valid());
     for shape in layout.shapes.values_mut() {
         // Preset 23 was retired without artwork; saved shapes fall back to the rounded square.
         if shape.preset == "23" {
@@ -496,10 +802,11 @@ fn pruned(mut layout: Layout, placeable: &HashMap<String, String>) -> Layout {
     }
     layout
         .shapes
-        .retain(|id, shape| layout.order.contains(id) && shape.valid());
+        .retain(|id, shape| placeable.contains_key(id) && shape.valid());
     layout
         .stack_styles
-        .retain(|id, style| layout.order.contains(id) && style.valid());
+        .retain(|id, style| placeable.contains_key(id) && style.valid());
+    layout.expanded.retain(|id| placeable.contains_key(id));
     if layout
         .stack_position
         .as_ref()
@@ -521,15 +828,15 @@ fn validate(layout: &Layout) -> Result<(), String> {
         || layout
             .positions
             .iter()
-            .any(|(id, point)| !layout.order.contains(id) || !point.valid())
+            .any(|(id, point)| uuid::Uuid::parse_str(id).is_err() || !point.valid())
         || layout
             .shapes
             .iter()
-            .any(|(id, shape)| !layout.order.contains(id) || !shape.valid())
+            .any(|(id, shape)| uuid::Uuid::parse_str(id).is_err() || !shape.valid())
         || layout
             .stack_styles
             .iter()
-            .any(|(id, style)| !layout.order.contains(id) || !style.valid())
+            .any(|(id, style)| uuid::Uuid::parse_str(id).is_err() || !style.valid())
         || layout
             .stack_position
             .as_ref()
@@ -577,29 +884,21 @@ fn current(db: &Connection, expected_revision: i64) -> Result<Stored, String> {
 
 fn configured(current: &Layout, input: LayoutSettings) -> Layout {
     let order = input.order;
+    let mut expanded = input.expanded.unwrap_or_else(|| current.expanded.clone());
+    if input.one_expanded {
+        expanded.truncate(1);
+    }
     Layout {
         stack_position: current
             .stack_position
             .clone()
             .filter(|_| input.anchor == current.anchor),
-        positions: current
-            .positions
-            .iter()
-            .filter(|(id, _)| order.contains(id))
-            .map(|(id, point)| (id.clone(), point.clone()))
-            .collect(),
-        shapes: current
-            .shapes
-            .iter()
-            .filter(|(id, _)| order.contains(id))
-            .map(|(id, shape)| (id.clone(), shape.clone()))
-            .collect(),
-        stack_styles: current
-            .stack_styles
-            .iter()
-            .filter(|(id, _)| order.contains(id))
-            .map(|(id, style)| (id.clone(), style.clone()))
-            .collect(),
+        positions: current.positions.clone(),
+        shapes: current.shapes.clone(),
+        stack_styles: current.stack_styles.clone(),
+        stack_monitor: current.stack_monitor.clone(),
+        stack_monitor_origin: current.stack_monitor_origin.clone(),
+        expanded,
         mode: input.mode,
         order,
         anchor: input.anchor,
@@ -610,6 +909,17 @@ fn configured(current: &Layout, input: LayoutSettings) -> Layout {
         show_guides: input.show_guides,
         stack_hidden: current.stack_hidden,
     }
+}
+
+fn needs_layout_sync(previous: &Layout, next: &Layout) -> bool {
+    let mut comparable = next.clone();
+    comparable.expanded = previous.expanded.clone();
+    *previous != comparable
+}
+
+fn reveal_restored_stack(previous: &Mode, layout: &Layout) -> bool {
+    *previous != layout.mode
+        || (layout.mode == Mode::Stack && !layout.order.is_empty() && !layout.stack_hidden)
 }
 
 fn configure(
@@ -642,9 +952,37 @@ fn update(
 
 fn without(layout: &mut Layout, id: &str) {
     layout.order.retain(|value| value != id);
-    layout.positions.remove(id);
-    layout.shapes.remove(id);
-    layout.stack_styles.remove(id);
+}
+
+fn move_widget_position(
+    layout: &mut Layout,
+    id: &str,
+    origin: &Point,
+    dx: f64,
+    dy: f64,
+) -> Result<Point, String> {
+    if layout.mode != Mode::Freeform || !layout.order.iter().any(|value| value == id) {
+        return Err("자유 배치에 놓인 위젯만 이동할 수 있어요.".into());
+    }
+    let point = Point {
+        x: origin.x + dx,
+        y: origin.y + dy,
+    };
+    if !point.valid() {
+        return Err("위젯 위치가 올바르지 않아요.".into());
+    }
+    layout.positions.insert(id.into(), point.clone());
+    Ok(point)
+}
+
+fn keyboard_position(pending: &[Point], displayed: &Point) -> Point {
+    if let Some(target) = pending
+        .last()
+        .filter(|_| pending.iter().any(|point| displayed.near(point)))
+    {
+        return target.clone();
+    }
+    displayed.clone()
 }
 
 fn desktop_state(state: &AppState, stored: &Stored) -> DesktopState {
@@ -707,6 +1045,120 @@ pub(crate) fn window_area(
         None => primary_area(app),
     }
 }
+pub(crate) fn preferred_area(
+    app: &tauri::AppHandle,
+    window: Option<&tauri::WebviewWindow>,
+) -> Result<Rect, String> {
+    let window_area = window
+        .and_then(|window| window.current_monitor().ok().flatten())
+        .map(|monitor| area_of(&monitor));
+    let cursor_area = if window_area.is_none() {
+        cursor_monitor(app).map(|monitor| area_of(&monitor))
+    } else {
+        None
+    };
+    let primary = if window_area.is_none() && cursor_area.is_none() {
+        Some(primary_area(app)?)
+    } else {
+        None
+    };
+    preferred_area_from(window_area, cursor_area, primary)
+        .ok_or_else(|| "화면을 확인하지 못했어요.".into())
+}
+
+fn cursor_monitor(app: &tauri::AppHandle) -> Option<tauri::Monitor> {
+    let point = crate::desktop::geometry::cursor_position();
+    #[cfg(target_os = "linux")]
+    let point = point.or_else(|| app.cursor_position().ok().map(|point| (point.x, point.y)));
+    point.and_then(|(x, y)| app.monitor_from_point(x, y).ok().flatten())
+}
+
+fn preferred_area_from(
+    window: Option<Rect>,
+    cursor: Option<Rect>,
+    primary: Option<Rect>,
+) -> Option<Rect> {
+    window.or(cursor).or(primary)
+}
+
+fn monitor_origin(monitor: &tauri::Monitor) -> Point {
+    let position = monitor.position();
+    Point {
+        x: position.x as f64,
+        y: position.y as f64,
+    }
+}
+
+fn selected_monitor_area(
+    monitors: &[(Option<String>, Point, Rect)],
+    name: Option<&str>,
+    origin: Option<&Point>,
+    primary: Rect,
+) -> Rect {
+    let Some(name) = name else {
+        return primary;
+    };
+    monitors
+        .iter()
+        .filter(|(id, _, _)| id.as_deref() == Some(name))
+        .min_by(|(_, left, _), (_, right, _)| {
+            let distance = |point: &Point| {
+                origin.map_or(0.0, |origin| {
+                    (point.x - origin.x).powi(2) + (point.y - origin.y).powi(2)
+                })
+            };
+            distance(left).total_cmp(&distance(right))
+        })
+        .map_or(primary, |(_, _, area)| *area)
+}
+
+fn anchor_area(app: &tauri::AppHandle, layout: &Layout) -> Result<Rect, String> {
+    let monitors = app
+        .available_monitors()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|monitor| {
+            (
+                monitor.name().cloned(),
+                monitor_origin(&monitor),
+                area_of(&monitor),
+            )
+        })
+        .collect::<Vec<_>>();
+    Ok(selected_monitor_area(
+        &monitors,
+        layout.stack_monitor.as_deref(),
+        layout.stack_monitor_origin.as_ref(),
+        primary_area(app)?,
+    ))
+}
+
+pub(crate) fn is_widget_window(label: &str) -> bool {
+    label == STACK
+        || label.starts_with(DISPLAY)
+        || (label.starts_with("widget-") && (label.contains("-image-") || label.contains("-note-")))
+}
+
+fn is_placement_obstacle(label: &str) -> bool {
+    is_widget_window(label) || label.starts_with("body-")
+}
+
+pub(crate) fn visible_widget_areas(app: &tauri::AppHandle, exclude: &str) -> Vec<Rect> {
+    app.webview_windows()
+        .into_iter()
+        .filter_map(|(label, window)| {
+            if label != exclude
+                && is_placement_obstacle(&label)
+                && window.is_visible().unwrap_or(false)
+            {
+                window_rect(&window).ok()
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 fn window_rect(window: &tauri::WebviewWindow) -> Result<Rect, String> {
     let scale = window.scale_factor().map_err(|e| e.to_string())?;
     let position = window.outer_position().map_err(|e| e.to_string())?;
@@ -783,14 +1235,154 @@ fn request_display_size(window: &tauri::WebviewWindow, size: (f64, f64)) -> Resu
     receive.recv().map_err(|error| error.to_string())?
 }
 
+fn display_placement(
+    saved: Option<&Point>,
+    current: Option<Point>,
+    size: (f64, f64),
+    areas: &[Rect],
+    fallback: Option<Point>,
+) -> (Point, bool) {
+    match saved {
+        Some(saved) => (
+            current.unwrap_or_else(|| restore_point(saved, size, areas)),
+            false,
+        ),
+        None => (
+            fallback.expect("automatic placement is required without a saved position"),
+            true,
+        ),
+    }
+}
+
+fn keep_display_input_for_pressed_button(ignored: bool, pressed: Option<bool>) -> Option<bool> {
+    if ignored {
+        Some(false)
+    } else {
+        pressed
+    }
+}
+
+fn cursor_in_display(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    id: &str,
+    ignored: bool,
+) -> Option<bool> {
+    let state = app.try_state::<Arc<AppState>>()?;
+    let runtime = app.try_state::<Runtime>()?;
+    if state.widget_editing.load(Ordering::SeqCst) {
+        return Some(true);
+    }
+    let dragging = runtime.dragging.lock().ok()?.contains(window.label());
+    let marked = runtime
+        .drag_marks
+        .lock()
+        .ok()?
+        .get(window.label())
+        .is_some_and(|mark| mark.elapsed() < Duration::from_secs(3));
+    if dragging || marked || keep_display_input_for_pressed_button(ignored, drag_button_pressed())?
+    {
+        return Some(true);
+    }
+    let (shape, kind, custom_color) = {
+        let db = lock(&state.db).ok()?;
+        let layout = read(&db).ok()?.layout;
+        if layout.mode != Mode::Freeform || !layout.order.iter().any(|item| item == id) {
+            return None;
+        }
+        let (kind, color): (String, Option<String>) = db
+            .query_row(
+                "SELECT kind, CASE WHEN kind IN ('clock', 'weather') THEN json_extract(data, '$.appearance.backgroundColor') END FROM widget_instances WHERE id = ?1",
+                params![id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .ok()?;
+        let spec = widgets::desktop_kind(&kind)?;
+        let has_shape = layout.shapes.contains_key(id);
+        let shape = layout.shapes.get(id).cloned().unwrap_or(Shape {
+            source: "preset".into(),
+            preset: "default".into(),
+            cloud_count: 4,
+            roundness: 70,
+            rotation: 0.0,
+            flip_x: false,
+            flip_y: false,
+            fit_content: true,
+            width: spec.width,
+            height: spec.height,
+            strokes: vec![],
+        });
+        let custom_color = color.as_deref().is_some_and(|color| {
+            (color.len() == 7 || color.len() == 9)
+                && color.starts_with('#')
+                && color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+                && color != "#24202d"
+        });
+        (shape, kind, has_shape && custom_color)
+    };
+    let position = window.outer_position().ok()?;
+    let size = window.outer_size().ok()?;
+    let scale = window.scale_factor().ok()?;
+    if !scale.is_finite() || scale <= 0.0 {
+        return None;
+    }
+    #[cfg(target_os = "macos")]
+    let point = {
+        let cursor = crate::desktop::geometry::cursor_position()?;
+        (
+            cursor.0 - (f64::from(position.x) + f64::from(size.width) / 2.0) / scale,
+            cursor.1 - (f64::from(position.y) + f64::from(size.height) / 2.0) / scale,
+        )
+    };
+    #[cfg(not(target_os = "macos"))]
+    let point = {
+        let cursor = app.cursor_position().ok()?;
+        (
+            (cursor.x - f64::from(position.x) - f64::from(size.width) / 2.0) / scale,
+            (cursor.y - f64::from(position.y) - f64::from(size.height) / 2.0) / scale,
+        )
+    };
+    shape_contains(&shape, &kind, custom_color, point)
+}
+
+fn track_display_cursor(app: &tauri::AppHandle, window: &tauri::WebviewWindow, id: &str) {
+    let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let closed = alive.clone();
+    window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            closed.store(false, Ordering::SeqCst);
+        }
+    });
+    let app = app.clone();
+    let window = window.clone();
+    let id = id.to_string();
+    let _ = std::thread::Builder::new().spawn(move || {
+        let mut ignored = false;
+        while alive.load(Ordering::SeqCst) && app.get_webview_window(window.label()).is_some() {
+            let ignore = !cursor_in_display(&app, &window, &id, ignored).unwrap_or(true);
+            if ignore != ignored && window.set_ignore_cursor_events(ignore).is_ok() {
+                ignored = ignore;
+            }
+            std::thread::sleep(Duration::from_millis(150));
+        }
+    });
+}
+
 // No lifecycle lock is held while native window calls wait for the main thread.
-fn open_display(app: &tauri::AppHandle, state: &AppState, id: &str) -> Result<(), String> {
+fn open_display(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    id: &str,
+    restore: bool,
+) -> Result<(), String> {
     widget_id(id)?;
     let (layout, kinds) = displayable(state, id)?;
     let kind = &kinds[id];
     let size = display_size(layout.shapes.get(id), kind);
     let label = format!("{DISPLAY}{id}");
-    let window = match app.get_webview_window(&label) {
+    let existing = app.get_webview_window(&label);
+    let was_open = existing.is_some();
+    let window = match existing {
         Some(window) => window,
         None => tauri::WebviewWindowBuilder::new(
             app,
@@ -816,30 +1408,30 @@ fn open_display(app: &tauri::AppHandle, state: &AppState, id: &str) -> Result<()
     window
         .set_size(tauri::LogicalSize::new(size.0, size.1))
         .map_err(|e| e.to_string())?;
-    let point = match layout.positions.get(id) {
-        Some(saved) => clamp_point(saved, size, &work_areas(app)?),
-        None => {
-            let occupied: Vec<Rect> = layout
-                .order
-                .iter()
-                .filter(|other| *other != id)
-                .filter_map(|other| {
-                    let point = layout.positions.get(other)?;
-                    let kind = kinds.get(other)?;
-                    Some(Rect::at(
-                        point,
-                        display_size(layout.shapes.get(other), kind),
-                    ))
-                })
-                .collect();
-            auto_place(primary_area(app)?, size, &occupied)
-        }
+    let saved = layout.positions.get(id);
+    let current = if saved.is_some() && was_open && !restore {
+        let rect = window_rect(&window)?;
+        Some(Point {
+            x: rect.x,
+            y: rect.y,
+        })
+    } else {
+        None
     };
-    if !layout
-        .positions
-        .get(id)
-        .is_some_and(|saved| saved.near(&point))
-    {
+    let areas = if saved.is_some() && current.is_none() {
+        work_areas(app)?
+    } else {
+        vec![]
+    };
+    let fallback = if saved.is_none() {
+        let mut occupied = visible_widget_areas(app, &label);
+        add_saved_widget_areas(&mut occupied, &layout, &kinds, id);
+        Some(auto_place(preferred_area(app, None)?, size, &occupied))
+    } else {
+        None
+    };
+    let (point, should_save) = display_placement(saved, current, size, &areas, fallback);
+    if should_save {
         let (stored, changed) = widgets::commands::change(state, |db| {
             update(db, |layout| {
                 if layout.order.iter().any(|value| value == id) {
@@ -854,6 +1446,9 @@ fn open_display(app: &tauri::AppHandle, state: &AppState, id: &str) -> Result<()
     }
     place(app, &window, &point)?;
     window.show().map_err(|e| e.to_string())?;
+    if !was_open {
+        track_display_cursor(app, &window, id);
+    }
     // A disable, removal or mode change may have finished while the window was being built.
     if displayable(state, id).is_err() {
         let _ = window.destroy();
@@ -877,7 +1472,7 @@ fn position_stack(
             clamp_stack_point(&origin, size, &work_areas(app)?)
         }
         // Anchored stacks keep their anchor edges; the page aligns its content to them.
-        None => stack_origin(window_area(app, window)?, size, &layout.anchor),
+        None => stack_origin(anchor_area(app, layout)?, size, &layout.anchor),
     };
     place(app, window, &point)
 }
@@ -925,7 +1520,13 @@ fn sync(
     state: &AppState,
     layout: &Layout,
     reveal_stack: bool,
+    restore: bool,
 ) -> Result<(), String> {
+    if let Some(runtime) = app.try_state::<Runtime>() {
+        if let Ok(mut positions) = runtime.keyboard_positions.lock() {
+            positions.clear();
+        }
+    }
     let mut errors = Vec::new();
     for (label, window) in app.webview_windows() {
         if let Some(id) = label.strip_prefix(DISPLAY) {
@@ -949,7 +1550,7 @@ fn sync(
                 errors.push(error);
             }
             for id in &layout.order {
-                if let Err(error) = open_display(app, state, id) {
+                if let Err(error) = open_display(app, state, id, restore) {
                     errors.push(error);
                 }
             }
@@ -970,9 +1571,9 @@ pub(crate) fn restore_on_start(app: &tauri::AppHandle, state: Arc<AppState>) {
         let result = widgets::commands::change(&state, load).and_then(|stored| {
             let layout = &stored.layout;
             match layout.mode {
-                Mode::Freeform => sync(&app, &state, layout, false),
+                Mode::Freeform => sync(&app, &state, layout, false, true),
                 Mode::Stack if !layout.stack_hidden && !layout.order.is_empty() => {
-                    sync(&app, &state, layout, true)
+                    sync(&app, &state, layout, true, true)
                 }
                 Mode::Stack => Ok(()),
             }
@@ -983,12 +1584,12 @@ pub(crate) fn restore_on_start(app: &tauri::AppHandle, state: Arc<AppState>) {
     });
 }
 
-fn open_editor(app: &tauri::AppHandle) -> Result<(), String> {
+fn open_editor(app: &tauri::AppHandle, caller: &tauri::WebviewWindow) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(EDITOR) {
         window.show().map_err(|e| e.to_string())?;
         return window.set_focus().map_err(|e| e.to_string());
     }
-    let area = primary_area(app)?;
+    let area = preferred_area(app, Some(caller))?;
     let window = tauri::WebviewWindowBuilder::new(
         app,
         EDITOR,
@@ -1083,9 +1684,24 @@ fn end_editing(app: &tauri::AppHandle, state: &AppState) {
         let _ = app.emit("widget-desktop-editing", false);
         let stored = lock(&state.db).and_then(|db| read(&db));
         if let Ok(stored) = stored {
+            if should_close_empty_stack(&stored.layout) {
+                let _ = close(app, STACK);
+            }
             emit_state(app, state, &stored);
         }
     }
+}
+
+fn should_close_empty_stack(layout: &Layout) -> bool {
+    layout.order.is_empty()
+}
+
+fn is_latest_move(moves: &Mutex<HashMap<String, u64>>, label: &str, expected: u64) -> bool {
+    moves
+        .lock()
+        .ok()
+        .and_then(|moves| moves.get(label).copied())
+        == Some(expected)
 }
 
 /// Runs off the main thread: the action lock may be held by a command waiting on native calls.
@@ -1100,16 +1716,218 @@ pub(crate) fn editor_destroyed(app: &tauri::AppHandle) {
     });
 }
 
+#[tauri::command]
+pub(crate) fn mark_widget_desktop_drag(window: tauri::WebviewWindow) {
+    let label = window.label();
+    if label != STACK
+        && !label.starts_with(DISPLAY)
+        && !(label.starts_with("widget-") && label.contains("-image-"))
+        && !(label.starts_with("widget-") && label.contains("-note-"))
+    {
+        return;
+    }
+    if let Some(runtime) = window.app_handle().try_state::<Runtime>() {
+        if let Ok(mut marks) = runtime.drag_marks.lock() {
+            marks.insert(label.to_string(), Instant::now());
+        }
+    }
+}
+
+pub(crate) fn take_drag(app: &tauri::AppHandle, label: &str) -> bool {
+    let Some(runtime) = app.try_state::<Runtime>() else {
+        return false;
+    };
+    let Ok(mut marks) = runtime.drag_marks.lock() else {
+        return false;
+    };
+    take_drag_mark(&mut marks, label)
+}
+
+fn take_drag_mark(marks: &mut HashMap<String, Instant>, label: &str) -> bool {
+    marks
+        .remove(label)
+        .is_some_and(|marked| marked.elapsed() < Duration::from_secs(3))
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn drag_button_pressed() -> Option<bool> {
+    let buttons: usize = unsafe { objc2::msg_send![objc2::class!(NSEvent), pressedMouseButtons] };
+    Some(buttons & 1 != 0)
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn drag_button_pressed() -> Option<bool> {
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetAsyncKeyState(key: i32) -> i16;
+    }
+    const VK_LBUTTON: i32 = 0x01;
+    Some(unsafe { GetAsyncKeyState(VK_LBUTTON) < 0 })
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn drag_button_pressed() -> Option<bool> {
+    crate::desktop::geometry::primary_button_pressed()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+pub(crate) fn drag_button_pressed() -> Option<bool> {
+    None
+}
+
+pub(crate) fn accepts_drag_move(dragging: bool, marked: bool) -> bool {
+    dragging || marked
+}
+
+pub(crate) fn wait_for_drag_release(pressed: Option<bool>, idle: Duration) -> bool {
+    pressed.unwrap_or(idle < Duration::from_secs(3))
+}
+
+pub(crate) fn drag_epoch(app: &tauri::AppHandle) -> u64 {
+    app.try_state::<Runtime>()
+        .map_or(0, |runtime| runtime.drag_epoch.load(Ordering::SeqCst))
+}
+
+fn screen_layout(app: &tauri::AppHandle) -> Result<WorkAreas, String> {
+    Ok(app
+        .available_monitors()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .map(|monitor| (monitor.name().cloned(), area_of(&monitor)))
+        .collect())
+}
+
+pub(crate) fn screen_unchanged(app: &tauri::AppHandle) -> bool {
+    let Some(runtime) = app.try_state::<Runtime>() else {
+        return false;
+    };
+    let Ok(areas) = screen_layout(app) else {
+        return false;
+    };
+    let Ok(saved) = runtime.work_areas.lock() else {
+        return false;
+    };
+    saved.as_ref().is_some_and(|saved| *saved == areas)
+}
+
+pub(crate) fn watch_work_areas(app: &tauri::AppHandle, state: Arc<AppState>) {
+    let initial = screen_layout(app).ok();
+    if let Some(runtime) = app.try_state::<Runtime>() {
+        if let Ok(mut saved) = runtime.work_areas.lock() {
+            *saved = initial.clone();
+        }
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut previous = initial.unwrap_or_default();
+        loop {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let Ok(current) = screen_layout(&app) else {
+                continue;
+            };
+            if current == previous {
+                continue;
+            }
+            previous = current;
+            if let Some(runtime) = app.try_state::<Runtime>() {
+                if let Ok(mut saved) = runtime.work_areas.lock() {
+                    *saved = Some(previous.clone());
+                }
+                runtime.drag_epoch.fetch_add(1, Ordering::SeqCst);
+                if let Ok(mut marks) = runtime.drag_marks.lock() {
+                    marks.clear();
+                }
+                if let Ok(mut dragging) = runtime.dragging.lock() {
+                    dragging.clear();
+                }
+                if let Ok(mut moves) = runtime.moves.lock() {
+                    moves.clear();
+                }
+                if let Ok(mut positions) = runtime.keyboard_positions.lock() {
+                    positions.clear();
+                }
+            }
+            let app = app.clone();
+            let state = state.clone();
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                let stored = widgets::commands::change(&state, load);
+                if let Ok(stored) = stored {
+                    let _ = sync(&app, &state, &stored.layout, false, true);
+                    crate::widgets::images::reposition_on_screen_change(&app);
+                    crate::widgets::memo_notes::reposition_on_screen_change(&app);
+                }
+            })
+            .await;
+        }
+    });
+}
+
+fn reset_anchor(layout: &mut Layout, anchor: Anchor, monitor: Option<(Option<String>, Point)>) {
+    layout.anchor = anchor;
+    layout.stack_position = None;
+    let (name, origin) = monitor.map_or((None, None), |(name, origin)| (name, Some(origin)));
+    layout.stack_monitor = name;
+    layout.stack_monitor_origin = origin;
+}
+
+#[tauri::command]
+pub(crate) async fn reset_widget_desktop_position(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    anchor: Anchor,
+) -> Result<DesktopState, String> {
+    let monitor = app
+        .get_webview_window(STACK)
+        .and_then(|window| window.current_monitor().ok().flatten())
+        .or_else(|| cursor_monitor(&app))
+        .or_else(|| app.primary_monitor().ok().flatten())
+        .map(|monitor| (monitor.name().cloned(), monitor_origin(&monitor)));
+    let (stored, _) = widgets::commands::change(&state, |db| {
+        update(db, |layout| {
+            reset_anchor(layout, anchor, monitor);
+            Ok(())
+        })
+    })?;
+    let current = emit_state(&app, &state, &stored);
+    if let Some(window) = app.get_webview_window(STACK) {
+        let rect = window_rect(&window)?;
+        position_stack(&app, &window, &stored.layout, (rect.width, rect.height))?;
+    }
+    Ok(current)
+}
+
 /// Debounces native moves of desktop widget windows and saves where the user left them.
 pub(crate) fn moved(window: &tauri::Window) {
     let label = window.label();
-    if label != STACK && !label.starts_with(DISPLAY) {
+    if label != STACK
+        && !label.starts_with(DISPLAY)
+        && !(label.starts_with("widget-") && label.contains("-note-"))
+    {
         return;
     }
     let app = window.app_handle().clone();
     let Some(runtime) = app.try_state::<Runtime>() else {
         return;
     };
+    let accepted = runtime
+        .dragging
+        .lock()
+        .ok()
+        .is_some_and(|dragging| dragging.contains(label));
+    let marked = !accepted && take_drag(&app, label);
+    if !accepts_drag_move(accepted, marked) {
+        return;
+    }
+    if let Ok(mut positions) = runtime.keyboard_positions.lock() {
+        positions.remove(label);
+    }
+    if !accepted {
+        let Ok(mut dragging) = runtime.dragging.lock() else {
+            return;
+        };
+        dragging.insert(label.to_string());
+    }
+    let epoch = drag_epoch(&app);
     let expected = {
         let Ok(mut moves) = runtime.moves.lock() else {
             return;
@@ -1120,20 +1938,97 @@ pub(crate) fn moved(window: &tauri::Window) {
     };
     let label = label.to_string();
     tauri::async_runtime::spawn(async move {
+        let started = Instant::now();
         tokio::time::sleep(Duration::from_millis(200)).await;
-        let latest = app
-            .state::<Runtime>()
-            .moves
-            .lock()
-            .ok()
-            .and_then(|moves| moves.get(&label).copied());
-        if latest == Some(expected) {
-            let _ = tauri::async_runtime::spawn_blocking(move || settle(&app, &label)).await;
+        loop {
+            if !is_latest_move(&app.state::<Runtime>().moves, &label, expected)
+                || drag_epoch(&app) != epoch
+            {
+                return;
+            }
+            if !wait_for_drag_release(drag_button_pressed(), started.elapsed()) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        if is_latest_move(&app.state::<Runtime>().moves, &label, expected)
+            && drag_epoch(&app) == epoch
+            && screen_unchanged(&app)
+        {
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                let result = if label.starts_with("widget-") && label.contains("-note-") {
+                    crate::widgets::memo_notes::settle_move(&app, &label, epoch, expected)
+                } else {
+                    settle(&app, &label, epoch)
+                };
+                if let Some(runtime) = app.try_state::<Runtime>() {
+                    if let Ok(moves) = runtime.moves.lock() {
+                        if moves.get(&label) == Some(&expected) {
+                            if let Ok(mut dragging) = runtime.dragging.lock() {
+                                dragging.remove(&label);
+                            }
+                        }
+                    }
+                }
+                result
+            })
+            .await;
         }
     });
 }
 
-fn settle(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
+pub(crate) fn current_move(app: &tauri::AppHandle, label: &str, generation: u64) -> bool {
+    app.try_state::<Runtime>()
+        .is_some_and(|runtime| is_latest_move(&runtime.moves, label, generation))
+}
+
+pub(crate) fn move_generation(app: &tauri::AppHandle, label: &str) -> Option<u64> {
+    app.try_state::<Runtime>()
+        .and_then(|runtime| runtime.moves.lock().ok()?.get(label).copied())
+}
+
+pub(crate) fn active_drag_move(app: &tauri::AppHandle, label: &str) -> Option<u64> {
+    let runtime = app.try_state::<Runtime>()?;
+    if !runtime.dragging.lock().ok()?.contains(label) {
+        return None;
+    }
+    let generation = move_generation(app, label)?;
+    if !runtime.dragging.lock().ok()?.contains(label) {
+        return None;
+    }
+    Some(generation)
+}
+
+pub(crate) fn drag_pending(app: &tauri::AppHandle, label: &str) -> bool {
+    app.try_state::<Runtime>().is_some_and(|runtime| {
+        runtime
+            .dragging
+            .lock()
+            .ok()
+            .is_some_and(|dragging| dragging.contains(label))
+            || runtime.drag_marks.lock().ok().is_some_and(|marks| {
+                marks
+                    .get(label)
+                    .is_some_and(|marked| marked.elapsed() < Duration::from_secs(3))
+            })
+    })
+}
+
+pub(crate) fn invalidate_move(app: &tauri::AppHandle, label: &str) {
+    if let Some(runtime) = app.try_state::<Runtime>() {
+        if let Ok(mut moves) = runtime.moves.lock() {
+            *moves.entry(label.to_string()).or_default() += 1;
+        }
+        if let Ok(mut dragging) = runtime.dragging.lock() {
+            dragging.remove(label);
+        }
+        if let Ok(mut marks) = runtime.drag_marks.lock() {
+            marks.remove(label);
+        }
+    }
+}
+
+fn settle(app: &tauri::AppHandle, label: &str, epoch: u64) -> Result<(), String> {
     let Some(window) = app.get_webview_window(label) else {
         return Ok(());
     };
@@ -1179,6 +2074,9 @@ fn settle(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
         let (x, y) = *lock(&runtime.stack_lead)?;
         point.x += x;
         point.y += y;
+    }
+    if drag_epoch(app) != epoch || !screen_unchanged(app) {
+        return Ok(());
     }
     let (stored, changed) = widgets::commands::change(&state, |db| {
         update(db, |layout| {
@@ -1229,11 +2127,19 @@ pub(crate) async fn configure_widget_desktop(
     input: LayoutSettings,
 ) -> Result<DesktopState, String> {
     let (previous, stored) = widgets::commands::change(&state, |db| {
-        let previous = read(db)?.layout.mode;
+        let previous = read(db)?.layout;
         Ok((previous, configure(db, expected_revision, input)?))
     })?;
     let current = emit_state(&app, &state, &stored);
-    sync(&app, &state, &stored.layout, previous != stored.layout.mode)?;
+    if needs_layout_sync(&previous, &stored.layout) {
+        sync(
+            &app,
+            &state,
+            &stored.layout,
+            previous.mode != stored.layout.mode,
+            false,
+        )?;
+    }
     Ok(current)
 }
 
@@ -1249,7 +2155,13 @@ pub(crate) async fn restore_widget_desktop(
         Ok((previous, restore(db, expected_revision, layout)?))
     })?;
     let current = emit_state(&app, &state, &stored);
-    sync(&app, &state, &stored.layout, previous != stored.layout.mode)?;
+    sync(
+        &app,
+        &state,
+        &stored.layout,
+        reveal_restored_stack(&previous, &stored.layout),
+        true,
+    )?;
     Ok(current)
 }
 
@@ -1278,6 +2190,7 @@ pub(crate) async fn add_widget_desktop_item(
         &state,
         &stored.layout,
         stored.layout.mode == Mode::Stack,
+        false,
     )?;
     Ok(current)
 }
@@ -1297,7 +2210,67 @@ pub(crate) async fn remove_widget_desktop_item(
     })?;
     let current = emit_state(&app, &state, &stored);
     close(&app, &format!("{DISPLAY}{id}"))?;
+    if should_close_empty_stack(&stored.layout) {
+        close(&app, STACK)?;
+    }
     crate::widgets::runtime::refresh(&app);
+    Ok(current)
+}
+
+#[tauri::command]
+pub(crate) async fn set_widget_desktop_position(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    dx: f64,
+    dy: f64,
+) -> Result<DesktopState, String> {
+    widget_id(&id)?;
+    let window = app
+        .get_webview_window(&format!("{DISPLAY}{id}"))
+        .ok_or("위젯 창을 찾을 수 없어요.")?;
+    let rect = window_rect(&window)?;
+    let displayed = Point {
+        x: rect.x,
+        y: rect.y,
+    };
+    let origin = app
+        .try_state::<Runtime>()
+        .and_then(|runtime| {
+            runtime
+                .keyboard_positions
+                .lock()
+                .ok()
+                .and_then(|positions| {
+                    positions
+                        .get(window.label())
+                        .map(|pending| keyboard_position(pending, &displayed))
+                })
+        })
+        .unwrap_or_else(|| displayed.clone());
+    let mut target = None;
+    let (stored, _) = widgets::commands::change(&state, |db| {
+        update(db, |layout| {
+            target = Some(move_widget_position(layout, &id, &origin, dx, dy)?);
+            Ok(())
+        })
+    })?;
+    let current = emit_state(&app, &state, &stored);
+    if let Some(point) = target {
+        place(&app, &window, &point)?;
+        if let Some(runtime) = app.try_state::<Runtime>() {
+            if let Ok(mut positions) = runtime.keyboard_positions.lock() {
+                let pending = positions.entry(window.label().into()).or_default();
+                if let Some(index) = pending.iter().position(|previous| displayed.near(previous)) {
+                    pending.drain(..index);
+                } else {
+                    pending.clear();
+                    pending.push(displayed);
+                }
+                pending.push(point);
+            }
+        }
+    }
     Ok(current)
 }
 
@@ -1328,7 +2301,7 @@ pub(crate) async fn set_widget_desktop_shape(
     if stored.layout.mode == Mode::Freeform
         && app.get_webview_window(&format!("{DISPLAY}{id}")).is_some()
     {
-        open_display(&app, &state, &id)?;
+        open_display(&app, &state, &id, false)?;
     }
     Ok(current)
 }
@@ -1363,6 +2336,7 @@ pub(crate) async fn set_widget_stack_style(
 #[tauri::command]
 pub(crate) async fn set_widget_desktop_editing(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, Arc<AppState>>,
     editing: bool,
 ) -> Result<DesktopState, String> {
@@ -1389,14 +2363,17 @@ pub(crate) async fn set_widget_desktop_editing(
         if changed {
             crate::desktop::toys::clear_automatic(&app);
         }
-        if let Err(error) = open_editor(&app) {
+        if let Err(error) = open_editor(&app, &window) {
             end_editing(&app, &state);
             return Err(error);
         }
-        synced = sync(&app, &state, &stored.layout, true);
+        synced = sync(&app, &state, &stored.layout, true, false);
     } else {
         set_snapshot(&app, None, true);
         close(&app, EDITOR)?;
+        if should_close_empty_stack(&stored.layout) {
+            close(&app, STACK)?;
+        }
     }
     if changed {
         crate::app::publish(&app, &state);
@@ -1427,7 +2404,7 @@ pub(crate) async fn open_widget_stack(
     if changed {
         emit_state(&app, &state, &stored);
     }
-    sync(&app, &state, &stored.layout, true)
+    sync(&app, &state, &stored.layout, true, false)
 }
 
 #[tauri::command]
@@ -1462,9 +2439,9 @@ pub(crate) async fn fit_widget_stack(
         return Ok(());
     };
     let size = fit_size(width, height, window_area(&app, &window)?)?;
-    let lead = lead
-        .filter(Point::valid)
-        .map_or((0.0, 0.0), |point| (point.x.clamp(0.0, size.0), point.y.clamp(0.0, size.1)));
+    let lead = lead.filter(Point::valid).map_or((0.0, 0.0), |point| {
+        (point.x.clamp(0.0, size.0), point.y.clamp(0.0, size.1))
+    });
     *lock(&runtime.stack_lead)? = lead;
     let layout = read(&*lock(&state.db)?)?.layout;
     window
@@ -1502,6 +2479,32 @@ pub(crate) async fn fit_widget_editor(app: tauri::AppHandle, height: f64) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn button_press_only_keeps_input_when_already_enabled() {
+        assert_eq!(
+            keep_display_input_for_pressed_button(false, Some(true)),
+            Some(true)
+        );
+        assert_eq!(
+            keep_display_input_for_pressed_button(false, Some(false)),
+            Some(false)
+        );
+        assert_eq!(keep_display_input_for_pressed_button(false, None), None);
+        assert_eq!(
+            keep_display_input_for_pressed_button(true, Some(true)),
+            Some(false)
+        );
+        assert_eq!(
+            keep_display_input_for_pressed_button(true, Some(false)),
+            Some(false)
+        );
+        assert_eq!(
+            keep_display_input_for_pressed_button(true, None),
+            Some(false)
+        );
+    }
+
     fn database() -> Connection {
         let db = Connection::open_in_memory().unwrap();
         storage::initialize(&db).unwrap();
@@ -1523,6 +2526,59 @@ mod tests {
     fn shape(width: f64, height: f64, rotation: f64) -> Shape {
         serde_json::from_value(serde_json::json!({"source":"drawing","preset":"default","cloudCount":4,"roundness":70,"rotation":rotation,"flipX":true,"flipY":false,"fitContent":true,"width":width,"height":height,"strokes":[[{"x":1,"y":1},{"x":23,"y":1},{"x":12,"y":23}]]})).unwrap()
     }
+    #[test]
+    fn shared_artwork_paths_are_available_for_input_testing() {
+        assert_eq!(preset_paths().len(), 24);
+        assert_eq!(skin_paths().len(), 6);
+        assert!(path_points("M0 0 Q1 2 3 4 Z").is_none());
+    }
+
+    #[test]
+    fn input_contains_uses_shape_rotation_flip_and_drawn_strokes() {
+        let mut item = shape(120.0, 120.0, 0.0);
+        item.flip_x = false;
+        assert_eq!(
+            shape_contains(&item, "clock", false, (0.0, 0.0)),
+            Some(true)
+        );
+        assert_eq!(
+            shape_contains(&item, "clock", false, (50.0, 50.0)),
+            Some(false)
+        );
+        item.rotation = 90.0;
+        assert_eq!(
+            shape_contains(&item, "clock", false, (40.0, -40.0)),
+            Some(true)
+        );
+        assert_eq!(
+            shape_contains(&item, "clock", false, (-40.0, 40.0)),
+            Some(false)
+        );
+        item.flip_x = true;
+        assert_eq!(
+            shape_contains(&item, "clock", false, (40.0, 40.0)),
+            Some(true)
+        );
+        item.strokes.clear();
+        item.source = "preset".into();
+        item.preset = "circle".into();
+        assert_eq!(
+            shape_contains(&item, "clock", false, (0.0, 0.0)),
+            Some(true)
+        );
+        assert_eq!(
+            shape_contains(&item, "clock", false, (55.0, 55.0)),
+            Some(false)
+        );
+        item.preset = "default".into();
+        assert_eq!(
+            shape_contains(&item, "clock", false, (55.0, 55.0)),
+            Some(false)
+        );
+        assert_eq!(shape_contains(&item, "unknown", false, (0.0, 0.0)), None);
+        assert_eq!(shape_contains(&item, "clock", false, (f64::NAN, 0.0)), None);
+    }
+
     fn style() -> StackStyle {
         StackStyle {
             follow_theme: false,
@@ -1636,7 +2692,10 @@ mod tests {
             width: Width(600),
             ..Layout::default()
         };
-        assert_eq!(configure(&db, 0, settings(&layout)).unwrap().layout.width, Width(600));
+        assert_eq!(
+            configure(&db, 0, settings(&layout)).unwrap().layout.width,
+            Width(600)
+        );
     }
 
     #[test]
@@ -1657,13 +2716,20 @@ mod tests {
             "INSERT INTO widget_preferences(key,value) VALUES(?1,?2)",
             params![
                 KEY,
-                format!(r#"{{"revision":1,"order":["{0}"],"pinned":["{0}"]}}"#, ids[0])
+                format!(
+                    r#"{{"revision":1,"order":["{0}"],"pinned":["{0}"]}}"#,
+                    ids[0]
+                )
             ],
         )
         .unwrap();
         let loaded = load(&db).unwrap();
         assert_eq!(loaded.layout.order, ids);
-        assert!(!serde_json::to_value(&loaded).unwrap().as_object().unwrap().contains_key("pinned"));
+        assert!(!serde_json::to_value(&loaded)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .contains_key("pinned"));
     }
 
     #[test]
@@ -1727,7 +2793,8 @@ mod tests {
         };
         let saved = configure(&db, 0, settings(&layout)).unwrap();
         restore(&db, saved.revision, layout).unwrap();
-        db.execute("DELETE FROM widget_instances WHERE id=?1", [&ids[1]]).unwrap();
+        db.execute("DELETE FROM widget_instances WHERE id=?1", [&ids[1]])
+            .unwrap();
         db.execute(
             "UPDATE widget_instances SET kind='collection' WHERE id=?1",
             [&ids[2]],
@@ -1774,15 +2841,10 @@ mod tests {
         input.order = vec![ids[1].clone()];
         input.anchor = Anchor::BottomLeft;
         let next = configure(&db, next.revision, input).unwrap();
-        assert_eq!(
-            next.layout.positions.keys().collect::<Vec<_>>(),
-            vec![&ids[1]]
-        );
-        assert!(next.layout.shapes.is_empty());
-        assert_eq!(
-            next.layout.stack_styles.keys().collect::<Vec<_>>(),
-            vec![&ids[1]]
-        );
+        assert_eq!(next.layout.order, vec![ids[1].clone()]);
+        assert_eq!(next.layout.positions, layout.positions);
+        assert_eq!(next.layout.shapes, layout.shapes);
+        assert_eq!(next.layout.stack_styles, layout.stack_styles);
         assert!(next.layout.stack_position.is_none());
     }
 
@@ -1808,7 +2870,8 @@ mod tests {
         assert!(changed);
         assert_eq!(moved.revision, saved.revision + 1);
         assert_eq!(update(&db, |_| Ok(())).unwrap(), (moved.clone(), false));
-        db.execute("DELETE FROM widget_instances WHERE id=?1", [&ids[1]]).unwrap();
+        db.execute("DELETE FROM widget_instances WHERE id=?1", [&ids[1]])
+            .unwrap();
         let restored = restore(&db, load(&db).unwrap().revision, snapshot).unwrap();
         assert_eq!(restored.layout.order, vec![ids[0].clone()]);
         assert!(restored.layout.positions.is_empty());
@@ -1816,7 +2879,38 @@ mod tests {
     }
 
     #[test]
-    fn removing_an_item_clears_its_geometry_without_touching_widget_data() {
+    fn removing_an_item_only_changes_order_without_touching_widget_data() {
+        let db = database();
+        let ids = widget_ids(&db, &["clock"]);
+        let widget = storage::get(&db, &ids[0]).unwrap();
+        let (before, _) = update(&db, |layout| {
+            layout.order.push(ids[0].clone());
+            layout.stack_styles.insert(ids[0].clone(), style());
+            layout
+                .positions
+                .insert(ids[0].clone(), Point { x: 1.0, y: 2.0 });
+            layout
+                .shapes
+                .insert(ids[0].clone(), shape(184.0, 184.0, 0.0));
+            Ok(())
+        })
+        .unwrap();
+        let (stored, changed) = update(&db, |layout| {
+            without(layout, &ids[0]);
+            Ok(())
+        })
+        .unwrap();
+        assert!(changed);
+        let mut expected = before.layout;
+        expected.order.clear();
+        assert_eq!(stored.layout, expected);
+        let current = storage::get(&db, &ids[0]).unwrap();
+        assert_eq!(current.data, widget.data);
+        assert_eq!(current.revision, widget.revision);
+    }
+
+    #[test]
+    fn removing_an_item_preserves_its_geometry_without_touching_widget_data() {
         let db = database();
         let ids = widget_ids(&db, &["clock"]);
         let widget = storage::get(&db, &ids[0]).unwrap();
@@ -1838,7 +2932,17 @@ mod tests {
         })
         .unwrap();
         assert!(changed);
-        assert_eq!(stored.layout, Layout::default());
+        assert!(stored.layout.order.is_empty());
+        assert!(stored.layout.positions.contains_key(&ids[0]));
+        assert!(stored.layout.shapes.contains_key(&ids[0]));
+        assert!(stored.layout.stack_styles.contains_key(&ids[0]));
+        let (replaced, _) = update(&db, |layout| {
+            layout.order.push(ids[0].clone());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(replaced.layout.shapes, stored.layout.shapes);
+        assert_eq!(replaced.layout.stack_styles, stored.layout.stack_styles);
         let current = storage::get(&db, &ids[0]).unwrap();
         assert_eq!(current.data, widget.data);
         assert_eq!(current.revision, widget.revision);
@@ -1846,12 +2950,7 @@ mod tests {
 
     #[test]
     fn display_windows_follow_placement_independently_of_reaction_preference() {
-        for mutation in [
-            "none",
-            "stack",
-            "unplaced",
-            "reaction-off",
-        ] {
+        for mutation in ["none", "stack", "unplaced", "reaction-off"] {
             let directory = tempfile::tempdir().unwrap();
             let mut state = crate::app::tests::state();
             state.app_data = directory.path().into();
@@ -1879,7 +2978,11 @@ mod tests {
                     .unwrap();
                 }
                 "reaction-off" => {
-                    db.execute("INSERT INTO widget_preferences(key,value) VALUES(?1,'0')", [format!("reaction:{id}")]).unwrap();
+                    db.execute(
+                        "INSERT INTO widget_preferences(key,value) VALUES(?1,'0')",
+                        [format!("reaction:{id}")],
+                    )
+                    .unwrap();
                 }
                 _ => {}
             }
@@ -1949,6 +3052,51 @@ mod tests {
     }
 
     #[test]
+    fn restoration_fits_the_most_overlapping_or_nearest_work_area() {
+        let second = Rect {
+            x: 1440.0,
+            y: 25.0,
+            width: 1920.0,
+            height: 875.0,
+        };
+        let areas = [AREA, second];
+        assert_eq!(
+            restore_point(
+                &Point {
+                    x: 1400.0,
+                    y: 850.0
+                },
+                (200.0, 100.0),
+                &areas
+            ),
+            Point {
+                x: 1440.0,
+                y: 800.0
+            }
+        );
+        assert_eq!(
+            restore_point(
+                &Point {
+                    x: 4000.0,
+                    y: 100.0
+                },
+                (200.0, 100.0),
+                &areas
+            ),
+            Point {
+                x: 3160.0,
+                y: 100.0
+            }
+        );
+        let oversized = Point { x: 100.0, y: 100.0 };
+        assert_eq!(
+            restore_point(&oversized, (2000.0, 1000.0), &[AREA]),
+            Point { x: 0.0, y: 25.0 }
+        );
+        assert_eq!(restore_point(&oversized, (2000.0, 1000.0), &[]), oversized);
+    }
+
+    #[test]
     fn automatic_placement_starts_top_right_and_avoids_placed_widgets() {
         let size = (208.0, 208.0);
         let first = auto_place(AREA, size, &[]);
@@ -1961,6 +3109,28 @@ mod tests {
         let full = [AREA];
         let fallback = auto_place(AREA, size, &full);
         assert!(fallback.x >= AREA.x && fallback.y >= AREA.y);
+    }
+
+    #[test]
+    fn automatic_placement_avoids_saved_widgets_not_opened_yet() {
+        let size = display_size(None, "clock");
+        let saved = auto_place(AREA, size, &[]);
+        let mut layout = Layout {
+            mode: Mode::Freeform,
+            order: vec!["a".into(), "b".into()],
+            ..Layout::default()
+        };
+        layout.positions.insert("b".into(), saved.clone());
+        layout.shapes.insert("b".into(), shape(300.0, 100.0, 0.0));
+        let kinds = HashMap::from([("a".into(), "clock".into()), ("b".into(), "clock".into())]);
+        let mut occupied = Vec::new();
+        add_saved_widget_areas(&mut occupied, &layout, &kinds, "a");
+
+        let saved_rect = Rect::at(&saved, display_size(layout.shapes.get("b"), "clock"));
+        assert_eq!(occupied, vec![saved_rect]);
+        let placed = auto_place(AREA, size, &occupied);
+        assert!(!Rect::at(&placed, size).intersects(&saved_rect));
+        assert_eq!(layout.positions.get("b"), Some(&saved));
     }
 
     #[test]
@@ -2116,6 +3286,408 @@ mod tests {
     }
 
     #[test]
+    fn old_layouts_default_monitor_and_expanded_rows() {
+        let legacy: Layout = serde_json::from_str(r#"{"mode":"stack","order":[]}"#).unwrap();
+        assert!(legacy.stack_monitor.is_none());
+        assert!(legacy.stack_monitor_origin.is_none());
+        assert!(legacy.expanded.is_empty());
+    }
+
+    #[test]
+    fn only_recent_drag_marks_are_accepted() {
+        let mut marks = HashMap::new();
+        assert!(!take_drag_mark(&mut marks, STACK));
+        marks.insert(STACK.into(), Instant::now());
+        assert!(take_drag_mark(&mut marks, STACK));
+        assert!(!take_drag_mark(&mut marks, STACK));
+        marks.insert(STACK.into(), Instant::now() - Duration::from_secs(4));
+        assert!(!take_drag_mark(&mut marks, STACK));
+    }
+
+    #[test]
+    fn moved_events_require_a_drag_mark_or_an_active_drag() {
+        assert!(!accepts_drag_move(false, false));
+        assert!(accepts_drag_move(false, true));
+        assert!(accepts_drag_move(true, false));
+        assert!(wait_for_drag_release(Some(true), Duration::from_secs(10)));
+        assert!(!wait_for_drag_release(Some(false), Duration::ZERO));
+        assert!(wait_for_drag_release(None, Duration::from_secs(2)));
+        assert!(!wait_for_drag_release(None, Duration::from_secs(3)));
+    }
+
+    #[test]
+    fn newer_moves_cancel_previous_drag_pollers() {
+        let moves = Mutex::new(HashMap::from([(STACK.to_string(), 1)]));
+        assert!(is_latest_move(&moves, STACK, 1));
+        moves.lock().unwrap().insert(STACK.to_string(), 2);
+        assert!(!is_latest_move(&moves, STACK, 1));
+        assert!(is_latest_move(&moves, STACK, 2));
+        moves.lock().unwrap().clear();
+        assert!(!is_latest_move(&moves, STACK, 2));
+    }
+
+    #[test]
+    fn placement_obstacles_include_widgets_and_body_and_are_avoided() {
+        let labels = [
+            "widget-stack",
+            "widget-display-id",
+            "widget-id-image-id",
+            "widget-id-note-id",
+            "body-character",
+        ];
+        for label in labels {
+            assert!(is_placement_obstacle(label), "{label}");
+        }
+        for label in ["widget-editor", "character-note-id"] {
+            assert!(!is_placement_obstacle(label), "{label}");
+        }
+        let size = (208.0, 208.0);
+        let mut occupied = Vec::new();
+        for _ in labels {
+            let point = auto_place(AREA, size, &occupied);
+            let rect = Rect::at(&point, size);
+            assert!(occupied.iter().all(|other| !rect.intersects(other)));
+            occupied.push(rect);
+        }
+        let point = auto_place(AREA, size, &occupied);
+        assert!(occupied
+            .iter()
+            .all(|other| !Rect::at(&point, size).intersects(other)));
+    }
+
+    #[test]
+    fn restoring_outside_a_monitor_does_not_replace_the_saved_position() {
+        let db = database();
+        let id = widget_ids(&db, &["clock"]).remove(0);
+        let saved = Point {
+            x: 1390.0,
+            y: 850.0,
+        };
+        update(&db, |layout| {
+            layout.order.push(id.clone());
+            layout.positions.insert(id.clone(), saved.clone());
+            Ok(())
+        })
+        .unwrap();
+        let layout = load(&db).unwrap().layout;
+        let (shown, should_save) = display_placement(
+            layout.positions.get(&id),
+            None,
+            (208.0, 208.0),
+            &[AREA],
+            None,
+        );
+        assert_eq!(clamp_point(&saved, (208.0, 208.0), &[AREA]), saved);
+        assert_eq!(
+            shown,
+            Point {
+                x: 1232.0,
+                y: 692.0
+            }
+        );
+        assert!(!should_save);
+        assert_eq!(load(&db).unwrap().layout.positions[&id], saved);
+        let fallback = Point { x: 100.0, y: 100.0 };
+        assert_eq!(
+            display_placement(None, None, (208.0, 208.0), &[AREA], Some(fallback.clone())),
+            (fallback, true)
+        );
+    }
+
+    #[test]
+    fn keyboard_move_saves_from_the_displayed_position_and_preserves_other_layout_data() {
+        let db = database();
+        let ids = widget_ids(&db, &["clock", "weather"]);
+        let original = Point {
+            x: 4000.0,
+            y: 100.0,
+        };
+        let (before, _) = update(&db, |layout| {
+            layout.mode = Mode::Freeform;
+            layout.order = ids.clone();
+            layout.positions.insert(ids[0].clone(), original.clone());
+            layout
+                .positions
+                .insert(ids[1].clone(), Point { x: 50.0, y: 60.0 });
+            Ok(())
+        })
+        .unwrap();
+        let displayed = Point {
+            x: 1232.0,
+            y: 100.0,
+        };
+        let (after, _) = update(&db, |layout| {
+            move_widget_position(layout, &ids[0], &displayed, -8.0, 8.0)?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            after.layout.positions[&ids[0]],
+            Point {
+                x: 1224.0,
+                y: 108.0
+            }
+        );
+        assert_eq!(
+            after.layout.positions[&ids[1]],
+            before.layout.positions[&ids[1]]
+        );
+        assert_eq!(after.layout.order, before.layout.order);
+        assert_eq!(after.layout.shapes, before.layout.shapes);
+        assert!(update(&db, |layout| {
+            move_widget_position(layout, &ids[0], &displayed, f64::NAN, 0.0)?;
+            Ok(())
+        })
+        .is_err());
+        assert!(update(&db, |layout| {
+            move_widget_position(layout, "missing", &displayed, 8.0, 0.0)?;
+            Ok(())
+        })
+        .is_err());
+        assert_eq!(load(&db).unwrap().layout, after.layout);
+
+        let mut without_position = after.layout.clone();
+        without_position.positions.remove(&ids[0]);
+        let moved =
+            move_widget_position(&mut without_position, &ids[0], &displayed, 8.0, 0.0).unwrap();
+        assert_eq!(
+            moved,
+            Point {
+                x: 1240.0,
+                y: 100.0
+            }
+        );
+        without_position.mode = Mode::Stack;
+        assert!(
+            move_widget_position(&mut without_position, &ids[0], &displayed, 8.0, 0.0).is_err()
+        );
+    }
+
+    #[test]
+    fn keyboard_move_uses_the_latest_target_while_native_position_catches_up() {
+        let pending = vec![
+            Point { x: 100.0, y: 80.0 },
+            Point { x: 108.0, y: 80.0 },
+            Point { x: 116.0, y: 80.0 },
+        ];
+        assert_eq!(keyboard_position(&pending, &pending[0]), pending[2]);
+        assert_eq!(keyboard_position(&pending, &pending[1]), pending[2]);
+        let moved_elsewhere = Point { x: 300.0, y: 200.0 };
+        assert_eq!(
+            keyboard_position(&pending, &moved_elsewhere),
+            moved_elsewhere
+        );
+    }
+
+    #[test]
+    fn missing_anchor_monitor_falls_back_to_primary_without_changing_the_identity() {
+        let external = Rect {
+            x: 1440.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let monitors = vec![
+            (Some("primary".into()), Point { x: 0.0, y: 0.0 }, AREA),
+            (
+                Some("external".into()),
+                Point { x: 1440.0, y: 0.0 },
+                external,
+            ),
+        ];
+        let mut layout = Layout {
+            stack_monitor: Some("external".into()),
+            ..Layout::default()
+        };
+        assert_eq!(
+            selected_monitor_area(&monitors, layout.stack_monitor.as_deref(), None, AREA),
+            external
+        );
+        assert_eq!(
+            selected_monitor_area(&monitors[..1], layout.stack_monitor.as_deref(), None, AREA),
+            AREA
+        );
+        assert_eq!(layout.stack_monitor.take().as_deref(), Some("external"));
+    }
+
+    #[test]
+    fn duplicate_monitor_names_use_the_closest_saved_origin() {
+        let external = Rect {
+            x: 1440.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let monitors = vec![
+            (Some("same".into()), Point { x: 0.0, y: 0.0 }, AREA),
+            (Some("same".into()), Point { x: 2880.0, y: 0.0 }, external),
+        ];
+        let legacy: Layout = serde_json::from_str(r#"{"stackMonitor":"same"}"#).unwrap();
+        assert_eq!(
+            selected_monitor_area(
+                &monitors,
+                legacy.stack_monitor.as_deref(),
+                legacy.stack_monitor_origin.as_ref(),
+                AREA,
+            ),
+            AREA
+        );
+        let saved = Point { x: 2900.0, y: 0.0 };
+        assert_eq!(
+            selected_monitor_area(&monitors, Some("same"), Some(&saved), AREA),
+            external
+        );
+        assert_eq!(
+            selected_monitor_area(&monitors, Some("missing"), Some(&saved), AREA),
+            AREA
+        );
+    }
+
+    #[test]
+    fn selecting_the_same_anchor_clears_the_dragged_position() {
+        let mut layout = Layout {
+            stack_position: Some(Point { x: 500.0, y: 40.0 }),
+            ..Layout::default()
+        };
+        let origin = Point { x: 1440.0, y: 0.0 };
+        reset_anchor(
+            &mut layout,
+            Anchor::TopRight,
+            Some((Some("external".into()), origin.clone())),
+        );
+        assert_eq!(layout.anchor, Anchor::TopRight);
+        assert!(layout.stack_position.is_none());
+        assert_eq!(layout.stack_monitor.as_deref(), Some("external"));
+        assert_eq!(layout.stack_monitor_origin, Some(origin));
+        let saved = serde_json::to_string(&layout).unwrap();
+        let restored: Layout = serde_json::from_str(&saved).unwrap();
+        assert_eq!(restored.stack_monitor, layout.stack_monitor);
+        assert_eq!(restored.stack_monitor_origin, layout.stack_monitor_origin);
+    }
+
+    #[test]
+    fn removed_item_keeps_expansion_and_visibility_preference() {
+        let id = "item".to_string();
+        let mut layout = Layout {
+            order: vec![id.clone()],
+            expanded: vec![id.clone()],
+            stack_hidden: true,
+            ..Layout::default()
+        };
+        without(&mut layout, &id);
+        assert!(layout.order.is_empty());
+        assert_eq!(layout.expanded, vec![id]);
+        assert!(layout.stack_hidden);
+    }
+
+    #[test]
+    fn restoring_the_last_removed_stack_item_reveals_the_stack() {
+        let db = database();
+        let id = widget_ids(&db, &["clock"]).remove(0);
+        let (snapshot, _) = update(&db, |layout| {
+            layout.order.push(id.clone());
+            Ok(())
+        })
+        .unwrap();
+        let (empty, _) = update(&db, |layout| {
+            without(layout, &id);
+            Ok(())
+        })
+        .unwrap();
+        assert!(should_close_empty_stack(&empty.layout));
+        let restored = restore(&db, empty.revision, snapshot.layout).unwrap();
+        assert_eq!(restored.layout.order, vec![id]);
+        assert!(reveal_restored_stack(&empty.layout.mode, &restored.layout));
+        let hidden = Layout {
+            stack_hidden: true,
+            ..restored.layout.clone()
+        };
+        assert!(!reveal_restored_stack(&Mode::Stack, &hidden));
+        assert!(!reveal_restored_stack(&Mode::Stack, &empty.layout));
+    }
+
+    #[test]
+    fn enabling_one_expanded_saves_only_one_row_without_repositioning_for_row_toggles() {
+        let db = database();
+        let ids = widget_ids(&db, &["clock", "weather"]);
+        let (previous, _) = update(&db, |layout| {
+            layout.order = ids.clone();
+            layout.one_expanded = false;
+            layout.expanded = ids.clone();
+            Ok(())
+        })
+        .unwrap();
+        let input = LayoutSettings {
+            mode: Mode::Stack,
+            order: ids.clone(),
+            anchor: previous.layout.anchor.clone(),
+            width: previous.layout.width,
+            overlapped: previous.layout.overlapped,
+            one_expanded: true,
+            snap_to_grid: previous.layout.snap_to_grid,
+            show_guides: previous.layout.show_guides,
+            expanded: None,
+        };
+        let saved = configure(&db, previous.revision, input).unwrap();
+        assert_eq!(saved.layout.expanded, vec![ids[0].clone()]);
+        assert_eq!(load(&db).unwrap().layout.expanded, vec![ids[0].clone()]);
+        assert!(needs_layout_sync(&previous.layout, &saved.layout));
+        let mut toggled = saved.layout.clone();
+        toggled.expanded = vec![ids[1].clone()];
+        assert!(!needs_layout_sync(&saved.layout, &toggled));
+        toggled.width = Width(410);
+        assert!(needs_layout_sync(&saved.layout, &toggled));
+    }
+
+    #[test]
+    fn empty_stack_closes_without_changing_visibility_preference() {
+        for hidden in [false, true] {
+            let db = database();
+            let ids = widget_ids(&db, &["clock", "weather"]);
+            let (stored, _) = update(&db, |layout| {
+                layout.order = ids.clone();
+                layout.stack_hidden = hidden;
+                Ok(())
+            })
+            .unwrap();
+            assert!(!should_close_empty_stack(&stored.layout));
+            let (stored, _) = update(&db, |layout| {
+                without(layout, &ids[0]);
+                Ok(())
+            })
+            .unwrap();
+            assert!(!should_close_empty_stack(&stored.layout));
+            let (stored, _) = update(&db, |layout| {
+                without(layout, &ids[1]);
+                Ok(())
+            })
+            .unwrap();
+            assert!(should_close_empty_stack(&stored.layout));
+            assert_eq!(load(&db).unwrap().layout.stack_hidden, hidden);
+        }
+    }
+
+    #[test]
+    fn preferred_monitor_uses_window_then_cursor_then_primary() {
+        let window = Rect { x: 1.0, ..AREA };
+        let cursor = Rect { x: 2.0, ..AREA };
+        let primary = AREA;
+        assert_eq!(
+            preferred_area_from(Some(window), Some(cursor), Some(primary)),
+            Some(window)
+        );
+        assert_eq!(
+            preferred_area_from(None, Some(cursor), Some(primary)),
+            Some(cursor)
+        );
+        assert_eq!(
+            preferred_area_from(None, None, Some(primary)),
+            Some(primary)
+        );
+        assert_eq!(preferred_area_from(None, None, None), None);
+    }
+
+    #[test]
     fn closing_the_stack_survives_settings_changes_and_legacy_layouts_start_open() {
         let legacy: Layout = serde_json::from_str(r#"{"mode":"stack","order":[]}"#).unwrap();
         assert!(!legacy.stack_hidden);
@@ -2132,6 +3704,7 @@ mod tests {
             one_expanded: false,
             snap_to_grid: true,
             show_guides: false,
+            expanded: None,
         };
         assert!(configured(&hidden, input).stack_hidden);
     }

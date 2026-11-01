@@ -84,6 +84,8 @@ describe("widget line", () => {
     const done = { travel: { ...travel, finished: true } };
     expect(widgetTrip([done], new Date("2026-10-26T20:00:00+09:00"))).toBeUndefined();
     expect(widgetLine(undefined, null).title).toBe("다가오는 여행이 없어요");
+    expect(widgetLine(undefined, null, new Date(), "error")).toMatchObject({ title: "여행 정보를 불러오지 못했어요", value: "확인 필요" });
+    expect(widgetLine(trip(), null, new Date(), "error")).toMatchObject({ title: "여행 정보를 불러오지 못했어요", value: "확인 필요" });
   });
 });
 

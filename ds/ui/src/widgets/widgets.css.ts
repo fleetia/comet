@@ -468,12 +468,18 @@ export const summaryItem = style({
   whiteSpace: "nowrap",
   cursor: "pointer",
   selectors: {
-    '&[aria-pressed="true"]': {
+    '&[data-active="true"]': {
       background: tokens["color/selected"],
       color: tokens["color/selected-ink"],
     },
     "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}` },
   },
+});
+export const summaryLabel = style({
+  maxWidth: 160,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
 });
 export const freeform = style({
   position: "relative",
@@ -527,6 +533,7 @@ export const compactFreeformCopy = style({
   alignItems: "center",
   justifyContent: "center",
   gap: tokens["spacing/space-8"],
+  whiteSpace: "nowrap",
 });
 export const clockTime = style({
   fontFamily: tokens["typography/display/clock/fontFamily"],

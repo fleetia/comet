@@ -108,6 +108,21 @@ impl Machine {
         self.next_prank = now + 600 + (entropy % 601) as i64;
     }
 
+    fn apply_prank_permissions(
+        &mut self,
+        pranks_enabled: bool,
+        motion_allowed: bool,
+        now: i64,
+        entropy: u64,
+    ) -> (bool, bool) {
+        let motion_interrupted = !motion_allowed && self.actor.is_some();
+        let actor_cleared = (!pranks_enabled || !motion_allowed) && self.actor.take().is_some();
+        if !motion_allowed {
+            self.schedule(now, entropy);
+        }
+        (actor_cleared, motion_interrupted)
+    }
+
     fn observe(
         &mut self,
         now: i64,
@@ -329,6 +344,10 @@ fn automatic_owners(state: &AppState, db: &Connection) -> Result<Vec<String>, St
         .collect())
 }
 
+fn prank_motion_allowed(present: &[String], motion_allowed: impl Fn(&str) -> bool) -> bool {
+    !present.is_empty() && present.iter().all(|id| motion_allowed(id))
+}
+
 pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
     let geometry = desktop::toys::current_geometry(app).await;
     let timestamp = crate::now();
@@ -343,18 +362,28 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
     let db = lock(&state.db)?;
     let preferences = preferences(&db)?;
     let present = automatic_owners(state, &db)?;
+    let prank_motion_allowed = {
+        let life = lock(&state.life)?;
+        prank_motion_allowed(&present, |id| life.wandering.motion_allowed(id))
+    };
     let epoch = state.epoch.load(Ordering::SeqCst);
     let (blocked, conversation, waiting) = tick_conditions(state, &db, fullscreen, timestamp)?;
     let blocked = blocked || present.is_empty();
     let mut machine = lock(&state.behavior)?;
-    if !preferences.pranks_enabled && machine.actor.take().is_some() {
+    let (actor_cleared, motion_interrupted) = machine.apply_prank_permissions(
+        preferences.pranks_enabled,
+        prank_motion_allowed,
+        timestamp,
+        entropy,
+    );
+    if actor_cleared {
         desktop::toys::clear_automatic(app);
     }
     let transition = machine.observe(timestamp, blocked, conversation, waiting, epoch, entropy);
     if transition.end_play {
         desktop::toys::clear_automatic(app);
     }
-    if transition.discard_reactions {
+    if transition.discard_reactions || motion_interrupted {
         widgets::storage::discard_automatic_desktop_pending(&db)?;
         cancel_automatic_reaction(state)?;
     }
@@ -413,7 +442,10 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
     if changed {
         let _ = app.emit("desktop-toy-results", ());
     }
-    if preferences.pranks_enabled && machine.phase == Phase::Idle && timestamp >= machine.next_prank
+    if preferences.pranks_enabled
+        && prank_motion_allowed
+        && machine.phase == Phase::Idle
+        && timestamp >= machine.next_prank
     {
         let eligible: Vec<_> = widgets::storage::instances(&db)?
             .into_iter()
@@ -443,7 +475,7 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
     drop(machine);
     drop(db);
     drop(_action);
-    if transition.discard_reactions {
+    if transition.discard_reactions || motion_interrupted {
         crate::publish(app, state);
     }
     Ok(())
@@ -452,6 +484,72 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prank_motion_gate_requires_every_present_character_to_allow_motion() {
+        let present: [String; 4] = [
+            "allowed".into(),
+            "also-allowed".into(),
+            "reduced".into(),
+            "unreported".into(),
+        ];
+        let motion_allowed = |id: &str| {
+            (match id {
+                "allowed" | "also-allowed" => Some(false),
+                "reduced" => Some(true),
+                _ => None,
+            }) == Some(false)
+        };
+
+        assert!(!prank_motion_allowed(&[], motion_allowed));
+        assert!(prank_motion_allowed(&present[..2], motion_allowed));
+        assert!(!prank_motion_allowed(&present[..3], motion_allowed));
+        assert!(!prank_motion_allowed(
+            &[present[0].clone(), present[3].clone()],
+            motion_allowed
+        ));
+    }
+
+    #[test]
+    fn disallowed_motion_interrupts_actor_and_postpones_pranks() {
+        let mut machine = Machine::default();
+        machine.begin("actor".into(), 1, 5);
+        machine.next_prank = 10;
+
+        assert_eq!(
+            machine.apply_prank_permissions(true, false, 100, 123),
+            (true, true)
+        );
+        assert!(machine.actor.is_none());
+        assert_eq!(machine.next_prank, 823);
+
+        assert_eq!(
+            machine.apply_prank_permissions(true, false, 101, 123),
+            (false, false)
+        );
+        assert_eq!(machine.next_prank, 824);
+    }
+
+    #[test]
+    fn allowed_motion_preserves_actor_and_schedule() {
+        let mut machine = Machine::default();
+        machine.begin("actor".into(), 1, 5);
+        machine.next_prank = 10;
+
+        assert_eq!(
+            machine.apply_prank_permissions(true, true, 100, 123),
+            (false, false)
+        );
+        assert_eq!(machine.actor.as_ref(), Some(&("actor".into(), 1)));
+        assert_eq!(machine.next_prank, 10);
+
+        assert_eq!(
+            machine.apply_prank_permissions(false, true, 100, 123),
+            (true, false)
+        );
+        assert!(machine.actor.is_none());
+        assert_eq!(machine.next_prank, 10);
+    }
 
     #[test]
     fn sleeping_people_cannot_own_an_automatic_prank_or_receive_its_effects() {

@@ -13,7 +13,7 @@ import {
   widgetBackgroundUrl,
 } from "../widgetAppearance";
 import { FreeformWidget } from "./DesktopWidget";
-import { defaultShape, resizeShape } from "./desktopShape";
+import { defaultShape, resizeShape, SHAPE_SAVE_DELAY } from "./desktopShape";
 import { useDesktopState } from "./desktopState";
 import { transparentDocument } from "../../components/companion.css";
 import * as s from "./widgetDisplay.css";
@@ -41,14 +41,16 @@ function isControl(target: EventTarget): boolean {
 const EMPTY: WidgetView[] = [];
 
 export function WidgetDisplay({ id }: { id: string }): ReactElement {
-  const { snapshot, error } = useWidgets();
+  const { snapshot, error, reload } = useWidgets();
   const desktop = useDesktopState();
   const [preview, setPreview] = useState<WidgetShape | null>(null);
+  const pendingShape = useRef<WidgetShape | null>(null);
+  const saveTimer = useRef<number | undefined>(undefined);
   const resizing = useRef<{ pointerId: number; x: number; y: number; shape: WidgetShape } | null>(
     null,
   );
   const now = useNow();
-  const all = useTravelWidgets(snapshot?.widgets ?? EMPTY);
+  const { widgets: all } = useTravelWidgets(snapshot?.widgets ?? EMPTY);
   const widget = all.find((item) => item.id === id);
   const entry = snapshot?.catalog.find((item) => item.id === widget?.kind);
   const editing = desktop.state?.editing ?? false;
@@ -61,23 +63,43 @@ export function WidgetDisplay({ id }: { id: string }): ReactElement {
   const shape = preview ?? savedShape;
   const name = entry?.name ?? "바탕화면 위젯";
 
+  function saveResize(): void {
+    window.clearTimeout(saveTimer.current);
+    const next = pendingShape.current;
+    if (!next) return;
+    pendingShape.current = null;
+    void desktop.run("set_widget_desktop_shape", { id, shape: next }).then(() => {
+      setPreview((current) => (current === next ? null : current));
+    });
+  }
+  const saveResizeRef = useRef(saveResize);
+  saveResizeRef.current = saveResize;
+
   useEffect(() => {
     document.documentElement.classList.add(transparentDocument);
-    return () => document.documentElement.classList.remove(transparentDocument);
+    return () => {
+      document.documentElement.classList.remove(transparentDocument);
+      saveResizeRef.current();
+    };
   }, []);
   useEffect(() => {
-    if (!editing) setPreview(null);
+    if (!editing) {
+      saveResizeRef.current();
+      setPreview(null);
+    }
   }, [editing]);
 
   function startResize(event: PointerEvent<HTMLButtonElement>): void {
     event.stopPropagation();
     if (!widget || event.button !== 0 || desktop.busy) return;
+    const base = pendingShape.current ?? preview ?? savedShape ?? defaultShape(widget);
+    saveResize();
     event.currentTarget.setPointerCapture(event.pointerId);
     resizing.current = {
       pointerId: event.pointerId,
       x: event.clientX,
       y: event.clientY,
-      shape: savedShape ?? defaultShape(widget),
+      shape: base,
     };
   }
   function moveResize(event: PointerEvent<HTMLButtonElement>): void {
@@ -147,6 +169,11 @@ export function WidgetDisplay({ id }: { id: string }): ReactElement {
             {error ||
               (snapshot ? "바탕화면에 놓을 수 없는 위젯이에요." : "위젯을 불러오고 있어요.")}
           </p>
+          {error && (
+            <button type="button" onClick={reload}>
+              다시 읽기
+            </button>
+          )}
           {snapshot && (
             <IconButton
               icon="close"
@@ -173,15 +200,18 @@ export function WidgetDisplay({ id }: { id: string }): ReactElement {
             className={s.remove}
             icon="minus"
             aria-label={`${name} 바탕화면에서 빼기`}
-            disabled={desktop.busy}
+            aria-disabled={desktop.busy}
             onPointerDown={(event) => event.stopPropagation()}
-            onClick={() => void desktop.run("remove_widget_desktop_item", { id })}
+            onClick={() => {
+              if (!desktop.busy) void desktop.run("remove_widget_desktop_item", { id });
+            }}
           />
           <button
             type="button"
             className={s.resize}
             aria-label={`${name} 크기 조절`}
-            disabled={desktop.busy}
+            aria-description="화살표 키로 크기를 조절해요."
+            aria-disabled={desktop.busy}
             onPointerDown={startResize}
             onPointerMove={moveResize}
             onPointerUp={endResize}
@@ -193,10 +223,15 @@ export function WidgetDisplay({ id }: { id: string }): ReactElement {
               const step = RESIZE_KEYS[event.key];
               if (!step || desktop.busy) return;
               event.preventDefault();
-              void desktop.run("set_widget_desktop_shape", {
-                id,
-                shape: resizeShape(savedShape ?? defaultShape(widget), step[0], step[1]),
-              });
+              const next = resizeShape(
+                pendingShape.current ?? savedShape ?? defaultShape(widget),
+                step[0],
+                step[1],
+              );
+              pendingShape.current = next;
+              setPreview(next);
+              window.clearTimeout(saveTimer.current);
+              saveTimer.current = window.setTimeout(saveResize, SHAPE_SAVE_DELAY);
             }}
           />
           {preview && (
@@ -209,6 +244,11 @@ export function WidgetDisplay({ id }: { id: string }): ReactElement {
       {(desktop.error || (widget && error)) && (
         <p role="alert" className={s.error}>
           {desktop.error || error}
+          {widget && error && (
+            <button type="button" onClick={reload}>
+              다시 읽기
+            </button>
+          )}
         </p>
       )}
     </main>

@@ -31,7 +31,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "모아두기 위젯 오른쪽 위에 떠 있는 동작 막대입니다. `widgetHoverHost`를 붙인 요소에 마우스를 올리거나 키보드 포커스가 들어오면 나타납니다. 설정(톱니)·접기·순서 바꾸기 핸들 중 전달한 것만 그리며, 핸들의 끌기와 화살표 키 처리는 소비자가 담당합니다.",
+          "모아두기 위젯 오른쪽 위에 떠 있는 동작 막대입니다. `widgetHoverHost`를 붙인 요소에 마우스를 올리거나 키보드 포커스가 들어오면 나타납니다. 설정(톱니) 또는 열기 아이콘·접기·순서 바꾸기 핸들 중 전달한 것만 그리며, 핸들의 끌기와 화살표 키 처리는 소비자가 담당합니다.",
       },
     },
   },
@@ -39,6 +39,10 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Expanded: Story = { name: "펼친 위젯" };
+export const OpenAction: Story = {
+  name: "창 열기",
+  args: { settings: { label: "캘린더 열기", icon: "open", onClick: () => undefined } },
+};
 export const HandleOnly: Story = {
   name: "핸들만",
   args: { settings: undefined, onCollapse: undefined },

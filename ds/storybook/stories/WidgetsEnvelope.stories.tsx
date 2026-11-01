@@ -16,6 +16,7 @@ const meta = {
       open: "봉투 열기",
     },
     footer: "내용 4개는 봉투에서 봐요. 끝난 일정은 빼고 가까운 날짜의 봉투부터 보여 줘요.",
+    onFocus: () => undefined,
     tasks: [
       { id: "car", title: "차표 예매하기", completed: true },
       { id: "stay", title: "숙소 예약 확인", completed: true },
@@ -67,4 +68,4 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Default: Story = { name: "준비 중" };
-export const Empty: Story = { name: "빈 봉투", args: { tasks: [] } };
+export const Empty: Story = { name: "빈 봉투", args: { tasks: [], onFocus: undefined } };

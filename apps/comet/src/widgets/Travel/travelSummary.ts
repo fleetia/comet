@@ -104,7 +104,10 @@ export function widgetLine(
   trip: TripData | undefined,
   envelope: { completed: number; total: number } | null,
   now: Date = new Date(),
+  status: "loading" | "ready" | "error" = "ready",
 ): WidgetLine {
+  if (status === "error") return { title: "여행 정보를 불러오지 못했어요", description: "다시 불러와 주세요", value: "확인 필요", meta: "" };
+  if (status === "loading") return { title: "여행 정보를 불러오고 있어요", description: "", value: "", meta: "" };
   if (!trip) return { title: "다가오는 여행이 없어요", description: "누르면 여행 창에서 새 여행을 만들어요", value: "", meta: "" };
   const { travel } = trip;
   const stage = travelStage(travel, now);

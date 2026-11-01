@@ -37,6 +37,16 @@ export const close = style({
   minWidth: 24,
 });
 
+export const more = style({ top: 0, right: 28, width: 24, height: 24, minWidth: 24 });
+export const play = style({ bottom: 0, left: 0, width: 24, height: 24, minWidth: 24 });
+export const visible = style({ opacity: 1 });
+export const mediaError = style({
+  margin: 0,
+  padding: tokens["spacing/space-8"],
+  background: tokens["color/glass-panel"],
+  color: tokens["color/danger"],
+});
+
 export const resize = style({
   right: 0,
   bottom: 0,

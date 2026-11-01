@@ -173,6 +173,8 @@ export type WidgetSummaryItem = {
   icon: IconName;
   label: string;
   active?: boolean;
+  expanded?: boolean;
+  haspopup?: "dialog";
   live?: boolean;
   disabled?: boolean;
 };
@@ -200,13 +202,16 @@ export function WidgetStackSummary({
           key={item.id}
           type="button"
           disabled={item.disabled}
-          aria-pressed={item.active}
+          aria-expanded={item.expanded}
+          aria-haspopup={item.haspopup}
+          data-active={item.active || undefined}
+          data-widget-id={item.id}
           onClick={() => onSelect?.(item.id)}
           className={styles.summaryItem}
         >
           {item.live && <span aria-hidden className={styles.liveDot} />}
           <Icon name={item.icon} size={15} />
-          {item.label}
+          <span className={styles.summaryLabel}>{item.label}</span>
         </button>
       ))}
     </div>
@@ -219,7 +224,7 @@ export const widgetHoverHost = styles.hoverHost;
 
 export type WidgetHoverActionsProps = HTMLAttributes<HTMLDivElement> & {
   /** Settings or open action of the widget. */
-  settings?: { label: string; onClick: () => void; disabled?: boolean };
+  settings?: { label: string; onClick: () => void; disabled?: boolean; icon?: "settings" | "open" };
   onCollapse?: () => void;
   collapseLabel?: string;
   /** Drag handle; spread drag and keyboard handlers here. */
@@ -253,7 +258,7 @@ export function WidgetHoverActions({
           className={styles.hoverAction}
           onClick={settings.onClick}
         >
-          <Icon name="gear" size={14} />
+          <Icon name={settings.icon === "open" ? "external" : "gear"} size={14} />
         </button>
       )}
       {onCollapse && (
@@ -905,9 +910,11 @@ export function EnvelopeWidget({
         ))}
       </div>
       <div className={styles.actions}>
-        <Button size="small" variant="ghost" onClick={onFocus}>
-          {labels.focus}
-        </Button>
+        {onFocus && (
+          <Button size="small" variant="ghost" onClick={onFocus}>
+            {labels.focus}
+          </Button>
+        )}
         <Button size="small" variant="ghost" onClick={onOpen}>
           {labels.open}
         </Button>
