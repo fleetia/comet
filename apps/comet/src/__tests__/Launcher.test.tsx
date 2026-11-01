@@ -748,6 +748,15 @@ it("removes the chip with Backspace only for empty input outside composition", a
   fireEvent.keyDown(input, { key: "Backspace" });
   expect(screen.queryByRole("button", { name: /수신자 해제/ })).toBeNull();
 });
+it("does not send a picker-prefixed draft to everyone after choosing a friend", async () => {
+  const input = await compose("> 안녕");
+  fireEvent.click(screen.getByRole("button", { name: /친구 고르기/ }));
+  fireEvent.click(screen.getAllByRole("option")[2]);
+  expect(input.value).toBe("");
+  expect(screen.getByRole("button", { name: /수신자 해제/ })).toBeTruthy();
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(executed()).toHaveLength(0);
+});
 it("restores the draft and recipient when leaving the friend picker without choosing", async () => {
   const input = await compose(">B 기존 본문");
   const recipient = screen.getByRole("button", { name: /수신자 해제/ }).textContent;

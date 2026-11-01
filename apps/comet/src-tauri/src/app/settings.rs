@@ -106,7 +106,6 @@ fn save_desktop_settings(state: &AppState, wandering_enabled: bool) -> Result<()
     let mut current = store::settings(&tx)?;
     current.wandering_enabled = wandering_enabled;
     store::save_settings(&tx, &current)?;
-    store::bump_revision(&tx)?;
     tx.commit().map_err(|error| error.to_string())?;
     Ok(())
 }
@@ -623,8 +622,23 @@ mod api_profile_tests {
         let mut before = store::settings(&lock(&state.db).unwrap()).unwrap();
         before.idle_minutes = 12;
         store::save_settings(&lock(&state.db).unwrap(), &before).unwrap();
+        let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
+        store::add_scene(
+            &lock(&state.db).unwrap(),
+            &crate::types::PreparedScene {
+                id: "prepared".into(),
+                revision,
+                lines: vec![],
+            },
+        )
+        .unwrap();
         let epoch = state.epoch.load(Ordering::SeqCst);
         save_desktop_settings(&state, false).unwrap();
+        assert_eq!(store::revision(&lock(&state.db).unwrap()).unwrap(), revision);
+        assert_eq!(
+            store::prepared_scenes(&lock(&state.db).unwrap()).unwrap()[0].id,
+            "prepared"
+        );
         let saved = store::settings(&lock(&state.db).unwrap()).unwrap();
         assert!(!saved.wandering_enabled);
         assert!(saved.autonomous_enabled);

@@ -266,6 +266,42 @@ it("keeps a restored calendar editor dirty after the startup tab arrives", async
   expect(screen.getByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeTruthy();
 });
 
+it("restores quick task and embedded input drafts without a leave prompt", async () => {
+  setTasks([]);
+  localStorage.setItem("comet:diary:quick-task", JSON.stringify({ title: "빠른 초안", date: DAY }));
+  localStorage.setItem("comet:diary:planner-input", JSON.stringify({
+    title: "계획 초안", day: NEXT_DAY, planDay: NEXT_DAY, period: "week", list: "default", visibleList: "all",
+  }));
+  render(<Diary />);
+  expect(await screen.findByRole("textbox", { name: "새 할 일" })).toHaveProperty("value", "계획 초안");
+  expect(screen.getByLabelText(/빠른 할 일 제목/)).toHaveProperty("value", "빠른 초안");
+  expect(screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeNull();
+  expect(localStorage.getItem("comet:diary:quick-task")).toContain("빠른 초안");
+  expect(localStorage.getItem("comet:diary:planner-input")).toContain("계획 초안");
+});
+
+it("restores calendar and wrap drafts without a leave prompt", async () => {
+  const item = task("wrap-task", "마무리할 일", NEXT_DAY);
+  setTasks([item]);
+  localStorage.setItem("comet:diary-calendar-draft", JSON.stringify({
+    date: DAY,
+    values: {
+      title: "일정 초안", allDay: true, startDate: DAY, endDate: DAY,
+      startTime: "09:00", endTime: "10:00", location: "", description: "", moveTogether: false,
+    },
+  }));
+  localStorage.setItem("comet:diary:planner-wrap-draft", JSON.stringify({
+    day: NEXT_DAY, rollIds: ["wrap-task"], rollDate: "2026-10-05", destination: "date",
+    source: [item], widgetId: "todo", attempted: false,
+  }));
+  render(<Diary />);
+  expect(await screen.findByLabelText("옮길 날짜")).toHaveProperty("value", "date");
+  expect(await screen.findByLabelText("일정 제목")).toHaveProperty("value", "일정 초안");
+  expect(screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeNull();
+  expect(localStorage.getItem("comet:diary-calendar-draft")).toContain("일정 초안");
+  expect(localStorage.getItem("comet:diary:planner-wrap-draft")).toContain(NEXT_DAY);
+});
+
 it("keeps repeated todo open events on the list and preserves the today destination", async () => {
   setTasks([task("todo-route", "위젯에서 연 할 일")]);
   await openDiary();

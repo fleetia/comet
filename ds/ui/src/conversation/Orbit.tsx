@@ -76,6 +76,7 @@ export function OrbitBreadcrumb({
 export type OrbitMenuItem = {
   id: string;
   label: string;
+  accessibleLabel?: string;
   icon: IconName;
   badge?: number;
   disabled?: boolean;
@@ -545,7 +546,8 @@ function OrbitMenu({
           >
             <OrbitNode
               icon={item.icon}
-              label={item.label}
+              label={item.accessibleLabel ?? item.label}
+              title={item.accessibleLabel}
               badge={item.badge}
               disabled={item.disabled}
               state={selectedId === item.id ? "focus" : item.visited ? "visited" : "default"}
@@ -601,7 +603,8 @@ function OrbitMenu({
               }}
             >
               <OrbitNode
-                label={item.label}
+                label={item.accessibleLabel ?? item.label}
+                title={item.accessibleLabel}
                 icon={item.icon}
                 state="retreated"
                 iconSize={isCompact ? 9 : 12}

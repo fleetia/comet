@@ -670,6 +670,23 @@ fn habit_reminder_waits_for_temporary_activity_up_to_ten_minutes() {
     let mut settings = crate::store::settings(&db).unwrap();
     settings.autonomous_enabled = true;
     crate::store::save_settings(&db, &settings).unwrap();
+    state.last_input.store(0, Ordering::SeqCst);
+    state.launcher_open.store(true, Ordering::SeqCst);
+    crate::app::lock(&state.behavior).unwrap().phase = crate::behavior::Phase::Suspended;
+    assert!(runtime::defer_habits(&state, &db).unwrap());
+    state.launcher_open.store(false, Ordering::SeqCst);
+    crate::app::lock(&state.behavior).unwrap().phase = crate::behavior::Phase::Playing;
+    assert!(runtime::defer_habits(&state, &db).unwrap());
+    crate::app::lock(&state.runtime).unwrap().hidden = true;
+    for phase in [
+        crate::behavior::Phase::Suspended,
+        crate::behavior::Phase::Playing,
+    ] {
+        crate::app::lock(&state.behavior).unwrap().phase = phase;
+        assert!(!runtime::defer_habits(&state, &db).unwrap());
+    }
+    crate::app::lock(&state.runtime).unwrap().hidden = false;
+    crate::app::lock(&state.behavior).unwrap().phase = crate::behavior::Phase::Idle;
     state.last_input.store(crate::app::now(), Ordering::SeqCst);
     assert!(runtime::defer_habits(&state, &db).unwrap());
     let mut clocks = std::collections::BTreeMap::new();

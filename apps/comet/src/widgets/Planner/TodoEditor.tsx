@@ -16,6 +16,7 @@ import {
   dueDay,
   dueLabel,
   deviceTimeZone,
+  formatPlannerDate,
   plannedDay,
   localDateTime,
   moveDay,
@@ -31,7 +32,9 @@ import type { WidgetView } from "../types";
 export function TaskReadOnlyDetails({ item }: { item: DataRecord }): ReactElement {
   return (
     <div className={s.taskDetails} role="region" aria-label={`${text(item.title)} 상세`}>
-      <p className={s.caption}>계획 날짜 · {plannedDay(item) || "미지정"}</p>
+      <p className={s.caption}>
+        계획 날짜 · {plannedDay(item) ? formatPlannerDate(plannedDay(item)) : "미지정"}
+      </p>
       <p className={s.caption}>{dueLabel(item) || "마감 없음"}</p>
       {typeof item.dueAt === "number" && (
         <p className={s.caption}>기기 시간대 · {deviceTimeZone()}</p>

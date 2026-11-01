@@ -279,6 +279,23 @@ it("warns only when neither selected channel can deliver", async () => {
   await waitFor(() => expect(screen.queryByText("지금은 알림이 나가지 않아요.")).toBeNull());
 });
 
+it("warns for denied OS notifications only when bubble fallback is unavailable", async () => {
+  const bubble = deferred<boolean>();
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "get_planner_bubble_available" ? bubble.promise : "denied",
+  );
+  render(<FocusTimerSettings widget={widget("focus-timer", { settings: { finishNotification: "os" } })} act={vi.fn<ToolAction>()} />);
+  await waitFor(() => expect(screen.getByText(/시스템 알림: 꺼짐/)).toBeTruthy());
+  expect(screen.queryByText("지금은 알림이 나가지 않아요.")).toBeNull();
+  await reactAct(async () => bubble.resolve(true));
+  expect(screen.queryByText("지금은 알림이 나가지 않아요.")).toBeNull();
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "get_planner_bubble_available" ? false : "denied",
+  );
+  fireEvent(window, new Event("focus"));
+  await waitFor(() => expect(screen.getByText("지금은 알림이 나가지 않아요.")).toBeTruthy());
+});
+
 it("warns for unavailable bubbles even when OS permission lookup fails", async () => {
   vi.mocked(command).mockImplementation(async (name) => {
     if (name === "get_planner_bubble_available") return false;

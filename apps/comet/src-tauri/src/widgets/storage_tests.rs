@@ -20,8 +20,54 @@ fn refresh_candidates_only_returns_due_information_and_calendar_rows() {
     db.execute("UPDATE widget_instances SET data=?1 WHERE id=?2", rusqlite::params![music_data.to_string(), music.id]).unwrap();
     db.execute("UPDATE widget_instances SET data=?1 WHERE id=?2", rusqlite::params![calendar_data.to_string(), calendar.id]).unwrap();
     assert!(storage::refresh_candidates(&db, 100).unwrap().is_empty());
-    assert_eq!(storage::refresh_candidates(&db, 200).unwrap(), vec![(music.id, music.revision, Some(123))]);
+    assert_eq!(storage::refresh_candidates(&db, 200).unwrap(), vec![(music.id, music.revision, Some(123), false)]);
     assert_eq!(storage::refresh_candidates(&db, 300).unwrap().len(), 2);
+}
+
+#[test]
+fn refresh_candidates_respects_information_backoff_and_terminal_states() {
+    let db = database();
+    let weather = instance(&db, "weather");
+    let device = instance(&db, "device");
+    let music = instance(&db, "music");
+    for (widget, data) in [
+        (&weather, json!({"configured":true,"status":"offline","nextRefreshAt":200})),
+        (&device, json!({"configured":true,"status":"permission-needed","nextRefreshAt":0})),
+        (&music, json!({"configured":true,"status":"unsupported","nextRefreshAt":0})),
+    ] {
+        db.execute("UPDATE widget_instances SET data=?1 WHERE id=?2", rusqlite::params![data.to_string(), widget.id]).unwrap();
+    }
+    assert!(storage::refresh_candidates(&db, 100).unwrap().is_empty());
+    let exhausted = json!({"configured":true,"status":"ready","failureCount":5,"nextRefreshAt":0});
+    db.execute("UPDATE widget_instances SET data=?1 WHERE id=?2", rusqlite::params![exhausted.to_string(), device.id]).unwrap();
+    let reconnect = json!({"configured":true,"status":"offline","failureCount":5,"nextRefreshAt":200,"config":{"provider":"spicetify"}});
+    db.execute("UPDATE widget_instances SET data=?1 WHERE id=?2", rusqlite::params![reconnect.to_string(), music.id]).unwrap();
+    assert_eq!(storage::refresh_candidates(&db, 100).unwrap(), vec![(music.id, music.revision, None, true)]);
+    assert_eq!(storage::refresh_candidates(&db, 200).unwrap().len(), 2);
+}
+
+#[test]
+fn reconnect_candidates_require_configured_bridge_and_mark_only_reconnect_only_rows() {
+    let db = database();
+    let music = instance(&db, "music");
+    for (configured, config, eligible) in [
+        (false, json!({"provider":"spicetify"}), false),
+        (true, json!({"provider":"spotify"}), false),
+        (true, json!({"provider":"auto","allowedProviders":["music"]}), false),
+        (true, json!({"provider":"auto","allowedProviders":"spotify"}), false),
+        (true, json!({"provider":"spicetify"}), true),
+        (true, json!({"provider":"auto","allowedProviders":["music","spotify"]}), true),
+    ] {
+        let data = json!({"configured":configured,"status":"offline","nextRefreshAt":200,"config":config});
+        db.execute("UPDATE widget_instances SET data=?1 WHERE id=?2", rusqlite::params![data.to_string(), music.id]).unwrap();
+        let candidates = storage::refresh_candidates(&db, 100).unwrap();
+        if eligible {
+            assert_eq!(candidates, vec![(music.id.clone(), music.revision, None, true)]);
+            assert_eq!(storage::refresh_candidates(&db, 200).unwrap(), vec![(music.id.clone(), music.revision, None, false)]);
+        } else {
+            assert!(candidates.is_empty());
+        }
+    }
 }
 
 #[test]

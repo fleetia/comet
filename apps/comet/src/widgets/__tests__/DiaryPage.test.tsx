@@ -465,7 +465,10 @@ it("opens task details by mouse or keyboard without completing, editing, or focu
   expect(screen.getByRole("region", { name: "키보드로 열기 상세" }).textContent).toContain(
     "긴 상세 메모",
   );
-  const meta = screen.getByText(/계획 · 2026-10-03/);
+  expect(screen.getByRole("region", { name: "키보드로 열기 상세" }).textContent).toContain(
+    "계획 날짜 · 2026년 10월 3일",
+  );
+  const meta = screen.getByText(/계획 · 2026년 10월 3일/);
   expect(within(meta).getByText(/^마감 2026년 12월 20일/)).toBeTruthy();
   expect(callbacks.onToggleTask).not.toHaveBeenCalled();
   expect(callbacks.onEditTask).not.toHaveBeenCalled();
