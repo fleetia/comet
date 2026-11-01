@@ -686,7 +686,14 @@ export function WidgetManager({
                               onDirtyChange={reportDirty}
                               onBusyChange={reportBusy}
                               related={undefined}
-                              disabled={!canAct}
+                              disabled={
+                                !isDesktop() ||
+                                busy ||
+                                Object.entries(settingsBusy).some(
+                                  ([id, pending]) =>
+                                    pending && (id !== item.id || item.kind !== "calendar"),
+                                )
+                              }
                             />
                           </div>
                         </div>

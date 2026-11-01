@@ -5,6 +5,48 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tauri::Manager;
 
+#[cfg(any(test, target_os = "macos", target_os = "windows"))]
+fn skip_wake_refresh(kind: &str, calendar_connection_in_progress: bool) -> bool {
+    kind == "calendar" && calendar_connection_in_progress
+}
+
+#[cfg(any(test, target_os = "macos", target_os = "windows"))]
+fn delayed_refresh_data(
+    kind: &str,
+    data: &serde_json::Value,
+    at: i64,
+) -> Option<serde_json::Value> {
+    let mut next = data.clone();
+    let due = serde_json::json!(at.saturating_add(30_000));
+    match kind {
+        "weather" if data["configured"] == true && data["status"] != "auth-error" => {
+            next["nextRefreshAt"] = due;
+            next["failureCount"] = serde_json::json!(0);
+            if next["status"] == "syncing" {
+                next["status"] = serde_json::json!("stale");
+            }
+        }
+        "calendar" => {
+            let mut changed = false;
+            for connection in next["connections"].as_array_mut()? {
+                if connection["status"] == "auth-error" {
+                    continue;
+                }
+                connection["nextRefreshAt"] = due.clone();
+                if connection["status"] == "syncing" {
+                    connection["status"] = serde_json::json!("stale");
+                }
+                changed = true;
+            }
+            if !changed {
+                return None;
+            }
+        }
+        _ => return None,
+    }
+    Some(next)
+}
+
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn receive_wake(app: &tauri::AppHandle) {
     // Native callbacks must never unwind through Objective-C or the window procedure.
@@ -27,9 +69,35 @@ fn receive_wake(app: &tauri::AppHandle) {
             let db = lock(&state.db)?;
             let can_react = crate::widgets::connection_host::wake_event_allowed(&state, &db)?;
             for instance in crate::widgets::storage::instances(&db)? {
-                if instance.kind != "device"
-                    || instance.data["configured"] != true
-                {
+                let job = lock(&state.widget_jobs)?.get(&instance.id).cloned();
+                let connecting = if instance.kind == "calendar" {
+                    match job.as_ref() {
+                        Some(token) => {
+                            crate::widgets::connection_host::calendar_connection_in_progress(token)?
+                        }
+                        None => false,
+                    }
+                } else {
+                    false
+                };
+                if skip_wake_refresh(&instance.kind, connecting) {
+                    continue;
+                }
+                if let Some(data) = delayed_refresh_data(&instance.kind, &instance.data, at) {
+                    if let Some(job) = lock(&state.widget_jobs)?.remove(&instance.id) {
+                        job.store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    crate::widgets::storage::commit_data(
+                        &db,
+                        &instance.id,
+                        instance.revision,
+                        data,
+                        vec![],
+                        at,
+                    )?;
+                    continue;
+                }
+                if instance.kind != "device" || instance.data["configured"] != true {
                     continue;
                 }
                 if let Some(job) = lock(&state.widget_jobs)?.remove(&instance.id) {
@@ -63,6 +131,36 @@ fn receive_wake(app: &tauri::AppHandle) {
         }
         Ok(())
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{delayed_refresh_data, skip_wake_refresh};
+    use serde_json::json;
+
+    #[test]
+    fn wake_delays_configured_weather_and_non_auth_calendar_connections() {
+        let weather = json!({"configured":true,"status":"syncing","nextRefreshAt":0,"failureCount":5,"observation":{"temperature":20}});
+        let updated = delayed_refresh_data("weather", &weather, 100).unwrap();
+        assert_eq!(updated["nextRefreshAt"], 30_100);
+        assert_eq!(updated["status"], "stale");
+        assert_eq!(updated["failureCount"], 0);
+        assert_eq!(updated["observation"], weather["observation"]);
+        assert!(delayed_refresh_data("weather", &json!({"configured":false}), 100).is_none());
+        assert!(delayed_refresh_data("music", &weather, 100).is_none());
+        let calendar = json!({"connections":[{"status":"offline","nextRefreshAt":i64::MAX},{"status":"auth-error","nextRefreshAt":i64::MAX}],"events":[{"id":"kept"}]});
+        let updated = delayed_refresh_data("calendar", &calendar, 100).unwrap();
+        assert_eq!(updated["connections"][0]["nextRefreshAt"], 30_100);
+        assert_eq!(updated["connections"][1], calendar["connections"][1]);
+        assert_eq!(updated["events"], calendar["events"]);
+    }
+
+    #[test]
+    fn wake_skips_active_calendar_connections_but_not_refreshes() {
+        assert!(skip_wake_refresh("calendar", true));
+        assert!(!skip_wake_refresh("calendar", false));
+        assert!(!skip_wake_refresh("weather", true));
+    }
 }
 
 struct WakeRegistration(Mutex<Option<native::Observer>>);

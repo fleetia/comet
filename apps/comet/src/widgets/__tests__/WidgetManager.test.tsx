@@ -459,6 +459,41 @@ it("discards widget setting drafts on catalog navigation while preserving them d
   ).toEqual([]);
 });
 
+it("keeps Google approval controls enabled through the settings busy boundary", async () => {
+  const calendar = {
+    ...installed("calendar"),
+    data: {
+      connections: [{
+        id: "google", name: "내 캘린더", provider: "google", status: "auth-error",
+        selectedCalendarIds: ["primary"],
+      }],
+      events: [],
+    },
+  };
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, onboardingDone: true, widgets: [calendar] }, error: null, reload,
+  });
+  let cancelConnection: (reason: Error) => void = () => {};
+  vi.mocked(command).mockImplementation(async (name) => name === "connect_calendar_google"
+    ? new Promise((_resolve, reject) => { cancelConnection = reject; }) : null);
+  const onBusyChange = vi.fn();
+  render(<WidgetManager embedded onBusyChange={onBusyChange} />);
+  chooseWidget(/^캘린더/);
+  fireEvent.click(screen.getByRole("button", { name: "다시 연결" }));
+  fireEvent.click(screen.getByRole("button", { name: "브라우저에서 Google 읽기 연결" }));
+  const cancel = await screen.findByRole("button", { name: "Google 연결 취소" });
+  await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(true));
+  for (let ancestor = cancel.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    expect(ancestor.tagName === "FIELDSET" && ancestor.hasAttribute("disabled")).toBe(false);
+  }
+  fireEvent.click(cancel);
+  expect(command).toHaveBeenCalledWith("cancel_calendar_google", { id: "calendar" });
+  await act(async () => cancelConnection(new Error("Google 연결을 취소했어요.")));
+  await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(false));
+  expect(screen.getByRole("alert").textContent).toContain("Google 연결을 취소했어요.");
+  expect(screen.getByLabelText("연결 이름")).toHaveProperty("value", "내 캘린더");
+});
+
 it.each(["clock", "weather", "focus-timer", "calendar", "music", "preparation"])(
   "offers character reaction and state rules for %s",
   async (kind) => {

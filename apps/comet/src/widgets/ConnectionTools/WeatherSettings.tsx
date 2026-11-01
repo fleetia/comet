@@ -30,6 +30,7 @@ export function WeatherSettings({
   const [results, setResults] = useState<DataRecord[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [localError, setLocalError] = useState("");
+  const [commandAction, setCommandAction] = useState<"save" | "refresh">("save");
   const searchPending = useRef(false);
   const current = useRef(0);
   useEffect(() => {
@@ -50,6 +51,7 @@ export function WeatherSettings({
   }, [busy, searching, onBusyChange]);
   useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
   async function save(next: WeatherConfig): Promise<boolean> {
+    setCommandAction("save");
     setDraft(next);
     if (!next.name) return false;
     if (await run("configure_connection_widget", { id: widget.id, input: next })) {
@@ -149,12 +151,20 @@ export function WeatherSettings({
             variant="ghost"
             size="small"
             disabled={data.configured !== true}
-            onClick={() => void run("refresh_connection_widget", { id: widget.id })}
+            onClick={() => {
+              setCommandAction("refresh");
+              void run("refresh_connection_widget", { id: widget.id });
+            }}
           >
             <Icon name="habit" size={15} />
             다시 확인
           </Button>
         </div>
+        {(commandAction === "refresh" ? error : null) || text(data.error) ? (
+          <p className={s.error} role="alert">
+            {(commandAction === "refresh" ? error : null) || text(data.error)}
+          </p>
+        ) : null}
       </div>
     </fieldset>
   );
@@ -192,6 +202,7 @@ export function WeatherSettings({
               현재 위치 쓰기
             </Button>
           </form>
+          {localError && <p className={s.error} role="alert">{localError}</p>}
           <div className={s.results} role="group" aria-label="지역 검색 결과">
             {regions.map((region, index) => {
               const current =
@@ -288,9 +299,9 @@ export function WeatherSettings({
             </div>
           </div>
         </section>
-        {(error || localError || text(data.error)) && (
+        {commandAction === "save" && error && (
           <p className={s.error} role="alert">
-            {error || localError || text(data.error)}
+            {error}
           </p>
         )}
         {draft && !busy && (

@@ -467,6 +467,29 @@ it("configures weather only from an explicit selected search result", async () =
   );
 });
 
+it("shows weather search and refresh errors next to their controls", async () => {
+  vi.mocked(command).mockRejectedValueOnce("검색 실패").mockRejectedValueOnce("조회 실패");
+  render(
+    <ConnectionTool
+      mode="settings"
+      widget={widget("weather", {
+        ...EMPTY,
+        configured: true,
+        config: { name: "서울", latitude: 37.5, longitude: 127 },
+      })}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText(/^지역 이름\s*\*?$/), { target: { value: "서울" } });
+  fireEvent.click(screen.getByRole("button", { name: "지역 검색" }));
+  expect(
+    (await within(screen.getByRole("region", { name: "날씨 지역 설정" })).findByRole("alert"))
+      .textContent,
+  ).toContain("검색 실패");
+  fireEvent.click(screen.getByRole("button", { name: "다시 확인" }));
+  const refresh = screen.getByRole("button", { name: "다시 확인" });
+  await waitFor(() => expect(refresh.closest("fieldset")?.textContent).toContain("조회 실패"));
+});
+
 it("saves weather presentation and refresh preferences without changing the selected region", async () => {
   render(
     <ConnectionTool

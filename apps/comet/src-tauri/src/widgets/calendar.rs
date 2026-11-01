@@ -258,7 +258,7 @@ pub fn set_calendar_color(data: &Value, input: &Value) -> Result<super::WidgetEf
     let connection = connections
         .iter()
         .find(|connection| connection.id == input.connection_id)
-        .ok_or("캘린더 연결을 찾을 수 없습니다.")?;
+        .ok_or("캘린더 연결을 찾지 못했어요. 목록을 확인하고 다시 시도해 주세요.")?;
     let selected = match connection.provider.as_str() {
         "ics" => input.calendar_id.is_empty(),
         "apple" | "google" if connection.selected_calendar_ids.is_empty() => {
@@ -298,7 +298,9 @@ pub fn set_calendar_color(data: &Value, input: &Value) -> Result<super::WidgetEf
 
 pub fn reconnect(connected: &mut Connected, previous: &Connection) -> Result<(), CalendarError> {
     if connected.connection.provider != previous.provider {
-        return Err(invalid("같은 제공자의 캘린더만 다시 연결할 수 있습니다."));
+        return Err(invalid(
+            "같은 제공자의 캘린더만 다시 연결할 수 있어요. 연결할 캘린더를 확인해 주세요.",
+        ));
     }
     connected.connection.id = previous.id.clone();
     connected.connection.last_success_at = previous.last_success_at;
@@ -313,67 +315,124 @@ pub fn reconnect(connected: &mut Connected, previous: &Connection) -> Result<(),
 }
 const CALENDAR_SERVICE: &str = "space.starlight.comet.calendar";
 
+fn credential_store_error(operation: &str, retry: &str) -> CalendarError {
+    error(
+        "auth-error",
+        &format!("기기의 암호 저장소{operation} 못했어요. 권한을 확인하고 다시 {retry}해 주세요."),
+    )
+}
+
 fn validate_id(id: &str) -> Result<(), CalendarError> {
-    uuid::Uuid::parse_str(id).map_err(|_| invalid("연결 ID가 올바르지 않습니다."))?;
+    uuid::Uuid::parse_str(id)
+        .map_err(|_| invalid("연결 정보를 확인할 수 없어요. 연결 설정을 확인해 주세요."))?;
     Ok(())
 }
 
 fn key(id: &str) -> Result<keyring::Entry, CalendarError> {
     validate_id(id)?;
     keyring::Entry::new(CALENDAR_SERVICE, id)
-        .map_err(|_| error("auth-error", "OS 자격 증명 저장소를 열 수 없습니다."))
+        .map_err(|_| credential_store_error("를 열지", "시도"))
 }
 fn legacy_key(id: &str) -> Result<keyring::Entry, CalendarError> {
     validate_id(id)?;
     let service = crate::legacy_names::calendar_service();
     keyring::Entry::new(&service, id)
-        .map_err(|_| error("auth-error", "OS 자격 증명 저장소를 열 수 없습니다."))
+        .map_err(|_| credential_store_error("를 열지", "시도"))
 }
 fn save(credential: &Credential) -> Result<(), CalendarError> {
     let value = serde_json::to_string(credential)
-        .map_err(|_| invalid("연결 정보를 저장할 수 없습니다."))?;
+        .map_err(|_| invalid("연결 정보를 저장하지 못했어요. 다시 연결해 주세요."))?;
     key(&credential.connection_id)?
         .set_password(&value)
-        .map_err(|_| error("auth-error", "OS 자격 증명 저장소에 저장하지 못했습니다."))?;
+        .map_err(|_| credential_store_error("에 연결 정보를 저장하지", "연결"))?;
     if let Ok(entry) = legacy_key(&credential.connection_id) {
         let _ = entry.delete_credential();
     }
     Ok(())
 }
 fn load(connection: &Connection) -> Result<Credential, CalendarError> {
+    load_credential(connection, true)
+}
+fn load_credential(
+    connection: &Connection,
+    migrate_legacy: bool,
+) -> Result<Credential, CalendarError> {
     let (value, migrate) = match key(&connection.id)?.get_password() {
         Ok(value) => (value, false),
         Err(keyring::Error::NoEntry) => match legacy_key(&connection.id)?.get_password() {
             Ok(value) => (value, true),
             Err(keyring::Error::NoEntry) => {
-                return Err(error(
-                    "auth-error",
-                    "연결 정보를 찾을 수 없습니다. 다시 연결해 주세요.",
-                ))
+                return Err(error("auth-error", "연결을 다시 인증해 주세요."))
             }
-            Err(_) => {
-                return Err(error(
-                    "auth-error",
-                    "OS 자격 증명 저장소를 읽을 수 없습니다.",
-                ))
-            }
+            Err(_) => return Err(credential_store_error("를 읽지", "연결")),
         },
         Err(_) => {
-            return Err(error(
-                "auth-error",
-                "연결 정보를 찾을 수 없습니다. 다시 연결해 주세요.",
-            ));
+            return Err(credential_store_error("를 읽지", "연결"));
         }
     };
     let credential: Credential = serde_json::from_str(&value)
-        .map_err(|_| error("auth-error", "저장된 연결 정보를 읽을 수 없습니다."))?;
+        .map_err(|_| error("auth-error", "저장된 연결 정보를 읽을 수 없어요."))?;
     if credential.connection_id != connection.id || credential.provider != connection.provider {
-        return Err(error("auth-error", "연결 정보의 소유 범위가 다릅니다."));
+        return Err(error("auth-error", "연결 정보의 소유 범위가 달라요."));
     }
-    if migrate {
+    if migrate && migrate_legacy {
         save(&credential)?;
     }
     Ok(credential)
+}
+pub async fn reuse_google_credentials(
+    mut input: GoogleConnectInput,
+    previous: Connection,
+) -> Result<GoogleConnectInput, CalendarError> {
+    if !input.client_id.trim().is_empty()
+        && input
+            .client_secret
+            .as_deref()
+            .is_some_and(|secret| !secret.trim().is_empty())
+    {
+        return Ok(input);
+    }
+    let credential = match bounded_credential_read(
+        CREDENTIAL_READERS
+            .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(2)))
+            .clone(),
+        Duration::from_secs(5),
+        move || load_credential(&previous, false),
+    )
+    .await
+    {
+        Ok(credential) => credential,
+        Err(_) if input.client_id.trim().is_empty() => {
+            return Err(error(
+                "auth-error",
+                "저장된 클라이언트 정보를 찾지 못했어요. 클라이언트 ID를 입력해 주세요.",
+            ));
+        }
+        Err(_) => return Ok(input),
+    };
+    fill_google_credentials(&mut input, credential);
+    if input.client_id.trim().is_empty() {
+        return Err(error(
+            "auth-error",
+            "저장된 클라이언트 정보를 찾지 못했어요. 클라이언트 ID를 입력해 주세요.",
+        ));
+    }
+    Ok(input)
+}
+fn fill_google_credentials(input: &mut GoogleConnectInput, credential: Credential) {
+    let can_reuse_secret = input.client_id.trim().is_empty()
+        || credential.client_id.as_deref() == Some(input.client_id.trim());
+    if input.client_id.trim().is_empty() {
+        input.client_id = credential.client_id.unwrap_or_default();
+    }
+    if can_reuse_secret
+        && input
+            .client_secret
+            .as_deref()
+            .is_none_or(|secret| secret.trim().is_empty())
+    {
+        input.client_secret = credential.client_secret;
+    }
 }
 pub struct CredentialRollback {
     connection: Connection,
@@ -384,10 +443,7 @@ pub fn commit_connected(value: &Connected) -> Result<CredentialRollback, Calenda
     let read = |entry: keyring::Entry| match entry.get_password() {
         Ok(value) => Ok(Some(value)),
         Err(keyring::Error::NoEntry) => Ok(None),
-        Err(_) => Err(error(
-            "auth-error",
-            "기존 연결 정보를 보존할 수 없습니다. OS 자격 증명 권한을 확인해 주세요.",
-        )),
+        Err(_) => Err(credential_store_error("를 읽지", "연결")),
     };
     // Preserve the original bytes, including a malformed credential that a reconnect repairs.
     let current = read(key(&value.connection.id)?)?;
@@ -408,10 +464,11 @@ pub fn rollback_connected(previous: &CredentialRollback) -> Result<(), CalendarE
         };
         match result {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(_) => Err(error(
-                "auth-error",
-                "이전 연결 정보를 복구하지 못했습니다. 연결 설정을 다시 확인해 주세요.",
-            )),
+            Err(_) => Err(CalendarError {
+                status: "auth-error".into(),
+                message: "이전 연결 정보를 복구하지 못했어요. 연결 설정을 다시 확인해 주세요."
+                    .into(),
+            }),
         }
     };
     restore(key(&previous.connection.id)?, &previous.current)?;
@@ -427,18 +484,12 @@ pub fn disconnect(connection: &Connection) -> Result<(), CalendarError> {
     match key(&connection.id)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => {}
         Err(_) => {
-            return Err(error(
-                "auth-error",
-                "OS 자격 증명 저장소에서 연결을 삭제하지 못했습니다.",
-            ))
+            return Err(credential_store_error("에서 연결 정보를 삭제하지", "연결 해제"))
         }
     }
     match legacy_key(&connection.id)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(_) => Err(error(
-            "auth-error",
-            "OS 자격 증명 저장소에서 연결을 삭제하지 못했습니다.",
-        )),
+        Err(_) => Err(credential_store_error("에서 연결 정보를 삭제하지", "연결 해제")),
     }
 }
 fn subscription_url(value: &str) -> Result<reqwest::Url, CalendarError> {
@@ -450,8 +501,8 @@ fn subscription_url(value: &str) -> Result<reqwest::Url, CalendarError> {
     } else {
         value.into()
     };
-    let url =
-        reqwest::Url::parse(&normalized).map_err(|_| invalid("구독 주소가 올바르지 않습니다."))?;
+    let url = reqwest::Url::parse(&normalized)
+        .map_err(|_| invalid("구독 주소가 올바르지 않아요. 주소를 확인해 주세요."))?;
     if !["http", "https"].contains(&url.scheme())
         || url.host_str().is_none()
         || !url.username().is_empty()
@@ -459,7 +510,7 @@ fn subscription_url(value: &str) -> Result<reqwest::Url, CalendarError> {
         || url.fragment().is_some()
     {
         return Err(invalid(
-            "HTTP/HTTPS/webcal 구독 주소를 입력하세요. 사용자 정보와 fragment는 지원하지 않습니다.",
+            "HTTP, HTTPS 또는 webcal로 시작하는 구독 주소를 입력해 주세요. 주소에 사용자 정보나 # 뒷부분은 사용할 수 없어요.",
         ));
     }
     Ok(url)
@@ -490,32 +541,37 @@ fn client() -> Result<reqwest::Client, CalendarError> {
         .connect_timeout(Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none())
         .build()
-        .map_err(|_| error("offline", "연결 준비에 실패했습니다."))
+        .map_err(|_| error("offline", "연결을 준비하지 못했어요. 다시 시도해 주세요."))
 }
 async fn body(response: reqwest::Response) -> Result<Vec<u8>, CalendarError> {
     if response.status() == reqwest::StatusCode::UNAUTHORIZED
         || response.status() == reqwest::StatusCode::FORBIDDEN
     {
-        return Err(error("auth-error", "인증 또는 읽기 권한을 확인해 주세요."));
+        return Err(error("auth-error", "연결을 다시 인증해 주세요."));
     }
     if !response.status().is_success() {
         return Err(error(
             "offline",
-            "원본 서비스가 요청을 처리하지 못했습니다.",
+            "원본 서비스가 요청을 처리하지 못했어요. 다시 시도해 주세요.",
         ));
     }
     if response
         .content_length()
         .is_some_and(|n| n > MAX_BYTES as u64)
     {
-        return Err(invalid("캘린더 응답이 4 MiB 한도를 넘었습니다."));
+        return Err(invalid(
+            "캘린더 데이터가 너무 커요. 캘린더 제공 서비스에서 일정을 줄인 뒤 다시 시도해 주세요.",
+        ));
     }
     let mut bytes = Vec::new();
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|_| error("offline", "캘린더 응답을 읽지 못했습니다."))?;
+        let chunk =
+            chunk.map_err(|_| error("offline", "인터넷 연결을 확인하고 다시 시도해 주세요."))?;
         if bytes.len() + chunk.len() > MAX_BYTES {
-            return Err(invalid("캘린더 응답이 4 MiB 한도를 넘었습니다."));
+            return Err(invalid(
+                "캘린더 데이터가 너무 커요. 캘린더 제공 서비스에서 일정을 줄인 뒤 다시 시도해 주세요.",
+            ));
         }
         bytes.extend_from_slice(&chunk);
     }
@@ -523,7 +579,7 @@ async fn body(response: reqwest::Response) -> Result<Vec<u8>, CalendarError> {
 }
 async fn json_response(response: reqwest::Response) -> Result<Value, CalendarError> {
     serde_json::from_slice(&body(response).await?)
-        .map_err(|_| invalid("원본 서비스의 응답 형식이 올바르지 않습니다."))
+        .map_err(|_| invalid("원본 서비스의 응답 형식이 올바르지 않아요. 잠시 후 다시 시도해 주세요."))
 }
 pub fn success(connection: &Connection, now: i64) -> Connection {
     let mut next = connection.clone();
@@ -549,24 +605,28 @@ pub fn failed(connection: &Connection, failure: &CalendarError, now: i64) -> Con
     next.status = failure.status.clone();
     next.error = Some(failure.message.clone());
     next.failure_count = next.failure_count.saturating_add(1);
-    next.next_refresh_at = if next.status == "auth-error" || next.failure_count >= 5 {
+    next.next_refresh_at = if next.status == "auth-error" {
         i64::MAX
     } else {
-        now.saturating_add(REFRESH_INTERVAL_MS.saturating_mul(1i64 << next.failure_count.min(6)))
+        now.saturating_add(
+            REFRESH_INTERVAL_MS
+                .saturating_mul(1i64 << next.failure_count.min(6))
+                .min(3_600_000),
+        )
     };
     next
 }
 pub fn refresh_due(connection: &Connection, now: i64) -> bool {
     connection.status != "syncing"
-        && connection.next_refresh_at <= now
+        && (connection.next_refresh_at <= now || connection.next_refresh_at == i64::MAX)
         && connection.status != "auth-error"
-        && connection.failure_count < 5
 }
+static CREDENTIAL_READERS: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
+
 pub async fn refresh(connection: &Connection, now: i64) -> Result<Refreshed, CalendarError> {
-    static READERS: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
     let owned = connection.clone();
     let credential = bounded_credential_read(
-        READERS
+        CREDENTIAL_READERS
             .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(2)))
             .clone(),
         Duration::from_secs(5),
@@ -583,10 +643,7 @@ async fn bounded_credential_read<T: Send + 'static>(
     read: impl FnOnce() -> Result<T, CalendarError> + Send + 'static,
 ) -> Result<T, CalendarError> {
     let unavailable = || {
-        error(
-            "auth-error",
-            "OS 자격 증명 읽기 권한을 확인한 뒤 다시 갱신해 주세요.",
-        )
+        credential_store_error("를 읽지", "연결")
     };
     tokio::time::timeout(timeout, async move {
         let permit = readers.acquire_owned().await.map_err(|_| unavailable())?;
@@ -624,7 +681,12 @@ async fn bounded_refresh(
         refresh_credential(connection, credential, now),
     )
     .await
-    .map_err(|_| error("offline", "캘린더 전체 갱신 시간이 90초를 넘었습니다."))?
+    .map_err(|_| {
+        error(
+            "offline",
+            "캘린더 조회 시간이 초과됐어요. 다시 시도해 주세요.",
+        )
+    })?
 }
 async fn refresh_credential(
     connection: &Connection,
@@ -636,7 +698,7 @@ async fn refresh_credential(
             credential
                 .url
                 .as_deref()
-                .ok_or_else(|| error("auth-error", "구독 정보를 찾을 수 없습니다."))?,
+                .ok_or_else(|| error("auth-error", "연결을 다시 인증해 주세요."))?,
         )?;
         let client = client()?;
         let mut result = None;
@@ -645,22 +707,28 @@ async fn refresh_credential(
                 .get(url.clone())
                 .send()
                 .await
-                .map_err(|_| error("offline", "캘린더 구독에 연결할 수 없습니다."))?;
+                .map_err(|_| error("offline", "인터넷 연결을 확인하고 다시 시도해 주세요."))?;
             if response.status().is_redirection() {
                 if redirect == 3 {
-                    return Err(invalid("구독 주소의 이동 횟수가 너무 많습니다."));
+                    return Err(invalid(
+                        "구독 주소의 이동 횟수가 너무 많아요. 주소를 확인해 주세요.",
+                    ));
                 }
                 let location = response
                     .headers()
                     .get(reqwest::header::LOCATION)
                     .and_then(|x| x.to_str().ok())
-                    .ok_or_else(|| invalid("구독 주소 이동 응답 오류"))?;
-                let next = url
-                    .join(location)
-                    .map_err(|_| invalid("구독 주소 이동 응답 오류"))?;
+                    .ok_or_else(|| {
+                        invalid("구독 주소를 확인하지 못했어요. 주소를 확인하고 다시 시도해 주세요.")
+                    })?;
+                let next = url.join(location).map_err(|_| {
+                    invalid("구독 주소를 확인하지 못했어요. 주소를 확인하고 다시 시도해 주세요.")
+                })?;
                 let next = subscription_url(next.as_str())?;
                 if url.scheme() == "https" && next.scheme() != "https" {
-                    return Err(invalid("HTTPS 구독을 HTTP로 이동할 수 없습니다."));
+                    return Err(invalid(
+                        "보안 연결에서 안전하지 않은 주소로 이동할 수 없어요. 구독 주소를 확인해 주세요.",
+                    ));
                 }
                 url = next;
                 continue;
@@ -668,8 +736,10 @@ async fn refresh_credential(
             result = Some(body(response).await?);
             break;
         }
-        let bytes = result.ok_or_else(|| invalid("구독 응답이 없습니다."))?;
-        let text = String::from_utf8(bytes).map_err(|_| invalid("UTF-8 캘린더만 지원합니다."))?;
+        let bytes = result
+            .ok_or_else(|| invalid("구독 응답이 없어요. 주소를 확인하고 다시 시도해 주세요."))?;
+        let text = String::from_utf8(bytes)
+            .map_err(|_| invalid("UTF-8 형식의 캘린더만 지원해요. 구독 주소를 확인해 주세요."))?;
         Refreshed {
             events: parse_ics(&text, &connection.id, now)?,
             calendar_names: BTreeMap::new(),
@@ -681,7 +751,9 @@ async fn refresh_credential(
     } else if connection.provider == "apple" {
         apple::refresh(connection, credential.calendar_ids.clone(), now).await?
     } else {
-        return Err(invalid("지원하지 않는 캘린더 연결입니다."));
+        return Err(invalid(
+            "지원하지 않는 캘린더 연결이에요. 연결 설정을 확인해 주세요.",
+        ));
     };
     if connection.provider == "google" {
         refreshed.credential = Some(credential);
@@ -789,7 +861,7 @@ async fn google_events(credential: &Credential, now: i64) -> Result<Refreshed, C
     let token = credential
         .access_token
         .as_deref()
-        .ok_or_else(|| error("auth-error", "다시 연결해 주세요."))?;
+        .ok_or_else(|| error("auth-error", "연결을 다시 인증해 주세요."))?;
     let mut events = vec![];
     let mut calendar_names = BTreeMap::new();
     for calendar in &credential.calendar_ids {
@@ -816,7 +888,7 @@ async fn google_events(credential: &Credential, now: i64) -> Result<Refreshed, C
                 request
                     .send()
                     .await
-                    .map_err(|_| error("offline", "Google Calendar에 연결할 수 없습니다."))?,
+                    .map_err(|_| error("offline", "인터넷 연결을 확인하고 다시 시도해 주세요."))?,
             )
             .await?;
             if let Some(name) = result["summary"].as_str().filter(|name| !name.is_empty()) {
@@ -829,7 +901,7 @@ async fn google_events(credential: &Credential, now: i64) -> Result<Refreshed, C
                 events.push(google_event(item, &credential.connection_id, calendar)?);
                 if events.len() > MAX_EVENTS {
                     return Err(invalid(
-                        "조회 일정이 5000개를 넘었습니다. 연결할 캘린더를 줄여 주세요.",
+                        "조회 일정이 5000개를 넘었어요. 연결할 캘린더를 줄여 주세요.",
                     ));
                 }
             }
@@ -838,7 +910,9 @@ async fn google_events(credential: &Credential, now: i64) -> Result<Refreshed, C
                 break;
             }
             if index == 20 {
-                return Err(invalid("캘린더 페이지 한도를 넘었습니다."));
+                return Err(invalid(
+                    "캘린더 조회 한도를 넘었어요. 캘린더 제공 서비스에서 일정을 줄여 주세요.",
+                ));
             }
         }
     }
@@ -856,6 +930,60 @@ mod tests {
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,
     };
+    #[test]
+    fn google_reconnect_reuses_only_empty_client_fields() {
+        let credential = || Credential {
+            connection_id: "id".into(),
+            provider: "google".into(),
+            url: None,
+            client_id: Some("saved.apps.googleusercontent.com".into()),
+            client_secret: Some("saved-secret".into()),
+            access_token: None,
+            refresh_token: None,
+            expires_at: None,
+            calendar_ids: vec!["primary".into()],
+        };
+        let mut input = GoogleConnectInput {
+            name: "일정".into(),
+            client_id: String::new(),
+            client_secret: Some(String::new()),
+            calendar_ids: vec!["primary".into()],
+        };
+        fill_google_credentials(&mut input, credential());
+        assert_eq!(input.client_id, "saved.apps.googleusercontent.com");
+        assert_eq!(input.client_secret.as_deref(), Some("saved-secret"));
+        input.client_id = "  saved.apps.googleusercontent.com  ".into();
+        input.client_secret = None;
+        fill_google_credentials(&mut input, credential());
+        assert_eq!(input.client_secret.as_deref(), Some("saved-secret"));
+        input.client_id = " new.apps.googleusercontent.com ".into();
+        input.client_secret = None;
+        fill_google_credentials(&mut input, credential());
+        assert_eq!(input.client_secret, None);
+        input.client_id = "new.apps.googleusercontent.com".into();
+        input.client_secret = Some("new-secret".into());
+        fill_google_credentials(&mut input, credential());
+        assert_eq!(input.client_id, "new.apps.googleusercontent.com");
+        assert_eq!(input.client_secret.as_deref(), Some("new-secret"));
+    }
+    #[tokio::test]
+    async fn google_reconnect_prompts_for_client_id_when_saved_credentials_cannot_be_read() {
+        let mut previous = connection("일정".into(), "google");
+        previous.id = "invalid".into();
+        let input = GoogleConnectInput {
+            name: "일정".into(),
+            client_id: String::new(),
+            client_secret: None,
+            calendar_ids: vec!["primary".into()],
+        };
+        let Err(failure) = reuse_google_credentials(input, previous).await else {
+            panic!("저장된 클라이언트 정보를 읽지 못할 때 오류가 필요해요.");
+        };
+        assert_eq!(
+            failure.message,
+            "저장된 클라이언트 정보를 찾지 못했어요. 클라이언트 ID를 입력해 주세요."
+        );
+    }
     #[test]
     fn reconnect_keeps_identity_and_rejects_provider_changes() {
         let input = || IcsConnectInput {
@@ -972,7 +1100,7 @@ mod tests {
         );
     }
     #[test]
-    fn refresh_failure_keeps_success_marker_and_stops_after_five_failures() {
+    fn refresh_failure_keeps_success_marker_and_retries_after_five_failures() {
         let original = success(&connection("일정".into(), "ics"), 1000);
         let mut current = original.clone();
         for n in 1..=5 {
@@ -980,11 +1108,27 @@ mod tests {
             assert_eq!(current.last_success_at, Some(1000));
             assert_eq!(current.failure_count, n as u32);
         }
-        assert!(!refresh_due(&current, i64::MAX - 1));
+        assert_eq!(current.next_refresh_at, 2005 + 3_600_000);
+        assert!(refresh_due(&current, current.next_refresh_at));
         let recovered = success(&current, 5000);
         assert_eq!(recovered.failure_count, 0);
         assert_eq!(recovered.error, None);
         assert!(refresh_due(&recovered, 5000 + REFRESH_INTERVAL_MS));
+    }
+    #[test]
+    fn legacy_permanent_backoff_retries_non_auth_failures() {
+        let mut current = success(&connection("일정".into(), "ics"), 1000);
+        current.failure_count = 5;
+        current.next_refresh_at = i64::MAX;
+        for status in ["offline", "stale", "permission-needed"] {
+            current.status = status.into();
+            assert!(refresh_due(&current, 2000), "{status}");
+            assert_eq!(current.last_success_at, Some(1000));
+        }
+        for status in ["auth-error", "syncing"] {
+            current.status = status.into();
+            assert!(!refresh_due(&current, 2000), "{status}");
+        }
     }
     #[tokio::test]
     async fn credential_permission_and_reauth_failures_wait_for_manual_refresh_then_recover() {
@@ -1100,7 +1244,7 @@ mod tests {
         })
         .unwrap();
         let failure = refresh_connected(&connected, 0).await.err().unwrap();
-        assert!(failure.message.contains("4 MiB"));
+        assert!(failure.message.contains("캘린더 데이터가 너무 커요"));
         assert!(!failure.message.contains("hidden"));
         server.await.unwrap();
     }

@@ -30,18 +30,28 @@ pub async fn begin_google(input: GoogleConnectInput) -> Result<GooglePending, Ca
         || input.client_id.len() > 300
         || input.client_id.chars().any(char::is_whitespace)
     {
-        return Err(invalid("Google Desktop OAuth client ID를 입력하세요."));
+        return Err(invalid("Google 클라이언트 ID를 확인해 주세요."));
     }
     if input.client_secret.as_ref().is_some_and(|x| x.len() > 1000) {
-        return Err(invalid("OAuth client secret이 너무 깁니다."));
+        return Err(invalid("Google 클라이언트 보안 비밀이 너무 길어요."));
     }
     validate_calendar_ids(&input.calendar_ids)?;
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .await
-        .map_err(|_| error("offline", "Google 연결 응답을 받을 로컬 포트를 열 수 없습니다."))?;
+        .map_err(|_| {
+            error(
+                "offline",
+                "Google 연결 응답을 받을 로컬 포트를 열지 못했어요. 다시 시도해 주세요.",
+            )
+        })?;
     let port = listener
         .local_addr()
-        .map_err(|_| error("offline", "로컬 포트 오류"))?
+        .map_err(|_| {
+            error(
+                "offline",
+                "Google 연결에 사용할 로컬 포트를 확인하지 못했어요. 다시 시도해 주세요.",
+            )
+        })?
         .port();
     let redirect_uri = format!("http://127.0.0.1:{port}");
     let state = uuid::Uuid::new_v4().simple().to_string();
@@ -52,7 +62,7 @@ pub async fn begin_google(input: GoogleConnectInput) -> Result<GooglePending, Ca
     );
     let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
     let mut url = reqwest::Url::parse("https://accounts.google.com/o/oauth2/v2/auth")
-        .map_err(|_| invalid("인증 주소 오류"))?;
+        .map_err(|_| invalid("Google 승인 응답을 확인하지 못했어요. 다시 연결해 주세요."))?;
     url.query_pairs_mut().extend_pairs([
         ("client_id", input.client_id.as_str()),
         ("redirect_uri", redirect_uri.as_str()),
@@ -78,77 +88,98 @@ fn callback_code(request: &str, expected_state: &str) -> Result<String, Calendar
     let first = request
         .lines()
         .next()
-        .ok_or_else(|| invalid("인증 응답 오류"))?;
+        .ok_or_else(|| invalid("Google 승인 응답을 확인하지 못했어요. 다시 연결해 주세요."))?;
     let mut parts = first.split_whitespace();
     if parts.next() != Some("GET") {
-        return Err(invalid("인증 응답 방식 오류"));
+        return Err(invalid(
+            "Google 승인 응답을 확인하지 못했어요. 다시 연결해 주세요.",
+        ));
     }
-    let path = parts.next().ok_or_else(|| invalid("인증 응답 경로 오류"))?;
+    let path = parts
+        .next()
+        .ok_or_else(|| invalid("Google 승인 응답을 확인하지 못했어요. 다시 연결해 주세요."))?;
     let url = reqwest::Url::parse(&format!("http://127.0.0.1{path}"))
-        .map_err(|_| invalid("인증 응답 주소 오류"))?;
+        .map_err(|_| invalid("Google 승인 응답을 확인하지 못했어요. 다시 연결해 주세요."))?;
     if url.path() != "/" {
-        return Err(invalid("인증 응답 경로 오류"));
+        return Err(invalid(
+            "Google 승인 응답을 확인하지 못했어요. 다시 연결해 주세요.",
+        ));
     }
     let query: Vec<_> = url.query_pairs().collect();
     let states: Vec<_> = query.iter().filter(|(k, _)| k == "state").collect();
     if states.len() != 1 || states[0].1 != expected_state {
-        return Err(error("auth-error", "Google 연결 요청 상태가 일치하지 않습니다."));
-    }
-    if query.iter().any(|(k, _)| k == "error") {
         return Err(error(
             "auth-error",
-            "Google 연결이 취소되었거나 거절되었습니다.",
+            "Google 연결 요청을 확인하지 못했어요. 다시 연결해 주세요.",
         ));
+    }
+    if query.iter().any(|(k, _)| k == "error") {
+        return Err(CalendarError {
+            status: "auth-error".into(),
+            message: "Google 승인이 취소되었거나 거절됐어요. 다시 연결해 주세요.".into(),
+        });
     }
     let codes: Vec<_> = query.iter().filter(|(k, _)| k == "code").collect();
     if codes.len() != 1 || codes[0].1.is_empty() || codes[0].1.len() > 4096 {
-        return Err(invalid("인증 코드 오류"));
+        return Err(invalid(
+            "Google 승인 응답을 확인하지 못했어요. 다시 연결해 주세요.",
+        ));
     }
     Ok(codes[0].1.to_string())
 }
 pub async fn finish_google(pending: GooglePending) -> Result<Connected, CalendarError> {
     let accepted = tokio::time::timeout_at(pending.expires, pending.listener.accept())
         .await
+        .map_err(|_| CalendarError {
+            status: "auth-error".into(),
+            message: "Google 연결 대기 시간이 끝났어요. 다시 연결해 주세요.".into(),
+        })?
         .map_err(|_| {
             error(
-                "auth-error",
-                "Google 연결 대기 시간이 끝났습니다. 다시 연결해 주세요.",
+                "offline",
+                "Google 연결 응답을 받지 못했어요. 다시 시도해 주세요.",
             )
-        })?
-        .map_err(|_| error("offline", "Google 연결 응답 오류"))?;
+        })?;
     let (mut socket, address) = accepted;
     if !address.ip().is_loopback() {
-        return Err(error("auth-error", "로컬 인증 응답이 아닙니다."));
+        return Err(error(
+            "auth-error",
+            "Google 연결 응답을 확인하지 못했어요. 다시 연결해 주세요.",
+        ));
     }
     let read = async {
         let mut bytes = Vec::new();
         let mut chunk = [0u8; 1024];
         loop {
-            let count = socket
-                .read(&mut chunk)
-                .await
-                .map_err(|_| invalid("인증 응답 읽기 오류"))?;
+            let count = socket.read(&mut chunk).await.map_err(|_| {
+                invalid("Google 승인 응답을 확인하지 못했어요. 다시 연결해 주세요.")
+            })?;
             if count == 0 {
-                return Err(invalid("인증 응답이 종료되었습니다."));
+                return Err(invalid(
+                    "Google 승인 응답을 확인하지 못했어요. 다시 연결해 주세요.",
+                ));
             }
             bytes.extend_from_slice(&chunk[..count]);
             if bytes.len() > 16384 {
-                return Err(invalid("인증 응답이 너무 큽니다."));
+                return Err(invalid(
+                    "Google 승인 응답을 확인하지 못했어요. 다시 연결해 주세요.",
+                ));
             }
             if bytes.windows(4).any(|x| x == b"\r\n\r\n") {
                 break;
             }
         }
-        String::from_utf8(bytes).map_err(|_| invalid("인증 응답 문자 오류"))
+        String::from_utf8(bytes)
+            .map_err(|_| invalid("Google 승인 응답을 확인하지 못했어요. 다시 연결해 주세요."))
     };
     let request = tokio::time::timeout(Duration::from_secs(5), read)
         .await
-        .map_err(|_| invalid("인증 응답 읽기 시간이 끝났습니다."))??;
+        .map_err(|_| invalid("Google 승인 응답을 확인하지 못했어요. 다시 연결해 주세요."))??;
     let code = callback_code(&request, &pending.state);
     let message = if code.is_ok() {
-        "Google login received. You may return to comet."
+        "Google 승인을 확인했어요. Comet으로 돌아가 주세요."
     } else {
-        "Google login failed. Please return to comet and retry."
+        "Google 승인을 확인하지 못했어요. Comet으로 돌아가 다시 연결해 주세요."
     };
     let response=format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\nContent-Security-Policy: default-src 'none'\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{message}",message.len());
     let _ = tokio::time::timeout(
@@ -173,7 +204,7 @@ pub async fn finish_google(pending: GooglePending) -> Result<Connected, Calendar
             .form(&form)
             .send()
             .await
-            .map_err(|_| error("offline", "Google 인증 서버에 연결하지 못했습니다."))?,
+            .map_err(|_| error("offline", "인터넷 연결을 확인하고 다시 시도해 주세요."))?,
     )
     .await?;
     let mut connection = connection(pending.input.name, "google");
@@ -193,7 +224,7 @@ pub async fn finish_google(pending: GooglePending) -> Result<Connected, Calendar
     if credential.refresh_token.is_none() {
         return Err(error(
             "auth-error",
-            "오프라인 조회 권한을 받지 못했습니다. 다시 동의해 주세요.",
+            "캘린더 조회 권한을 받지 못했어요. 다시 연결해 주세요.",
         ));
     }
     Ok(Connected {
@@ -208,21 +239,24 @@ fn apply_tokens(
 ) -> Result<(), CalendarError> {
     if let Some(scopes) = result["scope"].as_str() {
         if !scopes.split_whitespace().any(|scope| scope == SCOPE) {
-            return Err(error("auth-error", "캘린더 읽기 권한이 필요합니다."));
+            return Err(error(
+                "auth-error",
+                "캘린더 읽기 권한이 필요해요. 다시 연결해 주세요.",
+            ));
         }
     }
     let token = string(result, "access_token")
-        .map_err(|_| error("auth-error", "Google 인증 응답에 access token이 없습니다."))?;
+        .map_err(|_| error("auth-error", "Google 연결을 다시 인증해 주세요."))?;
     if result["token_type"]
         .as_str()
         .is_some_and(|x| !x.eq_ignore_ascii_case("bearer"))
     {
-        return Err(error("auth-error", "지원하지 않는 인증 token 형식입니다."));
+        return Err(error("auth-error", "Google 연결을 다시 인증해 주세요."));
     }
     let expires = result["expires_in"]
         .as_i64()
         .filter(|n| *n > 0 && *n <= 86400)
-        .ok_or_else(|| error("auth-error", "Google 인증 만료 시각 오류"))?;
+        .ok_or_else(|| error("auth-error", "Google 연결을 다시 인증해 주세요."))?;
     credential.access_token = Some(token);
     credential.expires_at = Some(now.saturating_add(expires * 1000));
     if let Some(token) = result["refresh_token"].as_str() {
@@ -247,7 +281,7 @@ pub(super) async fn refresh_token(
     let client_id = credential
         .client_id
         .as_deref()
-        .ok_or_else(|| error("auth-error", "Google client ID가 없습니다."))?;
+        .ok_or_else(|| error("auth-error", "Google 연결을 다시 인증해 주세요."))?;
     let mut form = vec![
         ("client_id", client_id),
         ("refresh_token", refresh),
@@ -261,7 +295,7 @@ pub(super) async fn refresh_token(
         .form(&form)
         .send()
         .await
-        .map_err(|_| error("offline", "Google 인증 갱신에 연결하지 못했습니다."))?;
+        .map_err(|_| error("offline", "인터넷 연결을 확인하고 다시 시도해 주세요."))?;
     if response.status() == reqwest::StatusCode::BAD_REQUEST {
         return Err(error("auth-error", "Google 연결을 다시 인증해 주세요."));
     }
@@ -286,6 +320,10 @@ mod tests {
         ] {
             assert!(callback_code(&format!("GET /?{query} HTTP/1.1\r\n\r\n"), "nonce").is_err());
         }
+        let cancelled =
+            callback_code("GET /?state=nonce&error=denied HTTP/1.1\r\n\r\n", "nonce").unwrap_err();
+        assert_eq!(cancelled.status, "auth-error");
+        assert!(cancelled.message.contains("취소"));
     }
     #[tokio::test]
     async fn pkce_begin_uses_readonly_scope_loopback_and_unique_state() {
