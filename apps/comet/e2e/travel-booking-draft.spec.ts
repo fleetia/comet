@@ -67,6 +67,9 @@ test("an AI draft changes nothing until reviewed and saved, and closing it disca
   expect(tauri.called("update_diary")).toHaveLength(0);
 
   await editor.getByRole("button", { name: "확인서로 만든 예약 초안 닫기" }).click();
+  const discard = page.getByRole("dialog", { name: "저장하지 않은 변경을 버릴까요?" });
+  await expect(discard).toBeVisible();
+  await discard.getByRole("button", { name: "버리기" }).click();
   await expect(editor).toBeHidden();
   await expect(page.getByRole("heading", { name: "예약 0건" })).toBeVisible();
   expect(tauri.called("update_diary")).toHaveLength(0);
