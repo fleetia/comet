@@ -45,6 +45,8 @@ it("saves a move with its original for conflict checks and keeps the draft on a 
       busy={false}
       onSave={onSave}
       onClose={onClose}
+      onDirtyChange={vi.fn()}
+      onRequestClose={vi.fn()}
     />,
   );
   expect(screen.getByText("시차를 빼고 1시간 10분 걸려요.")).toBeTruthy();
@@ -74,7 +76,7 @@ it("does not close or report success when saving a trip fails", async () => {
   const onSave = vi.fn().mockResolvedValue(false);
   const onClose = vi.fn();
   render(
-    <TravelEditor envelopes={[]} busy={false} onSave={onSave} onClose={onClose} />,
+    <TravelEditor envelopes={[]} busy={false} onSave={onSave} onClose={onClose} onDirtyChange={vi.fn()} onRequestClose={vi.fn()} />,
   );
   fireEvent.change(screen.getByLabelText(/^여행 이름/), { target: { value: "제주 가족 여행" } });
   change("예산 (원)", "2,000,000");
@@ -110,7 +112,7 @@ it("lists a day's plans by time and moves between trip days", () => {
     "button",
   );
   expect(rows.map((row) => row.textContent)).toEqual([
-    expect.stringContaining("오전 9:10  김포 → 제주도착 오전 10:20 · 이동 1시간 10분"),
+    expect.stringContaining("오전 9:10 (한국 시각)  김포 → 제주도착 오전 10:20 (한국 시각) · 이동 1시간 10분"),
     expect.stringContaining("오후 3:00  애월 숙소 체크인애월"),
   ]);
   fireEvent.click(rows[1]);

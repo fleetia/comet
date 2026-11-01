@@ -1,18 +1,11 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { Button, TripInfoRow } from "@comet/ui";
 import { command, errorText } from "../../hooks/useSnapshot";
-import { HOME_ZONE, clock, dateIn, dayLabel, duration, instant } from "./travelData";
-import { ZONES } from "./TravelEditor";
+import { clock, dateIn, dayLabel, duration, instant, zoneName } from "./travelData";
 import { STATUS_LABELS, bookingPeriod, cancelLabel, kindLabel } from "./travelSummary";
 import { formatAmount, maskConfirmation, toWon } from "./travelMoney";
 import type { Booking, TripData } from "./travelTypes";
 import * as s from "./travel.css";
-
-function zoneName(zone: string | undefined, fallback: string): string {
-  const value = zone ?? fallback;
-  if (value === HOME_ZONE) return "한국 시각";
-  return `${ZONES.find(([id]) => id === value)?.[1] ?? value} 시각`;
-}
 
 function price(booking: Booking): string {
   if (!booking.amount) return STATUS_LABELS[booking.status];
@@ -25,6 +18,7 @@ export function TravelBookings({
   trip,
   selectedId,
   busy,
+  draftDisabled,
   onSelect,
   onAdd,
   onDraft,
@@ -34,6 +28,7 @@ export function TravelBookings({
   trip: TripData;
   selectedId: string;
   busy: boolean;
+  draftDisabled: boolean;
   onSelect: (id: string) => void;
   onAdd: () => void;
   onDraft: () => void;
@@ -80,7 +75,7 @@ export function TravelBookings({
         <Button disabled={busy} onClick={onAdd}>
           예약 더하기
         </Button>
-        <Button variant="ghost" disabled={busy} onClick={onDraft}>
+        <Button variant="ghost" disabled={busy || draftDisabled} onClick={onDraft}>
           확인서로 초안 만들기
         </Button>
       </div>

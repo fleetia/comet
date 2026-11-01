@@ -70,29 +70,103 @@ function Thumb({ travelId, photo, missing }: { travelId: string; photo: Photo; m
   );
 }
 
+export function useTravelPhotoImport(
+  mutate: (action: string, input: DataRecord) => Promise<boolean>,
+  onFailure: (message: string) => void,
+): {
+  progress: { travelTitle: string; message: string; inProgress: boolean } | null;
+  add: (trip: TripData) => Promise<void>;
+} {
+  const [progress, setProgress] = useState<{ travelTitle: string; message: string; inProgress: boolean } | null>(null);
+  const lifetime = useRef({ active: true });
+  const running = useRef(false);
+  useEffect(() => {
+    const current = { active: true };
+    lifetime.current = current;
+    return () => { current.active = false; };
+  }, []);
+
+  async function add(trip: TripData): Promise<void> {
+    if (running.current) return;
+    running.current = true;
+    const current = lifetime.current;
+    const active = () => current.active && lifetime.current === current;
+    const { travel } = trip;
+    let saved = 0;
+    let total = 0;
+    const show = (message: string, inProgress: boolean): void => {
+      if (active()) setProgress({ travelTitle: travel.title, message, inProgress });
+    };
+    show("사진을 고르는 중이에요.", true);
+    try {
+      const metas = await command<PhotoMeta[]>("travel_pick_photos", { travelId: travel.id });
+      if (!active()) return;
+      if (!metas.length) {
+        setProgress(null);
+        return;
+      }
+      const known = new Set(trip.photos.map((photo) => photo.path));
+      const fresh = metas.filter((meta) => {
+        if (known.has(meta.path)) return false;
+        known.add(meta.path);
+        return true;
+      });
+      total = fresh.length;
+      if (!total) {
+        show("이미 담은 사진이에요.", false);
+        return;
+      }
+      show(`미리보기 만드는 중 0/${total}`, true);
+      const photos: DataRecord[] = [];
+      for (const meta of fresh) {
+        if (!active()) return;
+        const thumb = await thumbnail(travel.id, meta.path, active);
+        if (!active()) return;
+        photos.push(placePhoto(meta, trip, thumb) as DataRecord);
+        show(`미리보기 만드는 중 ${photos.length}/${total}`, true);
+      }
+      for (let index = 0; index < photos.length; index += 100) {
+        if (!active()) return;
+        show(`사진 저장 중 ${saved}/${total}`, true);
+        const batch = photos.slice(index, index + 100);
+        if (!(await mutate("travel-photo-add", { travelId: travel.id, photos: batch }))) {
+          show(`사진을 모두 넣지 못했어요. ${saved}/${total}장 처리했어요.`, false);
+          return;
+        }
+        saved += batch.length;
+      }
+      show(`사진 ${saved}장 처리를 마쳤어요.`, false);
+    } catch (cause) {
+      if (active()) {
+        onFailure(errorText(cause));
+        show(`사진을 모두 넣지 못했어요. ${saved}/${total}장 처리했어요.`, false);
+      }
+    } finally {
+      running.current = false;
+    }
+  }
+
+  return { progress, add };
+}
+
 export function TravelPhotos({
   trip,
   busy,
   mutate,
   onOverview,
   onFailure,
+  onAdd,
+  adding,
 }: {
   trip: TripData;
   busy: boolean;
   mutate: (action: string, input: DataRecord) => Promise<boolean>;
   onOverview: () => void;
   onFailure: (message: string) => void;
+  onAdd: () => void;
+  adding: boolean;
 }): ReactElement {
   const { travel } = trip;
-  const lifetime = useRef({ active: true });
-  useEffect(() => {
-    const current = { active: true };
-    lifetime.current = current;
-    setProgress(null);
-    return () => { current.active = false; };
-  }, [travel.id]);
-
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [missing, setMissing] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Photo | null>(null);
   const [shifting, setShifting] = useState(false);
@@ -110,34 +184,6 @@ export function TravelPhotos({
       active = false;
     };
   }, [paths]);
-
-  async function add(): Promise<void> {
-    const current = lifetime.current;
-    const active = () => current.active && lifetime.current === current;
-    try {
-      const metas = await command<PhotoMeta[]>("travel_pick_photos", { travelId: travel.id });
-      if (!active() || !metas.length) return;
-      const known = new Set(trip.photos.map((photo) => photo.path));
-      const fresh = metas.filter((meta) => !known.has(meta.path));
-      setProgress({ done: 0, total: fresh.length });
-      const photos: DataRecord[] = [];
-      for (const meta of fresh) {
-        if (!active()) return;
-        const thumb = await thumbnail(travel.id, meta.path, active);
-        if (!active()) return;
-        photos.push(placePhoto(meta, trip, thumb) as DataRecord);
-        setProgress({ done: photos.length, total: fresh.length });
-      }
-      for (let index = 0; index < photos.length; index += 100) {
-        if (!active()) return;
-        if (!(await mutate("travel-photo-add", { travelId: travel.id, photos: photos.slice(index, index + 100) }))) break;
-      }
-    } catch (cause) {
-      if (active()) onFailure(errorText(cause));
-    } finally {
-      if (active()) setProgress(null);
-    }
-  }
 
   const days = new Map<string, Photo[]>();
   for (const photo of [...trip.photos].sort((a, b) => (a.takenAt ?? "").localeCompare(b.takenAt ?? ""))) {
@@ -183,8 +229,8 @@ export function TravelPhotos({
         </div>
       )}
       <div className={s.actions}>
-        <Button disabled={busy || Boolean(progress)} onClick={() => void add()}>
-          {progress ? `미리보기 만드는 중 ${progress.done}/${progress.total}` : "사진 넣기"}
+        <Button disabled={busy || adding} onClick={onAdd}>
+          {adding ? "사진 넣는 중" : "사진 넣기"}
         </Button>
         {trip.photos.some((photo) => photo.takenAt) && (
           <Button variant="ghost" disabled={busy} onClick={() => setShifting(true)}>

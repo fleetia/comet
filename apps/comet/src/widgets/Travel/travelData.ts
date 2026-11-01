@@ -1,7 +1,27 @@
 import type { Travel, TravelPlan, TravelStage } from "./travelTypes";
 
 export const HOME_ZONE = "Asia/Seoul";
+export const ZONES: [string, string][] = [
+  [HOME_ZONE, "한국"],
+  ["Asia/Tokyo", "일본"],
+  ["Asia/Shanghai", "중국·대만"],
+  ["Asia/Bangkok", "태국·베트남"],
+  ["Asia/Singapore", "싱가포르·말레이시아"],
+  ["Asia/Manila", "필리핀"],
+  ["Australia/Sydney", "시드니"],
+  ["Pacific/Guam", "괌·사이판"],
+  ["Pacific/Honolulu", "하와이"],
+  ["America/Los_Angeles", "미국 서부"],
+  ["America/New_York", "미국 동부"],
+  ["Europe/London", "영국"],
+  ["Europe/Paris", "파리·서유럽"],
+];
 const DAY = 86_400_000;
+
+export function zoneName(zone: string | null | undefined, fallback: string): string {
+  const value = zone || fallback;
+  return `${ZONES.find(([id]) => id === value)?.[1] ?? value} 시각`;
+}
 
 export const STAGE_LABELS: Record<TravelStage, string> = {
   planning: "계획 중",

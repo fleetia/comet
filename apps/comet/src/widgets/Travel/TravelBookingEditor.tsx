@@ -4,7 +4,7 @@ import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { canOpenNotificationSettings, notificationSettingsText, openSystemSettings } from "../../systemSettings";
 import type { DataRecord } from "../toolData";
 import type { DiaryLedgerCategory } from "../Planner/diaryLedgerTypes";
-import { ZONES } from "./TravelEditor";
+import { ZONES } from "./travelData";
 import { BOOKING_KINDS, STATUS_LABELS } from "./travelSummary";
 import {
   CURRENCIES,
@@ -37,6 +37,8 @@ export function TravelBookingEditor({
   onSave,
   onDelete,
   onClose,
+  onDirtyChange,
+  onRequestClose,
 }: {
   trip: TripData;
   booking?: Booking;
@@ -47,6 +49,8 @@ export function TravelBookingEditor({
   onSave: (input: DataRecord) => Promise<boolean>;
   onDelete?: () => Promise<boolean>;
   onClose: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+  onRequestClose: () => void;
 }): ReactElement {
   const { travel } = trip;
   const initialKind =
@@ -92,7 +96,11 @@ export function TravelBookingEditor({
   const [vouchers, setVouchers] = useState<Voucher[]>(
     booking?.vouchers ?? (draft?.voucher ? [draft.voucher] : []),
   );
+  const current = JSON.stringify([kind, title, vendor, confirmation, status, paidDate, currency, amount, rate, category, startDate, startTime, startZone, endDate, endTime, endZone, place, destination, cancelDate, cancelTime, link, memo, vouchers]);
+  const initial = useRef(current);
+  useEffect(() => onDirtyChange(Boolean(draft) || current !== initial.current), [current, draft, onDirtyChange]);
   const [attaching, setAttaching] = useState(false);
+  const attachingRef = useRef(false);
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [permission, setPermission] = useState("unknown");
@@ -149,6 +157,8 @@ export function TravelBookingEditor({
   }
 
   async function attach(): Promise<void> {
+    if (attachingRef.current) return;
+    attachingRef.current = true;
     setAttaching(true);
     try {
       const added = await command<Voucher[]>("travel_attach_vouchers", { travelId: travel.id });
@@ -156,11 +166,13 @@ export function TravelBookingEditor({
     } catch (cause) {
       setError(errorText(cause));
     } finally {
+      attachingRef.current = false;
       setAttaching(false);
     }
   }
 
   async function save(): Promise<void> {
+    if (attachingRef.current) return;
     const minor = amount.trim() ? parseAmount(amount, currency) : 0;
     if (!title.trim()) return setError("예약 이름을 적어 주세요.");
     if (minor === null) return setError(`금액은 ${currency === "KRW" ? "원 단위 숫자" : "숫자(소수점 둘째 자리까지)"}로 적어 주세요.`);
@@ -204,10 +216,14 @@ export function TravelBookingEditor({
       <Dialog
         isOpen
         size="large"
-        title={caption}
+        title={`${caption} · ${travel.title}`}
         closeLabel={`${caption} 닫기`}
+        onCancel={(event) => {
+          event.preventDefault();
+          if (!busy) onRequestClose();
+        }}
         onOpenChange={(open) => {
-          if (!open && !busy) onClose();
+          if (!open && !busy) onRequestClose();
         }}
       >
         <form
@@ -498,10 +514,10 @@ export function TravelBookingEditor({
                 예약 지우기
               </Button>
             )}
-            <Button variant="ghost" disabled={busy} onClick={onClose}>
+            <Button variant="ghost" disabled={busy} onClick={onRequestClose}>
               취소
             </Button>
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" disabled={busy || attaching}>
               저장
             </Button>
           </div>

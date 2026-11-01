@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { IconName } from "@comet/icon";
-import { Button, Select, SidebarItem } from "@comet/ui";
+import { Button, Dialog, Select, SidebarItem } from "@comet/ui";
 import { WindowHeader } from "../../components/WindowHeader/WindowHeader";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWidgets } from "../useWidgets";
@@ -24,13 +24,15 @@ import { TravelCosts } from "./TravelCosts";
 import { TravelExpenseEditor } from "./TravelExpenseEditor";
 import { TravelPeople } from "./TravelPeople";
 import { TravelMap, placeInput } from "./TravelMap";
-import { TravelPhotos } from "./TravelPhotos";
+import { TravelPhotos, useTravelPhotoImport } from "./TravelPhotos";
 import {
   HOME_ZONE,
+  addDays,
   STAGE_LABELS,
   countdown,
   dateIn,
   dayLabel,
+  instant,
   periodLabel,
   sortTravels,
   travelDays,
@@ -41,6 +43,7 @@ import { tripPage } from "./travelSummary";
 import type {
   Booking,
   Expense,
+  Person,
   Travel as TravelValue,
   TravelPlan,
   TravelSettings,
@@ -52,9 +55,9 @@ import * as s from "./travel.css";
 
 type Editing =
   | { kind: "travel"; travel?: TravelValue }
-  | { kind: "plan"; plan?: TravelPlan; date: string }
-  | { kind: "booking"; booking?: Booking; draft?: BookingDraft }
-  | { kind: "expense"; expense?: Expense }
+  | { kind: "plan"; trip: TripData; plan?: TravelPlan; date: string }
+  | { kind: "booking"; trip: TripData; booking?: Booking; draft?: BookingDraft }
+  | { kind: "expense"; trip: TripData; expense?: Expense }
   | null;
 
 const TABS: [TravelTab, string, IconName][] = [
@@ -84,6 +87,11 @@ export function Travel({ onClose }: { onClose?: () => void } = {}): ReactElement
   const [failure, setFailure] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [drafting, setDrafting] = useState(false);
+  const [pendingDraft, setPendingDraft] = useState<{ trip: TripData; draft: BookingDraft } | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [discard, setDiscard] = useState<"editor" | "window" | null>(null);
+  const [personEditing, setPersonEditing] = useState<{ person: Person | "new"; trip: TripData } | null>(null);
+  const [, setClock] = useState(0);
   const widgets = snapshot?.widgets ?? [];
   const enabled = (kind: string) =>
     widgets.find((widget) => widget.kind === kind);
@@ -120,13 +128,57 @@ export function Travel({ onClose }: { onClose?: () => void } = {}): ReactElement
         photos: of(data?.travelPhotos),
       }
     : null;
+  const editingRef = useRef(editing);
+  const tripRef = useRef(trip);
+  const personEditingRef = useRef(personEditing);
+  editingRef.current = editing;
+  tripRef.current = trip;
+  personEditingRef.current = personEditing;
+  const currentTrip = (original: TripData): TripData => {
+        const current = travels.find((value) => value.id === original.travel.id);
+        return current ? {
+          travel: current,
+          plans: (data?.travelPlans ?? []).filter((value) => value.travelId === current.id),
+          bookings: (data?.travelBookings ?? []).filter((value) => value.travelId === current.id),
+          expenses: (data?.travelExpenses ?? []).filter((value) => value.travelId === current.id),
+          people: (data?.travelPeople ?? []).filter((value) => value.travelId === current.id),
+          transfers: (data?.travelTransfers ?? []).filter((value) => value.travelId === current.id),
+          photos: (data?.travelPhotos ?? []).filter((value) => value.travelId === current.id),
+        } : original;
+  };
+  const editingTrip = editing && editing.kind !== "travel" ? currentTrip(editing.trip) : null;
   const settings = data?.travelSettings ?? DEFAULT_SETTINGS;
   const categories = data?.ledgerSettings?.categories ?? LEDGER_CATEGORIES;
   const days = trip ? travelDays(trip.travel, trip.plans) : [];
   const shownDay = days.includes(day) ? day : (days[0] ?? "");
   const busy = state.busy || actions.busy;
-  const today = travel ? dateIn(travel.timeZone) : "";
   const linked = travel?.envelopeId ? envelopes.find((value) => value.id === travel.envelopeId) : undefined;
+
+  useEffect(() => {
+    if (data && pendingDraft && !data.travels?.some((value) => value.id === pendingDraft.trip.travel.id)) {
+      setPendingDraft(null);
+    }
+  }, [data, pendingDraft]);
+
+  useEffect(() => {
+    if (!travel) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = (): void => {
+      setClock((value) => value + 1);
+      const now = Date.now();
+      const next = instant(addDays(dateIn(travel.timeZone, new Date(now)), 1), "00:00", travel.timeZone);
+      clearTimeout(timer);
+      timer = setTimeout(refresh, Math.max(1000, next - now + 100));
+    };
+    refresh();
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [travel?.id, travel?.timeZone]);
 
   useEffect(() => {
     if (!isDesktop()) return;
@@ -157,6 +209,7 @@ export function Travel({ onClose }: { onClose?: () => void } = {}): ReactElement
   }, []);
 
   const run = async (action: string, input: DataRecord) => Boolean(await state.mutate(action, input));
+  const photoImport = useTravelPhotoImport(run, setFailure);
 
   function open(next: TravelTab): void {
     setTab(next);
@@ -204,15 +257,21 @@ export function Travel({ onClose }: { onClose?: () => void } = {}): ReactElement
   }
 
   async function draftBooking(): Promise<void> {
-    if (!travel) return;
+    if (!trip || pendingDraft) return;
+    const requestedTrip = trip;
     setDrafting(true);
     setFailure(null);
     try {
       const result = await command<{ draft: Record<string, string>; voucher: Voucher } | null>(
         "travel_booking_draft",
-        { travelId: travel.id },
+        { travelId: requestedTrip.travel.id },
       );
-      if (result) setEditing({ kind: "booking", draft: { ...result.draft, voucher: result.voucher } });
+      if (result) {
+        const draft = { ...result.draft, voucher: result.voucher };
+        if (!editingRef.current && !personEditingRef.current && tripRef.current?.travel.id === requestedTrip.travel.id)
+          setEditing({ kind: "booking", trip: requestedTrip, draft });
+        else setPendingDraft({ trip: requestedTrip, draft });
+      }
     } catch (cause) {
       setFailure(errorText(cause));
     } finally {
@@ -238,8 +297,22 @@ export function Travel({ onClose }: { onClose?: () => void } = {}): ReactElement
         .catch((cause: unknown) => setFailure(errorText(cause)));
   };
 
-  const closeRef = useRef(close);
-  closeRef.current = close;
+  const requestClose = (target: "editor" | "window"): void => {
+    if (dirty && (editing || personEditing)) setDiscard(target);
+    else if (target === "window") close();
+    else closeEditor();
+  };
+
+  function closeEditor(): void {
+    createdEnvelope.current = null;
+    envelopeRequest.current = null;
+    setEditing(null);
+    setPersonEditing(null);
+    setDirty(false);
+  }
+
+  const closeRef = useRef(requestClose);
+  closeRef.current = requestClose;
   useEffect(() => {
     if (!isDesktop()) return;
     let active = true;
@@ -248,7 +321,7 @@ export function Travel({ onClose }: { onClose?: () => void } = {}): ReactElement
       .onCloseRequested((event) => {
         event.preventDefault();
         if (!active) return;
-        closeRef.current();
+        closeRef.current("window");
       })
       .then((cleanup) => {
         if (active) unlisten = cleanup;
@@ -275,8 +348,8 @@ export function Travel({ onClose }: { onClose?: () => void } = {}): ReactElement
             date={shownDay}
             busy={busy}
             onSelectDay={setDay}
-            onAdd={() => setEditing({ kind: "plan", date: shownDay })}
-            onEdit={(plan) => setEditing({ kind: "plan", plan, date: plan.date })}
+            onAdd={() => setEditing({ kind: "plan", trip: current, date: shownDay })}
+            onEdit={(plan) => setEditing({ kind: "plan", trip: current, plan, date: plan.date })}
           />
         );
       case "bookings":
@@ -285,10 +358,11 @@ export function Travel({ onClose }: { onClose?: () => void } = {}): ReactElement
             trip={current}
             selectedId={bookingId}
             busy={busy || drafting}
+            draftDisabled={!!pendingDraft}
             onSelect={setBookingId}
-            onAdd={() => setEditing({ kind: "booking" })}
+            onAdd={() => setEditing({ kind: "booking", trip: current })}
             onDraft={() => void draftBooking()}
-            onEdit={(booking) => setEditing({ kind: "booking", booking })}
+            onEdit={(booking) => setEditing({ kind: "booking", trip: current, booking })}
             onFailure={setFailure}
           />
         );
@@ -297,29 +371,16 @@ export function Travel({ onClose }: { onClose?: () => void } = {}): ReactElement
           <TravelCosts
             trip={current}
             busy={busy}
-            onAdd={() => setEditing({ kind: "expense" })}
-            onEdit={(expense) => setEditing({ kind: "expense", expense })}
+            onAdd={() => setEditing({ kind: "expense", trip: current })}
+            onEdit={(expense) => setEditing({ kind: "expense", trip: current, expense })}
             onSent={(from, to, amount) =>
-              void run("travel-transfer-create", { travelId: current.travel.id, from, to, amount, date: today })
+              void run("travel-transfer-create", { travelId: current.travel.id, from, to, amount, date: dateIn(current.travel.timeZone) })
             }
             onUndoSent={(transfer) => void run("travel-transfer-delete", { id: transfer.id, expected: transfer })}
           />
         );
       case "people":
-        return (
-          <TravelPeople
-            trip={current}
-            busy={busy}
-            onSave={(input, person) =>
-              run(
-                person ? "travel-person-update" : "travel-person-create",
-                person ? { ...input, id: person.id, expected: person } : { ...input, travelId: current.travel.id },
-              )
-            }
-            onDelete={(person) => run("travel-person-delete", { id: person.id, expected: person })}
-            onSettle={() => open("costs")}
-          />
-        );
+        return <></>;
       case "map":
         return (
           <TravelMap
@@ -334,7 +395,8 @@ export function Travel({ onClose }: { onClose?: () => void } = {}): ReactElement
         );
       case "photos":
         return (
-          <TravelPhotos trip={current} busy={busy} mutate={run} onOverview={() => open("overview")} onFailure={setFailure} />
+          <TravelPhotos trip={current} busy={busy} mutate={run} onOverview={() => open("overview")} onFailure={setFailure}
+            adding={photoImport.progress?.inProgress ?? false} onAdd={() => void photoImport.add(current)} />
         );
       default:
         return (
@@ -375,14 +437,27 @@ export function Travel({ onClose }: { onClose?: () => void } = {}): ReactElement
           {notice}
         </div>
       )}
+      {photoImport.progress && <p role="status" className={diary.status}>{photoImport.progress.travelTitle} · {photoImport.progress.message}</p>}
+      {pendingDraft && (
+        <div role="status" className={diary.status}>
+          {pendingDraft.trip.travel.title}의 예약 초안이 준비됐어요. {" "}
+          <Button disabled={!!editing || !!personEditing || trip?.travel.id !== pendingDraft.trip.travel.id} onClick={() => {
+            setEditing({ kind: "booking", ...pendingDraft });
+            setPendingDraft(null);
+          }}>초안 열기</Button>
+        </div>
+      )}
       {!data ? (
-        <p role="status" className={s.status}>
-          여행을 펼치고 있어요.
-        </p>
+        state.error || loadError ? (
+          <div className={s.status}>
+            <Button onClick={() => { state.reload(); reload(); }}>다시 불러오기</Button>
+            <Button variant="ghost" onClick={close}>닫기</Button>
+          </div>
+        ) : <p role="status" className={s.status}>여행을 펼치고 있어요.</p>
       ) : (
         <div className={s.layout}>
           <nav className={diary.rail} aria-label="여행 창의 칸">
-            <WindowHeader nativeControls className={diary.railHeader} label="여행 창 닫기" onClose={async () => close()} />
+            <WindowHeader nativeControls className={diary.railHeader} label="여행 창 닫기" onClose={async () => requestClose("window")} />
             <span className={s.brand}>comet</span>
             {trip &&
               TABS.map(([value, label, icon]) => (
@@ -441,6 +516,26 @@ export function Travel({ onClose }: { onClose?: () => void } = {}): ReactElement
                   </div>
                 </header>
                 {body(trip)}
+                {(tab === "people" || personEditing) && (() => {
+                  const peopleTrip = personEditing ? currentTrip(personEditing.trip) : trip;
+                  return <TravelPeople
+                    trip={peopleTrip}
+                    visible={tab === "people" && peopleTrip.travel.id === trip.travel.id}
+                    editing={personEditing?.person ?? null}
+                    onEditingChange={(person) => {
+                      if (person) setPersonEditing({ person, trip: peopleTrip });
+                      else { setPersonEditing(null); setDirty(false); }
+                    }}
+                    onDirtyChange={setDirty}
+                    onRequestClose={() => requestClose("editor")}
+                    busy={busy}
+                    onSave={(input, person) => run(person ? "travel-person-update" : "travel-person-create", person
+                      ? { ...input, id: person.id, expected: person }
+                      : { ...input, travelId: peopleTrip.travel.id })}
+                    onDelete={(person) => run("travel-person-delete", { id: person.id, expected: person })}
+                    onSettle={() => open("costs")}
+                  />;
+                })()}
                 <p className={s.footer}>
                   {STAGE_LABELS[travelStage(trip.travel)]}
                   {!["done", "wrapping"].includes(travelStage(trip.travel)) ? ` · ${countdown(trip.travel)}` : ""}
@@ -463,45 +558,48 @@ export function Travel({ onClose }: { onClose?: () => void } = {}): ReactElement
       {editing?.kind === "travel" && (
         <TravelEditor
           travel={editing.travel}
+          trip={editing.travel ? currentTrip({ travel: editing.travel, plans: [], bookings: [], expenses: [], people: [], transfers: [], photos: [] }) : undefined}
           envelopes={envelopes}
           busy={busy}
           onSave={saveTravel}
+          onDirtyChange={setDirty}
+          onRequestClose={() => requestClose("editor")}
           onDelete={
             editing.travel
               ? () => run("travel-delete", { id: editing.travel?.id, expected: editing.travel } as DataRecord)
               : undefined
           }
-          onClose={() => {
-            createdEnvelope.current = null;
-            envelopeRequest.current = null;
-            setEditing(null);
-          }}
+          onClose={closeEditor}
         />
       )}
-      {editing?.kind === "plan" && trip && (
+      {editing?.kind === "plan" && editingTrip && (
         <TravelPlanEditor
-          travel={trip.travel}
-          bookings={trip.bookings}
+          travel={editingTrip.travel}
+          bookings={editingTrip.bookings}
           plan={editing.plan}
           date={editing.date}
           busy={busy}
+          onDirtyChange={setDirty}
+          onRequestClose={() => requestClose("editor")}
           onSave={(input) => run(editing.plan ? "travel-plan-update" : "travel-plan-create", input)}
           onDelete={
             editing.plan
               ? () => run("travel-plan-delete", { id: editing.plan?.id, expected: editing.plan } as DataRecord)
               : undefined
           }
-          onClose={() => setEditing(null)}
+          onClose={closeEditor}
         />
       )}
-      {editing?.kind === "booking" && trip && (
+      {editing?.kind === "booking" && editingTrip && (
         <TravelBookingEditor
-          trip={trip}
+          trip={editingTrip}
           booking={editing.booking}
           draft={editing.draft}
           categories={categories}
           busy={busy}
-          today={today}
+          onDirtyChange={setDirty}
+          onRequestClose={() => requestClose("editor")}
+          today={dateIn(editingTrip.travel.timeZone)}
           onSave={(input) => run(editing.booking ? "travel-booking-update" : "travel-booking-create", input)}
           onDelete={
             editing.booking
@@ -512,25 +610,38 @@ export function Travel({ onClose }: { onClose?: () => void } = {}): ReactElement
                 }
               : undefined
           }
-          onClose={() => setEditing(null)}
+          onClose={closeEditor}
         />
       )}
-      {editing?.kind === "expense" && trip && (
+      {editing?.kind === "expense" && editingTrip && (
         <TravelExpenseEditor
-          trip={trip}
+          trip={editingTrip}
           expense={editing.expense}
           categories={categories}
           busy={busy}
-          today={today}
+          onDirtyChange={setDirty}
+          onRequestClose={() => requestClose("editor")}
+          today={dateIn(editingTrip.travel.timeZone)}
           onSave={(input) => run(editing.expense ? "travel-expense-update" : "travel-expense-create", input)}
           onDelete={
             editing.expense
               ? () => run("travel-expense-delete", { id: editing.expense?.id, expected: editing.expense } as DataRecord)
               : undefined
           }
-          onClose={() => setEditing(null)}
+          onClose={closeEditor}
         />
       )}
+      <Dialog variant="confirm" isOpen={discard !== null} title="저장하지 않은 변경을 버릴까요?" onOpenChange={(open) => { if (!open) setDiscard(null); }} footer={<>
+        <Button variant="ghost" onClick={() => setDiscard(null)}>계속 작성</Button>
+        <Button variant="danger" onClick={() => {
+          const target = discard;
+          setDiscard(null);
+          if (target === "window") close();
+          else closeEditor();
+        }}>버리기</Button>
+      </>}>
+        <p>저장하지 않은 내용은 사라져요.</p>
+      </Dialog>
     </main>
   );
 }
