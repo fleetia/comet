@@ -29,9 +29,9 @@ function harness({ running = false, installed = true, opens = true } = {}) {
     open,
     runningApplications,
     url,
-    run(action = "launch") {
+    run(action = "launch", skipMissing = false) {
       return JSON.parse(
-        context.run([JSON.stringify({ provider: "spotify", appId: spotifyAppId, action })]),
+        context.run([JSON.stringify({ provider: "spotify", appId: spotifyAppId, action, skipMissing })]),
       );
     },
   };
@@ -65,6 +65,13 @@ test("launch fails without opening a URL when Spotify is not installed", () => {
   const app = harness({ installed: false });
   assert.throws(() => app.run(), /LAUNCH_FAILED/);
   assert.deepEqual(Array.from(app.lookup.mock.calls[0].arguments), [spotifyAppId]);
+  assert.equal(app.open.mock.callCount(), 0);
+});
+
+test("automatic launch skips an uninstalled Spotify without opening it", () => {
+  const app = harness({ installed: false });
+  assert.deepEqual(app.run("launch", true), { installed: false });
+  assert.equal(app.lookup.mock.callCount(), 1);
   assert.equal(app.open.mock.callCount(), 0);
 });
 

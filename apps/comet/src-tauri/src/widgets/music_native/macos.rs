@@ -128,13 +128,16 @@ pub(super) async fn observe(
     Ok(observation)
 }
 
-pub(super) async fn launch_spotify(cancel: &AtomicBool) -> Result<(), ConnectionError> {
+pub(super) async fn launch_spotify(
+    cancel: &AtomicBool,
+    skip_missing: bool,
+) -> Result<bool, ConnectionError> {
     run(
-        json!({"appId":"com.spotify.client","provider":"spotify","action":"launch"}),
+        json!({"appId":"com.spotify.client","provider":"spotify","action":"launch","skipMissing":skip_missing}),
         Some(cancel),
     )
     .await
-    .map(|_| ())
+    .map(|value| value["installed"] != false)
 }
 
 pub(super) async fn open(

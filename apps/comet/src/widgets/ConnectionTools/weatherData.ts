@@ -12,6 +12,22 @@ export type WeatherConfig = {
   refreshIntervalMinutes: number;
 };
 
+export function weatherLookupState(data: DataRecord): {
+  lookup: "unconfigured" | "syncing" | "failed" | "unattempted";
+  previousRegion: "checking" | "failed";
+  hasPreviousRegion: boolean;
+} {
+  let lookup: "unconfigured" | "syncing" | "failed" | "unattempted" = "unattempted";
+  if (data.configured !== true) lookup = "unconfigured";
+  else if (data.status === "syncing") lookup = "syncing";
+  else if (typeof data.lastAttemptAt === "number" && data.status !== "stale") lookup = "failed";
+  return {
+    lookup,
+    previousRegion: data.status === "syncing" || data.status === "stale" ? "checking" : "failed",
+    hasPreviousRegion: Boolean(data.observation) && data.lastSuccessAt == null && data.configured === true,
+  };
+}
+
 export function weatherConfig(data: DataRecord): WeatherConfig {
   const config = record(data.config);
   return {

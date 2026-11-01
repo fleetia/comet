@@ -5,12 +5,14 @@ import { record, text } from "../toolData";
 import { useConnectionCommand } from "../useConnectionCommand";
 import type { WidgetView } from "../types";
 import { FreeformWidget } from "../WidgetDisplay/DesktopWidget";
+import { weatherLookupState } from "./weatherData";
 import * as s from "./weatherSettings.css";
 
 /** The weather window shows the same desktop weather widget plus refresh and attribution. */
 export function WeatherTool({ widget }: { widget: WidgetView }): ReactElement {
   const data = record(widget.data);
   const observation = record(data.observation);
+  const weatherState = weatherLookupState(data);
   const { busy, error, run } = useConnectionCommand();
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -20,7 +22,15 @@ export function WeatherTool({ widget }: { widget: WidgetView }): ReactElement {
   return (
     <section className={s.observation} aria-label="날씨">
       {!data.observation ? (
-        <p className={s.caption}>설정 → 위젯 → 날씨에서 지역을 고르면 날씨를 보여 드려요.</p>
+        <p className={s.caption}>
+          {weatherState.lookup === "unconfigured"
+            ? "설정 → 위젯 → 날씨에서 지역을 고르면 날씨를 보여 드려요."
+            : weatherState.lookup === "syncing"
+              ? "날씨를 확인 중이에요."
+              : weatherState.lookup === "failed"
+                ? "날씨를 확인하지 못했어요. 다시 확인해 주세요."
+                : "아직 날씨를 확인하지 않았어요."}
+        </p>
       ) : (
         <>
           <FreeformWidget widget={widget} now={now} />
@@ -30,7 +40,9 @@ export function WeatherTool({ widget }: { widget: WidgetView }): ReactElement {
                   hour: "numeric",
                   minute: "2-digit",
                 })}에 확인`
-              : "확인 중"}{" "}
+              : weatherState.previousRegion === "checking"
+                ? "새 지역 확인 중"
+                : "새 지역 확인 실패"}{" "}
             · {text(observation.attribution) || "Weather data by Open-Meteo (CC BY 4.0)"}
           </p>
         </>
