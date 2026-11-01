@@ -68,6 +68,39 @@ fn widget_label(kind: &str, name: &str, available: bool) -> String {
     }
 }
 
+fn widget_group<'a>(kind: &str, category: &'a str) -> &'a str {
+    if kind == "clock" {
+        "daily"
+    } else {
+        category
+    }
+}
+
+fn launcher_label(shortcut: Option<&str>) -> String {
+    let Some(shortcut) = shortcut.filter(|value| !value.is_empty()) else {
+        return "빠른 실행…".into();
+    };
+    let super_label = if cfg!(target_os = "macos") {
+        "⌘"
+    } else if cfg!(target_os = "windows") {
+        "Win"
+    } else {
+        "Super"
+    };
+    let shortcut = shortcut
+        .replace(
+            "CommandOrControl",
+            if cfg!(target_os = "macos") { "⌘" } else { "Ctrl" },
+        )
+        .replace("Super", super_label)
+        .replace("Meta", super_label)
+        .replace("Command", super_label)
+        .replace("Control", "Ctrl")
+        .replace("Key", "")
+        .replace("Digit", "");
+    format!("빠른 실행…  ({shortcut})")
+}
+
 #[cfg(target_os = "macos")]
 fn install_macos_menu(app: &tauri::AppHandle) -> Result<(), String> {
     use tauri::menu::PredefinedMenuItem;
@@ -234,18 +267,24 @@ fn menu(
     };
     let runtime = lock(&state.runtime)?.clone();
     let menu = Menu::new(app).map_err(|error| error.to_string())?;
-    for (id, text) in [
-        ("launcher", "빠른 실행…"),
-        if runtime.hidden {
-            ("show", "캐릭터 표시")
-        } else {
-            ("hide", "캐릭터 숨기기")
-        },
-    ] {
-        let item = MenuItem::with_id(app, id, text, true, None::<&str>)
-            .map_err(|error| error.to_string())?;
-        menu.append(&item).map_err(|error| error.to_string())?;
-    }
+    let shortcut = crate::app::launcher::tray_shortcut(&state)?;
+    let launcher = MenuItem::with_id(
+        app,
+        "launcher",
+        launcher_label(shortcut.as_deref()),
+        true,
+        None::<&str>,
+    )
+    .map_err(|error| error.to_string())?;
+    menu.append(&launcher).map_err(|error| error.to_string())?;
+    let (id, text) = if runtime.hidden {
+        ("show", "캐릭터 표시")
+    } else {
+        ("hide", "캐릭터 숨기기")
+    };
+    let item = MenuItem::with_id(app, id, text, true, None::<&str>)
+        .map_err(|error| error.to_string())?;
+    menu.append(&item).map_err(|error| error.to_string())?;
     if show_stack_recovery {
         let item = MenuItem::with_id(
             app,
@@ -258,30 +297,68 @@ fn menu(
         menu.append(&item).map_err(|error| error.to_string())?;
     }
     let submenu = Submenu::new(app, "위젯 바로 열기", true).map_err(|error| error.to_string())?;
-    for manifest in snapshot
-        .catalog
-        .iter()
-        .filter(|entry| !widgets::is_retired(&entry.id) && entry.id != "external-notice")
-    {
-        let instance = snapshot
-            .widgets
+    let play = Submenu::new(app, "놀이", true).map_err(|error| error.to_string())?;
+    for (group, heading) in [
+        ("daily", "하루 도구"),
+        ("information", "생활 정보"),
+        ("play", "놀이"),
+    ] {
+        let manifests: Vec<_> = snapshot
+            .catalog
             .iter()
-            .find(|widget| widget.instance.kind == manifest.id);
-        let available = instance.is_some_and(|widget| widget.status != "setup");
-        let id = match instance {
-            Some(widget) if available => format!("widget:{}:{}", manifest.id, widget.instance.id),
-            _ => format!("widget-settings:{}", manifest.id),
-        };
-        let item = MenuItem::with_id(
-            app,
-            id,
-            widget_label(&manifest.id, &manifest.name, available),
-            true,
-            None::<&str>,
-        )
-        .map_err(|error| error.to_string())?;
-        submenu.append(&item).map_err(|error| error.to_string())?;
+            .filter(|entry| {
+                !widgets::is_retired(&entry.id)
+                    && entry.id != "external-notice"
+                    && widget_group(&entry.id, &entry.category) == group
+            })
+            .collect();
+        if manifests.is_empty() {
+            continue;
+        }
+        if group != "play" {
+            if group == "information" {
+                let separator =
+                    PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?;
+                submenu.append(&separator).map_err(|error| error.to_string())?;
+            }
+            let label = MenuItem::with_id(
+                app,
+                format!("widget-group:{group}"),
+                heading,
+                false,
+                None::<&str>,
+            )
+            .map_err(|error| error.to_string())?;
+            submenu.append(&label).map_err(|error| error.to_string())?;
+        }
+        for manifest in manifests {
+            let instance = snapshot
+                .widgets
+                .iter()
+                .find(|widget| widget.instance.kind == manifest.id);
+            let available = instance.is_some_and(|widget| widget.status != "setup");
+            let id = match instance {
+                Some(widget) if available => format!("widget:{}:{}", manifest.id, widget.instance.id),
+                _ => format!("widget-settings:{}", manifest.id),
+            };
+            let item = MenuItem::with_id(
+                app,
+                id,
+                widget_label(&manifest.id, &manifest.name, available),
+                true,
+                None::<&str>,
+            )
+            .map_err(|error| error.to_string())?;
+            if group == "play" {
+                play.append(&item).map_err(|error| error.to_string())?;
+            } else {
+                submenu.append(&item).map_err(|error| error.to_string())?;
+            }
+        }
     }
+    submenu.append(&play).map_err(|error| error.to_string())?;
+    let separator = PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?;
+    submenu.append(&separator).map_err(|error| error.to_string())?;
     let manage = MenuItem::with_id(app, "widgets", "위젯 관리…", true, None::<&str>)
         .map_err(|error| error.to_string())?;
     submenu.append(&manage).map_err(|error| error.to_string())?;
@@ -421,6 +498,8 @@ pub(crate) fn create(app: &tauri::AppHandle) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     let handle = app.clone();
     app.listen("widget-desktop-state", move |_| refresh(&handle));
+    let handle = app.clone();
+    app.listen("launcher-shortcut-changed", move |_| refresh(&handle));
     refresh(app);
     Ok(())
 }
@@ -506,5 +585,29 @@ mod tests {
         assert_eq!(widget_label("memo", "메모", false), "메모 설정 열기");
         assert_eq!(widget_label("image", "이미지", true), "이미지 띄우기");
         assert_eq!(widget_label("weather", "날씨", false), "날씨 설정 열기");
+    }
+
+    #[test]
+    fn tray_groups_catalog_and_shows_the_current_shortcut() {
+        let catalog = widgets::catalog().unwrap();
+        for entry in catalog
+            .iter()
+            .filter(|entry| !widgets::is_retired(&entry.id) && entry.id != "external-notice")
+        {
+            assert!(
+                ["daily", "information", "play"]
+                    .contains(&widget_group(&entry.id, &entry.category)),
+                "{}",
+                entry.id
+            );
+        }
+        assert_eq!(widget_group("clock", "information"), "daily");
+        assert_eq!(widget_group("music", "information"), "information");
+        assert_eq!(widget_group("pet", "play"), "play");
+        assert_eq!(launcher_label(None), "빠른 실행…");
+        assert_eq!(
+            launcher_label(Some("Control+Shift+KeyK")),
+            "빠른 실행…  (Ctrl+Shift+K)"
+        );
     }
 }

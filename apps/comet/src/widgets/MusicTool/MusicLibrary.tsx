@@ -1,5 +1,5 @@
 import { Button } from "@comet/ui";
-import { useState, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import { record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetValue } from "../types";
 import { finiteNumber } from "./musicData";
@@ -14,6 +14,7 @@ type Props = {
 };
 
 export function MusicLibrary({ mode, can, busy, request }: Props): ReactElement {
+  const trackGeneration = useRef(0);
   const [items, setItems] = useState<DataRecord[] | null>(null);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [selected, setSelected] = useState<DataRecord | null>(null);
@@ -29,8 +30,9 @@ export function MusicLibrary({ mode, can, busy, request }: Props): ReactElement 
     setNextOffset(finiteNumber(data.nextOffset));
   }
   async function select(playlist: DataRecord, offset = 0): Promise<void> {
+    const generation = trackGeneration.current;
     const response = await request("playlistTracks", { uri: text(playlist.uri), offset });
-    if (response === undefined) return;
+    if (response === undefined || generation !== trackGeneration.current) return;
     const data = record(response);
     setSelected(playlist);
     setTracks((previous) =>
@@ -46,8 +48,10 @@ export function MusicLibrary({ mode, can, busy, request }: Props): ReactElement 
             variant="ghost"
             size="small"
             onClick={() => {
+              trackGeneration.current += 1;
               setSelected(null);
               setTracks(null);
+              setTrackOffset(null);
             }}
           >
             ← 플레이리스트

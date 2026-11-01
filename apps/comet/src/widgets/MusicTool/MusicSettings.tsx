@@ -1,4 +1,4 @@
-import { Button, ContextChip, Select, Switch } from "@comet/ui";
+import { Button, ContextChip, Dialog, Select, Switch } from "@comet/ui";
 import { Icon } from "@comet/icon";
 import { createPortal } from "react-dom";
 import * as layout from "./musicSettings.css";
@@ -127,6 +127,24 @@ export function MusicSettings({
   const [bridge, setBridge] = useState<BridgeStatus | null>(null);
   const [bridgeError, setBridgeError] = useState(false);
   const [extensionSaved, setExtensionSaved] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [launchSpotify, setLaunchSpotify] = useState(true);
+  const [launchError, setLaunchError] = useState(false);
+  const [launchPending, setLaunchPending] = useState(true);
+  const [launchLoaded, setLaunchLoaded] = useState(false);
+  useEffect(() => {
+    if (!isDesktop()) {
+      setLaunchPending(false);
+      return;
+    }
+    setLaunchPending(true);
+    let active = true;
+    void command<boolean>("get_music_launch_preference", { id: widget.id })
+      .then((value) => { if (active) { setLaunchSpotify(value !== false); setLaunchLoaded(true); setLaunchError(false); } })
+      .catch(() => { if (active) setLaunchError(true); })
+      .finally(() => { if (active) setLaunchPending(false); });
+    return () => { active = false; };
+  }, [widget.id]);
   const data = record(widget.data);
   const bridgeEnabled =
     data.configured === true &&
@@ -193,7 +211,10 @@ export function MusicSettings({
       id: widget.id,
       expectedRevision: widget.revision,
     });
-    if (result) setBridge(null);
+    if (result) {
+      setBridge(null);
+      setConfirmDisconnect(false);
+    }
   }
   const left = (
     <fieldset className={layout.side} disabled={busy || disabled} aria-label="음악 미리보기와 표시">
@@ -275,7 +296,11 @@ export function MusicSettings({
                     "Apple Music",
                     mac ? "이 Mac에서 바로 읽어요" : "macOS에서만 바로 읽을 수 있어요",
                   ],
-                  ["spotify", "Spotify", "Spicetify 확장을 거쳐 읽어요"],
+                  ["spotify", "Spotify", bridge?.connected
+                    ? "연결된 Spicetify 확장에서 읽어요"
+                    : mac || windows
+                      ? "이 기기에서 바로 읽어요. Spicetify 연결도 쓸 수 있어요"
+                      : "Spicetify 확장을 연결해 읽어요"],
                   ["system", "시스템 미디어", "Windows에서 재생 중인 앱을 읽어요"],
                 ].map(([provider, title, description]) => (
                   <div
@@ -297,7 +322,7 @@ export function MusicSettings({
                       </ContextChip>
                     ) : (
                       <Switch
-                        aria-label={`${title} · ${provider === "system" ? "Windows" : provider === "music" ? "macOS" : "Spicetify"}`}
+                        aria-label={provider === "spotify" ? "Spotify 자동 선택 허용" : `${title} · ${provider === "system" ? "Windows" : "macOS"}`}
                         checked={config.allowedProviders.includes(provider)}
                         onChange={(event) =>
                           change({
@@ -332,6 +357,35 @@ export function MusicSettings({
                 </Select>
               </div>
             </div>
+            {(mac || windows) && (
+              <>
+                <div className={layout.settingRow}>
+                  <span>
+                    위젯을 열 때 Spotify 실행
+                    <span className={layout.caption}>꺼져 있는 Spotify를 열어 곡 정보를 읽어요</span>
+                  </span>
+                  <Switch
+                    aria-label="위젯을 열 때 Spotify 실행"
+                    checked={launchSpotify}
+                    disabled={launchPending || !launchLoaded}
+                    onChange={async (event) => {
+                      const enabled = event.target.checked;
+                      setLaunchPending(true);
+                      try {
+                        await command<void>("set_music_launch_preference", { id: widget.id, expectedRevision: widget.revision, enabled });
+                        setLaunchSpotify(enabled);
+                        setLaunchError(false);
+                      } catch {
+                        setLaunchError(true);
+                      } finally {
+                        setLaunchPending(false);
+                      }
+                    }}
+                  />
+                </div>
+                {launchError && <p role="alert" className={c.error}>Spotify 실행 설정을 확인하지 못했어요.</p>}
+              </>
+            )}
             <p className={layout.caption}>
               앱이 알려 주는 정보만 보여요. 현재 음악 정보는 기기 안에서 읽어요.
             </p>
@@ -362,7 +416,7 @@ export function MusicSettings({
                   type="button"
                   size="small"
                   variant="ghost"
-                  onClick={() => void disconnect()}
+                  onClick={() => setConfirmDisconnect(true)}
                 >
                   로컬 연결 해제
                 </Button>
@@ -376,7 +430,7 @@ export function MusicSettings({
                 <p>
                   처음 한 번 연결하면 다시 실행해도 자동으로 연결돼요.{" "}
                   {mac || windows
-                    ? "음악 위젯을 열면 종료된 Spotify도 실행돼요."
+                    ? "음악 위젯을 열 때 Spotify를 실행할지 선택할 수 있어요."
                     : "Spotify는 직접 실행해 주세요."}{" "}
                   재생과 음량은 Spotify에서 바꿔 주세요. Spotify 로그인 정보는 Comet에 전달하지
                   않아요.
@@ -454,6 +508,22 @@ export function MusicSettings({
           </p>
         )}
       </fieldset>
+      <Dialog
+        isOpen={confirmDisconnect}
+        title="Spotify 연결을 해제할까요?"
+        closeLabel="닫기"
+        variant="confirm"
+        onOpenChange={(open) => { if (!open && !busy) setConfirmDisconnect(false); }}
+        footer={
+          <>
+            <Button variant="primary" disabled={busy} onClick={() => void disconnect()}>연결 해제 확인</Button>
+            <Button variant="ghost" disabled={busy} onClick={() => setConfirmDisconnect(false)}>취소</Button>
+          </>
+        }
+      >
+        <p>다시 연결하려면 연결 코드를 만들어 Spotify의 Comet 메뉴에 입력해 주세요.</p>
+        {error && <p role="alert" className={c.error}>{error}</p>}
+      </Dialog>
     </div>
   );
 }

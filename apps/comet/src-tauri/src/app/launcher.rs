@@ -6,6 +6,7 @@ use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::sync::{atomic::Ordering, Arc};
 use tauri::{Emitter, Manager};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+Space";
@@ -196,6 +197,14 @@ pub(crate) async fn get_launcher_state(
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<LauncherState, String> {
     Ok(lock(&state.launcher)?.snapshot())
+}
+
+pub(crate) fn tray_shortcut(state: &AppState) -> Result<Option<String>, String> {
+    let runtime = lock(&state.launcher)?;
+    Ok(runtime
+        .registered
+        .as_ref()
+        .map(|_| runtime.shortcut.clone()))
 }
 
 #[tauri::command]
@@ -523,6 +532,9 @@ pub(crate) struct ExecuteRequest {
 pub(crate) enum LauncherAction {
     Guide,
     Tutorial,
+    Diary,
+    EditWidgetDesktop,
+    GeneratedWidget { id: String },
     OpenWidgetStack,
     Settings {
         section: Option<windows::SettingsSection>,
@@ -576,6 +588,15 @@ fn accept_direct_execution(state: &AppState, session_id: u64) -> Result<(), Stri
     accept_execution(state, session_id)
 }
 
+fn finish_execution(state: &AppState, session_id: u64) -> Result<(), String> {
+    let mut launcher = lock(&state.launcher)?;
+    if launcher.session_id == session_id {
+        launcher.executing = false;
+        launcher.cancellable = false;
+    }
+    Ok(())
+}
+
 fn accept_settings_execution(
     state: &AppState,
     session_id: u64,
@@ -598,8 +619,9 @@ pub(crate) async fn execute_launcher(
     state: tauri::State<'_, Arc<AppState>>,
     request: ExecuteRequest,
 ) -> Result<(), String> {
-    let _gate = state.launcher_gate.lock().await;
+    let mut gate = Some(state.launcher_gate.lock().await);
     claim_execution(&state, request.session_id)?;
+    let keep_open = matches!(&request.action, LauncherAction::AddTodo { .. });
     let restore = match &request.action {
         LauncherAction::Chat { .. }
         | LauncherAction::AddTodo { .. }
@@ -610,12 +632,38 @@ pub(crate) async fn execute_launcher(
             .map(|widget| crate::behavior::DESKTOP_TOYS.contains(&widget.kind.as_str()))
             .unwrap_or(false),
         LauncherAction::Guide
+        | LauncherAction::Diary
+        | LauncherAction::EditWidgetDesktop
+        | LauncherAction::GeneratedWidget { .. }
         | LauncherAction::Settings { .. }
         | LauncherAction::Travel { .. }
         | LauncherAction::Image { .. } => false,
     };
     let result = async {
         match request.action {
+            LauncherAction::Diary => {
+                accept_direct_execution(&state, request.session_id)?;
+                widgets::planning::windows::open(&app, "today")
+            }
+            LauncherAction::EditWidgetDesktop => {
+                accept_direct_execution(&state, request.session_id)?;
+                widgets::desktop::set_widget_desktop_editing(
+                    app.clone(),
+                    app.state::<Arc<AppState>>(),
+                    true,
+                )
+                .await
+                .map(|_| ())
+            }
+            LauncherAction::GeneratedWidget { id } => {
+                accept_direct_execution(&state, request.session_id)?;
+                widgets::generated::commands::open_generated_widget(
+                    app.clone(),
+                    app.state::<Arc<AppState>>(),
+                    id,
+                )
+                .await
+            }
             LauncherAction::OpenWidgetStack => {
                 let desktop =
                     widgets::desktop::get_widget_desktop(app.state::<Arc<AppState>>()).await?;
@@ -673,6 +721,10 @@ pub(crate) async fn execute_launcher(
                 .await
             }
             LauncherAction::Image { expected_revision } => {
+                static IMAGE_GATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+                let _image_gate = IMAGE_GATE
+                    .try_lock()
+                    .map_err(|_| "이미지를 선택하고 있어요.".to_string())?;
                 {
                     let _action = lock(&state.action)?;
                     let current = widgets::storage::instances(&*lock(&state.db)?)?
@@ -683,9 +735,17 @@ pub(crate) async fn execute_launcher(
                     }
                     accept_execution(&state, request.session_id)?;
                 }
-                widgets::images::add_for_launcher(&app, &state, expected_revision)
-                    .await
-                    .map(|_| ())
+                close_current(&app, &state, request.session_id, false, false)?;
+                drop(gate.take());
+                if let Err(error) =
+                    widgets::images::add_for_launcher(&app, &state, expected_revision).await
+                {
+                    app.dialog()
+                        .message(error)
+                        .title("위젯을 열지 못했어요")
+                        .show(|_| {});
+                }
+                Ok(())
             }
             LauncherAction::Chat {
                 content,
@@ -737,14 +797,14 @@ pub(crate) async fn execute_launcher(
                 request.session_id,
             ),
         }?;
-        close_current(&app, &state, request.session_id, restore, false)
+        if keep_open {
+            Ok(())
+        } else {
+            close_current(&app, &state, request.session_id, restore, false)
+        }
     }
     .await;
-    let mut launcher = lock(&state.launcher)?;
-    if launcher.session_id == request.session_id {
-        launcher.executing = false;
-        launcher.cancellable = false;
-    }
+    finish_execution(&state, request.session_id)?;
     result
 }
 
@@ -862,6 +922,30 @@ mod native_focus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diary_and_desktop_actions_use_the_current_session() {
+        for kind in ["diary", "editWidgetDesktop", "generatedWidget"] {
+            let action: LauncherAction = serde_json::from_value(serde_json::json!({
+                "type": kind, "id": "widget-id"
+            }))
+            .unwrap();
+            assert!(matches!(
+                action,
+                LauncherAction::Diary
+                    | LauncherAction::EditWidgetDesktop
+                    | LauncherAction::GeneratedWidget { .. }
+            ));
+            let state = crate::app::tests::state();
+            let session = {
+                let _action = lock(&state.action).unwrap();
+                begin_session(&state).unwrap()
+            };
+            claim_execution(&state, session).unwrap();
+            state.launcher_open.store(false, Ordering::SeqCst);
+            assert!(accept_direct_execution(&state, session).is_err());
+        }
+    }
 
     #[test]
     fn guide_and_tutorial_actions_require_the_current_launcher_session() {
@@ -1035,6 +1119,30 @@ mod tests {
         claim_execution(&state, second).unwrap();
         state.launcher_open.store(false, Ordering::SeqCst);
         assert!(validate_session(&state, second).is_err());
+    }
+
+    #[test]
+    fn finishing_an_old_execution_preserves_the_new_session_execution() {
+        let state = crate::app::tests::state();
+        let first = {
+            let _action = lock(&state.action).unwrap();
+            begin_session(&state).unwrap()
+        };
+        claim_execution(&state, first).unwrap();
+        let second = {
+            let _action = lock(&state.action).unwrap();
+            begin_session(&state).unwrap()
+        };
+        claim_execution(&state, second).unwrap();
+
+        finish_execution(&state, first).unwrap();
+        assert!(lock(&state.launcher).unwrap().executing);
+        assert!(lock(&state.launcher).unwrap().cancellable);
+        assert!(claim_execution(&state, second).is_err());
+
+        finish_execution(&state, second).unwrap();
+        assert!(!lock(&state.launcher).unwrap().executing);
+        assert!(!lock(&state.launcher).unwrap().cancellable);
     }
 
     fn installed(state: &AppState, kind: &str) -> widgets::WidgetInstance {

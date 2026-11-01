@@ -123,6 +123,27 @@ pub(crate) fn get_widgets(
     storage::snapshot(&*lock(&state.db)?)
 }
 
+fn music_launch_preference(db: &rusqlite::Connection, id: &str, revision: Option<i64>) -> Result<bool, String> {
+    let widget = storage::get(db, id)?;
+    if widget.kind != "music" || widgets::is_retired(&widget.kind) || revision.is_some_and(|value| value != widget.revision) {
+        return Err("음악 위젯 상태가 바뀌었어요. 다시 확인해 주세요.".into());
+    }
+    storage::music_launch_enabled(db, id)
+}
+
+#[tauri::command]
+pub(crate) fn get_music_launch_preference(state: tauri::State<'_, Arc<AppState>>, id: String) -> Result<bool, String> {
+    music_launch_preference(&*lock(&state.db)?, &id, None)
+}
+
+#[tauri::command]
+pub(crate) fn set_music_launch_preference(state: tauri::State<'_, Arc<AppState>>, id: String, expected_revision: i64, enabled: bool) -> Result<(), String> {
+    change(&state, |db| {
+        music_launch_preference(db, &id, Some(expected_revision))?;
+        storage::set_music_launch(db, &id, enabled)
+    })
+}
+
 #[tauri::command]
 pub(crate) fn set_widget_reaction(
     app: tauri::AppHandle,
@@ -289,6 +310,100 @@ fn widget_open_current(
 #[cfg(test)]
 mod music_open_tests {
     use super::*;
+
+    #[test]
+    fn launcher_music_preparation_allows_its_revision_and_rejects_stale_preview_or_removal() {
+        let state = crate::app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        storage::verify_packages(&db, directory.path()).unwrap();
+        let original = storage::instances(&db).unwrap().into_iter().find(|widget| widget.kind == "music").unwrap();
+        state.launcher_open.store(true, Ordering::SeqCst);
+        assert!(validate_open_widget(&state, &original, Some((original.revision, 0))).is_ok());
+        let mut prepared = original.clone();
+        prepared.revision += 1;
+        prepared.data["status"] = serde_json::json!("stale");
+        assert!(validate_prepared_music(&state, &original, &prepared, Some((original.revision, 0)), None).is_ok());
+        assert!(validate_open_widget(&state, &prepared, Some((original.revision, 0))).is_err());
+        prepared.data["config"]["provider"] = json!("changed");
+        assert_eq!(validate_prepared_music(&state, &original, &prepared, Some((original.revision, 0)), None), Err("위젯 상태가 바뀌었어요. 최신 검색 결과를 확인하고 다시 실행해 주세요.".into()));
+        assert!(validate_prepared_music(&state, &original, &prepared, None, None).is_ok());
+        prepared.data["config"] = original.data["config"].clone();
+        state.launcher_open.store(false, Ordering::SeqCst);
+        assert!(validate_prepared_music(&state, &original, &prepared, Some((original.revision, 0)), None).is_err());
+        prepared.kind = "journal".into();
+        assert!(validate_prepared_music(&state, &original, &prepared, None, None).is_err());
+        db.execute("DELETE FROM widget_instances WHERE id=?1", [&original.id]).unwrap();
+        assert!(storage::get(&db, &original.id).is_err());
+    }
+
+    #[test]
+    fn story_without_launch_does_not_select_prepare_music_widget_for_story() {
+        assert_eq!(music_preparation_options(false, false), (false, false));
+        let (prepare_for_story, launch) = music_preparation_options(true, false);
+        assert!(!prepare_for_story);
+        assert!(!launch);
+        assert_eq!(music_preparation_options(false, true), (false, true));
+        assert_eq!(music_preparation_options(true, true), (true, true));
+    }
+
+    #[test]
+    fn prepared_story_music_requires_current_run_epoch_and_unchanged_config() {
+        let state = crate::app::tests::state();
+        let directory = tempfile::tempdir().unwrap();
+        let original = {
+            let db = lock(&state.db).unwrap();
+            storage::verify_packages(&db, directory.path()).unwrap();
+            storage::instances(&db).unwrap().into_iter().find(|widget| widget.kind == "music").unwrap()
+        };
+        let run = crate::pack_stories::RunTicket {
+            run_id: "run".into(), input_id: "input".into(),
+            scope: crate::pack_stories::Scope { user_id: "user".into(), pack_id: "pack".into(), center_id: "center".into() },
+            scenario_id: None, stage: crate::pack_stories::Stage::Chapter, chapter_id: Some("one".into()), step: 0,
+            phase_generation: 1, epoch: state.epoch.load(Ordering::SeqCst), participants: vec!["center".into()],
+            pack_baseline: String::new(), definition_baselines: Default::default(),
+            last_playback_id: String::new(), definition: None, ready: false,
+        };
+        lock(&state.pack_stories).unwrap().run = Some(run.clone());
+        let cancel = AtomicBool::new(false);
+        let guard = ConversationOpen { expected_revision: original.revision, epoch: run.epoch, cancel: &cancel, story: Some(&run) };
+        let mut prepared = original.clone();
+        prepared.revision += 1;
+        prepared.data["status"] = json!("stale");
+        let non_story = ConversationOpen { expected_revision: original.revision, epoch: run.epoch, cancel: &cancel, story: None };
+        assert!(validate_prepared_music(&state, &original, &prepared, None, Some(&non_story)).is_err());
+        assert!(validate_conversation_open(&state, &prepared, Some(&guard)).is_err());
+        assert!(validate_prepared_music(&state, &original, &prepared, None, Some(&guard)).is_ok());
+        prepared.data["config"]["provider"] = json!("changed");
+        assert_eq!(validate_prepared_music(&state, &original, &prepared, None, Some(&guard)), Err("위젯 상태가 바뀌었어요. 최신 검색 결과를 확인하고 다시 실행해 주세요.".into()));
+        prepared.data["config"] = original.data["config"].clone();
+        cancel.store(true, Ordering::SeqCst);
+        assert!(validate_prepared_music(&state, &original, &prepared, None, Some(&guard)).is_err());
+        cancel.store(false, Ordering::SeqCst);
+        lock(&state.pack_stories).unwrap().run = None;
+        assert!(validate_prepared_music(&state, &original, &prepared, None, Some(&guard)).is_err());
+        lock(&state.pack_stories).unwrap().run = Some(run.clone());
+        state.epoch.fetch_add(1, Ordering::SeqCst);
+        assert!(validate_prepared_music(&state, &original, &prepared, None, Some(&guard)).is_err());
+    }
+
+    #[test]
+    fn music_launch_preference_defaults_on_and_is_removed_with_widget() {
+        let state = crate::app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        storage::verify_packages(&db, directory.path()).unwrap();
+        let music = storage::instances(&db).unwrap().into_iter().find(|widget| widget.kind == "music").unwrap();
+        assert!(music_launch_preference(&db, &music.id, Some(music.revision)).unwrap());
+        storage::set_music_launch(&db, &music.id, false).unwrap();
+        assert!(!music_launch_preference(&db, &music.id, None).unwrap());
+        assert!(!music_launch_preference(&db, &music.id, Some(music.revision)).unwrap());
+        assert!(music_launch_preference(&db, &music.id, Some(music.revision + 1)).is_err());
+        db.execute("DELETE FROM widget_instances WHERE id=?1", [&music.id]).unwrap();
+        assert!(music_launch_preference(&db, &music.id, None).is_err());
+        let remaining: i64 = db.query_row("SELECT count(*) FROM widget_preferences WHERE key=?1", [format!("music-launch:{}", music.id)], |row| row.get(0)).unwrap();
+        assert_eq!(remaining, 0);
+    }
 
     #[test]
     fn disabling_a_widget_reaction_cancels_its_prepared_idle_talk() {
@@ -1303,6 +1418,34 @@ fn planner_tab_for_widget(kind: &str) -> Option<&'static str> {
     }
 }
 
+fn music_preparation_options(story: bool, launch: bool) -> (bool, bool) {
+    (story && launch, launch)
+}
+
+fn validate_prepared_music(
+    state: &AppState,
+    before: &widgets::WidgetInstance,
+    current: &widgets::WidgetInstance,
+    launcher: Option<(i64, u64)>,
+    conversation: Option<&ConversationOpen<'_>>,
+) -> Result<(), String> {
+    validate_open_widget(state, current, None)?;
+    if let Some((_, session)) = launcher {
+        crate::app::launcher::validate_session(state, session)?;
+    }
+    let prepared_conversation = conversation.map(|guard| ConversationOpen {
+        expected_revision: current.revision,
+        epoch: guard.epoch,
+        cancel: guard.cancel,
+        story: guard.story,
+    });
+    validate_conversation_open(state, current, prepared_conversation.as_ref())?;
+    if (launcher.is_some() || conversation.is_some()) && before.data["config"] != current.data["config"] {
+        return Err("위젯 상태가 바뀌었어요. 최신 검색 결과를 확인하고 다시 실행해 주세요.".into());
+    }
+    Ok(())
+}
+
 async fn open_widget_inner(
     app: &tauri::AppHandle,
     state: &Arc<AppState>,
@@ -1391,10 +1534,22 @@ async fn open_widget_inner(
         .map_err(Into::into);
     }
     if crate::widgets::connection_host::spotify_widget(&instance) {
-        if let Some(run) = conversation.and_then(|guard| guard.story) {
+        let launch = change(state, |db| {
+            let current = storage::get(db, id)?;
+            validate_open_widget(state, &current, launcher)?;
+            validate_conversation_open(state, &current, conversation)?;
+            if let Some((_, session)) = launcher {
+                crate::app::launcher::accept_execution(state, session)?;
+            }
+            music_launch_preference(db, id, Some(current.revision))
+        })?;
+        let story = conversation.and_then(|guard| guard.story);
+        let (prepare_for_story, launch) = music_preparation_options(story.is_some(), launch);
+        if prepare_for_story {
+            let run = story.expect("story preparation requires a story");
             let _ = crate::widgets::connection_host::prepare_music_widget_for_story(app, state, id, run).await;
         } else {
-            let _ = crate::widgets::connection_host::prepare_music_widget(app, state, id, true).await;
+            let _ = crate::widgets::connection_host::prepare_music_widget(app, state, id, launch).await;
         }
     }
     // The widget may have been disabled or removed while the OS was launching Spotify.
@@ -1410,8 +1565,12 @@ async fn open_widget_inner(
         let db = lock(&state.db)?;
         current_events(state, &db)?;
         let current = storage::get(&db, id)?;
-        validate_open_widget(state, &current, launcher)?;
-        validate_conversation_open(state, &current, conversation)?;
+        if crate::widgets::connection_host::spotify_widget(&instance) {
+            validate_prepared_music(state, &instance, &current, launcher, conversation)?;
+        } else {
+            validate_open_widget(state, &current, launcher)?;
+            validate_conversation_open(state, &current, conversation)?;
+        }
         if let Some(run) = conversation.and_then(|guard| guard.story) {
             if !crate::app::scene_events::available_locked(state, &db, run)? { return Err("이야기가 중단되었어요.".into()); }
         }

@@ -258,7 +258,7 @@ describe("local command and conversation routing", () => {
     },
   );
   it("offers the todo row only for plain input that fits and the todo tool can take", () => {
-    expect(results(">B 오늘 졸리네").some((result) => result.kind === "todo")).toBe(false);
+    expect(results(">B 오늘 졸리네").at(-1)?.action).toMatchObject({ type: "addTodo", title: "오늘 졸리네" });
     expect(results("가".repeat(501)).at(-1)).toMatchObject({ kind: "todo", action: undefined });
     const withoutTodo = {
       ...widgets,
@@ -432,7 +432,8 @@ it("refreshes character presence labels and selects a hidden recipient without s
   rerender(<Launcher snapshot={hidden} />);
   const input = screen.getByRole("combobox") as HTMLInputElement;
   fireEvent.keyDown(input, { key: "Enter" });
-  expect(input.value).toBe(">A ");
+  expect(input.value).toBe("");
+  expect(screen.getByRole("button", { name: /수신자 해제/ })).toBeTruthy();
   expect(selected().textContent).toContain("캐릭터 표시 후 말 걸기");
   fireEvent.keyDown(input, { key: "Enter" });
   expect(executed()).toHaveLength(0);
@@ -442,7 +443,8 @@ it("previews only chat rows and uses arrows and Enter for the selected row", asy
   const input = await compose("설정");
   expect(screen.queryByRole("region", { name: "실행 미리보기" })).toBeNull();
   expect(executed()).toHaveLength(0);
-  fireEvent.keyDown(input, { key: "ArrowDown" });
+  const chat = screen.getByRole("option", { name: /모두에게.*말 걸기/ });
+  fireEvent.pointerMove(chat);
   expect(screen.getByRole("option", { selected: true }).textContent).toContain("모두에게");
   expect(screen.getByRole("region", { name: "실행 미리보기" }).textContent).toContain("설정");
   fireEvent.keyDown(input, { key: "Enter" });
@@ -583,7 +585,8 @@ it("keeps an abandoned draft when closing and reopening without sending", async 
   fireEvent.keyDown(input, { key: "Escape" });
   await waitFor(() => expect(command).toHaveBeenCalledWith("close_launcher", { sessionId: 1 }));
   act(() => receive({ event: "launcher-opened", id: 1, payload: { ...initial, sessionId: 2 } }));
-  expect(input.value).toBe(">B 오늘 졸리네");
+  expect(input.value).toBe("오늘 졸리네");
+  expect(screen.getByRole("button", { name: /수신자 해제/ })).toBeTruthy();
   expect(executed()).toHaveLength(0);
 });
 it("does not let a late accepted action erase a newer session draft", async () => {
@@ -607,6 +610,223 @@ it("offers actual recipients when > is entered and chooses before sending", asyn
   const targets = screen.getAllByRole("option");
   expect(targets).toHaveLength(PREVIEW_SNAPSHOT.characters.active.length + 1);
   fireEvent.click(targets[2]);
-  expect(input.value).toBe(">B ");
+  expect(input.value).toBe("");
+  expect(screen.getByRole("button", { name: /수신자 해제/ })).toBeTruthy();
   expect(executed()).toHaveLength(0);
+});
+
+
+it.each([["봉투", "preparation"], ["펫", "pet"], ["운세", "fortune"]])(
+  "finds %s by its widget name or alias", (query, id) => {
+    expect(results(query).some((item) => item.id === `widget:${id}`)).toBe(true);
+  },
+);
+it("matches widget ids only by exact value or prefix while preserving visible substring matches", () => {
+  for (const query of ["hi", "no", "he"]) {
+    expect(results(query)[0].kind).toBe("chat");
+  }
+  expect(results("notice").some((item) => item.id === "widget:external-notice")).toBe(false);
+  for (const query of ["fish", "fishing"]) {
+    expect(results(query)[0].id).toBe("widget:fishing");
+  }
+  expect(results("료구").some((item) => item.id === "widget:completion-jar")).toBe(true);
+  expect(results("위바").some((item) => item.id === "widget:small-match")).toBe(true);
+});
+it("preserves one-character prefixes but excludes one-character word and substring matches", () => {
+  expect(results("메").some((item) => item.id === "widget:memo")).toBe(true);
+  expect(results("설").some((item) => item.id === "settings")).toBe(true);
+  const generated = [{ id: "lake", installed: true, definition: { name: "달빛 호수", description: "" } }] as Parameters<typeof launcherResults>[6];
+  for (const query of ["호", "빛"]) {
+    expect(launcherResults(query, PREVIEW_SNAPSHOT, widgets, null, [], null, generated)
+      .some((item) => item.id === "generated:lake")).toBe(false);
+  }
+});
+it("keeps the default results for an empty query", () => {
+  expect(results("").filter((item) => item.kind !== "target").map((item) => item.id))
+    .toEqual(["diary", "widget:focus-timer", "widget:memo", "settings"]);
+  expect(results("").filter((item) => item.kind === "target")).toHaveLength(PREVIEW_SNAPSHOT.characters.active.length + 1);
+});
+it("keeps a one-character conversation and sentence Enter as chat", async () => {
+  expect(results("졸")[0].kind).toBe("chat");
+  const input = await compose("안녕 친구야");
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(executed()[0][1]).toMatchObject({ request: { action: { type: "chat", content: "안녕 친구야" } } }));
+});
+it("shows diary first in defaults, today status, and desktop editing aliases", () => {
+  const found = results("");
+  const diary = found.find((item) => item.id === "diary");
+  expect(diary?.action).toEqual({ type: "diary" });
+  expect(diary?.detail).toMatch(/오늘 일정 \d+개 · 할 일 \d+\/\d+ 완료/);
+  expect(results("오늘")[0].action).toEqual({ type: "diary" });
+  expect(results("자유 배치")[0].action).toEqual({ type: "editWidgetDesktop" });
+});
+it("offers installed AI widgets in search only", () => {
+  const generated = [{ id: "g", installed: true, definition: { name: "나만의 계산기", description: "계산" } }, { id: "gone", installed: false, definition: { name: "삭제 계산기", description: "" } }] as Parameters<typeof launcherResults>[6];
+  const found = launcherResults("계산기", PREVIEW_SNAPSHOT, widgets, null, [], null, generated);
+  expect(found.find((item) => item.id === "generated:g")?.action).toEqual({ type: "generatedWidget", id: "g" });
+  expect(found.some((item) => item.id === "generated:gone")).toBe(false);
+  expect(launcherResults("", PREVIEW_SNAPSHOT, widgets, null, [], null, generated).some((item) => item.id === "generated:g")).toBe(false);
+});
+it("keeps the message when removing a recipient and saves only the body with Shift+Enter", async () => {
+  const input = await compose(">");
+  fireEvent.click(screen.getAllByRole("option")[1]);
+  fireEvent.change(input, { target: { value: "우유 사기" } });
+  expect(screen.getByRole("button", { name: /수신자 해제/ })).toBeTruthy();
+  fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+  await waitFor(() => expect(executed()[0][1]).toMatchObject({ request: { action: { type: "addTodo", title: "우유 사기" } } }));
+});
+it("removes the chip with Backspace only for empty input outside composition", async () => {
+  const input = await compose(">");
+  fireEvent.click(screen.getAllByRole("option")[1]);
+  fireEvent.compositionStart(input);
+  fireEvent.keyDown(input, { key: "Backspace", keyCode: 229 });
+  expect(screen.getByRole("button", { name: /수신자 해제/ })).toBeTruthy();
+  fireEvent.compositionEnd(input);
+  fireEvent.keyDown(input, { key: "Backspace", isComposing: true });
+  expect(screen.getByRole("button", { name: /수신자 해제/ })).toBeTruthy();
+  fireEvent.keyDown(input, { key: "Backspace" });
+  expect(screen.queryByRole("button", { name: /수신자 해제/ })).toBeNull();
+});
+it("restores the draft and recipient when leaving the friend picker without choosing", async () => {
+  const input = await compose(">B 기존 본문");
+  const recipient = screen.getByRole("button", { name: /수신자 해제/ }).textContent;
+  fireEvent.click(screen.getByRole("button", { name: /친구 고르기/ }));
+  expect(input.value).toBe(">");
+  fireEvent.change(input, { target: { value: "" } });
+  expect(input.value).toBe("기존 본문");
+  expect(screen.getByRole("button", { name: /수신자 해제/ }).textContent).toBe(recipient);
+});
+it("keeps the new text and discards the previous draft when removing the picker prefix", async () => {
+  const input = await compose(">B 이전 본문");
+  fireEvent.click(screen.getByRole("button", { name: /친구 고르기/ }));
+  fireEvent.change(input, { target: { value: "> 안녕" } });
+  fireEvent.change(input, { target: { value: " 안녕" } });
+  expect(input.value).toBe(" 안녕");
+  expect(screen.queryByRole("button", { name: /수신자 해제/ })).toBeNull();
+  fireEvent.change(input, { target: { value: "" } });
+  expect(input.value).toBe("");
+  expect(screen.queryByRole("button", { name: /수신자 해제/ })).toBeNull();
+});
+it("filters friends after typing > with a recipient and preserves the previous draft", async () => {
+  const third = {
+    ...PREVIEW_SNAPSHOT.characters.installed[0],
+    id: "builtin-c",
+    definition: { ...PREVIEW_SNAPSHOT.characters.installed[0].definition, name: "세 번째" },
+  };
+  const snapshot = {
+    ...PREVIEW_SNAPSHOT,
+    characters: {
+      installed: [...PREVIEW_SNAPSHOT.characters.installed, third],
+      active: [...PREVIEW_SNAPSHOT.characters.active, third.id],
+    },
+  };
+  render(<Launcher snapshot={snapshot} />);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_launcher_state"));
+  const input = screen.getByRole("combobox") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: ">B 기존 본문" } });
+  const previousRecipient = screen.getByRole("button", { name: /수신자 해제/ }).textContent;
+  fireEvent.change(input, { target: { value: ">C" } });
+  expect(screen.queryByRole("button", { name: /수신자 해제/ })).toBeNull();
+  expect(screen.getAllByRole("option")).toHaveLength(1);
+  expect(screen.getByRole("option").textContent).toContain("C · 세 번째");
+  fireEvent.change(input, { target: { value: "" } });
+  expect(input.value).toBe("기존 본문");
+  expect(screen.getByRole("button", { name: /수신자 해제/ }).textContent).toBe(previousRecipient);
+  fireEvent.change(input, { target: { value: ">C" } });
+  fireEvent.click(screen.getByRole("option"));
+  expect(input.value).toBe("기존 본문");
+  expect(screen.getByRole("button", { name: /수신자 해제/ }).textContent).toContain("세 번째");
+});
+it("sends > content to everyone and keeps the next draft after a recipient was selected", async () => {
+  const input = await compose(">B 이전 본문");
+  fireEvent.change(input, { target: { value: "> 안녕" } });
+  expect(screen.queryByRole("button", { name: /수신자 해제/ })).toBeNull();
+  expect(screen.getByRole("option").textContent).toContain("모두에게");
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(executed()[0][1]).toMatchObject({
+    request: { action: { type: "chat", content: "안녕", target: "all" } },
+  }));
+  await waitFor(() => expect(input.value).toBe(""));
+  fireEvent.change(input, { target: { value: "새 초안" } });
+  expect(input.value).toBe("새 초안");
+  expect(screen.queryByRole("button", { name: /수신자 해제/ })).toBeNull();
+});
+it("keeps > content and the previous draft when sending fails", async () => {
+  const input = await compose(">B 이전 본문");
+  const previousRecipient = screen.getByRole("button", { name: /수신자 해제/ }).textContent;
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "execute_launcher") throw new Error("전송 실패");
+    return initial;
+  });
+  fireEvent.change(input, { target: { value: "> 안녕" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  await screen.findByRole("alert");
+  expect(input.value).toBe("> 안녕");
+  expect(executed()[0][1]).toMatchObject({
+    request: { action: { type: "chat", content: "안녕", target: "all" } },
+  });
+  fireEvent.change(input, { target: { value: "" } });
+  expect(input.value).toBe("이전 본문");
+  expect(screen.getByRole("button", { name: /수신자 해제/ }).textContent).toBe(previousRecipient);
+});
+it("keeps the draft when choosing a friend by typing and allows subsequent edits", async () => {
+  const input = await compose("기존 본문");
+  fireEvent.click(screen.getByRole("button", { name: /친구 고르기/ }));
+  fireEvent.change(input, { target: { value: ">B " } });
+  expect(input.value).toBe("기존 본문");
+  expect(screen.getByRole("button", { name: /수신자 해제/ })).toBeTruthy();
+  fireEvent.change(input, { target: { value: "새 본문" } });
+  expect(input.value).toBe("새 본문");
+});
+it("keeps the body after removing the recipient chip", async () => {
+  const input = await compose(">");
+  fireEvent.click(screen.getAllByRole("option")[1]);
+  fireEvent.change(input, { target: { value: "초안 유지" } });
+  fireEvent.click(screen.getByRole("button", { name: /수신자 해제/ }));
+  expect(input.value).toBe("초안 유지");
+});
+it("does not close or clear a reopened session after saving a task", async () => {
+  const input = await compose("우유 사기");
+  fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+  await screen.findByText("할 일을 저장했어요");
+  act(() => receive({ event: "launcher-opened", id: 2, payload: { ...initial, sessionId: 2 } }));
+  fireEvent.change(input, { target: { value: "새 초안" } });
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  expect(input.value).toBe("새 초안");
+  expect(command).not.toHaveBeenCalledWith("close_launcher", { sessionId: 1 });
+});
+
+it("clears a saved task immediately so reopening cannot save it again", async () => {
+  const input = await compose(">B 우유 사기");
+  fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+  await screen.findByText("할 일을 저장했어요");
+  expect(input.value).toBe("");
+  expect(screen.queryByRole("button", { name: /수신자 해제/ })).toBeNull();
+  act(() => receive({ event: "launcher-opened", id: 2, payload: { ...initial, sessionId: 2 } }));
+  fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+  expect(executed()).toHaveLength(1);
+});
+
+it("does not report a saved task as failed when closing the launcher fails", async () => {
+  const input = await compose("우유 사기");
+  vi.mocked(command).mockImplementation((name) =>
+    name === "close_launcher" ? Promise.reject(new Error("닫기 실패")) : Promise.resolve(initial),
+  );
+  fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+  await screen.findByText("할 일을 저장했어요");
+  await waitFor(() => expect(command).toHaveBeenCalledWith("close_launcher", { sessionId: 1 }), { timeout: 1500 });
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(input.value).toBe("");
+});
+
+it("does not close the launcher after its saved-task view unmounts", async () => {
+  const view = render(<Launcher snapshot={PREVIEW_SNAPSHOT} />);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_launcher_state"));
+  const input = screen.getByRole("combobox");
+  fireEvent.change(input, { target: { value: "우유 사기" } });
+  fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+  await screen.findByText("할 일을 저장했어요");
+  view.unmount();
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  expect(command).not.toHaveBeenCalledWith("close_launcher", { sessionId: 1 });
 });

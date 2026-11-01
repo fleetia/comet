@@ -4,6 +4,10 @@ import type { WidgetSnapshot, WidgetView } from "../../widgets/types";
 import type { WidgetDesktopState } from "../../widgets/WidgetManager/useWidgetDesktop";
 import { SETTINGS_SECTIONS, type SettingsSection } from "../SettingsPanel/useSettingsNavigation";
 import { isDesktopToy } from "../../widgets/ToyTools/desktopToys";
+import type { GeneratedWidget } from "../../widgets/GeneratedWidgets/types";
+import { localDay, record, rows } from "../../widgets/toolData";
+import { eventsOn, plannedDay, ruleOf } from "../../widgets/Planner/plannerData";
+import { WIDGET_ALIASES } from "./widgetAliases";
 
 export const DEFAULT_SHORTCUT = "CommandOrControl+Shift+Space";
 export type LauncherState = {
@@ -21,7 +25,10 @@ export type LauncherAction =
   | { type: "travel"; id: string }
   | { type: "guide" }
   | { type: "tutorial" }
-  | { type: "openWidgetStack" };
+  | { type: "openWidgetStack" }
+  | { type: "diary" }
+  | { type: "editWidgetDesktop" }
+  | { type: "generatedWidget"; id: string };
 export type LauncherTravel = {
   id: string;
   title: string;
@@ -47,10 +54,13 @@ export type LauncherResult = {
 function normalize(value: string): string {
   return value.normalize("NFC").toLocaleLowerCase().replace(/\s+/g, "").trim();
 }
-function score(query: string, aliases: string[]): number {
+function score(query: string, aliases: string[], prefixAliases: string[] = []): number {
   const normalized = normalize(query);
-  if (aliases.some((alias) => normalize(alias) === normalized)) return 0;
-  if (aliases.some((alias) => normalize(alias).startsWith(normalized))) return 1;
+  if ([...aliases, ...prefixAliases].some((alias) => normalize(alias) === normalized)) return 0;
+  if ([...aliases, ...prefixAliases].some((alias) => normalize(alias).startsWith(normalized))) return 1;
+  if ([...normalized].length < 2) return -1;
+  if (aliases.some((alias) => alias.toLocaleLowerCase().split(/\s+/).some((word) => normalize(word).startsWith(normalized)))) return 2;
+  if (aliases.some((alias) => normalize(alias).includes(normalized))) return 3;
   return -1;
 }
 export function activeTargets(characters: CharacterCollection): TargetBinding[] {
@@ -117,18 +127,6 @@ function targetResults(snapshot: Snapshot, token: string): LauncherResult[] {
     });
   return results;
 }
-const WIDGET_ALIASES: Record<string, string[]> = {
-  todo: ["투두", "오늘", "할일", "플래너"],
-  calendar: ["일정", "달력"],
-  ball: ["공 던지기", "공 꺼내기"],
-  "paper-plane": ["비행기", "비행기 날리기", "종이비행기 날리기"],
-  bubbles: ["방울", "방울 만들기"],
-  clock: ["시계", "기념일", "디데이"],
-  "focus-timer": ["타이머", "집중"],
-  "small-match": ["주사위", "가위바위보", "동전"],
-  music: ["음악"],
-  image: ["이미지 띄우기", "사진", "사진 띄우기"],
-};
 const SECTION_ALIASES: Partial<Record<SettingsSection, string[]>> = {
   model: ["모델", "API", "AI", "인공지능"],
   dialogue: ["개인 단어장", "단어장", "단어장 설정", "대화팩", "대화팩 설정"],
@@ -274,6 +272,7 @@ export function launcherResults(
   binding: TargetBinding | null,
   travels: LauncherTravel[] = [],
   desktop: WidgetDesktopState | null = null,
+  generated: GeneratedWidget[] = [],
 ): LauncherResult[] {
   const input = query.trimStart();
   if (input.startsWith(">")) {
@@ -309,9 +308,20 @@ export function launcherResults(
         },
       ];
     }
-    return [chatResult(rest.slice(token.length).trim(), snapshot, binding)];
+    const content = rest.slice(token.length).trim();
+    const chat = chatResult(content, snapshot, binding);
+    const todo = content ? todoResult(content, widgets, []) : null;
+    return todo ? [chat, todo] : [chat];
   }
   const normalized = query.trim();
+  if (binding) {
+    if (!snapshot.characters.active.includes(binding.id)) {
+      return [{ id: "missing-target", title: "대화 상대를 다시 선택해 주세요", detail: "친구가 함께 지내는지 확인해 주세요.", preview: "모두에게 대신 보내지 않아요.", kind: "notice" }];
+    }
+    const chat = chatResult(normalized, snapshot, binding);
+    const todo = normalized ? todoResult(normalized, widgets, []) : null;
+    return todo ? [chat, todo] : [chat];
+  }
   const candidates: { result: LauncherResult; rank: number }[] = [];
   if (desktop?.mode === "stack" && desktop.stackHidden && desktop.order.length > 0) {
     const rank = score(normalized, ["모아두기", "모아두기 다시 표시"]);
@@ -329,6 +339,26 @@ export function launcherResults(
       });
     }
   }
+  const diaryRank = score(normalized, ["다이어리", "일기", "오늘"]);
+  if (!normalized || diaryRank >= 0) {
+    const day = localDay();
+    const calendar = widgets?.widgets.find((widget) => widget.kind === "calendar");
+    const calendarData = record(calendar?.data);
+    const connections = rows(calendarData.connections);
+    const events = eventsOn(rows(calendarData.events).filter((event) =>
+      !event.cancelled && (event.connectionId === "local" || connections.some((connection) => connection.id === event.connectionId)),
+    ), day);
+    const todo = widgets?.widgets.find((widget) => widget.kind === "todo");
+    const tasks = rows(record(todo?.data).items).filter((item) => plannedDay(item) === day);
+    const done = tasks.filter((item) => typeof item.completedAt === "number" ||
+      (ruleOf(item).mode === "frequency" && rows(item.frequencyRecords).some((entry) => entry.date === day))).length;
+    const detail = widgets ? `오늘 일정 ${events.length}개 · 할 일 ${done}/${tasks.length} 완료` : "오늘 일정과 할 일을 확인해요";
+    candidates.push({ rank: diaryRank, result: { id: "diary", title: "다이어리 열기", detail, preview: detail, kind: "widget", action: { type: "diary" } } });
+  }
+  const editRank = score(normalized, ["바탕화면 위젯 편집", "편집", "모아두기", "자유 배치"]);
+  if (normalized && editRank >= 0) candidates.push({ rank: editRank, result: {
+    id: "widget-editor", title: "바탕화면 위젯 편집", detail: "모아두기·자유 배치", preview: "바탕화면 위젯 배치를 편집해요.", kind: "widget", action: { type: "editWidgetDesktop" },
+  } });
   const helpRanks = HELP_RESULTS.map(({ aliases }) => score(normalized, aliases));
   if (normalized && helpRanks.some((rank) => rank >= 0)) {
     HELP_RESULTS.forEach(({ result }, index) => {
@@ -364,10 +394,9 @@ export function launcherResults(
   for (const entry of widgets?.catalog ?? catalog) {
     const rank = score(normalized, [
       entry.name,
-      entry.id,
       ...(WIDGET_ALIASES[entry.id] ?? []),
       `${entry.name} 열기`,
-    ]);
+    ], [entry.id]);
     if (normalized ? rank < 0 : !["focus-timer", "memo"].includes(entry.id)) continue;
     if (!widgets) {
       candidates.push({
@@ -384,6 +413,15 @@ export function launcherResults(
     }
     const instance = widgets.widgets.find((candidate) => candidate.kind === entry.id);
     candidates.push({ rank, result: widgetResult(entry, instance) });
+  }
+  if (normalized) {
+    for (const widget of generated.filter((item) => item.installed)) {
+      const rank = score(normalized, [widget.definition.name]);
+      if (rank >= 0) candidates.push({ rank, result: {
+        id: `generated:${widget.id}`, title: `${widget.definition.name} 열기`, detail: "AI 위젯", preview: widget.definition.description,
+        kind: "widget", action: { type: "generatedWidget", id: widget.id },
+      } });
+    }
   }
   candidates.push(...travelResults(normalized, travels));
   const results = candidates
@@ -407,7 +445,7 @@ export function launcherResults(
             : "자리 비움"
         : "친구들이 순서대로 답해요",
     }));
-    const order = ["widget:focus-timer", "widget:memo", "settings"];
+    const order = ["diary", "widget:focus-timer", "widget:memo", "settings"];
     return [
       ...targets.filter((result) => result.recipient),
       ...targets.filter((result) => !result.recipient),

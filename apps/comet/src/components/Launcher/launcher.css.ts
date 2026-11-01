@@ -69,6 +69,7 @@ export const results = style({
   // Chromium makes scrollers keyboard-focusable; keep that ring inside the window.
   outlineOffset: -1,
 });
+export const pending = style({ opacity: 0.6, cursor: "progress" });
 export const result = style({
   display: "flex",
   alignItems: "center",

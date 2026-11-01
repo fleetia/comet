@@ -389,6 +389,8 @@ pub fn run() {
             widgets::connection_host::music_bridge_status,
             widgets::connection_host::music_bridge_disconnect,
             widgets::connection_host::export_music_extension,
+            widgets::commands::get_music_launch_preference,
+            widgets::commands::set_music_launch_preference,
             widgets::commands::set_music_expanded,
             widgets::commands::set_focus_expanded,
             widgets::connection_host::refresh_connection_widget,

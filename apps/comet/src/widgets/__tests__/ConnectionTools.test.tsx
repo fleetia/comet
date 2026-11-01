@@ -332,14 +332,16 @@ it("clears music changes when the same allowed apps are restored in a different 
   expect(onDirtyChange).toHaveBeenLastCalledWith(true);
   fireEvent.click(appleMusic);
   expect(appleMusic).toHaveProperty("checked", true);
-  expect(screen.getByRole("switch", { name: "Spotify · Spicetify" })).toHaveProperty("checked", true);
+  expect(screen.getByRole("switch", { name: "Spotify 자동 선택 허용" })).toHaveProperty("checked", true);
   expect(onDirtyChange).toHaveBeenLastCalledWith(false);
-  expect(command).not.toHaveBeenCalled();
+  expect(command).not.toHaveBeenCalledWith("configure_connection_widget", expect.anything());
+  expect(command).not.toHaveBeenCalledWith("music_request", expect.anything());
 });
 
 it("does not query private sources before opting in to the selected music provider", async () => {
   render(<ConnectionTool mode="settings" widget={widget("music", EMPTY)} />);
-  expect(command).not.toHaveBeenCalled();
+  expect(command).not.toHaveBeenCalledWith("configure_connection_widget", expect.anything());
+  expect(command).not.toHaveBeenCalledWith("music_request", expect.anything());
   fireEvent.click(screen.getByLabelText("음악 앱 직접 연결 설정"));
   fireEvent.change(screen.getByLabelText("음악 앱"), { target: { value: "spotify" } });
   fireEvent.click(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" }));
@@ -385,7 +387,10 @@ it("saves a lyrics preference immediately and keeps the direct connection menu k
   expect(document.activeElement).toBe(menu);
 });
 it("saves a configured music provider immediately and keeps the choice with an error on failure", async () => {
-  vi.mocked(command).mockRejectedValueOnce(new Error("저장 실패"));
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "configure_connection_widget") throw new Error("저장 실패");
+    return undefined;
+  });
   render(
     <ConnectionTool
       mode="settings"
@@ -416,15 +421,16 @@ it("keeps supported music provider switches visible and requires a nonempty auto
   expect(providers.getByText("Windows 전용")).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Spotify 연결" })).toBeTruthy();
   fireEvent.click(providers.getByRole("switch", { name: "Apple Music · macOS" }));
-  fireEvent.click(providers.getByRole("switch", { name: "Spotify · Spicetify" }));
+  fireEvent.click(providers.getByRole("switch", { name: "Spotify 자동 선택 허용" }));
   fireEvent.click(screen.getByLabelText("음악 앱 직접 연결 설정"));
   fireEvent.change(screen.getByLabelText("음악 앱"), { target: { value: "auto" } });
   expect(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" })).toHaveProperty(
     "disabled",
     true,
   );
-  expect(command).not.toHaveBeenCalled();
-  fireEvent.click(providers.getByRole("switch", { name: "Spotify · Spicetify" }));
+  expect(command).not.toHaveBeenCalledWith("configure_connection_widget", expect.anything());
+  expect(command).not.toHaveBeenCalledWith("music_request", expect.anything());
+  fireEvent.click(providers.getByRole("switch", { name: "Spotify 자동 선택 허용" }));
   fireEvent.click(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("configure_connection_widget", {

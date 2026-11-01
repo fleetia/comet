@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 // happy-dom does not disable controls inside a disabled fieldset.
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { command } from "../../hooks/useSnapshot";
 import type { WidgetValue, WidgetView } from "../types";
 import { MusicTool } from "./MusicTool";
 import { MusicSettings } from "./MusicSettings";
+import { MusicLibrary } from "./MusicLibrary";
 
 vi.mock("../../hooks/useSnapshot", async (load) => ({
   ...(await load<typeof import("../../hooks/useSnapshot")>()),
@@ -337,9 +338,12 @@ it("ignores a playlist response received after the connection settings change", 
 });
 
 it("asks for consent before configuring the chosen app and preserves a failed draft", async () => {
-  vi.mocked(command).mockRejectedValue(new Error("설정을 저장하지 못했어요."));
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_music_launch_preference") return true;
+    throw new Error("설정을 저장하지 못했어요.");
+  });
   render(<MusicSettings widget={{ ...widget(), data: { configured: false, config: {} } }} />);
-  expect(command).not.toHaveBeenCalled();
+  expect(command).not.toHaveBeenCalledWith("configure_connection_widget", expect.anything());
   fireEvent.change(screen.getByLabelText("음악 앱"), { target: { value: "spotify" } });
   fireEvent.click(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" }));
   await screen.findByRole("alert");
@@ -368,6 +372,9 @@ it("lets a remembered Spotify connection be forgotten while awaiting automatic r
   await screen.findByText("Spotify 확장의 자동 재연결을 기다리고 있어요.");
   expect(screen.getByRole("button", { name: "연결 코드 만들기" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "로컬 연결 해제" }));
+  expect(command).not.toHaveBeenCalledWith("music_bridge_disconnect", expect.anything());
+  expect(screen.getByRole("dialog").textContent).toContain("연결 코드");
+  fireEvent.click(screen.getByRole("button", { name: "연결 해제 확인" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("music_bridge_disconnect", {
       id: "music",
@@ -384,8 +391,8 @@ it("autosaves a configured preview preference and blocks both sides while saving
   const onBusyChange = vi.fn();
   let finish: (value: null) => void = () => {};
   vi.mocked(command).mockImplementation(
-    async () =>
-      new Promise<null>((resolve) => {
+    async (name) =>
+      name === "get_music_launch_preference" ? true : new Promise<null>((resolve) => {
         finish = resolve;
       }),
   );
@@ -423,19 +430,19 @@ it.each(["Linux x86_64", "Win32"])("marks Apple Music as macOS-only on %s", (pla
   expect(screen.getByText("macOS 전용")).toBeTruthy();
   expect(screen.getByText("macOS에서만 바로 읽을 수 있어요")).toBeTruthy();
   expect(screen.queryByText("이 Mac에서 바로 읽어요")).toBeNull();
-  expect(screen.getByRole("switch", { name: "Spotify · Spicetify" })).toBeTruthy();
+  expect(screen.getByRole("switch", { name: "Spotify 자동 선택 허용" })).toBeTruthy();
   expect(screen.getByRole("option", { name: "Apple Music · macOS", hidden: true })).toHaveProperty(
     "disabled",
     true,
   );
   expect(screen.getByRole("option", { name: "Apple Music 우선" })).toHaveProperty("disabled", true);
-  expect(command).not.toHaveBeenCalled();
+  expect(command).not.toHaveBeenCalledWith("configure_connection_widget", expect.anything());
 });
 
 it("keeps Linux Spotify extension available without claiming native reads or app launch", async () => {
   vi.spyOn(navigator, "platform", "get").mockReturnValue("Linux x86_64");
   render(<MusicSettings widget={{ ...widget(), data: { configured: false, config: {} } }} />);
-  expect(screen.getByRole("switch", { name: "Spotify · Spicetify" })).toHaveProperty(
+  expect(screen.getByRole("switch", { name: "Spotify 자동 선택 허용" })).toHaveProperty(
     "checked",
     true,
   );
@@ -451,6 +458,7 @@ it("keeps Linux Spotify extension available without claiming native reads or app
     false,
   );
   expect(screen.getByText(/Spotify는 직접 실행해 주세요/)).toBeTruthy();
+  expect(screen.queryByRole("switch", { name: "위젯을 열 때 Spotify 실행" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("configure_connection_widget", {
@@ -477,7 +485,7 @@ it("filters unsupported saved providers on Linux without saving on mount", async
       }}
     />,
   );
-  expect(command).not.toHaveBeenCalled();
+  expect(command).not.toHaveBeenCalledWith("configure_connection_widget", expect.anything());
   fireEvent.click(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("configure_connection_widget", {
@@ -494,17 +502,17 @@ it("filters unsupported saved providers on Linux without saving on mount", async
 it("blocks an empty Linux automatic selection and restores its supported default", () => {
   vi.spyOn(navigator, "platform", "get").mockReturnValue("Linux x86_64");
   render(<MusicSettings widget={{ ...widget(), data: { configured: false, config: {} } }} />);
-  fireEvent.click(screen.getByRole("switch", { name: "Spotify · Spicetify" }));
+  fireEvent.click(screen.getByRole("switch", { name: "Spotify 자동 선택 허용" }));
   expect(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" })).toHaveProperty(
     "disabled",
     true,
   );
   fireEvent.click(screen.getByRole("button", { name: "선택 초기화" }));
-  expect(screen.getByRole("switch", { name: "Spotify · Spicetify" })).toHaveProperty(
+  expect(screen.getByRole("switch", { name: "Spotify 자동 선택 허용" })).toHaveProperty(
     "checked",
     true,
   );
-  expect(command).not.toHaveBeenCalled();
+  expect(command).not.toHaveBeenCalledWith("configure_connection_widget", expect.anything());
 });
 
 it.each([
@@ -520,4 +528,43 @@ it.each([
       input: expect.objectContaining({ provider, allowedProviders }),
     }),
   );
+});
+
+
+it("discards late additional tracks after returning to playlists", async () => {
+  let finish: (value: WidgetValue) => void = () => {};
+  const request = vi.fn(async (action: string, value?: WidgetValue): Promise<WidgetValue> => {
+    if (action === "playlists") return { items: [{ uri: "list", title: "목록" }], nextOffset: null };
+    if (value && typeof value === "object" && !Array.isArray(value) && value.offset === 1) {
+      return new Promise<WidgetValue>((resolve) => { finish = resolve; });
+    }
+    return { items: [{ uri: "one", title: "첫 곡" }], nextOffset: 1 };
+  });
+  render(<MusicLibrary mode="playlists" can={() => true} busy={false} request={request} />);
+  fireEvent.click(screen.getByRole("button", { name: "불러오기" }));
+  fireEvent.click(await screen.findByRole("button", { name: "곡 보기" }));
+  await screen.findByText("첫 곡");
+  fireEvent.click(screen.getByRole("button", { name: "곡 더 보기" }));
+  fireEvent.click(screen.getByRole("button", { name: "← 플레이리스트" }));
+  await act(async () => { finish({ items: [{ uri: "two", title: "늦은 곡" }], nextOffset: null }); });
+  expect(screen.queryByText("늦은 곡")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "곡 보기" }));
+  await screen.findByText("첫 곡");
+  expect(screen.queryByText("늦은 곡")).toBeNull();
+});
+
+it("waits for the launch preference before allowing a change and saves it separately", async () => {
+  let finish: (value: boolean) => void = () => {};
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_music_launch_preference") return new Promise<boolean>((resolve) => { finish = resolve; });
+    return null;
+  });
+  render(<MusicSettings widget={widget()} />);
+  const toggle = screen.getByRole("switch", { name: "위젯을 열 때 Spotify 실행" });
+  expect(toggle).toHaveProperty("disabled", true);
+  await act(async () => { finish(false); });
+  expect(toggle).toHaveProperty("checked", false);
+  fireEvent.click(toggle);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("set_music_launch_preference", { id: "music", expectedRevision: 7, enabled: true }));
+  await waitFor(() => expect(toggle).toHaveProperty("checked", true));
 });

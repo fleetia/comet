@@ -385,7 +385,9 @@ it("shows connection settings in place without running the widget", () => {
   chooseWidget("음악 정보 설정 필요");
   expect(screen.getByLabelText("음악 앱")).toBeTruthy();
   expect(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" })).toBeTruthy();
-  expect(command).not.toHaveBeenCalled();
+  expect(command).toHaveBeenCalledWith("get_music_launch_preference", { id: "music" });
+  expect(command).not.toHaveBeenCalledWith("open_widget", expect.anything());
+  expect(command).not.toHaveBeenCalledWith("configure_connection_widget", expect.anything());
 });
 
 it("opens official state rules from the widget header without changing its data", async () => {
@@ -455,7 +457,7 @@ it("discards widget setting drafts on catalog navigation while preserving them d
   expect(
     vi
       .mocked(command)
-      .mock.calls.filter(([name]) => name !== "get_planner_notification_permission"),
+      .mock.calls.filter(([name]) => name !== "get_planner_notification_permission" && name !== "get_music_launch_preference"),
   ).toEqual([]);
 });
 
