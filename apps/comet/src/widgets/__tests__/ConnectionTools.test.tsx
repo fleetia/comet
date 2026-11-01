@@ -748,6 +748,22 @@ it("merges overlapping connected calendar intervals and excludes cancelled event
   ).toBeTruthy();
 });
 
+it("shows and clears a saved notification delivery error in calendar settings", async () => {
+  const calendar = widget("calendar", {
+    connections: [], events: [], reminders: {},
+    alertState: { lastDeliveryError: "알림을 보내지 못했어요." },
+  });
+  const view = render(<CalendarTool mode="settings" act={act} widget={calendar} />);
+  fireEvent.click(screen.getByText("일정과 생활 알림", { selector: "summary" }));
+  expect(screen.getByRole("alert").textContent).toContain("알림을 보내지 못했어요.");
+  fireEvent.click(screen.getByRole("button", { name: "시스템 설정 열기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("open_system_settings", { page: "notifications" }));
+  fireEvent.click(screen.getByRole("button", { name: "알림 오류 닫기" }));
+  expect(act).toHaveBeenCalledExactlyOnceWith("clear-notification-error", {}, undefined);
+  view.rerender(<CalendarTool mode="settings" act={act} widget={{ ...calendar, data: { connections: [], events: [], reminders: {}, alertState: {} } }} />);
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
 it("preserves collapsed reminder edits and saves only on explicit form submission", async () => {
   render(
     <CalendarTool

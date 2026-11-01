@@ -87,6 +87,7 @@ pub fn act(data: &Value, action: &str, input: &Value, now: i64) -> Result<Widget
             })
         }
         "configure-alerts" => data = configure(&data, input)?,
+        "clear-notification-error" => data["alertState"]["lastDeliveryError"] = Value::Null,
         "snooze-alert" => {
             let last = &data["alertState"]["lastNotification"];
             if !last["observedAt"]
@@ -137,11 +138,15 @@ fn targets(
                 .into_iter()
                 .flatten()
                 .any(|connection| {
+                    let freshness = match connection["status"].as_str() {
+                        Some("ready" | "syncing") => 30 * 60 * 1000,
+                        Some("offline") => 24 * 60 * 60 * 1000,
+                        _ => return false,
+                    };
                     connection["id"] == event["connectionId"]
-                        && matches!(connection["status"].as_str(), Some("ready" | "syncing"))
                         && connection["lastSuccessAt"]
                             .as_i64()
-                            .is_some_and(|time| now >= time && now - time <= 30 * 60 * 1000)
+                            .is_some_and(|time| now >= time && now - time <= freshness)
                 });
         if !fresh {
             continue;
@@ -189,11 +194,17 @@ fn crossed(after: i64, now: i64, threshold: i64) -> bool {
     now >= after && now - after <= 120_000 && threshold > after && threshold <= now
 }
 
-fn due_targets(
+#[cfg(test)]
+fn due_targets(data: &Value, todo: Option<&Value>, after: i64, now: i64) -> Result<Vec<Value>, String> {
+    due_targets_at(data, todo, after, now, false)
+}
+
+fn due_targets_at(
     data: &Value,
     todo: Option<&Value>,
     after: i64,
     now: i64,
+    catch_up: bool,
 ) -> Result<Vec<Value>, String> {
     let settings = settings(data)?;
     if !settings.enabled {
@@ -202,18 +213,25 @@ fn due_targets(
     let targets = targets(data, todo, &settings, now);
     let snooze = data["alertState"]["snoozeAt"]
         .as_i64()
-        .is_some_and(|at| crossed(after, now, at));
+        .is_some_and(|at| {
+            if catch_up {
+                at > after && at <= now
+            } else {
+                crossed(after, now, at)
+            }
+        });
     Ok(targets
         .into_iter()
         .filter(|target| {
             let starts = target["at"].as_i64().unwrap_or_default();
-            let original = (settings.lead_minutes == 0 || starts >= now)
-                && crossed(
-                    after,
-                    now,
-                    starts.saturating_sub(i64::from(settings.lead_minutes) * 60_000),
-                );
+            let threshold = starts.saturating_sub(i64::from(settings.lead_minutes) * 60_000);
+            let original = if catch_up {
+                target["kind"] == "calendar" && starts > now && threshold > after && threshold <= now
+            } else {
+                (settings.lead_minutes == 0 || starts >= now) && crossed(after, now, threshold)
+            };
             let requested = snooze
+                && (!catch_up || (target["kind"] == "calendar" && starts > now))
                 && data["alertState"]["lastNotification"]["targets"]
                     .as_array()
                     .into_iter()
@@ -235,6 +253,10 @@ pub struct Delivery {
     pub widget: bool,
     pub notification_key: String,
     pub fallback: Option<super::WidgetEvent>,
+    pub additional_fallbacks: Vec<super::WidgetEvent>,
+    pub fallback_timers: Vec<String>,
+    pub grouped: bool,
+    pub destination: Option<(String, Option<String>, Option<String>)>,
 }
 
 pub struct Advance {
@@ -284,9 +306,26 @@ pub fn event_current(db: &Connection, event: &super::WidgetEvent) -> Result<bool
         &settings(&calendar.data)?,
         chrono::Utc::now().timestamp_millis(),
     );
+    if event.event.payload["mixedPlanningReminder"] == true {
+        let mut focus_event = event.clone();
+        let focus_targets = event.event.payload["targets"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|target| target["kind"] == "focus-event")
+            .cloned()
+            .collect::<Vec<_>>();
+        focus_event.event.payload["targets"] = json!(focus_targets);
+        if !planning::event_current(db, &focus_event)? {
+            return Ok(false);
+        }
+    }
     Ok(event.event.payload["targets"]
         .as_array()
-        .is_some_and(|old| !old.is_empty() && old.iter().all(|target| current.contains(target))))
+        .is_some_and(|old| !old.is_empty() && old.iter().all(|target| {
+            (event.event.payload["mixedPlanningReminder"] == true && target["kind"] == "focus-event")
+                || current.contains(target)
+        })))
 }
 
 fn timer_moods(
@@ -337,12 +376,14 @@ pub fn advance(
     now: i64,
     quiet: bool,
 ) -> Result<Advance, String> {
-    advance_with_presence(db, clocks, now, quiet, &[])
+    let mut calendar_clocks = clocks.clone();
+    advance_with_presence(db, clocks, &mut calendar_clocks, now, quiet, &[])
 }
 
 pub fn advance_with_presence(
     db: &Connection,
     clocks: &mut BTreeMap<String, i64>,
+    calendar_clocks: &mut BTreeMap<String, i64>,
     now: i64,
     quiet: bool,
     present: &[String],
@@ -370,6 +411,7 @@ pub fn advance_with_presence(
         .filter(|instance| instance.kind == "calendar")
     {
         let previous = clocks.insert(instance.id.clone(), now);
+        let calendar_previous = calendar_clocks.insert(instance.id.clone(), now);
         let settings = settings(&instance.data)?;
         let continuous = previous.is_some_and(|after| now >= after && now - after <= 120_000);
         let allowed = continuous;
@@ -381,10 +423,12 @@ pub fn advance_with_presence(
             allowed && !quiet,
             &settings,
         );
-        if !allowed {
+        if calendar_previous.is_none_or(|after| now < after) {
             continue;
         }
+        let calendar_previous = calendar_previous.unwrap_or(now);
         let previous = previous.unwrap_or(now);
+        let calendar_continuous = now - calendar_previous <= 120_000;
         let date = local.date_naive().to_string();
         for (enabled, time, kind, line) in [
             (
@@ -412,7 +456,7 @@ pub fn advance_with_presence(
                 }
             }
         }
-        let due = due_targets(&instance.data, todo, previous, now)?;
+        let due = due_targets_at(&instance.data, todo, calendar_previous, now, !calendar_continuous)?;
         let mut data = instance.data.clone();
         let mut drafts = vec![];
         if !due.is_empty() {
@@ -436,10 +480,18 @@ pub fn advance_with_presence(
                 drafts.push(EventDraft {
                     kind: "planner-reminder".into(),
                     text: text.clone(),
-                    payload: json!({"targets":due}),
+                    payload: json!({"targets":due,"calendarCatchUp":!calendar_continuous}),
                 });
             }
             if settings.os_enabled {
+                let todo_only = due.iter().all(|target| target["kind"] == "todo");
+                let single = (due.len() == 1).then(|| &due[0]);
+                let entity = single.and_then(|target| match target["kind"].as_str() {
+                    Some("calendar") => Some("event".to_string()),
+                    Some("todo") => Some("todo".to_string()),
+                    _ => None,
+                });
+                let id = single.and_then(|target| target["id"].as_str().map(str::to_string));
                 result.os.push(Delivery {
                     instance_id: instance.id.clone(),
                     text,
@@ -447,6 +499,10 @@ pub fn advance_with_presence(
                     widget: false,
                     notification_key: "calendar".into(),
                     fallback: None,
+                    additional_fallbacks: vec![],
+                    fallback_timers: vec![],
+                    grouped: false,
+                    destination: Some((if todo_only { "todos" } else { "calendar" }.into(), entity, id)),
                 });
             }
         }
@@ -460,8 +516,8 @@ pub fn advance_with_presence(
         planning::focus_due(
             instance,
             &timers,
-            previous,
-            now,
+            (calendar_previous, now, !calendar_continuous),
+            &due,
             &mut drafts,
             &mut result.os,
         );
@@ -634,16 +690,125 @@ mod tests {
         for (after, now) in [(1_000_000, 1_000_500), (800_000, 1_000_000)] {
             assert!(due_targets(&value, None, after, now).unwrap().is_empty());
         }
-        let mut offline = value.clone();
-        offline["connections"][0]["status"] = json!("offline");
-        assert!(due_targets(&offline, None, 999_500, 1_000_000)
-            .unwrap()
-            .is_empty());
         let mut cancelled = value;
         cancelled["events"][0]["cancelled"] = json!(true);
         assert!(due_targets(&cancelled, None, 999_500, 1_000_000)
             .unwrap()
             .is_empty());
+    }
+    #[test]
+    fn offline_calendar_uses_a_24_hour_freshness_limit() {
+        let now = 100_000_000;
+        let mut value = data();
+        value["events"][0]["startAt"] = json!(now + 600_000);
+        value["connections"][0]["status"] = json!("offline");
+        for (age, expected) in [(24 * 60 * 60 * 1000, 1), (24 * 60 * 60 * 1000 + 1, 0)] {
+            value["connections"][0]["lastSuccessAt"] = json!(now - age);
+            assert_eq!(due_targets(&value, None, now - 1, now).unwrap().len(), expected);
+        }
+        for status in ["auth-error", "permission-needed", "unsupported"] {
+            value["connections"][0]["status"] = json!(status);
+            value["connections"][0]["lastSuccessAt"] = json!(now);
+            assert!(due_targets(&value, None, now - 1, now).unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn clear_notification_error_preserves_other_alert_state() {
+        let mut value = data();
+        value["alertState"] = json!({"lastDeliveryError":"오류", "permission":"denied"});
+        let updated = act(&value, "clear-notification-error", &json!({}), 1_000_000)
+            .unwrap()
+            .data;
+        assert!(updated["alertState"]["lastDeliveryError"].is_null());
+        assert_eq!(updated["alertState"]["permission"], "denied");
+        assert_eq!(updated["events"], value["events"]);
+    }
+
+    #[test]
+    fn resumed_external_calendar_uses_status_freshness_limits() {
+        let now = 100_000_000;
+        for (status, age, expected) in [
+            ("ready", 30 * 60 * 1000, 1),
+            ("ready", 30 * 60 * 1000 + 1, 0),
+            ("syncing", 30 * 60 * 1000 + 1, 0),
+            ("offline", 24 * 60 * 60 * 1000, 1),
+            ("offline", 24 * 60 * 60 * 1000 + 1, 0),
+        ] {
+            let mut value = data();
+            value["connections"][0]["status"] = json!(status);
+            value["connections"][0]["lastSuccessAt"] = json!(now - age);
+            value["events"][0]["startAt"] = json!(now + 300_000);
+            assert_eq!(
+                due_targets_at(&value, None, now - 2_400_000, now, true).unwrap().len(),
+                expected,
+                "{status}, age {age}"
+            );
+        }
+    }
+
+    #[test]
+    fn resume_groups_only_events_that_have_not_started_and_does_not_repeat() {
+        let db = Connection::open_in_memory().unwrap();
+        storage::initialize(&db).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        storage::verify_packages(&db, directory.path()).unwrap();
+        let calendar = storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "calendar").unwrap();
+        let now = 2_000_000;
+        let mut value = data();
+        value["reminders"]["osEnabled"] = json!(true);
+        value["events"] = json!([
+            {"id":"first","title":"첫 일정","connectionId":"local","startAt":now + 200_000},
+            {"id":"second","title":"다음 일정","connectionId":"local","startAt":now + 300_000},
+            {"id":"snoozed","title":"다시 알릴 일정","connectionId":"local","startAt":now + 50_000},
+            {"id":"started","title":"지난 일정","connectionId":"local","startAt":now - 1},
+            {"id":"future","title":"나중 일정","connectionId":"local","startAt":now + 900_000}
+        ]);
+        value["alertState"] = json!({
+            "snoozeAt": now - 100_000,
+            "lastNotification": {"targets": [
+                {"kind":"calendar", "id":"snoozed", "title":"다시 알릴 일정", "at":now + 50_000},
+                {"kind":"calendar", "id":"started", "title":"지난 일정", "at":now - 1}
+            ]}
+        });
+        storage::commit_data(&db, &calendar.id, calendar.revision, value, vec![], now - 500_000).unwrap();
+        let mut clocks = BTreeMap::new();
+        let mut calendar_clocks = BTreeMap::new();
+        assert!(advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now - 500_000, false, &[]).unwrap().os.is_empty());
+        clocks.clear();
+        let resumed = advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now, false, &[]).unwrap();
+        assert_eq!(resumed.os.len(), 1);
+        assert!(resumed.os[0].text.contains("첫 일정"));
+        assert!(resumed.os[0].text.contains("다음 일정"));
+        assert!(resumed.os[0].text.contains("다시 알릴 일정"));
+        assert!(!resumed.os[0].text.contains("지난 일정"));
+        assert!(!resumed.os[0].text.contains("나중 일정"));
+        assert_eq!(storage::get(&db, &calendar.id).unwrap().data["alertState"]["lastNotification"]["targets"].as_array().unwrap().len(), 3);
+        assert!(advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now + 1_000, false, &[]).unwrap().os.is_empty());
+        assert!(advance_with_presence(&db, &mut BTreeMap::new(), &mut BTreeMap::new(), now, false, &[]).unwrap().os.is_empty());
+    }
+
+    #[test]
+    fn resumed_external_calendar_reminder_remains_current_for_bubble() {
+        let db = Connection::open_in_memory().unwrap();
+        storage::initialize(&db).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        storage::verify_packages(&db, directory.path()).unwrap();
+        let calendar = storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "calendar").unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut value = data();
+        value["connections"][0]["status"] = json!("offline");
+        value["connections"][0]["lastSuccessAt"] = json!(now - 2 * 60 * 60 * 1000);
+        value["events"][0]["startAt"] = json!(now + 300_000);
+        storage::commit_data(&db, &calendar.id, calendar.revision, value, vec![], now - 2_400_000).unwrap();
+        let mut clocks = BTreeMap::new();
+        let mut calendar_clocks = BTreeMap::new();
+        advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now - 2_400_000, false, &[]).unwrap();
+        clocks.clear();
+        advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now, false, &[]).unwrap();
+        let event = storage::take_reaction(&db, now).unwrap().unwrap();
+        assert_eq!(event.event.kind, "planner-reminder");
+        assert!(event_current(&db, &event).unwrap());
     }
     #[test]
     fn zero_and_advance_leads_fire_only_when_their_own_alert_time_is_crossed() {

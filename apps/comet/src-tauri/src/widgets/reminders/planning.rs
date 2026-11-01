@@ -103,6 +103,10 @@ pub(super) fn focus_completions(
                 widget: true,
                 notification_key: event.id.clone(),
                 fallback: (event.event.payload["bubbleEnabled"] == false).then_some(event),
+                additional_fallbacks: vec![],
+                fallback_timers: vec![],
+                grouped: false,
+                destination: None,
             });
         }
     }
@@ -112,34 +116,111 @@ pub(super) fn focus_completions(
 pub(super) fn focus_due(
     calendar: &WidgetInstance,
     timers: &[WidgetInstance],
-    after: i64,
-    now: i64,
+    interval: (i64, i64, bool),
+    calendar_due: &[Value],
     drafts: &mut Vec<EventDraft>,
     os: &mut Vec<Delivery>,
 ) {
+    let (after, now, catch_up) = interval;
     for timer in timers {
         let Some(target) = focus_target(timer, calendar, now) else {
             continue;
         };
         let starts = target["at"].as_i64().unwrap_or_default();
         let lead = target["leadMinutes"].as_i64().unwrap_or_default();
-        if (lead != 0 && starts < now) || !crossed(after, now, starts.saturating_sub(lead * 60_000))
-        {
+        let threshold = starts.saturating_sub(lead * 60_000);
+        let due = if catch_up {
+            starts > now && threshold > after && threshold <= now
+        } else {
+            (lead == 0 || starts >= now) && crossed(after, now, threshold)
+        };
+        if !due {
             continue;
         }
         let title = target["title"].as_str().unwrap_or("연결 일정");
-        let text = if lead == 0 {
+        let text = if catch_up {
+            format!("집중에 연결한 일정이 곧 시작돼요. {title}")
+        } else if lead == 0 {
             format!("집중에 연결한 일정이 시작돼요. {title}")
         } else {
             format!("집중에 연결한 일정이 {lead}분 뒤 시작돼요. {title}")
         };
         let (bubble, system, sound) = focus_channels(timer);
-        drafts.push(EventDraft {
-            kind: "planner-reminder".into(),
-            text: text.clone(),
-            payload: json!({"planningReminder":true,"bubbleEnabled":bubble,"targets":[target]}),
+        let grouped = catch_up && bubble && drafts.iter_mut().any(|draft| {
+            if draft.kind != "planner-reminder" || draft.payload["bubbleEnabled"] == false {
+                return false;
+            }
+            if let Some(items) = draft.payload["targets"].as_array_mut() {
+                let represented = items.iter().any(|item| {
+                    (item["kind"] == "calendar" && item["id"] == target["eventId"] && item["at"] == target["at"])
+                        || (item["kind"] == "focus-event" && item["eventId"] == target["eventId"] && item["at"] == target["at"])
+                });
+                if !represented {
+                    items.push(target.clone());
+                    draft.text.push_str(&format!("\n{text}"));
+                    if draft.payload["planningReminder"] != true {
+                        draft.payload["mixedPlanningReminder"] = json!(true);
+                    }
+                }
+                return true;
+            }
+            false
+        });
+        if !grouped {
+            drafts.push(EventDraft {
+                kind: "planner-reminder".into(),
+                text: text.clone(),
+                payload: json!({"planningReminder":true,"bubbleEnabled":bubble,"targets":[target],"calendarCatchUp":catch_up}),
+            });
+        }
+        let bubble_covered = bubble || drafts.iter().any(|draft| {
+            draft.payload["bubbleEnabled"] != false
+                && draft.payload["targets"].as_array().is_some_and(|items| {
+                    items.iter().any(|item| {
+                        (item["kind"] == "calendar" && item["id"] == target["eventId"] && item["at"] == target["at"])
+                            || (item["kind"] == "focus-event" && item["eventId"] == target["eventId"] && item["at"] == target["at"])
+                    })
+                })
         });
         if system {
+            let shared = settings(&calendar.data).is_ok_and(|settings| {
+                settings.os_enabled
+                    && i64::from(settings.lead_minutes) == lead
+                    && calendar_due.iter().any(|item| {
+                        item["kind"] == "calendar" && item["id"] == target["eventId"] && item["at"] == target["at"]
+                    })
+            });
+            if let Some(delivery) = os.iter_mut().find(|delivery| {
+                ((shared || catch_up) && delivery.instance_id == calendar.id && delivery.notification_key == "calendar")
+                    || (delivery.notification_key == "linked-event"
+                        && timers.iter().any(|other| {
+                            other.id == delivery.instance_id
+                                && focus_target(other, calendar, now).is_some_and(|other_target| {
+                                    catch_up || (other_target["eventId"] == target["eventId"]
+                                        && other_target["at"] == target["at"]
+                                        && other_target["leadMinutes"] == target["leadMinutes"])
+                                })
+                        }))
+            }) {
+                delivery.grouped = true;
+                delivery.sound_enabled |= sound;
+                if !bubble_covered {
+                    delivery.fallback_timers.push(timer.id.clone());
+                }
+                if catch_up {
+                    let same_target = (delivery.instance_id == calendar.id
+                        && calendar_due.iter().any(|item| {
+                            item["kind"] == "calendar" && item["id"] == target["eventId"] && item["at"] == target["at"]
+                        })) || delivery.destination.as_ref().is_some_and(|(_, entity, id)| {
+                            entity.as_deref() == Some("event") && id.as_deref() == target["eventId"].as_str()
+                        });
+                    if !same_target {
+                        delivery.text.push_str(&format!("\n{text}"));
+                        delivery.destination = Some(("calendar".into(), None, None));
+                    }
+                }
+                continue;
+            }
             os.push(Delivery {
                 instance_id: timer.id.clone(),
                 text,
@@ -147,6 +228,10 @@ pub(super) fn focus_due(
                 widget: true,
                 notification_key: "linked-event".into(),
                 fallback: None,
+                additional_fallbacks: vec![],
+                fallback_timers: if bubble_covered { vec![] } else { vec![timer.id.clone()] },
+                grouped: false,
+                destination: Some(("calendar".into(), Some("event".into()), target["eventId"].as_str().map(str::to_string))),
             });
         }
     }
@@ -264,6 +349,10 @@ pub(super) fn advance_preparation(
                     widget: true,
                     notification_key: envelope["id"].as_str().unwrap_or_default().into(),
                     fallback: None,
+                    additional_fallbacks: vec![],
+                    fallback_timers: vec![],
+                    grouped: false,
+                    destination: Some(("envelopes".into(), Some("envelope".into()), envelope["id"].as_str().map(str::to_string))),
                 });
             }
         }
@@ -359,32 +448,32 @@ pub(super) fn attach_focus_fallbacks(
     deliveries: &mut [Delivery],
     now: i64,
 ) -> Result<(), String> {
-    if !deliveries
-        .iter()
-        .any(|delivery| delivery.notification_key == "linked-event")
-    {
+    if !deliveries.iter().any(|delivery| !delivery.fallback_timers.is_empty()) {
         return Ok(());
     }
     let events = storage::journal(db, None, now, now.saturating_add(1))?;
-    for delivery in deliveries
-        .iter_mut()
-        .filter(|delivery| delivery.notification_key == "linked-event")
-    {
-        delivery.fallback = events
+    for delivery in deliveries.iter_mut().filter(|delivery| !delivery.fallback_timers.is_empty()) {
+        let matches = events
             .iter()
             .map(|(_, event)| event)
-            .find(|event| {
+            .filter(|event| {
                 event.event.payload["bubbleEnabled"] == false
                     && event.event.payload["targets"]
                         .as_array()
                         .is_some_and(|targets| {
                             targets.iter().any(|target| {
                                 target["kind"] == "focus-event"
-                                    && target["id"] == delivery.instance_id
+                                    && target["id"].as_str().is_some_and(|id| delivery.fallback_timers.iter().any(|timer| timer == id))
                             })
                         })
-            })
-            .cloned();
+            });
+        for event in matches {
+            if delivery.fallback.is_some() {
+                delivery.additional_fallbacks.push(event.clone());
+            } else {
+                delivery.fallback = Some(event.clone());
+            }
+        }
     }
     Ok(())
 }

@@ -504,3 +504,247 @@ fn recall_normalizes_and_limits_review_snippets() {
     let (snippet, _) = read(&db).unwrap().recall("2026-10-03").unwrap();
     assert_eq!(snippet.unwrap(), format!("{} {}", "가".repeat(40), "나".repeat(19)));
 }
+
+#[test]
+fn travel_deadline_waits_without_permission_or_speaker_and_falls_back_when_possible() {
+    let db = database();
+    runtime::initialize(&db).unwrap();
+    let alert = || travel_alerts::Alert {
+        key: "travel-cancel:booking:2026-10-21T23:59".into(),
+        text: "무료 취소 마감이에요.".into(),
+        travel_id: "trip".into(),
+        os: true,
+    };
+    let (os, spoken) = runtime::claim_travel_delivery(
+        &db, alert(), false, false, "2026-10-20", 0, 1000,
+    )
+    .unwrap();
+    assert!(os.is_none());
+    assert!(spoken.is_none());
+    let spoken: Vec<_> = spoken.into_iter().collect();
+    assert!(runtime::claim(&db, &spoken, "2026-10-20", 0, 1000, None)
+        .unwrap()
+        .is_empty());
+    let count: i64 = db
+        .query_row("SELECT count(*) FROM diary_deliveries", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(count, 0);
+
+    let (os, spoken) = runtime::claim_travel_delivery(
+        &db, alert(), false, true, "2026-10-20", 0, 1000,
+    )
+    .unwrap();
+    assert!(os.is_none());
+    let spoken: Vec<_> = spoken.into_iter().collect();
+    assert_eq!(
+        runtime::claim(&db, &spoken, "2026-10-20", 0, 1000, Some("scene")).unwrap(),
+        vec!["무료 취소 마감이에요."]
+    );
+    let (os, _) = runtime::claim_travel_delivery(
+        &db, alert(), true, true, "2026-10-20", 0, 1000,
+    )
+    .unwrap();
+    assert!(os.is_none());
+
+    runtime::release_claim(&db, &alert().key, "scene").unwrap();
+    let (os, spoken) = runtime::claim_travel_delivery(
+        &db, alert(), true, false, "2026-10-20", 0, 1000,
+    )
+    .unwrap();
+    assert!(os.is_some());
+    assert!(spoken.is_none());
+    let (again, _) = runtime::claim_travel_delivery(
+        &db, alert(), true, false, "2026-10-20", 0, 1000,
+    )
+    .unwrap();
+    assert!(again.is_none());
+}
+
+#[test]
+fn travel_delivery_failure_releases_only_its_own_claim() {
+    let db = database();
+    runtime::initialize(&db).unwrap();
+    let reminders = [runtime::Reminder {
+        key: "deadline".into(),
+        text: "마감".into(),
+    }];
+    assert_eq!(
+        runtime::claim(&db, &reminders, "2026-10-20", 0, 1000, Some("first"))
+            .unwrap()
+            .len(),
+        1
+    );
+    runtime::release_claim(&db, "deadline", "other").unwrap();
+    assert!(
+        runtime::claim(&db, &reminders, "2026-10-20", 0, 1000, Some("second"))
+            .unwrap()
+            .is_empty()
+    );
+    runtime::release_claim(&db, "deadline", "first").unwrap();
+    assert_eq!(
+        runtime::claim(&db, &reminders, "2026-10-20", 0, 1000, Some("second"))
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn failed_travel_delivery_falls_back_and_waits_without_a_speaker() {
+    let state = crate::app::tests::state();
+    let alert = || travel_alerts::Alert {
+        key: "travel-cancel:booking:2026-10-21T23:59".into(),
+        text: "무료 취소 마감이에요.".into(),
+        travel_id: "trip".into(),
+        os: true,
+    };
+    let token = {
+        let db = crate::app::lock(&state.db).unwrap();
+        runtime::initialize(&db).unwrap();
+        runtime::claim_travel_delivery(&db, alert(), true, false, "2026-10-20", 0, 1000)
+            .unwrap()
+            .0
+            .unwrap()
+            .1
+    };
+    runtime::release_failed_os_claim(&state, &alert().key, "stale-token").unwrap();
+    assert!(runtime::travel_os_permitted(&state, &alert().key, true).unwrap());
+    runtime::release_failed_os_claim(&state, &alert().key, &token).unwrap();
+    crate::app::lock(&state.widget_clocks).unwrap().clear();
+    let permitted = runtime::travel_os_permitted(&state, &alert().key, true).unwrap();
+    assert!(!permitted);
+    let db = crate::app::lock(&state.db).unwrap();
+    let (os, spoken) =
+        runtime::claim_travel_delivery(&db, alert(), permitted, false, "2026-10-20", 0, 1000)
+            .unwrap();
+    assert!(os.is_none() && spoken.is_none());
+    let (os, spoken) =
+        runtime::claim_travel_delivery(&db, alert(), permitted, true, "2026-10-20", 0, 1000)
+            .unwrap();
+    assert!(os.is_none());
+    assert_eq!(
+        runtime::claim(
+            &db,
+            &[spoken.unwrap()],
+            "2026-10-20",
+            0,
+            1000,
+            Some("scene")
+        )
+        .unwrap(),
+        vec!["무료 취소 마감이에요."]
+    );
+    let (os, spoken) =
+        runtime::claim_travel_delivery(&db, alert(), permitted, true, "2026-10-20", 0, 1000)
+            .unwrap();
+    assert!(os.is_none());
+    assert!(runtime::claim(
+        &db,
+        &[spoken.unwrap()],
+        "2026-10-20",
+        0,
+        1000,
+        Some("other")
+    )
+    .unwrap()
+    .is_empty());
+}
+
+#[test]
+fn habit_reminder_waits_for_temporary_activity_up_to_ten_minutes() {
+    use std::sync::atomic::Ordering;
+    let state = crate::app::tests::state();
+    let db = crate::app::lock(&state.db).unwrap();
+    runtime::initialize(&db).unwrap();
+    let diary = act(
+        &db,
+        "habit-create",
+        json!({"title":"물 마시기","description":"","color":"record","weekdays":[0,1,2,3,4,5,6],"weeklyGoal":7,"mode":"count","target":2,"startDate":"2026-01-01","reminderTime":"09:00"}),
+    );
+    let at = chrono::NaiveDate::from_ymd_opt(2026, 10, 15)
+        .unwrap()
+        .and_hms_opt(9, 0, 0)
+        .unwrap();
+    let mut settings = crate::store::settings(&db).unwrap();
+    settings.autonomous_enabled = true;
+    crate::store::save_settings(&db, &settings).unwrap();
+    state.last_input.store(crate::app::now(), Ordering::SeqCst);
+    assert!(runtime::defer_habits(&state, &db).unwrap());
+    let mut clocks = std::collections::BTreeMap::new();
+    let mut initial = runtime::due(&diary, at).unwrap();
+    runtime::filter_habit_reminders(&mut initial, &diary, at, 0, true, &mut clocks);
+    assert!(initial.is_empty());
+    let later = at + chrono::Duration::minutes(9);
+    let mut retry = runtime::due(&diary, later).unwrap();
+    runtime::filter_habit_reminders(&mut retry, &diary, later, 540_000, false, &mut clocks);
+    assert_eq!(retry.len(), 1);
+    assert_eq!(
+        runtime::claim(
+            &db,
+            &retry,
+            "2026-10-15",
+            diary.revision,
+            600_000,
+            Some("scene")
+        )
+        .unwrap()
+        .len(),
+        1
+    );
+    let mut after_restart = runtime::due(&diary, later).unwrap();
+    runtime::filter_habit_reminders(
+        &mut after_restart,
+        &diary,
+        later,
+        540_000,
+        false,
+        &mut std::collections::BTreeMap::new(),
+    );
+    assert!(after_restart.is_empty());
+    assert!(runtime::due(
+        &diary,
+        at + chrono::Duration::minutes(10) + chrono::Duration::seconds(1)
+    )
+    .unwrap()
+    .is_empty());
+    crate::app::lock(&state.runtime).unwrap().hidden = true;
+    assert!(!runtime::defer_habits(&state, &db).unwrap());
+}
+
+#[test]
+fn cancelled_travel_fallback_releases_only_its_unshown_claim() {
+    let state = crate::app::tests::state();
+    let db = crate::app::lock(&state.db).unwrap();
+    let reminders = [
+        runtime::Reminder {
+            key: "travel-cancel:booking:deadline".into(),
+            text: "마감".into(),
+        },
+        runtime::Reminder {
+            key: "habit-reminder:habit:2026-10-20".into(),
+            text: "습관".into(),
+        },
+    ];
+    runtime::claim(
+        &db,
+        &reminders,
+        "2026-10-20",
+        0,
+        1000,
+        Some("scene:cancelled:0"),
+    )
+    .unwrap();
+    runtime::release_unshown_travel(&db, "scene:cancelled:0").unwrap();
+    let again = runtime::claim(
+        &db,
+        &reminders,
+        "2026-10-20",
+        0,
+        1000,
+        Some("scene:retry:0"),
+    )
+    .unwrap();
+    assert_eq!(again, vec!["마감"]);
+}

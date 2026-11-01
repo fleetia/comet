@@ -71,6 +71,8 @@ pub(crate) fn state() -> AppState {
         widget_jobs: Mutex::new(HashMap::new()),
         widget_open_intents: Mutex::new(HashMap::new()),
         widget_clocks: Mutex::new(std::collections::BTreeMap::new()),
+        failed_travel_notifications: Mutex::new(std::collections::BTreeMap::new()),
+        calendar_reminder_clocks: Mutex::new(std::collections::BTreeMap::new()),
         app_usage_tracker: Mutex::new(crate::app_usage::tracking::Tracker::default()),
         last_input: AtomicI64::new(0),
         last_foreground: AtomicI64::new(0),

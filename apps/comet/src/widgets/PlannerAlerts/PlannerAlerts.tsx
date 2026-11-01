@@ -1,5 +1,4 @@
 import { Button, Checkbox, FormField, TextInput } from "@comet/ui";
-import { listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { canOpenNotificationSettings, notificationSettingsText, openSystemSettings } from "../../systemSettings";
@@ -8,35 +7,6 @@ import type { WidgetView } from "../types";
 import * as c from "../../common.css";
 import * as s from "../tools.css";
 import * as a from "./plannerAlerts.css";
-
-function useNotificationError(): string | null {
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!isDesktop()) {
-      return;
-    }
-    let active = true;
-    let cleanup: (() => void) | undefined;
-    void listen<string>("planner-notification-error", (event) => {
-      if (active) {
-        setError(event.payload);
-      }
-    })
-      .then((stop) => {
-        if (active) {
-          cleanup = stop;
-        } else {
-          stop();
-        }
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-      cleanup?.();
-    };
-  }, []);
-  return error;
-}
 
 function savedSettings(data: DataRecord): DataRecord {
   return {
@@ -69,12 +39,12 @@ export function PlannerAlerts({
   const values = draft ?? savedValues;
   const dirty = JSON.stringify(values) !== JSON.stringify(savedValues);
   const [saved, setSaved] = useState(false);
+  const [savedOsEnabled, setSavedOsEnabled] = useState(false);
   const [permission, setPermission] = useState("unknown");
   const [permissionBusy, setPermissionBusy] = useState(false);
   const permissionRequest = useRef(0);
   const permissionPending = useRef(false);
   const [error, setError] = useState<string | null>(null);
-  const deliveryError = useNotificationError();
   const [notice, setNotice] = useState("");
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -144,6 +114,7 @@ export function PlannerAlerts({
         onSubmit={async (event) => {
           event.preventDefault();
           if (await act("configure-alerts", values)) {
+            setSavedOsEnabled(values.osEnabled === true);
             setDraft(null);
             setSaved(true);
           }
@@ -163,7 +134,13 @@ export function PlannerAlerts({
             />
             <Checkbox
               checked={values.osEnabled === true}
-              onChange={(event) => change({ osEnabled: event.target.checked })}
+              onChange={(event) => {
+                const enabled = event.target.checked;
+                change({ osEnabled: enabled });
+                if (enabled) {
+                  void notification("permission");
+                }
+              }}
               label="OS 알림"
             />
             <Checkbox
@@ -303,14 +280,49 @@ export function PlannerAlerts({
           </Button>
         </div>
         {saved && <p role="status">알림 설정을 저장했어요.</p>}
+        {saved && savedOsEnabled && permission === "denied" && (
+          <p role="alert" className={c.error}>OS 알림 권한이 꺼져 있어 알림이 표시되지 않을 수 있어요.</p>
+        )}
         {notice && <p role="status">{notice}</p>}
-        {(error || deliveryError) && (
+        <DeliveryError error={text(record(data.alertState).lastDeliveryError)} act={act} />
+        {error && (
           <p role="alert" className={c.error}>
-            {error || deliveryError}
+            {error}
           </p>
         )}
       </form>
     </section>
+  );
+}
+
+function DeliveryError({
+  error,
+  act,
+  widget,
+}: {
+  error: string;
+  act: ToolAction;
+  widget?: WidgetView;
+}): ReactElement | null {
+  const [settingsError, setSettingsError] = useState("");
+  if (!error) {
+    return null;
+  }
+  return (
+    <>
+      <p role="alert" className={c.error}>{error}</p>
+      <div className={s.row}>
+        <Button type="button" variant="ghost" onClick={() => void act("clear-notification-error", {}, widget)}>
+          알림 오류 닫기
+        </Button>
+        {isDesktop() && canOpenNotificationSettings() && (
+          <Button type="button" variant="ghost" onClick={() => void openSystemSettings("notifications").catch((cause: unknown) => setSettingsError(errorText(cause)))}>
+            시스템 설정 열기
+          </Button>
+        )}
+      </div>
+      {settingsError && <p role="alert" className={c.error}>{settingsError}</p>}
+    </>
   );
 }
 
@@ -322,7 +334,7 @@ export function PlannerAlertNotice({
   act: ToolAction;
 }): ReactElement | null {
   const state = record(record(widget.data).alertState);
-  const deliveryError = useNotificationError();
+  const deliveryError = text(state.lastDeliveryError);
   const last = record(state.lastNotification);
   const [dismissed, setDismissed] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -336,36 +348,25 @@ export function PlannerAlertNotice({
   if (!recent && !deliveryError) {
     return null;
   }
-  if (!recent) {
-    return (
-      <aside className={a.notice} aria-label="생활 알림">
-        <p role="alert" className={c.error}>
-          {deliveryError}
-        </p>
-      </aside>
-    );
-  }
   return (
     <aside className={a.notice} aria-label="생활 알림">
-      {deliveryError && (
-        <p role="alert" className={c.error}>
-          {deliveryError}
-        </p>
-      )}
-      <p>{text(last.text)}</p>
-      <div className={s.row}>
-        <Button
-          variant="ghost"
-          disabled={snoozed}
-          onClick={() => void act("snooze-alert", {}, widget)}
-        >
-          {snoozed ? "다시 알림 예약됨" : "10분 뒤 다시 알림"}
-        </Button>
-        <Button variant="ghost" onClick={() => setDismissed(observed)}>
-          이 알림 닫기
-        </Button>
-        {snoozed && <span className={c.quiet}>기한은 그대로 유지됩니다.</span>}
-      </div>
+      <DeliveryError error={deliveryError} act={act} widget={widget} />
+      {recent && <>
+        <p>{text(last.text)}</p>
+        <div className={s.row}>
+          <Button
+            variant="ghost"
+            disabled={snoozed}
+            onClick={() => void act("snooze-alert", {}, widget)}
+          >
+            {snoozed ? "다시 알림 예약됨" : "10분 뒤 다시 알림"}
+          </Button>
+          <Button variant="ghost" onClick={() => setDismissed(observed)}>
+            이 알림 닫기
+          </Button>
+          {snoozed && <span className={c.quiet}>기한은 그대로 유지됩니다.</span>}
+        </div>
+      </>}
     </aside>
   );
 }

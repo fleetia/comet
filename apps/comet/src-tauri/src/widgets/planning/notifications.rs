@@ -1,5 +1,14 @@
-use std::sync::{atomic::Ordering, Arc};
-use tauri::{Emitter, Manager};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
+
+static DELIVERY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn next_delivery() -> u64 {
+    DELIVERY_SEQUENCE.fetch_add(1, Ordering::SeqCst) + 1
+}
+use tauri::Manager;
 
 #[cfg(test)]
 mod tests;
@@ -8,7 +17,9 @@ mod tests;
 pub(crate) async fn get_planner_notification_permission(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    native::permission(&app, false).await
+    let permission = native::permission(&app, false).await?;
+    save_permission(&app, &permission);
+    Ok(permission)
 }
 
 #[tauri::command]
@@ -16,7 +27,9 @@ pub(crate) async fn request_planner_notification_permission(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     // Only explicit user actions request permission, never an automatic event.
-    native::permission(&app, true).await
+    let permission = native::permission(&app, true).await?;
+    save_permission(&app, &permission);
+    Ok(permission)
 }
 
 #[tauri::command]
@@ -25,7 +38,8 @@ pub(crate) async fn preview_planner_notification(app: tauri::AppHandle) -> Resul
     if permission != "granted" && permission != "system" {
         return Err("OS 알림 권한을 먼저 허용해 주세요.".into());
     }
-    native::show(
+    let sequence = next_delivery();
+    let result = native::show(
         &app,
         "preview",
         0,
@@ -33,21 +47,174 @@ pub(crate) async fn preview_planner_notification(app: tauri::AppHandle) -> Resul
         false,
         false,
         "preview",
-    )
+    );
+    let result = wait_for_delivery(result).await;
+    save_delivery_result(&app, sequence, result.as_ref().err().cloned());
+    result
 }
 
-/// An immediate notification without actions, for reminders that must arrive even in quiet hours.
-pub(crate) fn show_plain(app: &tauri::AppHandle, text: &str) -> Result<(), String> {
+async fn wait_for_delivery(
+    result: Result<tokio::sync::oneshot::Receiver<Result<(), String>>, String>,
+) -> Result<(), String> {
+    let receive = result?;
+    tokio::time::timeout(std::time::Duration::from_secs(10), receive)
+        .await
+        .map_err(|_| "OS 알림 확인 시간이 지났어요.".to_string())?
+        .map_err(|_| "OS 알림 확인이 중단됐어요.".to_string())?
+}
+
+async fn wait_for_travel_delivery(
+    result: Result<tokio::sync::oneshot::Receiver<Result<(), String>>, String>,
+    timeout: std::time::Duration,
+    on_timeout: impl FnOnce(),
+) -> Result<(), String> {
+    let mut receive = result?;
+    match tokio::time::timeout(timeout, &mut receive).await {
+        Ok(result) => result.map_err(|_| "OS 알림 확인이 중단됐어요.".to_string())?,
+        Err(_) => {
+            on_timeout();
+            receive
+                .await
+                .map_err(|_| "OS 알림 확인이 중단됐어요.".to_string())?
+        }
+    }
+}
+
+pub(crate) async fn permission(app: &tauri::AppHandle) -> Result<String, String> {
+    let permission = native::permission(app, false).await?;
+    save_permission(app, &permission);
+    Ok(permission)
+}
+
+pub(crate) async fn show_plain(
+    app: &tauri::AppHandle,
+    text: &str,
+    travel_id: &str,
+    sound: bool,
+) -> Result<(), String> {
+    let sequence = next_delivery();
     // A unique identifier keeps macOS from replacing an earlier undismissed reminder.
     let id = format!("travel-{}", uuid::Uuid::new_v4());
-    native::show(app, &id, 0, text, true, false, "travel")
+    let key = encode_destination(Some(&("travel".into(), None, Some(travel_id.into()))));
+    let result = wait_for_travel_delivery(
+        native::show(app, &id, 0, text, sound, false, &key),
+        std::time::Duration::from_secs(10),
+        || save_delivery_result(app, sequence, Some("OS 알림 확인 시간이 지났어요.".into())),
+    )
+    .await;
+    save_delivery_result(app, sequence, result.as_ref().err().cloned());
+    result
 }
 
-pub(crate) fn show_external(app: &tauri::AppHandle, text: &str) {
+pub(crate) fn show_external(app: &tauri::AppHandle, text: &str, sound: bool) {
+    let sequence = next_delivery();
     let id = format!("external-{}", uuid::Uuid::new_v4());
-    if let Err(error) = native::show(app, &id, 0, text, true, false, "external") {
-        let _ = app.emit("planner-notification-error", error);
+    let result = native::show(app, &id, 0, text, sound, false, "external");
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let result = wait_for_delivery(result).await;
+        save_delivery_result(&app, sequence, result.err());
+    });
+}
+
+fn save_permission(app: &tauri::AppHandle, permission: &str) {
+    let Some(state) = app.try_state::<Arc<crate::AppState>>() else {
+        return;
+    };
+    let result = crate::widgets::commands::change(&state, |db| {
+        save_permission_in_db(db, permission, &DELIVERY_SEQUENCE)
+    });
+    if result == Ok(true) {
+        crate::widgets::commands::publish_widgets(app, &state);
     }
+}
+
+fn save_permission_in_db(
+    db: &rusqlite::Connection,
+    permission: &str,
+    sequence: &AtomicU64,
+) -> Result<bool, String> {
+    let calendar = crate::widgets::storage::instances(db)?
+        .into_iter()
+        .find(|instance| instance.kind == "calendar");
+    if let Some(calendar) = calendar {
+        let previous = calendar.data["alertState"]["permission"].as_str();
+        if previous == Some(permission) {
+            return Ok(false);
+        }
+        let recovered = matches!(permission, "granted" | "system")
+            && previous.is_some_and(|value| matches!(value, "denied" | "prompt"));
+        let mut data = calendar.data;
+        data["alertState"]["permission"] = serde_json::json!(permission);
+        if recovered {
+            sequence.fetch_add(1, Ordering::SeqCst);
+            data["alertState"]["lastDeliveryError"] = serde_json::Value::Null;
+        }
+        db.execute(
+            "UPDATE widget_instances SET data=?1 WHERE id=?2",
+            rusqlite::params![data.to_string(), calendar.id],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    Ok(true)
+}
+
+fn save_delivery_error(app: &tauri::AppHandle, error: Option<String>) {
+    save_delivery_result(app, next_delivery(), error);
+}
+
+fn save_delivery_result(app: &tauri::AppHandle, sequence: u64, error: Option<String>) {
+    let Some(state) = app.try_state::<Arc<crate::AppState>>() else {
+        return;
+    };
+    let result = crate::widgets::commands::change(&state, |db| {
+        save_delivery_result_in_db(db, &DELIVERY_SEQUENCE, sequence, error.as_deref())
+    });
+    if result != Ok(true) {
+        return;
+    }
+    crate::widgets::commands::publish_widgets(app, &state);
+}
+
+fn save_delivery_result_in_db(
+    db: &rusqlite::Connection,
+    latest: &AtomicU64,
+    sequence: u64,
+    error: Option<&str>,
+) -> Result<bool, String> {
+    if latest.load(Ordering::SeqCst) != sequence {
+        return Ok(false);
+    }
+    let value = serde_json::to_string(&error).map_err(|error| error.to_string())?;
+    db.execute(
+        "UPDATE widget_instances SET data=json_set(data,'$.alertState.lastDeliveryError',json(?1)) WHERE kind='calendar'",
+        [&value],
+    ).map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+fn encode_destination(destination: Option<&(String, Option<String>, Option<String>)>) -> String {
+    destination
+        .and_then(|value| serde_json::to_vec(value).ok())
+        .map(|bytes| bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+        .unwrap_or_default()
+}
+
+#[cfg(any(test, target_os = "macos"))]
+fn decode_destination(value: &str) -> Option<(String, Option<String>, Option<String>)> {
+    if !value.as_bytes().chunks_exact(2).remainder().is_empty() {
+        return None;
+    }
+    let bytes = value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            std::str::from_utf8(pair)
+                .ok()
+                .and_then(|part| u8::from_str_radix(part, 16).ok())
+        })
+        .collect::<Option<Vec<_>>>()?;
+    serde_json::from_slice(&bytes).ok()
 }
 
 #[cfg(any(test, target_os = "macos"))]
@@ -65,37 +232,65 @@ pub(crate) fn deliver(
     observed_at: i64,
     epoch: u64,
 ) {
-    if delivery.fallback.is_none() {
-        if let Err(error) = show_delivery(app, &delivery, observed_at) {
-            let _ = app.emit("planner-notification-error", error);
-        }
-        return;
-    }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let permission = native::permission(&app, false).await;
-        let Some(state) = app.try_state::<Arc<crate::AppState>>() else {
-            return;
+        let permitted = permission(&app)
+            .await
+            .as_deref()
+            .is_ok_and(|value| matches!(value, "granted" | "system"));
+        let start_delivery = || {
+            let sequence = next_delivery();
+            let result = if permitted {
+                show_delivery(&app, &delivery, observed_at)
+            } else {
+                Err("OS 알림 권한을 먼저 허용해 주세요.".into())
+            };
+            (sequence, result)
         };
-        let Some(event) = delivery.fallback.as_ref() else {
-            return;
+        let (sequence, result) = if let Some(event) = delivery.fallback.as_ref() {
+            let Some(state) = app.try_state::<Arc<crate::AppState>>() else {
+                return;
+            };
+            let current = crate::widgets::commands::change(&state, |db| {
+                let event_current = delivery.grouped || delivery_event_current(db, event)?;
+                if !delivery_current(epoch, state.epoch.load(Ordering::SeqCst), event_current) {
+                    return Ok(None);
+                }
+                Ok(Some(start_delivery()))
+            });
+            let Ok(Some(current)) = current else {
+                return;
+            };
+            current
+        } else {
+            start_delivery()
         };
-        let result = crate::widgets::commands::change(&state, |db| {
-            if state.epoch.load(Ordering::SeqCst) != epoch || !delivery_event_current(db, event)? {
-                return Ok(());
-            }
-            if permission
-                .as_deref()
-                .is_ok_and(|value| matches!(value, "granted" | "system"))
-                && show_delivery(&app, &delivery, observed_at).is_ok()
-            {
-                return Ok(());
-            }
-            restore_fallback(&state, db, event, epoch).map(|_| ())
-        });
-        if let Err(error) = result {
-            let _ = app.emit("planner-notification-error", error);
+        let result = wait_for_delivery(result).await;
+        if let Some(state) = app.try_state::<Arc<crate::AppState>>() {
+            restore_failed_delivery(&state, &delivery, epoch, &result);
         }
+        save_delivery_result(&app, sequence, result.err());
+    });
+}
+
+fn delivery_current(epoch: u64, current_epoch: u64, event_current: bool) -> bool {
+    epoch == current_epoch && event_current
+}
+
+fn restore_failed_delivery(
+    state: &crate::AppState,
+    delivery: &crate::widgets::reminders::Delivery,
+    epoch: u64,
+    result: &Result<(), String>,
+) {
+    if result.is_ok() {
+        return;
+    }
+    let _ = crate::widgets::commands::change(state, |db| {
+        for event in delivery.fallback.iter().chain(&delivery.additional_fallbacks) {
+            let _ = restore_fallback(state, db, event, epoch);
+        }
+        Ok(())
     });
 }
 
@@ -107,7 +302,7 @@ pub(crate) fn deliver_automatic_widget(
     if !automatic_delivery_current(db, event)? {
         return Ok(());
     }
-    native::show(
+    let receive = native::show(
         app,
         &event.instance_id,
         event.created_at,
@@ -115,7 +310,14 @@ pub(crate) fn deliver_automatic_widget(
         false,
         true,
         &event.id,
-    )
+    )?;
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Ok(Err(error)) = receive.await {
+            save_delivery_error(&app, Some(error));
+        }
+    });
+    Ok(())
 }
 
 fn automatic_delivery_current(
@@ -132,7 +334,7 @@ fn show_delivery(
     app: &tauri::AppHandle,
     delivery: &crate::widgets::reminders::Delivery,
     observed_at: i64,
-) -> Result<(), String> {
+) -> Result<tokio::sync::oneshot::Receiver<Result<(), String>>, String> {
     native::show(
         app,
         &delivery.instance_id,
@@ -140,7 +342,11 @@ fn show_delivery(
         &delivery.text,
         delivery.sound_enabled,
         delivery.widget,
-        &delivery.notification_key,
+        &format!(
+            "{}~{}",
+            delivery.notification_key,
+            encode_destination(delivery.destination.as_ref())
+        ),
     )
 }
 
@@ -204,7 +410,7 @@ mod native {
         sync::{Arc, Mutex},
         time::Duration,
     };
-    use tauri::{Emitter, Manager};
+    use tauri::Manager;
 
     define_class!(
         #[unsafe(super = NSObject)]
@@ -314,6 +520,38 @@ mod native {
         if super::is_external_notification(identifier) {
             return;
         }
+        let open_action = matches!(
+            action,
+            "planner-open" | "widget-open" | "com.apple.UNNotificationDefaultActionIdentifier"
+        );
+        if open_action {
+            let key = identifier.rsplit(':').next().unwrap_or_default();
+            let encoded = key.split_once('~').map_or(key, |(_, value)| value);
+            if let Some((tab, entity, id)) = super::decode_destination(encoded) {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let result = if tab == "travel" {
+                        crate::widgets::planning::windows::open_playback_travel(&app, id)
+                    } else if let Some(state) = app.try_state::<Arc<crate::AppState>>() {
+                        crate::widgets::commands::change(&state, |db| {
+                            crate::widgets::planning::windows::open_playback_target(
+                                &app,
+                                db,
+                                &tab,
+                                entity.as_deref(),
+                                id.as_deref(),
+                            )
+                        })
+                    } else {
+                        return;
+                    };
+                    if let Err(error) = result {
+                        super::save_delivery_error(&app, Some(error));
+                    }
+                });
+                return;
+            }
+        }
         if identifier.starts_with("widget:") {
             if action != "widget-open"
                 && action != "com.apple.UNNotificationDefaultActionIdentifier"
@@ -338,15 +576,18 @@ mod native {
                 if let Err(error) =
                     crate::widgets::commands::open_widget(app.clone(), state, id).await
                 {
-                    let _ = app.emit("planner-notification-error", error);
+                    super::save_delivery_error(&app, Some(error));
                 }
             });
             return;
         }
         if action == "planner-snooze" {
-            let Some((instance_id, observed_at)) = identifier
-                .strip_prefix("planner:")
-                .and_then(|value| value.rsplit_once(':'))
+            let Some((instance_id, observed_at)) =
+                identifier.strip_prefix("planner:").and_then(|value| {
+                    let (instance_id, rest) = value.split_once(':')?;
+                    let observed_at = rest.split(':').next()?;
+                    Some((instance_id, observed_at))
+                })
             else {
                 return;
             };
@@ -381,7 +622,7 @@ mod native {
                 )
             });
             if let Err(error) = result {
-                let _ = app.emit("planner-notification-error", error);
+                super::save_delivery_error(app, Some(error));
             }
             let _ = crate::widgets::commands::cancel_widget_scene(app, &state);
             crate::widgets::commands::publish_widgets(app, &state);
@@ -458,14 +699,14 @@ mod native {
     }
 
     pub fn show(
-        app: &tauri::AppHandle,
+        _app: &tauri::AppHandle,
         instance_id: &str,
         observed_at: i64,
         text: &str,
         sound_enabled: bool,
         widget: bool,
         notification_key: &str,
-    ) -> Result<(), String> {
+    ) -> Result<tokio::sync::oneshot::Receiver<Result<(), String>>, String> {
         if !bundled_app() {
             return Err("OS 알림은 빌드된 Comet 앱에서 사용할 수 있어요.".into());
         }
@@ -486,26 +727,31 @@ mod native {
         let identifier = if widget {
             format!("widget:{instance_id}:{observed_at}:{notification_key}")
         } else {
-            format!("planner:{instance_id}:{observed_at}")
+            format!("planner:{instance_id}:{observed_at}:{notification_key}")
         };
         let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
             &NSString::from_str(&identifier),
             &content,
             None,
         );
-        let app = app.clone();
+        let (send, receive) = tokio::sync::oneshot::channel();
+        let send = Mutex::new(Some(send));
         let callback = RcBlock::new(move |error: *mut NSError| {
-            if !error.is_null() {
-                let _ = app.emit(
-                    "planner-notification-error",
-                    "OS 알림을 표시하지 못했어요. 시스템 알림 설정을 확인해 주세요.",
-                );
+            let result = if error.is_null() {
+                Ok(())
+            } else {
+                Err("OS 알림을 표시하지 못했어요. 시스템 알림 설정을 확인해 주세요.".into())
+            };
+            if let Ok(mut sender) = send.lock() {
+                if let Some(sender) = sender.take() {
+                    let _ = sender.send(result);
+                }
             }
         });
         // A nil trigger means immediate delivery; no future OS queue survives restart.
         UNUserNotificationCenter::currentNotificationCenter()
             .addNotificationRequest_withCompletionHandler(&request, Some(&callback));
-        Ok(())
+        Ok(receive)
     }
 }
 
@@ -527,7 +773,7 @@ mod native {
         sound_enabled: bool,
         _: bool,
         _: &str,
-    ) -> Result<(), String> {
+    ) -> Result<tokio::sync::oneshot::Receiver<Result<(), String>>, String> {
         let mut notification = app
             .notification()
             .builder()
@@ -540,8 +786,11 @@ mod native {
                 "message-new-instant"
             });
         }
-        notification
+        let (send, receive) = tokio::sync::oneshot::channel();
+        let result = notification
             .show()
-            .map_err(|_| "OS 알림을 표시하지 못했어요. 시스템 알림 설정을 확인해 주세요.".into())
+            .map_err(|_| "OS 알림을 표시하지 못했어요. 시스템 알림 설정을 확인해 주세요.".into());
+        let _ = send.send(result);
+        Ok(receive)
     }
 }
