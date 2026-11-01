@@ -177,7 +177,7 @@ pub fn initial(kind: &str) -> Result<Value, String> {
         "todo" | "focus-timer" | "preparation" | "clock" | "memo" => planning::initial(kind),
         "completion-jar" => json!({"completed": []}),
         "external-notice" => {
-            json!({"enabled": true, "osNotifications": false, "prefix": "바깥에서 소식:"})
+            json!({"enabled": true, "osNotifications": false, "soundEnabled": false, "prefix": "바깥에서 소식:"})
         }
         "image" => json!({"images": []}),
         // Trips live in the diary; the widget only marks where the trip line sits.
@@ -246,7 +246,7 @@ pub fn act(
         "calendar"
             if matches!(
                 request.action.as_str(),
-                "configure-alerts" | "snooze-alert" | "preview-alert"
+                "configure-alerts" | "snooze-alert" | "preview-alert" | "clear-notification-error"
             ) =>
         {
             reminders::act(&instance.data, &request.action, &request.input, now)

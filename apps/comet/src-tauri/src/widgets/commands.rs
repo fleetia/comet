@@ -535,6 +535,7 @@ pub(crate) async fn execute_widget(
         }
         if request.action == "configure-alerts" {
             lock(&state.widget_clocks)?.remove(&request.instance_id);
+            lock(&state.calendar_reminder_clocks)?.remove(&request.instance_id);
         }
         crate::characters::life::note_mood_input(&state)?;
         Ok((created_id, interaction_accepted))
@@ -1571,6 +1572,7 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
             let alerted = widgets::reminders::advance_with_presence(
                 db,
                 &mut *lock(&state.widget_clocks)?,
+                &mut *lock(&state.calendar_reminder_clocks)?,
                 timestamp,
                 quiet,
                 &present,

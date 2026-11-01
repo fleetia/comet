@@ -205,7 +205,9 @@ pub(crate) fn configure(data: &Value, input: &Value) -> Result<widgets::WidgetEf
         .ok_or("바깥 알림 설정이 올바르지 않아요.")?
     {
         match key.as_str() {
-            "enabled" | "osNotifications" if value.is_boolean() => data[key] = value.clone(),
+            "enabled" | "osNotifications" | "soundEnabled" if value.is_boolean() => {
+                data[key] = value.clone()
+            }
             "prefix" => {
                 let prefix = value.as_str().ok_or("접두 문구가 올바르지 않아요.")?;
                 if prefix.chars().count() > 200 || prefix.chars().any(char::is_control) {
@@ -240,6 +242,10 @@ fn prepare_notice(notice: &Notice, data: &Value, now: i64) -> (widgets::EventDra
         payload: json!({"title": notice.title, "text": notice.text, "result": notice.result, "urgent": notice.urgent, "source": notice.source, "receivedAt": now}),
     };
     (draft, data["osNotifications"] == true)
+}
+
+fn notice_sound(data: &Value, quiet: bool) -> bool {
+    data["soundEnabled"] == true && !quiet
 }
 
 pub(crate) fn receive_url(app: &tauri::AppHandle, url: &tauri::Url) {
@@ -291,7 +297,7 @@ fn receive(
     runtime: &Runtime,
     notice: Notice,
 ) -> Result<(), String> {
-    let (os, text) = widgets::commands::change(state, |db| {
+    let (os, sound, text) = widgets::commands::change(state, |db| {
         let instance = widgets::storage::instances(db)?
             .into_iter()
             .find(|item| item.kind == "external-notice")
@@ -327,10 +333,14 @@ fn receive(
         } else if app::quiet_hours::active(&store::settings(db)?) && !notice.urgent {
             widgets::storage::discard_pending_during_quiet(db)?;
         }
-        Ok((os, text))
+        let sound = notice_sound(
+            &instance.data,
+            app::quiet_hours::active(&store::settings(db)?),
+        );
+        Ok((os, sound, text))
     })?;
     if os {
-        widgets::planning::notifications::show_external(app, &text);
+        widgets::planning::notifications::show_external(app, &text, sound);
     }
     widgets::commands::publish_widgets(app, state);
     Ok(())
@@ -339,6 +349,14 @@ fn receive(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn os_sound_is_opt_in_and_quiet_hours_silence_it() {
+        assert!(!notice_sound(&json!({}), false));
+        assert!(!notice_sound(&json!({"soundEnabled": false}), false));
+        assert!(notice_sound(&json!({"soundEnabled": true}), false));
+        assert!(!notice_sound(&json!({"soundEnabled": true}), true));
+    }
 
     #[test]
     fn startup_notices_are_bounded_and_drained_in_order_before_live_delivery() {

@@ -7,6 +7,7 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 pub(crate) struct Alert {
     pub(crate) key: String,
     pub(crate) text: String,
+    pub(crate) travel_id: String,
     /// Free-cancellation deadlines go to the OS even in quiet hours; the rest wait for a speaker.
     pub(crate) os: bool,
 }
@@ -60,6 +61,7 @@ pub(crate) fn due(state: &DiaryState, now: DateTime<Utc>) -> Vec<Alert> {
                             booking.title,
                             label(day, Some(time))
                         ),
+                        travel_id: travel.id.clone(),
                         os: true,
                     });
                 }
@@ -71,6 +73,7 @@ pub(crate) fn due(state: &DiaryState, now: DateTime<Utc>) -> Vec<Alert> {
                     alerts.push(Alert {
                         key: format!("travel-unpaid:{}", booking.id),
                         text: format!("‘{}’ 결제가 아직 남았어요.", booking.title),
+                        travel_id: travel.id.clone(),
                         os: false,
                     });
                 }
@@ -100,6 +103,7 @@ pub(crate) fn due(state: &DiaryState, now: DateTime<Utc>) -> Vec<Alert> {
                     alerts.push(Alert {
                         key: format!("travel-start:{}:{}T{time}", booking.id, booking.start_date),
                         text: format!("{time}에 ‘{}’ {what}이에요{place}.", booking.title),
+                        travel_id: travel.id.clone(),
                         os: false,
                     });
                 }
@@ -120,6 +124,7 @@ pub(crate) fn due(state: &DiaryState, now: DateTime<Utc>) -> Vec<Alert> {
                 alerts.push(Alert {
                     key: format!("travel-start:{}:{}T{time}", plan.id, plan.date),
                     text: format!("{time}에 ‘{}’ 출발이에요.", plan.title),
+                    travel_id: travel.id.clone(),
                     os: false,
                 });
             }
@@ -133,6 +138,7 @@ pub(crate) fn due(state: &DiaryState, now: DateTime<Utc>) -> Vec<Alert> {
             alerts.push(Alert {
                 key: format!("travel-photos:{}", travel.id),
                 text: format!("‘{}’ 사진을 모아 정리해 볼까요?", travel.title),
+                travel_id: travel.id.clone(),
                 os: false,
             });
         }

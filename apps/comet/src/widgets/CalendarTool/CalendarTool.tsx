@@ -518,7 +518,7 @@ export function CalendarTool({
                     <h3 className={settings.heading}>일정과 생활 알림</h3>
                     {!connectionOpen && (
                       <PlannerAlerts
-                        data={record(d.reminders)}
+                        data={{ ...record(d.reminders), alertState: d.alertState }}
                         act={act}
                         onDirtyChange={setAlertsDirty}
                       />

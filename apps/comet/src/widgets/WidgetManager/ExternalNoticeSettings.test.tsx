@@ -46,3 +46,13 @@ it("leaves delivery disabled when permission is denied", async () => {
   expect((screen.getByLabelText("OS 알림 병행") as HTMLInputElement).disabled).toBe(true);
   expect(act).not.toHaveBeenCalled();
 });
+
+it("keeps external notification sound off by default and saves the choice", async () => {
+  vi.mocked(command).mockResolvedValue("granted");
+  const act = vi.fn<ToolAction>().mockResolvedValue(true);
+  render(<ExternalNoticeSettings widget={widget} act={act} onDirtyChange={vi.fn()} onBusyChange={vi.fn()} />);
+  const sound = screen.getByLabelText("바깥 알림 소리") as HTMLInputElement;
+  expect(sound.checked).toBe(false);
+  fireEvent.click(sound);
+  await waitFor(() => expect(act).toHaveBeenCalledWith("configure", { soundEnabled: true }));
+});

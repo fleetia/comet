@@ -1,6 +1,7 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Button, Dialog, FormField, Select, TextInput, Textarea } from "@comet/ui";
-import { command, errorText } from "../../hooks/useSnapshot";
+import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
+import { canOpenNotificationSettings, notificationSettingsText, openSystemSettings } from "../../systemSettings";
 import type { DataRecord } from "../toolData";
 import type { DiaryLedgerCategory } from "../Planner/diaryLedgerTypes";
 import { ZONES } from "./TravelEditor";
@@ -94,6 +95,48 @@ export function TravelBookingEditor({
   const [attaching, setAttaching] = useState(false);
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [permission, setPermission] = useState("unknown");
+  const [permissionBusy, setPermissionBusy] = useState(false);
+  const permissionRequest = useRef(0);
+  const permissionPending = useRef(false);
+  useEffect(() => {
+    if (!isDesktop()) return;
+    let active = true;
+    function refresh(): void {
+      if (permissionPending.current) return;
+      const request = ++permissionRequest.current;
+      void command<string>("get_planner_notification_permission")
+        .then((value) => {
+          if (active && request === permissionRequest.current) setPermission(value);
+        })
+        .catch(() => {
+          if (active && request === permissionRequest.current) setPermission("unknown");
+        });
+    }
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => {
+      active = false;
+      permissionRequest.current += 1;
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
+
+  async function requestPermission(): Promise<void> {
+    if (permissionPending.current) return;
+    permissionPending.current = true;
+    setPermissionBusy(true);
+    const request = ++permissionRequest.current;
+    try {
+      const value = await command<string>("request_planner_notification_permission");
+      if (request === permissionRequest.current) setPermission(value);
+    } catch (cause: unknown) {
+      if (request === permissionRequest.current) setError(errorText(cause));
+    } finally {
+      permissionPending.current = false;
+      if (request === permissionRequest.current) setPermissionBusy(false);
+    }
+  }
   const moving = ["flight", "train", "bus", "car"].includes(kind);
   const caption = booking ? "예약 고치기" : draft ? "확인서로 만든 예약 초안" : "예약 더하기";
   const zones = [["", "여행 시간대"], ...ZONES.filter(([zone]) => zone !== travel.timeZone)];
@@ -376,22 +419,42 @@ export function TravelBookingEditor({
                 ))}
               </Select>
             </FormField>
-            <FormField label="무료 취소 마감" description="하루 전 저녁에 한 번 알려 드려요.">
-              <div className={s.inline}>
-                <TextInput
-                  type="date"
-                  aria-label="무료 취소 마감 날짜"
-                  value={cancelDate}
-                  disabled={busy}
-                  onChange={(event) => setCancelDate(event.target.value)}
-                />
-                <TextInput
-                  type="time"
-                  aria-label="무료 취소 마감 시각"
-                  value={cancelTime}
-                  disabled={busy}
-                  onChange={(event) => setCancelTime(event.target.value)}
-                />
+            <FormField label="무료 취소 마감" description={permission === "granted" || permission === "system" ? "하루 전 저녁에 한 번 알려 드려요." : "OS 알림을 허용하지 않으면 가능한 때 말풍선으로 알려 드려요."}>
+              <div>
+                <div className={s.inline}>
+                  <TextInput
+                    type="date"
+                    aria-label="무료 취소 마감 날짜"
+                    value={cancelDate}
+                    disabled={busy}
+                    onChange={(event) => setCancelDate(event.target.value)}
+                  />
+                  <TextInput
+                    type="time"
+                    aria-label="무료 취소 마감 시각"
+                    value={cancelTime}
+                    disabled={busy}
+                    onChange={(event) => setCancelTime(event.target.value)}
+                  />
+                </div>
+                {isDesktop() && <div className={s.inline}>
+                  <span className={s.caption}>OS 알림: {({ granted: "허용됨", denied: notificationSettingsText(), prompt: "권한 요청 전", system: "시스템 설정을 따름", unknown: "확인 필요" } as Record<string, string>)[permission]}</span>
+                  {permission !== "granted" && permission !== "system" && <Button
+                    type="button"
+                    variant="ghost"
+                    size="small"
+                    disabled={busy || permissionBusy}
+                    onClick={() => {
+                      if (permission === "denied" && canOpenNotificationSettings()) {
+                        void openSystemSettings("notifications").catch((cause: unknown) => setError(errorText(cause)));
+                      } else {
+                        void requestPermission();
+                      }
+                    }}
+                  >
+                    {permission === "denied" && canOpenNotificationSettings() ? "시스템 설정 열기" : "OS 알림 권한 요청"}
+                  </Button>}
+                </div>}
               </div>
             </FormField>
           </div>
