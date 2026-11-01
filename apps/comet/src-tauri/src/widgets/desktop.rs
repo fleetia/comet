@@ -256,6 +256,7 @@ pub(crate) struct Runtime {
     snapshot: Mutex<Option<Layout>>,
     moves: Mutex<HashMap<String, u64>>,
     placed: Mutex<HashMap<String, (i32, i32)>>,
+    keyboard_positions: Mutex<HashMap<String, Vec<Point>>>,
     drag_marks: Mutex<HashMap<String, Instant>>,
     dragging: Mutex<HashSet<String>>,
     drag_epoch: AtomicU64,
@@ -718,6 +719,37 @@ fn without(layout: &mut Layout, id: &str) {
     layout.order.retain(|value| value != id);
 }
 
+fn move_widget_position(
+    layout: &mut Layout,
+    id: &str,
+    origin: &Point,
+    dx: f64,
+    dy: f64,
+) -> Result<Point, String> {
+    if layout.mode != Mode::Freeform || !layout.order.iter().any(|value| value == id) {
+        return Err("자유 배치에 놓인 위젯만 이동할 수 있어요.".into());
+    }
+    let point = Point {
+        x: origin.x + dx,
+        y: origin.y + dy,
+    };
+    if !point.valid() {
+        return Err("위젯 위치가 올바르지 않아요.".into());
+    }
+    layout.positions.insert(id.into(), point.clone());
+    Ok(point)
+}
+
+fn keyboard_position(pending: &[Point], displayed: &Point) -> Point {
+    if let Some(target) = pending
+        .last()
+        .filter(|_| pending.iter().any(|point| displayed.near(point)))
+    {
+        return target.clone();
+    }
+    displayed.clone()
+}
+
 fn desktop_state(state: &AppState, stored: &Stored) -> DesktopState {
     DesktopState {
         revision: stored.revision,
@@ -1145,6 +1177,11 @@ fn sync(
     reveal_stack: bool,
     restore: bool,
 ) -> Result<(), String> {
+    if let Some(runtime) = app.try_state::<Runtime>() {
+        if let Ok(mut positions) = runtime.keyboard_positions.lock() {
+            positions.clear();
+        }
+    }
     let mut errors = Vec::new();
     for (label, window) in app.webview_windows() {
         if let Some(id) = label.strip_prefix(DISPLAY) {
@@ -1461,6 +1498,9 @@ pub(crate) fn watch_work_areas(app: &tauri::AppHandle, state: Arc<AppState>) {
                 if let Ok(mut moves) = runtime.moves.lock() {
                     moves.clear();
                 }
+                if let Ok(mut positions) = runtime.keyboard_positions.lock() {
+                    positions.clear();
+                }
             }
             let app = app.clone();
             let state = state.clone();
@@ -1532,6 +1572,9 @@ pub(crate) fn moved(window: &tauri::Window) {
     let marked = !accepted && take_drag(&app, label);
     if !accepts_drag_move(accepted, marked) {
         return;
+    }
+    if let Ok(mut positions) = runtime.keyboard_positions.lock() {
+        positions.remove(label);
     }
     if !accepted {
         let Ok(mut dragging) = runtime.dragging.lock() else {
@@ -1767,6 +1810,63 @@ pub(crate) async fn remove_widget_desktop_item(
         close(&app, STACK)?;
     }
     crate::widgets::runtime::refresh(&app);
+    Ok(current)
+}
+
+#[tauri::command]
+pub(crate) async fn set_widget_desktop_position(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    dx: f64,
+    dy: f64,
+) -> Result<DesktopState, String> {
+    widget_id(&id)?;
+    let window = app
+        .get_webview_window(&format!("{DISPLAY}{id}"))
+        .ok_or("위젯 창을 찾을 수 없어요.")?;
+    let rect = window_rect(&window)?;
+    let displayed = Point {
+        x: rect.x,
+        y: rect.y,
+    };
+    let origin = app
+        .try_state::<Runtime>()
+        .and_then(|runtime| {
+            runtime
+                .keyboard_positions
+                .lock()
+                .ok()
+                .and_then(|positions| {
+                    positions
+                        .get(window.label())
+                        .map(|pending| keyboard_position(pending, &displayed))
+                })
+        })
+        .unwrap_or_else(|| displayed.clone());
+    let mut target = None;
+    let (stored, _) = widgets::commands::change(&state, |db| {
+        update(db, |layout| {
+            target = Some(move_widget_position(layout, &id, &origin, dx, dy)?);
+            Ok(())
+        })
+    })?;
+    let current = emit_state(&app, &state, &stored);
+    if let Some(point) = target {
+        place(&app, &window, &point)?;
+        if let Some(runtime) = app.try_state::<Runtime>() {
+            if let Ok(mut positions) = runtime.keyboard_positions.lock() {
+                let pending = positions.entry(window.label().into()).or_default();
+                if let Some(index) = pending.iter().position(|previous| displayed.near(previous)) {
+                    pending.drain(..index);
+                } else {
+                    pending.clear();
+                    pending.push(displayed);
+                }
+                pending.push(point);
+            }
+        }
+    }
     Ok(current)
 }
 
@@ -2797,6 +2897,91 @@ mod tests {
         assert_eq!(
             display_placement(None, None, (208.0, 208.0), &[AREA], Some(fallback.clone())),
             (fallback, true)
+        );
+    }
+
+    #[test]
+    fn keyboard_move_saves_from_the_displayed_position_and_preserves_other_layout_data() {
+        let db = database();
+        let ids = widget_ids(&db, &["clock", "weather"]);
+        let original = Point {
+            x: 4000.0,
+            y: 100.0,
+        };
+        let (before, _) = update(&db, |layout| {
+            layout.mode = Mode::Freeform;
+            layout.order = ids.clone();
+            layout.positions.insert(ids[0].clone(), original.clone());
+            layout
+                .positions
+                .insert(ids[1].clone(), Point { x: 50.0, y: 60.0 });
+            Ok(())
+        })
+        .unwrap();
+        let displayed = Point {
+            x: 1232.0,
+            y: 100.0,
+        };
+        let (after, _) = update(&db, |layout| {
+            move_widget_position(layout, &ids[0], &displayed, -8.0, 8.0)?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            after.layout.positions[&ids[0]],
+            Point {
+                x: 1224.0,
+                y: 108.0
+            }
+        );
+        assert_eq!(
+            after.layout.positions[&ids[1]],
+            before.layout.positions[&ids[1]]
+        );
+        assert_eq!(after.layout.order, before.layout.order);
+        assert_eq!(after.layout.shapes, before.layout.shapes);
+        assert!(update(&db, |layout| {
+            move_widget_position(layout, &ids[0], &displayed, f64::NAN, 0.0)?;
+            Ok(())
+        })
+        .is_err());
+        assert!(update(&db, |layout| {
+            move_widget_position(layout, "missing", &displayed, 8.0, 0.0)?;
+            Ok(())
+        })
+        .is_err());
+        assert_eq!(load(&db).unwrap().layout, after.layout);
+
+        let mut without_position = after.layout.clone();
+        without_position.positions.remove(&ids[0]);
+        let moved =
+            move_widget_position(&mut without_position, &ids[0], &displayed, 8.0, 0.0).unwrap();
+        assert_eq!(
+            moved,
+            Point {
+                x: 1240.0,
+                y: 100.0
+            }
+        );
+        without_position.mode = Mode::Stack;
+        assert!(
+            move_widget_position(&mut without_position, &ids[0], &displayed, 8.0, 0.0).is_err()
+        );
+    }
+
+    #[test]
+    fn keyboard_move_uses_the_latest_target_while_native_position_catches_up() {
+        let pending = vec![
+            Point { x: 100.0, y: 80.0 },
+            Point { x: 108.0, y: 80.0 },
+            Point { x: 116.0, y: 80.0 },
+        ];
+        assert_eq!(keyboard_position(&pending, &pending[0]), pending[2]);
+        assert_eq!(keyboard_position(&pending, &pending[1]), pending[2]);
+        let moved_elsewhere = Point { x: 300.0, y: 200.0 };
+        assert_eq!(
+            keyboard_position(&pending, &moved_elsewhere),
+            moved_elsewhere
         );
     }
 

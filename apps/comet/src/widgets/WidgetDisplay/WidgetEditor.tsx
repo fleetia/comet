@@ -10,6 +10,7 @@ import {
   type WidgetShape,
 } from "@comet/ui";
 import { Icon } from "@comet/icon";
+import { emit } from "@tauri-apps/api/event";
 import { isDesktop } from "../../hooks/useSnapshot";
 import { useWindowDrag } from "../../hooks/useWindowDrag";
 import { transparentDocument } from "../../components/companion.css";
@@ -17,7 +18,7 @@ import { useWidgets } from "../useWidgets";
 import { WidgetAppearance } from "../WidgetAppearance/WidgetAppearance";
 import type { WidgetView } from "../types";
 import { desktopSummary, desktopWidgets } from "./DesktopWidget";
-import { defaultShape } from "./desktopShape";
+import { defaultShape, SHAPE_SAVE_DELAY } from "./desktopShape";
 import {
   DEFAULT_LAYOUT,
   desktopKind,
@@ -28,9 +29,6 @@ import {
 import { ShapeEditor } from "./ShapeEditor";
 import { StackStyleEditor } from "./StackStyleEditor";
 import * as s from "./widgetEditor.css";
-
-/** Shape edits (drawing, sliders) arrive many times a second; save the settled value. */
-export const SHAPE_SAVE_DELAY = 250;
 
 const ANCHORS: [DesktopLayout["anchor"], string][] = [
   ["top-left", "왼쪽 위"],
@@ -102,8 +100,12 @@ export function WidgetEditor(): ReactElement {
   const drag = useWindowDrag(isDesktop(), desktop.setError);
   const [tab, setTab] = useState<"shape" | "appearance">("shape");
   const [draft, setDraft] = useState<{ id: string; shape: WidgetShape } | null>(null);
+  const [moveStatus, setMoveStatus] = useState("");
   const timer = useRef<number | undefined>(undefined);
   const pendingShape = useRef<{ id: string; shape: WidgetShape } | null>(null);
+  const stackStyleControls = useRef<{ flush: () => void; cancel: () => void } | null>(null);
+  const previewRevision = useRef(0);
+  const previewEvents = useRef<Promise<void>>(Promise.resolve());
   const widgets = snapshot?.widgets ?? [];
   const available = desktopWidgets(widgets);
   const placed = layout.order
@@ -111,10 +113,21 @@ export function WidgetEditor(): ReactElement {
     .filter((widget): widget is WidgetView => Boolean(widget));
   const addable = available.filter((widget) => !layout.order.includes(widget.id));
   const active = placed.find((widget) => widget.id === desktop.selected);
+  const activeId = useRef<string | undefined>(undefined);
+  activeId.current = active?.id;
+  const selectedId = useRef(desktop.selected);
+  selectedId.current = desktop.selected;
   const hasAppearance = Boolean(active && desktopKind(active.kind)?.appearance);
   const page = hasAppearance ? tab : "shape";
   const name = (widget: WidgetView): string =>
     snapshot?.catalog.find((entry) => entry.id === widget.kind)?.name ?? widget.kind;
+
+  function sendPreview(payload: Record<string, unknown>): void {
+    if (!isDesktop()) return;
+    previewEvents.current = previewEvents.current
+      .then(() => emit("widget-stack-style-preview", payload))
+      .catch((cause: unknown) => desktop.setError(String(cause)));
+  }
 
   function saveShape(): void {
     window.clearTimeout(timer.current);
@@ -148,7 +161,14 @@ export function WidgetEditor(): ReactElement {
 
   function finish(): void {
     saveShape();
+    stackStyleControls.current?.flush();
     void desktop.run("set_widget_desktop_editing", { editing: false });
+  }
+
+  function moveWidget(widget: WidgetView, dx: number, dy: number): void {
+    void desktop.run("set_widget_desktop_position", { id: widget.id, dx, dy }).then((result) => {
+      if (result) setMoveStatus(`${name(widget)} 위치를 이동했어요.`);
+    });
   }
 
   const options =
@@ -163,8 +183,11 @@ export function WidgetEditor(): ReactElement {
                 type="button"
                 aria-label={label}
                 aria-pressed={!layout.stackPosition && layout.anchor === anchor}
-                disabled={desktop.busy}
-                onClick={() => void desktop.run("reset_widget_desktop_position", { anchor })}
+                disabled={!desktop.state}
+                aria-disabled={desktop.busy || undefined}
+                onClick={() => {
+                  if (!desktop.busy) void desktop.run("reset_widget_desktop_position", { anchor });
+                }}
               />
             ))}
           </div>
@@ -183,19 +206,25 @@ export function WidgetEditor(): ReactElement {
             label="평소 모습"
             size="compact"
             value={layout.overlapped ? "folded" : "open"}
-            disabled={desktop.busy}
+            disabled={!desktop.state}
+            aria-disabled={desktop.busy || undefined}
             options={[
               { value: "open", label: "펼쳐 두기" },
               { value: "folded", label: "접어 두기" },
             ]}
-            onValueChange={(value) => void desktop.configure({ overlapped: value === "folded" })}
+            onValueChange={(value) => {
+              if (!desktop.busy) void desktop.configure({ overlapped: value === "folded" });
+            }}
           />
         </div>
         <Switch
           label="한 번에 하나만 펼치기"
           checked={layout.oneExpanded}
-          disabled={desktop.busy}
-          onChange={(event) => void desktop.configure({ oneExpanded: event.currentTarget.checked })}
+          disabled={!desktop.state}
+          aria-disabled={desktop.busy || undefined}
+          onChange={(event) => {
+            if (!desktop.busy) void desktop.configure({ oneExpanded: event.currentTarget.checked });
+          }}
         />
       </div>
     ) : (
@@ -203,14 +232,20 @@ export function WidgetEditor(): ReactElement {
         <Checkbox
           label="격자에 맞추기"
           checked={layout.snapToGrid}
-          disabled={desktop.busy}
-          onChange={(event) => void desktop.configure({ snapToGrid: event.currentTarget.checked })}
+          disabled={!desktop.state}
+          aria-disabled={desktop.busy || undefined}
+          onChange={(event) => {
+            if (!desktop.busy) void desktop.configure({ snapToGrid: event.currentTarget.checked });
+          }}
         />
         <Checkbox
           label="다른 위젯에 맞추기"
           checked={layout.showGuides !== false}
-          disabled={desktop.busy}
-          onChange={(event) => void desktop.configure({ showGuides: event.currentTarget.checked })}
+          disabled={!desktop.state}
+          aria-disabled={desktop.busy || undefined}
+          onChange={(event) => {
+            if (!desktop.busy) void desktop.configure({ showGuides: event.currentTarget.checked });
+          }}
         />
       </div>
     );
@@ -237,15 +272,58 @@ export function WidgetEditor(): ReactElement {
               label="배치 방식"
               appearance="contained"
               value={layout.mode}
-              disabled={desktop.busy || !desktop.state}
+              disabled={!desktop.state}
+              aria-disabled={desktop.busy || undefined}
               options={[
                 { value: "stack", label: "모아두기" },
                 { value: "freeform", label: "자유 배치" },
               ]}
-              onValueChange={(mode) =>
-                void desktop.configure({ mode: mode as DesktopLayout["mode"] })
-              }
+              onValueChange={(mode) => {
+                if (!desktop.busy) void desktop.configure({ mode: mode as DesktopLayout["mode"] });
+              }}
             />
+          </section>
+          <section className={s.section} aria-label="놓인 위젯">
+            <h2>놓인 위젯</h2>
+            <p className={s.hint}>
+              {layout.mode === "stack"
+                ? "모아두기의 편집 중인 행에서 Alt와 위아래 화살표로 순서를 바꿀 수 있어요."
+                : "바탕화면 위젯의 크기 조절 핸들에서 화살표 키로 크기를 바꿀 수 있어요."}
+            </p>
+            {!desktop.state || !snapshot ? (
+              <p className={s.hint}>{desktop.error || widgetError ? "위젯 목록을 읽지 못했어요." : "위젯 목록을 읽고 있어요."}</p>
+            ) : placed.length === 0 ? (
+              <p className={s.hint}>놓인 위젯이 없어요.</p>
+            ) : (
+              <ul className={s.addList}>
+                {placed.map((widget) => (
+                  <li key={widget.id}>
+                    <Button
+                      size="small"
+                      variant="ghost"
+                      aria-pressed={desktop.selected === widget.id}
+                      onClick={() => desktop.select(widget.id)}
+                    >
+                      {name(widget)} 선택
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="ghost"
+                      aria-label={`${name(widget)} 바탕화면에서 빼기`}
+                      aria-disabled={desktop.busy || undefined}
+                      onClick={() => {
+                        if (!desktop.busy)
+                          void desktop.run("remove_widget_desktop_item", { id: widget.id }).then((result) => {
+                            if (result && selectedId.current === widget.id) desktop.select(null);
+                          });
+                      }}
+                    >
+                      빼기
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
           {active ? (
             <section className={s.section} aria-label={`${name(active)} 꾸미기`}>
@@ -262,9 +340,45 @@ export function WidgetEditor(): ReactElement {
                   id={active.id}
                   value={layout.stackStyles?.[active.id]}
                   disabled={!desktop.state}
-                  onSave={(id, style) => void desktop.run("set_widget_stack_style", { id, style })}
+                  controlsRef={stackStyleControls}
+                  onPreview={(id, style) => {
+                    previewRevision.current += 1;
+                    sendPreview({ id, style, revision: previewRevision.current });
+                  }}
+                  onSave={(id, style) => {
+                    const revision = previewRevision.current;
+                    void desktop.run("set_widget_stack_style", { id, style }).then((result) => {
+                      if (!result && activeId.current === id && previewRevision.current === revision)
+                        stackStyleControls.current?.cancel();
+                      sendPreview({ id, revision, clear: true });
+                    });
+                  }}
                 />
               ) : (
+                <>
+                <p className={s.hint}>위치 이동 버튼에서 화살표 키를 누르면 8px씩 이동해요.</p>
+                <div
+                  role="group"
+                  aria-label={`${name(active)} 위치 이동`}
+                  onKeyDown={(event) => {
+                    const delta: Record<string, [number, number]> = {
+                      ArrowUp: [0, -8], ArrowDown: [0, 8], ArrowLeft: [-8, 0], ArrowRight: [8, 0],
+                    };
+                    const direction = delta[event.key];
+                    if (!direction) return;
+                    event.preventDefault();
+                    moveWidget(active, direction[0], direction[1]);
+                  }}
+                >
+                  {([
+                    ["위로", 0, -8], ["아래로", 0, 8], ["왼쪽으로", -8, 0], ["오른쪽으로", 8, 0],
+                  ] as const).map(([label, dx, dy]) => (
+                    <Button key={label} size="small" variant="ghost" onClick={() => moveWidget(active, dx, dy)}>
+                      {label} 이동
+                    </Button>
+                  ))}
+                </div>
+                <span className={s.hint} role="status">{moveStatus}</span>
                 <Tabs
                   label="위젯 꾸미기"
                   value={page}
@@ -307,6 +421,7 @@ export function WidgetEditor(): ReactElement {
                       : []),
                   ]}
                 />
+                </>
               )}
               <details className={s.more}>
                 <summary>{layout.mode === "stack" ? "모아두기 설정" : "자유 배치 설정"}</summary>
@@ -346,8 +461,10 @@ export function WidgetEditor(): ReactElement {
                       size="small"
                       variant="ghost"
                       aria-label={`${name(widget)} 바탕화면에 놓기`}
-                      disabled={desktop.busy}
-                      onClick={() => void desktop.run("add_widget_desktop_item", { id: widget.id })}
+                      aria-disabled={desktop.busy || undefined}
+                      onClick={() => {
+                        if (!desktop.busy) void desktop.run("add_widget_desktop_item", { id: widget.id });
+                      }}
                     >
                       <Icon name="plus" size={14} />
                       놓기
@@ -371,11 +488,15 @@ export function WidgetEditor(): ReactElement {
           <Button
             variant="ghost"
             size="small"
-            disabled={desktop.busy || !desktop.state}
+            disabled={!desktop.state}
+            aria-disabled={desktop.busy || undefined}
             onClick={() => {
+              if (desktop.busy) return;
               window.clearTimeout(timer.current);
               pendingShape.current = null;
               setDraft(null);
+              stackStyleControls.current?.cancel();
+              sendPreview({ id: null, style: null });
               void desktop.restore();
             }}
           >

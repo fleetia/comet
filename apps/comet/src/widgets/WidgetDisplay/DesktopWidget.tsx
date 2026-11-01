@@ -509,14 +509,14 @@ export function useStackAction(widget: WidgetView): {
   label: string;
   busy: boolean;
   error: string | null;
-  open: () => void;
+  open: () => Promise<boolean>;
 } | null {
   const { busy, error, run } = useConnectionCommand();
   const action = STACK_ACTIONS[widget.kind];
   if (!action) return null;
-  function open(): void {
-    if (action.settings) void run("open_planner_settings", { kind: widget.kind });
-    else void run(...widgetWindowCommand(widget));
+  function open(): Promise<boolean> {
+    if (action.settings) return run("open_planner_settings", { kind: widget.kind });
+    return run(...widgetWindowCommand(widget));
   }
   return { label: action.label, busy, error, open };
 }

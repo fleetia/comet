@@ -173,6 +173,8 @@ export type WidgetSummaryItem = {
   icon: IconName;
   label: string;
   active?: boolean;
+  expanded?: boolean;
+  haspopup?: "dialog";
   live?: boolean;
   disabled?: boolean;
 };
@@ -200,13 +202,16 @@ export function WidgetStackSummary({
           key={item.id}
           type="button"
           disabled={item.disabled}
-          aria-pressed={item.active}
+          aria-expanded={item.expanded}
+          aria-haspopup={item.haspopup}
+          data-active={item.active || undefined}
+          data-widget-id={item.id}
           onClick={() => onSelect?.(item.id)}
           className={styles.summaryItem}
         >
           {item.live && <span aria-hidden className={styles.liveDot} />}
           <Icon name={item.icon} size={15} />
-          {item.label}
+          <span className={styles.summaryLabel}>{item.label}</span>
         </button>
       ))}
     </div>

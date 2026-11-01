@@ -143,13 +143,17 @@ describe("controlled widgets", () => {
     render(
       <WidgetStackSummary
         items={[
-          { id: "focus", icon: "timer", label: "집중 18:42", active: true },
+          { id: "focus", icon: "timer", label: "집중 18:42", active: true, expanded: true, haspopup: "dialog" },
           { id: "music", icon: "music", label: "밤의 산책", disabled: true },
         ]}
         onSelect={select}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "집중 18:42" }));
+    const focus = screen.getByRole("button", { name: "집중 18:42" });
+    expect(focus.getAttribute("aria-expanded")).toBe("true");
+    expect(focus.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(focus.hasAttribute("aria-pressed")).toBe(false);
+    await user.click(focus);
     expect(select).toHaveBeenCalledWith("focus");
     await user.click(screen.getByRole("button", { name: "밤의 산책" }));
     expect(select).toHaveBeenCalledOnce();
