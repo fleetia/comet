@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -88,4 +88,26 @@ it("keeps the snapshot subscription when switching to a snapshot-dependent route
   await waitFor(() => expect(invoke).toHaveBeenCalledWith("get_snapshot", undefined));
   expect(listen).toHaveBeenCalledExactlyOnceWith("app-state", expect.any(Function));
   expect(screen.queryByText("planner")).toBeNull();
+});
+
+it.each([
+  "memo-note",
+  "travel",
+  "widget-editor",
+  "generated-widget",
+  "widget-workshop",
+  "widget-state-rules",
+])("reports form input focus and release for %s", async (view) => {
+  window.history.replaceState(null, "", `/?view=${view}`);
+  const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+  const { unmount } = render(<App />);
+  const input = document.createElement("input");
+  document.body.append(input);
+  act(() => input.focus());
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("set_widget_form_input", { active: true }));
+  act(() => input.blur());
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("set_widget_form_input", { active: false }));
+  unmount();
+  input.remove();
+  hasFocus.mockRestore();
 });

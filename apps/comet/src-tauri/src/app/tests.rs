@@ -21,6 +21,53 @@ mod model_review_smoke;
 mod model_roster_smoke;
 mod model_travel_summary_smoke;
 
+#[test]
+fn widget_form_input_cancels_automatic_work_and_tracks_each_window() {
+    let state = state();
+    {
+        let db = lock(&state.db).unwrap();
+        for kind in ["timer-finished", "planner-reminder", "planner-mood"] {
+            db.execute(
+                "INSERT INTO widget_events(id,instance_id,data,pending) VALUES(?1,'widget',?2,1)",
+                rusqlite::params![kind, serde_json::json!({"kind":kind}).to_string()],
+            ).unwrap();
+        }
+    }
+    state.automatic.store(true, Ordering::SeqCst);
+    lock(&state.runtime).unwrap().phase = RuntimePhase::Loading;
+    let old_epoch = state.epoch.load(Ordering::SeqCst);
+    assert!(update_widget_form_input(&state, "first", true).unwrap());
+    assert!(widget_form_active(&state).unwrap());
+    assert!(begin_background(&state).unwrap().is_none());
+    assert!(state.epoch.load(Ordering::SeqCst) > old_epoch);
+    assert_eq!(state.widget_epoch.load(Ordering::SeqCst), state.epoch.load(Ordering::SeqCst));
+    assert_eq!(lock(&state.runtime).unwrap().phase, RuntimePhase::Idle);
+    {
+        let db = lock(&state.db).unwrap();
+        let mut statement = db.prepare("SELECT id FROM widget_events WHERE pending=1 ORDER BY id").unwrap();
+        let pending = statement.query_map([], |row| row.get::<_, String>(0)).unwrap()
+            .collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(pending, vec!["planner-reminder", "timer-finished"]);
+    }
+    assert!(!update_widget_form_input(&state, "second", true).unwrap());
+    update_widget_form_input(&state, "first", false).unwrap();
+    assert!(widget_form_active(&state).unwrap());
+    update_widget_form_input(&state, "second", false).unwrap();
+    assert!(!widget_form_active(&state).unwrap());
+    lock(&state.widget_form_windows).unwrap().insert("stale".into(), now() - 1);
+    assert!(!widget_form_active(&state).unwrap());
+}
+
+#[test]
+fn widget_form_input_cancels_reserved_background_even_if_phase_is_idle() {
+    let state = state();
+    state.automatic.store(true, Ordering::SeqCst);
+    lock(&state.tasks).unwrap().active = Some((tasks::Kind::Background, 0));
+    assert!(update_widget_form_input(&state, "planner", true).unwrap());
+    assert_eq!(state.epoch.load(Ordering::SeqCst), 1);
+    assert!(lock(&state.tasks).unwrap().active.is_none());
+}
+
 pub(crate) fn state() -> AppState {
     AppState {
         organizer: crate::organizer::runtime::Runtime::default(),
@@ -40,6 +87,7 @@ pub(crate) fn state() -> AppState {
         history_window: Mutex::new(super::history_window::Runtime::default()),
         launcher_open: AtomicBool::new(false),
         widget_editing: AtomicBool::new(false),
+        widget_form_windows: Mutex::new(HashMap::new()),
         launcher_session: AtomicU64::new(0),
         launcher_gate: tokio::sync::Mutex::new(()),
         settings_section: Mutex::new(windows::SettingsSection::default()),
@@ -432,6 +480,21 @@ fn brief_idle_pause_discards_widget_queue_before_a_scheduler_tick() {
     )
     .unwrap()
     .is_none());
+}
+
+#[test]
+fn reopening_session_discards_pending_temporal_events() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("session.db");
+    {
+        let db = super::open_session(&path).unwrap();
+        let timer = widgets::storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "focus-timer").unwrap();
+        widgets::storage::commit_data(&db, &timer.id, timer.revision, timer.data, vec![widgets::EventDraft {
+            kind: "timer-finished".into(), text: "done".into(), payload: serde_json::json!({}),
+        }], chrono::Utc::now().timestamp_millis()).unwrap();
+    }
+    let db = super::open_session(&path).unwrap();
+    assert!(widgets::storage::take_reaction(&db, chrono::Utc::now().timestamp_millis()).unwrap().is_none());
 }
 
 #[test]
@@ -2051,6 +2114,76 @@ fn focus_rejects_keyword_input_and_fresh_playback_before_saving_any_content() {
         .unwrap();
         assert_eq!(routed[0].text, line.text);
     }
+}
+
+#[test]
+fn focus_start_greeting_remains_playable_during_focus() {
+    let state = state();
+    let directory = tempfile::tempdir().unwrap();
+    let at = chrono::Utc::now().timestamp_millis();
+    let mut event = {
+        let db = lock(&state.db).unwrap();
+        set_focus_timer(
+            &db,
+            directory.path(),
+            "running",
+            "focus",
+            Some(at + 60_000),
+        );
+        let instances = widgets::storage::instances(&db).unwrap();
+        let timer = instances
+            .iter()
+            .find(|item| item.kind == "focus-timer")
+            .unwrap();
+        let mut calendar = instances
+            .iter()
+            .find(|item| item.kind == "calendar")
+            .unwrap()
+            .clone();
+        calendar.data["reminders"]["moodFocusStart"] = serde_json::json!(true);
+        let event = widgets::WidgetEvent {
+            id: "focus-start".into(),
+            instance_id: calendar.id.clone(),
+            widget_kind: calendar.kind.clone(),
+            revision: calendar.revision,
+            created_at: at,
+            expires_at: at + 30_000,
+            event: widgets::reminders::focus_start_greeting(&calendar, timer)
+                .unwrap()
+                .unwrap(),
+        };
+        assert!(widgets::storage::focus_active(&db, at).unwrap());
+        assert!(widgets::commands::event_current(&db, &event).unwrap());
+        event
+    };
+    let line = Playback {
+        id: "focus-start-line".into(),
+        persona: "a".into(),
+        expression: "normal".into(),
+        text: event.event.text.clone(),
+        motion: Default::default(),
+        source: "widget".into(),
+        link: None,
+        text_speed: 0,
+        display_started_at: Some(at - 1),
+        ends_at: at,
+        line_index: 0,
+        line_count: 1,
+    };
+    *lock(&state.playback).unwrap() = Some(line.clone());
+    *lock(&state.widget_playback).unwrap() = Some(event.clone());
+    let cancel = AtomicBool::new(false);
+    let epoch = state.epoch.load(Ordering::SeqCst);
+    assert!(super::scene::line_completion_locked(&state, &line, epoch, &cancel, at)
+        .unwrap()
+        .is_some());
+
+    event.event.payload = serde_json::json!({});
+    assert!(!widgets::commands::event_current(&lock(&state.db).unwrap(), &event).unwrap());
+    *lock(&state.widget_playback).unwrap() = Some(event);
+    assert!(super::scene::line_completion_locked(&state, &line, epoch, &cancel, at)
+        .unwrap()
+        .is_none());
 }
 
 #[test]

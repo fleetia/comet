@@ -78,8 +78,17 @@ fn crossed(settings: &QuietHours, from: NaiveDateTime, to: NaiveDateTime) -> boo
 /// Also fence a missed interval before the background loop observes a wake-up.
 /// Async generation completions and delayed native reveals can run before that loop.
 pub(crate) fn automatic_blocked(state: &AppState, settings: &Settings) -> Result<bool, String> {
+    automatic_blocked_with_screen(state, settings, crate::device::wake::screen_blocked())
+}
+
+fn automatic_blocked_with_screen(
+    state: &AppState,
+    settings: &Settings,
+    screen_blocked: bool,
+) -> Result<bool, String> {
     let at = chrono::Local::now().naive_local();
-    Ok(state.widget_editing.load(Ordering::SeqCst)
+    Ok(screen_blocked
+        || state.widget_editing.load(Ordering::SeqCst)
         || active_at(&settings.quiet_hours, at)
         || lock(&state.quiet_hours)?
             .last_checked
@@ -105,7 +114,29 @@ pub(crate) fn playback_blocked(
     settings: &Settings,
     paused: bool,
 ) -> Result<bool, String> {
-    if !paused && !automatic_blocked(state, settings)? {
+    playback_blocked_with_screen(
+        state,
+        settings,
+        paused,
+        crate::device::wake::screen_blocked(),
+    )
+}
+
+fn playback_blocked_with_screen(
+    state: &AppState,
+    settings: &Settings,
+    paused: bool,
+    screen_blocked: bool,
+) -> Result<bool, String> {
+    if screen_blocked {
+        return Ok(lock(&state.widget_playback)?.is_some()
+            || state.automatic.load(Ordering::SeqCst)
+            || lock(&state.pack_stories)?
+                .run
+                .as_ref()
+                .is_some_and(|run| run.stage == crate::pack_stories::Stage::Chapter));
+    }
+    if !paused && !automatic_blocked_with_screen(state, settings, screen_blocked)? {
         return Ok(false);
     }
     if let Some(event) = lock(&state.widget_playback)?.as_ref() {
@@ -550,8 +581,9 @@ mod tests {
             run: Some(run),
             ..Default::default()
         };
-        state.widget_editing.store(true, Ordering::SeqCst);
         let settings = store::settings(&lock(&state.db).unwrap()).unwrap();
+        assert!(playback_blocked_with_screen(&state, &settings, false, true).unwrap());
+        state.widget_editing.store(true, Ordering::SeqCst);
         assert!(playback_blocked(&state, &settings, false).unwrap());
         state.widget_editing.store(false, Ordering::SeqCst);
         assert!(reconcile_at(&state, at("2026-09-28 22:00:00")).unwrap());
@@ -659,12 +691,42 @@ mod tests {
                     chrono::Utc::now().timestamp_millis(),
                 )
                 .unwrap();
+                let external = widgets::storage::instances(&db)
+                    .unwrap()
+                    .into_iter()
+                    .find(|instance| instance.kind == "external-notice")
+                    .unwrap();
+                let mut urgent = event("external-notice").event;
+                urgent.payload = serde_json::json!({"urgent": true});
+                widgets::storage::record_external_notice(
+                    &db,
+                    &external,
+                    urgent,
+                    chrono::Utc::now().timestamp_millis(),
+                )
+                .unwrap();
             }
             super::super::windows::apply_pause(&state, true, until).unwrap();
             assert!(cancel.load(Ordering::SeqCst));
             assert!(begin_background(&state).unwrap().is_none());
             let _action = lock(&state.action).unwrap();
             let db = lock(&state.db).unwrap();
+            let urgent_pending: i64 = db
+                .query_row(
+                    "SELECT COUNT(*) FROM widget_events WHERE pending=1 AND json_extract(data,'$.kind')='external-notice'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(urgent_pending, 0);
+            let urgent_history: i64 = db
+                .query_row(
+                    "SELECT COUNT(*) FROM widget_journal JOIN widget_events ON widget_events.id=widget_journal.event_id WHERE json_extract(widget_events.data,'$.kind')='external-notice'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(urgent_history, 1);
             let pending = crate::widgets::commands::take_pending_reaction(&state, &db)
                 .unwrap()
                 .unwrap();
@@ -849,6 +911,23 @@ mod tests {
             state.automatic.store(true, Ordering::SeqCst);
             *lock(&state.widget_playback).unwrap() = Some(event(kind));
             assert!(!playback_blocked(&state, &settings, false).unwrap());
+        }
+    }
+
+    #[test]
+    fn screen_blocking_preserves_direct_replies_but_blocks_automatic_and_widget_playback() {
+        let state = crate::app::tests::state();
+        let settings = Settings::default();
+        interrupt(&state, false).unwrap();
+        assert!(!playback_blocked_with_screen(&state, &settings, false, true).unwrap());
+
+        interrupt(&state, true).unwrap();
+        assert!(playback_blocked_with_screen(&state, &settings, false, true).unwrap());
+
+        interrupt(&state, false).unwrap();
+        for kind in ["timer-finished", "external-notice"] {
+            *lock(&state.widget_playback).unwrap() = Some(event(kind));
+            assert!(playback_blocked_with_screen(&state, &settings, false, true).unwrap());
         }
     }
 }

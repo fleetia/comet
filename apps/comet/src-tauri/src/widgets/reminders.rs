@@ -7,6 +7,12 @@ use std::collections::BTreeMap;
 
 mod planning;
 
+const ANNIVERSARY_RETRY_MILLIS: i64 = 5 * 60_000;
+
+pub(crate) fn anniversary_speaker_available(active: &[String], present: &[String], sleeping: &[String]) -> bool {
+    active.first().is_some_and(|id| present.contains(id) && !sleeping.contains(id))
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct ReminderSettings {
@@ -264,6 +270,32 @@ pub struct Advance {
     pub os: Vec<Delivery>,
 }
 
+pub(crate) fn record_overflow(db: &Connection, events: &[super::WidgetEvent], now: i64) -> Result<(), String> {
+    if events.is_empty() {
+        return Ok(());
+    }
+    let Some(calendar) = storage::instances(db)?.into_iter().find(|item| item.kind == "calendar") else {
+        return Ok(());
+    };
+    let mut data = calendar.data;
+    let recent = data["alertState"]["lastNotification"]["observedAt"].as_i64()
+        .is_some_and(|at| now >= at && now - at <= 3_600_000);
+    let mut text = if recent { data["alertState"]["lastNotification"]["text"].as_str().unwrap_or_default().to_string() } else { String::new() };
+    let mut targets = if recent { data["alertState"]["lastNotification"]["targets"].as_array().cloned().unwrap_or_default() } else { vec![] };
+    for event in events {
+        if !text.lines().any(|line| line == event.event.text) {
+            if !text.is_empty() { text.push('\n'); }
+            text.push_str(&event.event.text);
+        }
+        for target in event.event.payload["targets"].as_array().into_iter().flatten() {
+            if !targets.contains(target) { targets.push(target.clone()); }
+        }
+    }
+    data["alertState"]["lastNotification"] = json!({"text":text,"targets":targets,"observedAt":now});
+    db.execute("UPDATE widget_instances SET data=?1 WHERE id=?2 AND revision=?3", rusqlite::params![data.to_string(), calendar.id, calendar.revision]).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 pub fn event_current(db: &Connection, event: &super::WidgetEvent) -> Result<bool, String> {
     if event.event.payload["bubbleEnabled"] == false {
         return Ok(false);
@@ -296,6 +328,9 @@ pub fn event_current(db: &Connection, event: &super::WidgetEvent) -> Result<bool
     let Some(calendar) = instances.iter().find(|item| item.id == event.instance_id) else {
         return Ok(false);
     };
+    if !settings(&calendar.data)?.character_enabled {
+        return Ok(false);
+    }
     let todo = instances
         .iter()
         .find(|item| item.kind == "todo")
@@ -328,6 +363,19 @@ pub fn event_current(db: &Connection, event: &super::WidgetEvent) -> Result<bool
         })))
 }
 
+pub(crate) fn focus_start_greeting(calendar: &super::WidgetInstance, timer: &super::WidgetInstance) -> Result<Option<EventDraft>, String> {
+    let settings = settings(&calendar.data)?;
+    if !settings.character_enabled || !settings.mood_focus_start
+        || timer.kind != "focus-timer" || timer.data["status"] != "running" || timer.data["mode"] != "focus" {
+        return Ok(None);
+    }
+    Ok(Some(EventDraft {
+        kind: "planner-mood".into(),
+        text: "집중 시간을 시작했어요. 지금 고른 일부터 천천히 해 봐요.".into(),
+        payload: json!({"focusStart":true,"timerStates":[{"id":timer.id,"revision":timer.revision}]}),
+    }))
+}
+
 fn timer_moods(
     clocks: &mut BTreeMap<String, i64>,
     id: &str,
@@ -354,9 +402,8 @@ fn timer_moods(
         if clocks.get(&cooldown).is_some_and(|at| now - at < 600_000) {
             continue;
         }
-        let line = if marker > 0 && settings.mood_focus_start {
-            Some("집중 시간을 시작했어요. 지금 고른 일부터 천천히 해 봐요.")
-        } else if marker == -1 && previous.is_some_and(|at| at > 0) && settings.mood_break {
+        let line = if marker == -1 && previous.is_some_and(|at| at > 0) && settings.mood_break
+            && timer.data["settings"]["finishNotification"] != "os" {
             Some("집중 시간이 끝났어요. 잠깐 쉬어도 좋아요. 할 일 완료는 직접 골라 주세요.")
         } else {
             None
@@ -377,7 +424,7 @@ pub fn advance(
     quiet: bool,
 ) -> Result<Advance, String> {
     let mut calendar_clocks = clocks.clone();
-    advance_with_presence(db, clocks, &mut calendar_clocks, now, quiet, &[])
+    advance_with_presence(db, clocks, &mut calendar_clocks, now, quiet, &[], true)
 }
 
 pub fn advance_with_presence(
@@ -387,6 +434,7 @@ pub fn advance_with_presence(
     now: i64,
     quiet: bool,
     present: &[String],
+    anniversary_allowed: bool,
 ) -> Result<Advance, String> {
     let local = Local
         .timestamp_millis_opt(now)
@@ -513,7 +561,7 @@ pub fn advance_with_presence(
                 payload: json!({"timerStates": timers.iter().map(|timer| json!({"id":timer.id,"revision":timer.revision})).collect::<Vec<_>>()}),
             });
         }
-        planning::focus_due(
+        let focus_notices = planning::focus_due(
             instance,
             &timers,
             (calendar_previous, now, !calendar_continuous),
@@ -521,28 +569,56 @@ pub fn advance_with_presence(
             &mut drafts,
             &mut result.os,
         );
+        if !focus_notices.is_empty() {
+            let mut notice_targets = due.clone();
+            let mut notice_text = data["alertState"]["lastNotification"]["text"]
+                .as_str().filter(|_| !due.is_empty()).unwrap_or_default().to_string();
+            for (target, text) in focus_notices {
+                if !notice_text.is_empty() {
+                    notice_text.push('\n');
+                }
+                notice_text.push_str(&text);
+                notice_targets.push(target);
+            }
+            data["alertState"]["lastNotification"] =
+                json!({"text":notice_text,"targets":notice_targets,"observedAt":now});
+            data["alertState"]["snoozeAt"] = Value::Null;
+        }
         if data != instance.data || !drafts.is_empty() {
             storage::commit_data(db, &instance.id, instance.revision, data, drafts, now)?;
             result.changed = true;
         }
     }
-    if !quiet && (8..12).contains(&local.hour()) {
+    if anniversary_allowed && !quiet && (8..12).contains(&local.hour()) {
+        let pending: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM widget_events WHERE pending=1 AND json_extract(data,'$.kind')='planner-anniversary')",
+            [], |row| row.get(0),
+        ).map_err(|error| error.to_string())?;
         for instance in instances
             .iter()
             .filter(|item| item.kind == "clock")
         {
+            if pending || !storage::reaction_enabled(db, &instance.id)? {
+                continue;
+            }
             let (data, drafts) = anniversary_greetings(&instance.data, local.date_naive());
-            if !drafts.is_empty() {
+            if let Some(draft) = drafts.into_iter().next() {
+                let attempt_key = format!("anniversary:{}:{}", instance.id, draft.payload["anniversaryId"]);
+                if clocks.get(&attempt_key).is_some_and(|at| now >= *at && now - *at < ANNIVERSARY_RETRY_MILLIS) {
+                    continue;
+                }
                 storage::commit_data_with_presence(
                     db,
                     &instance.id,
                     instance.revision,
                     data,
-                    drafts,
+                    vec![draft],
                     now,
                     present,
                 )?;
+                clocks.insert(attempt_key, now);
                 result.changed = true;
+                break;
             }
         }
     }
@@ -583,7 +659,7 @@ fn anniversary_greetings(data: &Value, today: NaiveDate) -> (Value, Vec<EventDra
         }
         let title = item["title"].as_str().unwrap_or("기념일").to_string();
         drafts.push(EventDraft { kind: "planner-anniversary".into(), text: format!("오늘은 {title}이에요. 함께 축하해요!"), payload: json!({"anniversaryId":item["id"],"date":today.to_string(),"title":title,"originalDate":item["date"],"repeat":item["repeat"].as_str().unwrap_or("none"),"countMode":item["countMode"].as_str().unwrap_or("remaining")}) });
-        item["lastCelebrated"] = json!(today.to_string());
+        break;
     }
     (next, drafts)
 }
@@ -601,14 +677,155 @@ fn anniversary_current(data: &Value, payload: &Value, today: NaiveDate) -> bool 
                         == payload["repeat"].as_str().unwrap_or("")
                     && item["countMode"].as_str().unwrap_or("remaining")
                         == payload["countMode"].as_str().unwrap_or("")
-                    && item["lastCelebrated"].as_str() == Some(day.as_str())
             })
         })
+}
+
+pub(crate) fn mark_anniversary_displayed(db: &Connection, event: &super::WidgetEvent) -> Result<(), String> {
+    if event.event.kind != "planner-anniversary" {
+        return Ok(());
+    }
+    let clock = storage::get(db, &event.instance_id)?;
+    let today = Local::now().date_naive();
+    if clock.kind != "clock" || !anniversary_current(&clock.data, &event.event.payload, today) {
+        return Ok(());
+    }
+    if clock.data["anniversaries"].as_array().is_some_and(|items| items.iter().any(|item| item["id"] == event.event.payload["anniversaryId"] && item["lastCelebrated"].as_str() == Some(today.to_string().as_str()))) {
+        return Ok(());
+    }
+    let mut data = clock.data;
+    if let Some(item) = data["anniversaries"].as_array_mut().and_then(|items| items.iter_mut().find(|item| item["id"] == event.event.payload["anniversaryId"])) {
+        item["lastCelebrated"] = json!(today.to_string());
+        db.execute("UPDATE widget_instances SET data=?1 WHERE id=?2 AND revision=?3", rusqlite::params![data.to_string(), clock.id, clock.revision]).map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod anniversary_tests {
     use super::*;
+    #[test]
+    fn anniversary_is_recorded_only_after_the_greeting_is_displayed() {
+        let db = Connection::open_in_memory().unwrap();
+        storage::initialize(&db).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        storage::verify_packages(&db, temp.path()).unwrap();
+        let clock = storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "clock").unwrap();
+        let today = Local::now().date_naive();
+        let data = json!({"anniversaries":[{"id":"a","title":"기념일","date":today.to_string(),"celebrate":true}]});
+        let (_, drafts) = anniversary_greetings(&data, today);
+        storage::commit_data(&db, &clock.id, clock.revision, data, drafts, chrono::Utc::now().timestamp_millis()).unwrap();
+        let event = storage::take_reaction(&db, chrono::Utc::now().timestamp_millis()).unwrap().unwrap();
+        assert!(storage::get(&db, &clock.id).unwrap().data["anniversaries"][0]["lastCelebrated"].is_null());
+        mark_anniversary_displayed(&db, &event).unwrap();
+        let saved = storage::get(&db, &clock.id).unwrap();
+        assert_eq!(saved.data["anniversaries"][0]["lastCelebrated"], today.to_string());
+        assert!(anniversary_greetings(&saved.data, today).1.is_empty());
+        assert!(anniversary_current(&saved.data, &event.event.payload, today));
+    }
+    #[test]
+    fn anniversary_waits_until_its_creation_is_allowed() {
+        let db = Connection::open_in_memory().unwrap();
+        storage::initialize(&db).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        storage::verify_packages(&db, temp.path()).unwrap();
+        let clock = storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "clock").unwrap();
+        let today = Local::now().date_naive();
+        let now = local_date_time(&today.to_string(), "09:00").unwrap();
+        let mut data = clock.data.clone();
+        data["anniversaries"] = json!([{"id":"a","title":"기념일","date":today.to_string(),"celebrate":true}]);
+        storage::commit_data(&db, &clock.id, clock.revision, data, vec![], now - 1000).unwrap();
+        let mut clocks = BTreeMap::new();
+        let mut calendar_clocks = BTreeMap::new();
+        advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now, false, &[], false).unwrap();
+        assert!(storage::take_reaction(&db, now).unwrap().is_none());
+        advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now + 1000, false, &[], true).unwrap();
+        assert_eq!(storage::take_reaction(&db, now + 1000).unwrap().unwrap().event.kind, "planner-anniversary");
+        assert!(storage::get(&db, &clock.id).unwrap().data["anniversaries"][0]["lastCelebrated"].is_null());
+    }
+    #[test]
+    fn absent_or_sleeping_fallback_speaker_does_not_create_anniversary_events() {
+        let db = Connection::open_in_memory().unwrap();
+        storage::initialize(&db).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        storage::verify_packages(&db, temp.path()).unwrap();
+        let clock = storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "clock").unwrap();
+        let today = Local::now().date_naive();
+        let now = local_date_time(&today.to_string(), "09:00").unwrap();
+        let mut data = clock.data.clone();
+        data["anniversaries"] = json!([{"id":"a","title":"기념일","date":today.to_string(),"celebrate":true}]);
+        storage::commit_data(&db, &clock.id, clock.revision, data, vec![], now - 1000).unwrap();
+        let revision = storage::get(&db, &clock.id).unwrap().revision;
+        let active = vec!["first".to_string(), "second".to_string()];
+        let mut clocks = BTreeMap::new();
+        let mut calendar_clocks = BTreeMap::new();
+        for (index, (present, sleeping)) in [
+            (vec!["second".to_string()], vec![]),
+            (active.clone(), vec!["first".to_string()]),
+            (vec![], vec![]),
+        ].into_iter().enumerate() {
+            let allowed = anniversary_speaker_available(&active, &present, &sleeping);
+            assert!(!allowed);
+            advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now + index as i64 * 3000, false, &present, allowed).unwrap();
+        }
+        assert_eq!(storage::get(&db, &clock.id).unwrap().revision, revision);
+        let count: i64 = db.query_row("SELECT COUNT(*) FROM widget_events WHERE instance_id=?1", [&clock.id], |row| row.get(0)).unwrap();
+        assert_eq!(count, 0);
+    }
+    #[test]
+    fn failed_anniversary_retry_is_throttled_and_not_journaled_twice() {
+        let db = Connection::open_in_memory().unwrap();
+        storage::initialize(&db).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        storage::verify_packages(&db, temp.path()).unwrap();
+        let clock = storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "clock").unwrap();
+        let today = Local::now().date_naive();
+        let now = local_date_time(&today.to_string(), "09:00").unwrap();
+        let mut data = clock.data.clone();
+        data["anniversaries"] = json!([{"id":"a","title":"기념일","date":today.to_string(),"celebrate":true}]);
+        storage::commit_data(&db, &clock.id, clock.revision, data, vec![], now - 1000).unwrap();
+        let mut clocks = BTreeMap::new();
+        let mut calendar_clocks = BTreeMap::new();
+        advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now, false, &[], true).unwrap();
+        storage::take_reaction(&db, now).unwrap().unwrap();
+        let revision = storage::get(&db, &clock.id).unwrap().revision;
+        advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now + 3000, false, &[], true).unwrap();
+        assert_eq!(storage::get(&db, &clock.id).unwrap().revision, revision);
+        assert!(storage::take_reaction(&db, now + 3000).unwrap().is_none());
+        advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now + ANNIVERSARY_RETRY_MILLIS, false, &[], true).unwrap();
+        assert!(storage::take_reaction(&db, now + ANNIVERSARY_RETRY_MILLIS).unwrap().is_some());
+        let count: i64 = db.query_row("SELECT COUNT(*) FROM widget_journal j JOIN widget_events e ON e.id=j.event_id WHERE e.instance_id=?1", [&clock.id], |row| row.get(0)).unwrap();
+        assert_eq!(count, 1);
+    }
+    #[test]
+    fn multiple_anniversaries_are_journaled_once_and_next_is_not_throttled() {
+        let db = Connection::open_in_memory().unwrap();
+        storage::initialize(&db).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        storage::verify_packages(&db, temp.path()).unwrap();
+        let clock = storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "clock").unwrap();
+        let today = Local::now().date_naive();
+        let now = local_date_time(&today.to_string(), "09:00").unwrap();
+        let mut data = clock.data.clone();
+        data["anniversaries"] = json!([
+            {"id":"a","title":"첫 번째","date":today.to_string(),"celebrate":true},
+            {"id":"b","title":"두 번째","date":today.to_string(),"celebrate":true}
+        ]);
+        storage::commit_data(&db, &clock.id, clock.revision, data, vec![], now - 1000).unwrap();
+        let mut clocks = BTreeMap::new();
+        let mut calendar_clocks = BTreeMap::new();
+        for (index, id) in ["a", "b"].into_iter().enumerate() {
+            let at = now + index as i64 * 3000;
+            advance_with_presence(&db, &mut clocks, &mut calendar_clocks, at, false, &[], true).unwrap();
+            let event = storage::take_reaction(&db, at).unwrap().unwrap();
+            assert_eq!(event.event.payload["anniversaryId"], id);
+            mark_anniversary_displayed(&db, &event).unwrap();
+        }
+        advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now + 6000, false, &[], true).unwrap();
+        assert!(storage::take_reaction(&db, now + 6000).unwrap().is_none());
+        let count: i64 = db.query_row("SELECT COUNT(*) FROM widget_journal j JOIN widget_events e ON e.id=j.event_id WHERE e.instance_id=?1", [&clock.id], |row| row.get(0)).unwrap();
+        assert_eq!(count, 2);
+    }
     #[test]
     fn queued_greeting_revalidates_original_date_repeat_mode_and_delivery_day() {
         let today = NaiveDate::from_ymd_opt(2026, 10, 15).unwrap();
@@ -622,7 +839,6 @@ mod anniversary_tests {
             ("countMode", json!("anniversary")),
             ("title", json!("수정한 제목")),
             ("celebrate", json!(false)),
-            ("lastCelebrated", Value::Null),
         ] {
             let mut edited = next.clone();
             edited["anniversaries"][0][key] = value;
@@ -652,7 +868,7 @@ mod anniversary_tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].payload["anniversaryId"], "anniversary");
         assert!(anniversary_current(&next, &events[0].payload, today));
-        assert!(anniversary_greetings(&next, today).1.is_empty());
+        assert_eq!(anniversary_greetings(&next, today).1.len(), 1);
     }
     #[test]
     fn greetings_preserve_text_and_repeat_once_each_anniversary() {
@@ -662,7 +878,7 @@ mod anniversary_tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].payload["title"], " 엄마 생신 ");
         assert_eq!(next["format"], data["format"]);
-        assert!(anniversary_greetings(&next, today).1.is_empty());
+        assert_eq!(anniversary_greetings(&next, today).1.len(), 1);
         assert_eq!(
             anniversary_greetings(&next, NaiveDate::from_ymd_opt(2026, 2, 28).unwrap())
                 .1
@@ -675,6 +891,26 @@ mod anniversary_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn overflow_keeps_timer_and_preparation_notices_in_the_banner() {
+        let db = Connection::open_in_memory().unwrap();
+        storage::initialize(&db).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        storage::verify_packages(&db, temp.path()).unwrap();
+        let calendar = storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "calendar").unwrap();
+        let make = |kind: &str, text: &str, targets: Value| super::super::WidgetEvent {
+            id: text.into(), instance_id: calendar.id.clone(), widget_kind: "calendar".into(),
+            revision: calendar.revision, created_at: 1_000, expires_at: 31_000,
+            event: EventDraft { kind: kind.into(), text: text.into(), payload: json!({"targets":targets}) },
+        };
+        let target = json!({"kind":"preparation","id":"bag","title":"준비"});
+        record_overflow(&db, &[make("timer-finished", "집중 종료", json!([])), make("planner-reminder", "준비 알림", json!([target.clone()]))], 2_000).unwrap();
+        let saved = storage::get(&db, &calendar.id).unwrap();
+        assert_eq!(saved.revision, calendar.revision);
+        assert!(saved.data["alertState"]["lastNotification"]["text"].as_str().unwrap().contains("집중 종료"));
+        assert!(saved.data["alertState"]["lastNotification"]["text"].as_str().unwrap().contains("준비 알림"));
+        assert_eq!(saved.data["alertState"]["lastNotification"]["targets"][0], target);
+    }
     fn data() -> Value {
         json!({"reminders":{"enabled":true,"leadMinutes":10,"includeAllDay":false},
         "connections":[{"id":"c","status":"ready","lastSuccessAt":1_000_000}],
@@ -774,9 +1010,9 @@ mod tests {
         storage::commit_data(&db, &calendar.id, calendar.revision, value, vec![], now - 500_000).unwrap();
         let mut clocks = BTreeMap::new();
         let mut calendar_clocks = BTreeMap::new();
-        assert!(advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now - 500_000, false, &[]).unwrap().os.is_empty());
+        assert!(advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now - 500_000, false, &[], true).unwrap().os.is_empty());
         clocks.clear();
-        let resumed = advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now, false, &[]).unwrap();
+        let resumed = advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now, false, &[], true).unwrap();
         assert_eq!(resumed.os.len(), 1);
         assert!(resumed.os[0].text.contains("첫 일정"));
         assert!(resumed.os[0].text.contains("다음 일정"));
@@ -784,8 +1020,8 @@ mod tests {
         assert!(!resumed.os[0].text.contains("지난 일정"));
         assert!(!resumed.os[0].text.contains("나중 일정"));
         assert_eq!(storage::get(&db, &calendar.id).unwrap().data["alertState"]["lastNotification"]["targets"].as_array().unwrap().len(), 3);
-        assert!(advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now + 1_000, false, &[]).unwrap().os.is_empty());
-        assert!(advance_with_presence(&db, &mut BTreeMap::new(), &mut BTreeMap::new(), now, false, &[]).unwrap().os.is_empty());
+        assert!(advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now + 1_000, false, &[], true).unwrap().os.is_empty());
+        assert!(advance_with_presence(&db, &mut BTreeMap::new(), &mut BTreeMap::new(), now, false, &[], true).unwrap().os.is_empty());
     }
 
     #[test]
@@ -803,9 +1039,9 @@ mod tests {
         storage::commit_data(&db, &calendar.id, calendar.revision, value, vec![], now - 2_400_000).unwrap();
         let mut clocks = BTreeMap::new();
         let mut calendar_clocks = BTreeMap::new();
-        advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now - 2_400_000, false, &[]).unwrap();
+        advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now - 2_400_000, false, &[], true).unwrap();
         clocks.clear();
-        advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now, false, &[]).unwrap();
+        advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now, false, &[], true).unwrap();
         let event = storage::take_reaction(&db, now).unwrap().unwrap();
         assert_eq!(event.event.kind, "planner-reminder");
         assert!(event_current(&db, &event).unwrap());
@@ -963,7 +1199,7 @@ mod tests {
         )
         .is_empty());
         timer.data["deadline"] = json!(4_000_000);
-        assert_eq!(
+        assert!(
             timer_moods(
                 &mut clocks,
                 "calendar",
@@ -972,8 +1208,7 @@ mod tests {
                 true,
                 &settings
             )
-            .len(),
-            1
+            .is_empty()
         );
         timer.data["status"] = json!("finished");
         assert!(timer_moods(
@@ -994,6 +1229,32 @@ mod tests {
             &settings
         )
         .is_empty());
+    }
+    #[test]
+    fn focus_start_greeting_follows_calendar_setting_and_break_respects_channel() {
+        let db = Connection::open_in_memory().unwrap();
+        storage::initialize(&db).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        storage::verify_packages(&db, temp.path()).unwrap();
+        let instances = storage::instances(&db).unwrap();
+        let mut calendar = instances.iter().find(|item| item.kind == "calendar").unwrap().clone();
+        let mut timer = instances.iter().find(|item| item.kind == "focus-timer").unwrap().clone();
+        calendar.data["reminders"]["moodFocusStart"] = json!(true);
+        timer.data["status"] = json!("running");
+        timer.data["mode"] = json!("focus");
+        assert!(focus_start_greeting(&calendar, &timer).unwrap().is_some());
+        calendar.data["reminders"]["moodFocusStart"] = json!(false);
+        assert!(focus_start_greeting(&calendar, &timer).unwrap().is_none());
+        let settings = ReminderSettings { mood_break: true, ..ReminderSettings::default() };
+        for channel in ["bubble", "both", "os"] {
+            let mut clocks = BTreeMap::new();
+            timer.data["settings"]["finishNotification"] = json!(channel);
+            timer.data["status"] = json!("running");
+            timer.data["deadline"] = json!(60_000);
+            timer_moods(&mut clocks, "calendar", &[timer.clone()], 1_000, true, &settings);
+            timer.data["status"] = json!("finished");
+            assert_eq!(!timer_moods(&mut clocks, "calendar", &[timer.clone()], 60_000, true, &settings).is_empty(), channel != "os");
+        }
     }
     #[test]
     fn configuration_preserves_calendar_and_old_opt_in_and_validates_bounds() {

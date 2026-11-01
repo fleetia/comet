@@ -213,7 +213,10 @@ pub(crate) async fn set_desktop_preferences(
         crate::hide_boxes(app.clone(), app.state::<Arc<AppState>>()).await?;
     }
     crate::publish(&app, &state);
-    let _ = app.emit("desktop-preferences", self::preferences(&*lock(&state.db)?)?);
+    let _ = app.emit(
+        "desktop-preferences",
+        self::preferences(&*lock(&state.db)?)?,
+    );
     crate::desktop::menu::refresh(&app);
     Ok(())
 }
@@ -348,12 +351,37 @@ fn prank_motion_allowed(present: &[String], motion_allowed: impl Fn(&str) -> boo
     !present.is_empty() && present.iter().all(|id| motion_allowed(id))
 }
 
+fn fullscreen_at_character(
+    geometry: &desktop::geometry::Geometry,
+    positions: &[(f64, f64)],
+) -> bool {
+    if positions.is_empty() {
+        return geometry.fullscreen;
+    }
+    positions.iter().any(|&(x, y)| {
+        geometry
+            .fullscreen_monitors
+            .iter()
+            .any(|area| area.contains(x, y))
+    })
+}
+
 pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
     let geometry = desktop::toys::current_geometry(app).await;
     let timestamp = crate::now();
-    let fullscreen = geometry
-        .as_ref()
-        .map_or(true, |geometry| geometry.fullscreen);
+    let fullscreen = geometry.as_ref().map_or(true, |geometry| {
+        let characters = crate::characters::collision_host::colliders(app);
+        let positions: Vec<_> = characters
+            .iter()
+            .map(|character| {
+                let bounds = character.shape.bounds;
+                let x = character.origin.0 + (bounds.x + bounds.width / 2.0) * character.scale;
+                let y = character.origin.1 + (bounds.y + bounds.height / 2.0) * character.scale;
+                (x, y)
+            })
+            .collect();
+        fullscreen_at_character(geometry, &positions)
+    });
     let entropy = uuid::Uuid::new_v4().as_u128() as u64;
     let _action = lock(&state.action)?;
     if crate::unavailable(state) {
@@ -484,6 +512,24 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fullscreen_only_suspends_the_monitor_with_a_character() {
+        let monitor = desktop::geometry::Rect {
+            x: 1000.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        let geometry = desktop::geometry::Geometry {
+            fullscreen: true,
+            fullscreen_monitors: vec![monitor],
+            ..Default::default()
+        };
+        assert!(!fullscreen_at_character(&geometry, &[(500.0, 400.0)]));
+        assert!(fullscreen_at_character(&geometry, &[(1500.0, 400.0)]));
+        assert!(fullscreen_at_character(&geometry, &[]));
+    }
 
     #[test]
     fn prank_motion_gate_requires_every_present_character_to_allow_motion() {

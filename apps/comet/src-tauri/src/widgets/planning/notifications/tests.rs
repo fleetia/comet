@@ -258,7 +258,7 @@ fn permission_fallback_cannot_revive_events_after_input_settings_changes_or_hidi
         "hidden",
         "launcher",
         "automatic",
-        "expired",
+        "expired-ordinary",
         "focus",
     ] {
         let state = crate::app::tests::state();
@@ -295,8 +295,27 @@ fn permission_fallback_cannot_revive_events_after_input_settings_changes_or_hidi
                 settings.autonomous_enabled = false;
                 crate::store::save_settings(&db, &settings).unwrap();
             }
-            "expired" => {
+            "expired-ordinary" => {
+                event.event.kind = "calendar-reminder".into();
+                db.execute(
+                    "UPDATE widget_events SET data=?1 WHERE id=?2",
+                    rusqlite::params![serde_json::to_string(&event).unwrap(), event.id],
+                )
+                .unwrap();
+                assert!(restore_fallback(&state, &db, &event, 0).unwrap());
+                assert_eq!(
+                    storage::take_reaction(&db, chrono::Utc::now().timestamp_millis())
+                        .unwrap()
+                        .unwrap()
+                        .id,
+                    event.id
+                );
                 event.expires_at = chrono::Utc::now().timestamp_millis() - 1;
+                db.execute(
+                    "UPDATE widget_events SET data=?1,pending=0 WHERE id=?2",
+                    rusqlite::params![serde_json::to_string(&event).unwrap(), event.id],
+                )
+                .unwrap();
             }
             "focus" => {
                 db.execute("UPDATE widget_instances SET data=json_set(data,'$.status','running','$.mode','focus','$.deadline',?2) WHERE id=?1", rusqlite::params![event.instance_id,chrono::Utc::now().timestamp_millis()+60_000]).unwrap();
@@ -314,4 +333,23 @@ fn permission_fallback_cannot_revive_events_after_input_settings_changes_or_hidi
             "{branch}"
         );
     }
+}
+
+#[test]
+fn permission_fallback_preserves_expired_temporal_events() {
+    let state = crate::app::tests::state();
+    let mut event = silent_finish(&state);
+    event.expires_at = 0;
+    let db = crate::lock(&state.db).unwrap();
+    db.execute(
+        "UPDATE widget_events SET data=?1 WHERE id=?2",
+        rusqlite::params![serde_json::to_string(&event).unwrap(), event.id],
+    )
+    .unwrap();
+    assert!(restore_fallback(&state, &db, &event, 0).unwrap());
+    let pending = storage::take_reaction(&db, chrono::Utc::now().timestamp_millis())
+        .unwrap()
+        .unwrap();
+    assert_eq!(pending.id, event.id);
+    assert_eq!(pending.event.payload["osFallback"], true);
 }

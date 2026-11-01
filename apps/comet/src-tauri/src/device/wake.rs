@@ -5,6 +5,71 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tauri::Manager;
 
+#[cfg(target_os = "macos")]
+static SCREEN_BLOCKS: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+pub(crate) fn screen_blocked() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        SCREEN_BLOCKS.load(std::sync::atomic::Ordering::SeqCst) != 0
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn set_screen_blocked(app: &tauri::AppHandle, bit: u8, blocked: bool) {
+    use std::sync::atomic::Ordering;
+    if blocked {
+        let previous = SCREEN_BLOCKS.fetch_or(bit, Ordering::SeqCst);
+        if previous == 0 {
+            let _ =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
+                    let Some(state) = app.try_state::<Arc<AppState>>() else {
+                        return Ok(());
+                    };
+                    {
+                        let _action = lock(&state.action)?;
+                        let widget = lock(&state.widget_playback)?.clone();
+                        if let Some(event) = widget.as_ref() {
+                            let db = lock(&state.db)?;
+                            crate::widgets::commands::restore_unshown_temporal_reaction(
+                                &state, &db, event, state.epoch.load(Ordering::SeqCst),
+                            )?;
+                        }
+                        if widget.is_some() || state.automatic.load(Ordering::SeqCst) {
+                            let (epoch, _) = crate::app::interrupt(&state, false)?;
+                            state.widget_epoch.store(epoch, Ordering::SeqCst);
+                            let mut runtime = lock(&state.runtime)?;
+                            runtime.phase = crate::types::RuntimePhase::Idle;
+                            runtime.persona = None;
+                            runtime.error = None;
+                            state.nlp.pause_indexing(false);
+                        }
+                    }
+                    crate::publish(app, &state);
+                    Ok(())
+                }));
+        }
+    } else {
+        let previous = SCREEN_BLOCKS.fetch_and(!bit, Ordering::SeqCst);
+        if previous != 0 && previous & !bit == 0 {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if let Some(state) = app.try_state::<Arc<AppState>>() {
+                    if let Ok(db) = lock(&state.db) {
+                        if let Ok(settings) = crate::store::settings(&db) {
+                            crate::app::schedule_idle(&state, settings.idle_minutes);
+                        }
+                    }
+                    crate::publish(app, &state);
+                }
+            }));
+        }
+    }
+}
+
 #[cfg(any(test, target_os = "macos", target_os = "windows"))]
 fn skip_wake_refresh(kind: &str, calendar_connection_in_progress: bool) -> bool {
     kind == "calendar" && calendar_connection_in_progress
@@ -67,6 +132,7 @@ fn receive_wake(app: &tauri::AppHandle) {
                 return Ok(());
             }
             let db = lock(&state.db)?;
+            crate::app::schedule_idle(&state, crate::store::settings(&db)?.idle_minutes);
             let can_react = crate::widgets::connection_host::wake_event_allowed(&state, &db)?;
             for instance in crate::widgets::storage::instances(&db)? {
                 let job = lock(&state.widget_jobs)?.get(&instance.id).cloned();
@@ -186,16 +252,23 @@ pub fn shutdown(app: &tauri::AppHandle) {
 
 #[cfg(target_os = "macos")]
 mod native {
-    use super::receive_wake;
+    use super::{receive_wake, set_screen_blocked};
     use block2::RcBlock;
-    use objc2::{rc::Retained, runtime::ProtocolObject};
-    use objc2_app_kit::{NSWorkspace, NSWorkspaceDidWakeNotification};
-    use objc2_foundation::{NSNotification, NSNotificationCenter, NSObjectProtocol};
+    use objc2::{class, msg_send, rc::Retained, runtime::ProtocolObject};
+    use objc2_app_kit::{
+        NSWorkspace, NSWorkspaceDidWakeNotification, NSWorkspaceScreensDidSleepNotification,
+        NSWorkspaceScreensDidWakeNotification,
+    };
+    use objc2_foundation::{NSNotification, NSNotificationCenter, NSObjectProtocol, NSString};
     use std::ptr::NonNull;
 
+    type NotificationObserver = (
+        Retained<NSNotificationCenter>,
+        Retained<ProtocolObject<dyn NSObjectProtocol>>,
+    );
+
     pub struct Observer {
-        center: Retained<NSNotificationCenter>,
-        token: Retained<ProtocolObject<dyn NSObjectProtocol>>,
+        tokens: Vec<NotificationObserver>,
     }
 
     // The token is opaque and only passed back to the thread-safe notification center.
@@ -205,17 +278,19 @@ mod native {
     impl Drop for Observer {
         fn drop(&mut self) {
             // This is the exact observer token returned by this center at registration.
-            let token: &objc2::runtime::AnyObject = (*self.token).as_ref();
-            unsafe {
-                self.center.removeObserver(token);
+            for (center, token) in &self.tokens {
+                let token: &objc2::runtime::AnyObject = (**token).as_ref();
+                unsafe {
+                    center.removeObserver(token);
+                }
             }
         }
     }
 
     pub fn install(app: &tauri::AppHandle) -> Result<Observer, String> {
-        let app = app.clone();
         let center = NSWorkspace::sharedWorkspace().notificationCenter();
-        let callback = RcBlock::new(move |_: NonNull<NSNotification>| receive_wake(&app));
+        let wake_app = app.clone();
+        let callback = RcBlock::new(move |_: NonNull<NSNotification>| receive_wake(&wake_app));
         // The callback captures a Send+Sync AppHandle; no notification pointer escapes it.
         let token = unsafe {
             center.addObserverForName_object_queue_usingBlock(
@@ -225,7 +300,46 @@ mod native {
                 &callback,
             )
         };
-        Ok(Observer { center, token })
+        let mut tokens = vec![(center.clone(), token)];
+        for (name, blocked) in unsafe {
+            [
+                (NSWorkspaceScreensDidSleepNotification, true),
+                (NSWorkspaceScreensDidWakeNotification, false),
+            ]
+        } {
+            let app = app.clone();
+            let callback = RcBlock::new(move |_: NonNull<NSNotification>| {
+                set_screen_blocked(&app, 1, blocked)
+            });
+            let token = unsafe {
+                center.addObserverForName_object_queue_usingBlock(Some(name), None, None, &callback)
+            };
+            tokens.push((center.clone(), token));
+        }
+        let distributed: *mut NSNotificationCenter =
+            unsafe { msg_send![class!(NSDistributedNotificationCenter), defaultCenter] };
+        let distributed =
+            unsafe { Retained::retain(distributed) }.ok_or("잠금 알림을 관찰하지 못했어요.")?;
+        for (name, blocked) in [
+            ("com.apple.screenIsLocked", true),
+            ("com.apple.screenIsUnlocked", false),
+        ] {
+            let name = NSString::from_str(name);
+            let app = app.clone();
+            let callback = RcBlock::new(move |_: NonNull<NSNotification>| {
+                set_screen_blocked(&app, 2, blocked)
+            });
+            let token = unsafe {
+                distributed.addObserverForName_object_queue_usingBlock(
+                    Some(&name),
+                    None,
+                    None,
+                    &callback,
+                )
+            };
+            tokens.push((distributed.clone(), token));
+        }
+        Ok(Observer { tokens })
     }
 }
 

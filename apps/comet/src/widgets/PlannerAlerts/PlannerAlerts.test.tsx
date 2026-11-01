@@ -61,7 +61,7 @@ it("snoozes the notification without editing the source task and hides only the 
     version: 1,
     data: {
       alertState: {
-        lastNotification: { observedAt: Date.now(), text: "책 반납 시간이 가까워졌어요." },
+        lastNotification: { observedAt: Date.now(), text: "책 반납 시간이 가까워졌어요.", targets: [{ kind: "todo", id: "book" }] },
       },
     },
     error: null,
@@ -76,6 +76,17 @@ it("snoozes the notification without editing the source task and hides only the 
   fireEvent.click(screen.getByRole("button", { name: "이 알림 닫기" }));
   expect(screen.queryByRole("complementary", { name: "생활 알림" })).toBeNull();
   expect(act).toHaveBeenCalledTimes(1);
+});
+
+it("shows an overflow notice without an unusable snooze action", () => {
+  const calendar: WidgetView = {
+    id: "calendar", kind: "calendar", reaction: true, revision: 1, version: 1,
+    data: { alertState: { lastNotification: { observedAt: Date.now(), text: "타이머가 끝났어요.", targets: [{ kind: "preparation" }] } } },
+    error: null, missing: [], status: "enabled", packageBytes: 1,
+  };
+  render(<PlannerAlertNotice widget={calendar} act={act} />);
+  expect(screen.getByText("타이머가 끝났어요.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "10분 뒤 다시 알림" })).toBeNull();
 });
 
 it("shows a saved delivery failure and clears it through the widget action", async () => {

@@ -30,6 +30,7 @@ pub(crate) struct Geometry {
     pub characters: Vec<crate::characters::collision::Collider>,
     pub external_windows_available: bool,
     pub fullscreen: bool,
+    pub fullscreen_monitors: Vec<Rect>,
 }
 
 fn edges(rect: Rect) -> [Edge; 4] {
@@ -208,26 +209,29 @@ fn monitor_boundary_areas(screens: &[(Rect, Rect)]) -> Vec<Rect> {
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn capture() -> Result<Geometry, String> {
     let (monitors, windows, fullscreen_monitors, monitor_boundaries) = platform::capture()?;
-    let fullscreen = fullscreen_monitors.iter().any(|area| {
-        windows
-            .iter()
-            .find(|w| {
-                w.x < area.x + area.width
-                    && w.x + w.width > area.x
-                    && w.y < area.y + area.height
-                    && w.y + w.height > area.y
-            })
-            .is_some_and(|w| {
-                w.x <= area.x
-                    && w.y <= area.y
-                    && w.x + w.width >= area.x + area.width
-                    && w.y + w.height >= area.y + area.height
-            })
-    });
+    let fullscreen_monitors: Vec<_> = fullscreen_monitors
+        .into_iter()
+        .filter(|area| {
+            windows
+                .iter()
+                .find(|w| {
+                    w.x < area.x + area.width
+                        && w.x + w.width > area.x
+                        && w.y < area.y + area.height
+                        && w.y + w.height > area.y
+                })
+                .is_some_and(|w| {
+                    w.x <= area.x
+                        && w.y <= area.y
+                        && w.x + w.width >= area.x + area.width
+                        && w.y + w.height >= area.y + area.height
+                })
+        })
+        .collect();
     Ok(from_snapshot(
         monitors,
         windows,
-        fullscreen,
+        fullscreen_monitors,
         monitor_boundaries,
     ))
 }
@@ -235,7 +239,7 @@ pub(crate) fn capture() -> Result<Geometry, String> {
 fn from_snapshot(
     monitors: Vec<Rect>,
     windows: Vec<Rect>,
-    fullscreen: bool,
+    fullscreen_monitors: Vec<Rect>,
     monitor_boundaries: Option<Vec<Rect>>,
 ) -> Geometry {
     let mut edge_list = monitor_edges(monitor_boundaries.as_deref().unwrap_or(&monitors));
@@ -246,7 +250,8 @@ fn from_snapshot(
         edges: edge_list,
         characters: Vec::new(),
         external_windows_available: true,
-        fullscreen,
+        fullscreen: !fullscreen_monitors.is_empty(),
+        fullscreen_monitors,
     }
 }
 

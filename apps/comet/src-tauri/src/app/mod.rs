@@ -52,6 +52,7 @@ pub(crate) struct AppState {
     pub(crate) history_window: Mutex<history_window::Runtime>,
     pub(crate) launcher_open: AtomicBool,
     pub(crate) widget_editing: AtomicBool,
+    pub(crate) widget_form_windows: Mutex<HashMap<String, i64>>,
     pub(crate) launcher_session: AtomicU64,
     pub(crate) launcher_gate: tokio::sync::Mutex<()>,
     pub(crate) settings_section: Mutex<windows::SettingsSection>,
@@ -110,6 +111,59 @@ pub(crate) struct AppState {
 pub(crate) fn now() -> i64 {
     chrono::Utc::now().timestamp()
 }
+
+pub(crate) fn widget_form_active(state: &AppState) -> Result<bool, String> {
+    let mut windows = lock(&state.widget_form_windows)?;
+    windows.retain(|_, expires| *expires > now());
+    Ok(!windows.is_empty())
+}
+
+#[tauri::command]
+pub(crate) fn set_widget_form_input(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, Arc<AppState>>,
+    active: bool,
+) -> Result<(), String> {
+    let changed = update_widget_form_input(&state, window.label(), active)?;
+    if changed {
+        publish(&app, &state);
+    }
+    Ok(())
+}
+
+fn update_widget_form_input(state: &AppState, label: &str, active: bool) -> Result<bool, String> {
+    let _action = lock(&state.action)?;
+    let mut windows = lock(&state.widget_form_windows)?;
+    if active {
+        windows.insert(label.to_string(), now() + 15);
+    } else {
+        windows.remove(label);
+    }
+    drop(windows);
+    let cancel_automatic = active
+        && state.automatic.load(Ordering::SeqCst)
+        && lock(&state.widget_playback)?.is_none()
+        && (lock(&state.tasks)?.active.is_some_and(|(kind, epoch)| {
+            kind == tasks::Kind::Background && epoch == state.epoch.load(Ordering::SeqCst)
+        }) || !matches!(lock(&state.runtime)?.phase, RuntimePhase::Idle | RuntimePhase::Error));
+    if cancel_automatic {
+        let (epoch, _) = interrupt(state, false)?;
+        let db = lock(&state.db)?;
+        widgets::storage::discard_pending_except_temporal(&db)?;
+        state.widget_epoch.store(epoch, Ordering::SeqCst);
+        let mut runtime = lock(&state.runtime)?;
+        runtime.phase = RuntimePhase::Idle;
+        runtime.persona = None;
+        runtime.error = None;
+        state.nlp.pause_indexing(false);
+    }
+    if !active {
+        let db = lock(&state.db)?;
+        schedule_idle(state, store::settings(&db)?.idle_minutes);
+    }
+    Ok(cancel_automatic)
+}
 pub(crate) fn schedule_idle(state: &AppState, minutes: u32) {
     state.next_idle.store(
         playback::next_idle_at(now(), minutes, uuid::Uuid::new_v4().as_u128() as u64),
@@ -124,7 +178,7 @@ pub(crate) fn lock<T>(value: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>, 
 
 pub(crate) fn open_session(path: &std::path::Path) -> Result<Connection, String> {
     let db = store::open(path)?;
-    widgets::storage::discard_pending_external_notice(&db)?;
+    widgets::storage::discard_pending(&db)?;
     story::initialize(&db)?;
     if let Some(directory) = path.parent() {
         widgets::storage::verify_packages(&db, directory)?;

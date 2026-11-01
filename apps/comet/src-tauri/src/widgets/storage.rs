@@ -992,8 +992,8 @@ fn apply_effect(
         )
         .map_err(err)?;
         db.execute(
-            "INSERT OR IGNORE INTO widget_journal VALUES(?)",
-            [&event.id],
+            "INSERT OR IGNORE INTO widget_journal SELECT ?1 WHERE ?2 != 'planner-anniversary' OR NOT EXISTS (SELECT 1 FROM widget_events e JOIN widget_journal j ON j.event_id=e.id WHERE e.instance_id=?3 AND json_extract(e.data,'$.kind')='planner-anniversary' AND json_extract(e.data,'$.payload.anniversaryId')=?4 AND json_extract(e.data,'$.payload.date')=?5)",
+            params![event.id, event.event.kind, event.instance_id, event.event.payload["anniversaryId"].as_str(), event.event.payload["date"].as_str()],
         )
         .map_err(err)?;
         if event.event.kind == "item-acquired" {
@@ -1003,8 +1003,7 @@ fn apply_effect(
     if instance.kind == "todo" {
         synchronize_jar(db)?;
     }
-    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND (json_extract(data,'$.expiresAt')<=?1 OR NOT EXISTS(SELECT 1 FROM widget_instances i WHERE i.id=widget_events.instance_id AND i.revision=json_extract(widget_events.data,'$.revision')))",[now]).map_err(err)?;
-    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.kind')!='external-notice' AND seq NOT IN (SELECT seq FROM widget_events WHERE pending=1 AND json_extract(data,'$.kind')!='external-notice' ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8)",[]).map_err(err)?;
+    prune_pending(db, now)?;
     Ok(())
 }
 
@@ -1280,7 +1279,7 @@ pub(crate) fn record_desktop_result(
     .map_err(err)?;
     tx.execute("INSERT INTO widget_journal VALUES(?1)", [&event.id])
         .map_err(err)?;
-    tx.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND (json_extract(data,'$.expiresAt')<=?1 OR (json_extract(data,'$.kind')!='external-notice' AND seq NOT IN (SELECT seq FROM widget_events WHERE pending=1 AND json_extract(data,'$.kind')!='external-notice' ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8)))",[now]).map_err(err)?;
+    prune_pending(&tx, now)?;
     tx.commit().map_err(err)?;
     Ok(true)
 }
@@ -1362,10 +1361,10 @@ pub fn advance(db: &Connection, now: i64) -> Result<bool> {
 
 #[cfg(test)]
 pub fn advance_with_continuity(db: &Connection, now: i64, continuous: bool) -> Result<bool> {
-    advance_with_presence(db, now, continuous, &[], None)
+    advance_with_presence(db, now, continuous, &[], None, true)
 }
 
-pub fn advance_with_presence(db: &Connection, now: i64, continuous: bool, present: &[String], previous: Option<i64>) -> Result<bool> {
+pub fn advance_with_presence(db: &Connection, now: i64, continuous: bool, present: &[String], previous: Option<i64>, allow_auto_focus: bool) -> Result<bool> {
     let tx = db.unchecked_transaction().map_err(err)?;
     let mut changed = false;
     let all = instances(&tx)?;
@@ -1386,7 +1385,7 @@ pub fn advance_with_presence(db: &Connection, now: i64, continuous: bool, presen
                 })
             })
         } else if instance.kind == "focus-timer" {
-            super::planning::tick_timer(&instance.data, now, &related)
+            super::planning::tick_timer(&instance.data, now, &related, allow_auto_focus)
         } else {
             super::tick(&instance, now)
         };
@@ -1417,7 +1416,7 @@ pub fn advance_with_presence(db: &Connection, now: i64, continuous: bool, presen
             }
         }
     }
-    tx.execute("DELETE FROM widget_events WHERE json_extract(data,'$.createdAt')<? AND NOT EXISTS(SELECT 1 FROM widget_journal WHERE event_id=widget_events.id)",[now.saturating_sub(300_000)]).map_err(err)?;
+    tx.execute("DELETE FROM widget_events WHERE json_extract(data,'$.createdAt')<? AND NOT (pending=1 AND json_extract(data,'$.kind') IN ('timer-finished','planner-reminder')) AND NOT EXISTS(SELECT 1 FROM widget_journal WHERE event_id=widget_events.id)",[now.saturating_sub(300_000)]).map_err(err)?;
     tx.commit().map_err(err)?;
     Ok(changed)
 }
@@ -1498,6 +1497,34 @@ pub fn discard_pending(db: &Connection) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn discard_pending_except_temporal(db: &Connection) -> Result<()> {
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.kind') NOT IN ('timer-finished','planner-reminder')", []).map_err(err)?;
+    Ok(())
+}
+
+pub(crate) fn temporal_reaction(event: &WidgetEvent) -> bool {
+    matches!(event.event.kind.as_str(), "timer-finished" | "planner-reminder")
+}
+
+pub(crate) fn mark_temporal_reaction_displayed(db: &Connection, event: &WidgetEvent) -> Result<()> {
+    if temporal_reaction(event) {
+        db.execute("UPDATE widget_events SET data=json_set(data,'$.payload.temporalDisplayed',json('true')) WHERE id=?1", [&event.id]).map_err(err)?;
+    }
+    Ok(())
+}
+
+fn prune_pending(db: &Connection, now: i64) -> Result<()> {
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND ((json_extract(data,'$.kind') NOT IN ('timer-finished','planner-reminder') AND json_extract(data,'$.expiresAt')<=?1) OR NOT EXISTS(SELECT 1 FROM widget_instances i WHERE i.id=widget_events.instance_id AND (json_extract(widget_events.data,'$.kind')='planner-reminder' OR i.revision=json_extract(widget_events.data,'$.revision'))))", [now]).map_err(err)?;
+    let mut statement = db.prepare("SELECT data FROM widget_events WHERE pending=1 AND json_extract(data,'$.kind') IN ('timer-finished','planner-reminder') AND seq NOT IN (SELECT seq FROM widget_events WHERE pending=1 AND json_extract(data,'$.kind')!='external-notice' ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END, CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','planner-reminder') THEN seq ELSE -seq END LIMIT 8)").map_err(err)?;
+    let overflow = statement.query_map([], |row| row.get::<_, String>(0)).map_err(err)?
+        .map(|row| serde_json::from_str::<WidgetEvent>(&row.map_err(err)?).map_err(err))
+        .collect::<Result<Vec<_>>>()?;
+    drop(statement);
+    super::reminders::record_overflow(db, &overflow, now)?;
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.kind')!='external-notice' AND seq NOT IN (SELECT seq FROM widget_events WHERE pending=1 AND json_extract(data,'$.kind')!='external-notice' ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END, CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','planner-reminder') THEN seq ELSE -seq END LIMIT 8)", []).map_err(err)?;
+    Ok(())
+}
+
 /// A paused or finished timer is not focus; `now` is in milliseconds like the timer deadline.
 pub fn focus_active(db: &Connection, now: i64) -> Result<bool> {
     db.query_row(
@@ -1559,7 +1586,7 @@ pub fn take_reaction(db: &Connection, now: i64) -> Result<Option<WidgetEvent>> {
         [],
     ).map_err(err)?;
     db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND EXISTS(SELECT 1 FROM widget_preferences WHERE key='reaction:' || widget_events.instance_id AND value='0')", []).map_err(err)?;
-    let mut statement = db.prepare("SELECT data FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END, CASE WHEN json_extract(data,'$.kind')='external-notice' THEN seq ELSE -seq END LIMIT 8").map_err(err)?;
+    let mut statement = db.prepare("SELECT data FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END, CASE WHEN json_extract(data,'$.kind') IN ('external-notice','timer-finished','planner-reminder') THEN seq ELSE -seq END LIMIT 8").map_err(err)?;
     let events = statement
         .query_map([], |row| row.get::<_, String>(0))
         .map_err(err)?
@@ -1568,13 +1595,13 @@ pub fn take_reaction(db: &Connection, now: i64) -> Result<Option<WidgetEvent>> {
     drop(statement);
     let all = instances(db)?;
     let result = events.into_iter().find(|event| {
-        event.expires_at > now
+        (temporal_reaction(event) || event.expires_at > now)
             && all.iter().any(|instance| {
-                instance.id == event.instance_id && instance.revision == event.revision
+                instance.id == event.instance_id && (event.event.kind == "planner-reminder" || instance.revision == event.revision)
             })
             && super::manifest(&event.widget_kind).is_ok()
     });
-    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND (json_extract(data,'$.kind')!='external-notice' OR id=?1 OR json_extract(data,'$.expiresAt')<=?2 OR NOT EXISTS(SELECT 1 FROM widget_instances i WHERE i.id=widget_events.instance_id AND i.revision=json_extract(widget_events.data,'$.revision')))", params![result.as_ref().map(|event| event.id.as_str()), now]).map_err(err)?;
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND ((json_extract(data,'$.kind') NOT IN ('external-notice','timer-finished','planner-reminder')) OR id=?1 OR (json_extract(data,'$.kind') NOT IN ('timer-finished','planner-reminder') AND json_extract(data,'$.expiresAt')<=?2) OR NOT EXISTS(SELECT 1 FROM widget_instances i WHERE i.id=widget_events.instance_id AND (json_extract(widget_events.data,'$.kind')='planner-reminder' OR i.revision=json_extract(widget_events.data,'$.revision'))))", params![result.as_ref().map(|event| event.id.as_str()), now]).map_err(err)?;
     Ok(result.map(without_toy_statistics))
 }
 

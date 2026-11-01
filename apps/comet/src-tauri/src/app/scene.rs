@@ -446,6 +446,8 @@ pub(crate) fn mark_displayed_weather_reaction(
     }
     if let Some(event) = lock(&state.widget_playback)?.as_ref() {
         widgets::storage::mark_weather_reaction_started(db, event)?;
+        widgets::storage::mark_temporal_reaction_displayed(db, event)?;
+        widgets::reminders::mark_anniversary_displayed(db, event)?;
     }
     Ok(())
 }
@@ -481,7 +483,9 @@ pub(crate) fn line_completion_locked(
         || !chapter_available_locked(state, &db, epoch)?
         || super::unavailable(state)
         || (crate::widgets::storage::focus_active(&db, now)?
-            && !story_owns_focus(state, &expected.source, epoch)?)
+            && !story_owns_focus(state, &expected.source, epoch)?
+            && !(expected.source == "widget" && lock(&state.widget_playback)?.as_ref()
+                .is_some_and(widgets::commands::focus_transition)))
     {
         return Ok(None);
     }

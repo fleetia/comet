@@ -1,4 +1,4 @@
-import { lazy, useRef, type JSX, type ReactNode } from "react";
+import { lazy, useEffect, useRef, type JSX, type ReactNode } from "react";
 import { Button } from "@comet/ui";
 import { CompanionBox } from "./components/CompanionBox/CompanionBox";
 import { FaceTag } from "./components/FaceTag/FaceTag";
@@ -79,6 +79,46 @@ function StandaloneWindow({ children }: { children: ReactNode }): JSX.Element {
 
 export function App(): JSX.Element {
   const query = new URLSearchParams(window.location.search);
+  const view = query.get("view");
+  const formInputPending = useRef<Promise<unknown>>(Promise.resolve());
+  useEffect(() => {
+    if (!isDesktop() || ![
+      "widget", "planner", "travel", "widget-stack", "widget-display", "widget-editor",
+      "memo-note", "generated-widget", "widget-workshop", "widget-state-rules",
+    ].includes(view ?? "")) return;
+    let active = false;
+    let disposed = false;
+    function send(value: boolean): void {
+      formInputPending.current = formInputPending.current
+        .then(() => command("set_widget_form_input", { active: value })).catch(() => {});
+    }
+    function update(): void {
+      if (disposed) return;
+      const element = document.activeElement;
+      const next = document.hasFocus() && element instanceof HTMLElement &&
+        (element.matches("input:not([type=checkbox]):not([type=radio]), textarea, select") || element.isContentEditable);
+      if (next !== active) {
+        active = next;
+        send(active);
+      }
+    }
+    function deferredUpdate(): void { queueMicrotask(update); }
+    document.addEventListener("focusin", deferredUpdate);
+    document.addEventListener("focusout", deferredUpdate);
+    window.addEventListener("focus", deferredUpdate);
+    window.addEventListener("blur", deferredUpdate);
+    const heartbeat = window.setInterval(() => { if (active) send(true); }, 5000);
+    update();
+    return () => {
+      disposed = true;
+      window.clearInterval(heartbeat);
+      document.removeEventListener("focusin", deferredUpdate);
+      document.removeEventListener("focusout", deferredUpdate);
+      window.removeEventListener("focus", deferredUpdate);
+      window.removeEventListener("blur", deferredUpdate);
+      if (active) send(false);
+    };
+  }, [view]);
   const standalone = standaloneRoute(query);
   return standalone ? (
     <StandaloneWindow>{standalone}</StandaloneWindow>

@@ -2,7 +2,7 @@ import { Button, Checkbox, FormField, TextInput } from "@comet/ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { canOpenNotificationSettings, notificationSettingsText, openSystemSettings } from "../../systemSettings";
-import { record, text, type DataRecord, type ToolAction } from "../toolData";
+import { record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import * as c from "../../common.css";
 import * as s from "../tools.css";
@@ -343,6 +343,9 @@ export function PlannerAlertNotice({
     return () => window.clearInterval(timer);
   }, []);
   const observed = typeof last.observedAt === "number" ? last.observedAt : 0;
+  const canSnooze = rows(last.targets).some((target) =>
+    ["calendar", "todo", "focus-event"].includes(text(target.kind)),
+  );
   const snoozed = typeof state.snoozeAt === "number" && state.snoozeAt > now;
   const recent = observed <= now && now - observed <= 3_600_000 && dismissed !== observed;
   if (!recent && !deliveryError) {
@@ -354,17 +357,17 @@ export function PlannerAlertNotice({
       {recent && <>
         <p>{text(last.text)}</p>
         <div className={s.row}>
-          <Button
+          {canSnooze && <Button
             variant="ghost"
             disabled={snoozed}
             onClick={() => void act("snooze-alert", {}, widget)}
           >
             {snoozed ? "다시 알림 예약됨" : "10분 뒤 다시 알림"}
-          </Button>
+          </Button>}
           <Button variant="ghost" onClick={() => setDismissed(observed)}>
             이 알림 닫기
           </Button>
-          {snoozed && <span className={c.quiet}>기한은 그대로 유지됩니다.</span>}
+          {canSnooze && snoozed && <span className={c.quiet}>기한은 그대로 유지됩니다.</span>}
         </div>
       </>}
     </aside>

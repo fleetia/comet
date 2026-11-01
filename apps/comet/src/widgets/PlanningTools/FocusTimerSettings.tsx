@@ -14,6 +14,7 @@ import { canOpenNotificationSettings, notificationSettingsText, openSystemSettin
 import { number, record, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import * as s from "./FocusTimer.css";
+import { notificationUnavailable, useNotificationAvailability } from "./useNotificationAvailability";
 
 type SettingsDraft = {
   rest: string;
@@ -122,6 +123,7 @@ export function FocusTimerSettings({
   const [busy, setBusy] = useState(false);
   const [permissionBusy, setPermissionBusy] = useState(false);
   const [permission, setPermission] = useState("unknown");
+  const availability = useNotificationAvailability(widget.id);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const failedDraft = useRef<string | null>(null);
@@ -511,7 +513,7 @@ export function FocusTimerSettings({
             <SettingControlRow
               className={s.settingRow}
               title="연결한 일정 시작 전 알리기"
-              description="일정에 이어 둔 집중만 알려요"
+              description="끝날 때 알리기 채널을 따라요. 집중 중에는 말풍선 대신 타이머 배너와 선택한 OS 알림으로 확인해요."
               control={
                 <SelectField
                   controlSize={34}
@@ -552,7 +554,10 @@ export function FocusTimerSettings({
             )}
           </div>
           <div className={s.settingsCaption}>
-            <span>OS 알림이 꺼져 있으면 말풍선으로만 알려요. </span>
+            <span>OS 알림을 받으려면 시스템 알림 권한이 필요해요. 다른 Space에서 말풍선이 보이는지는 확인할 수 없어요. </span>
+            {notificationUnavailable(draft.finishNotification, availability.bubble, permission) && (
+              <p role="status">지금은 알림이 나가지 않아요.</p>
+            )}
             <details className={s.notificationDetails}>
               <summary>알림 설정</summary>
               <div className={s.row}>
