@@ -13,6 +13,7 @@ import { useDiaryWidgetDrop } from "./useDiaryWidgetDrop";
 import { useDiaryQuickTask } from "./useDiaryQuickTask";
 import { DiaryQuickTaskForm } from "./DiaryQuickTaskForm";
 import { useDiaryLeave } from "./useDiaryLeave";
+import { useDiaryToday } from "./useDiaryToday";
 import { useDiaryNativeEvents, type DiaryViewTarget } from "./useDiaryNativeEvents";
 import { DiaryLeaveDialog } from "./DiaryLeaveDialog";
 import { DiaryRail } from "./DiaryRail";
@@ -23,6 +24,7 @@ import { localDay, record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
 import { DiaryCalendar } from "./DiaryCalendar";
 import { PreparationCreate } from "../PreparationTool/PreparationCreate";
+import { discardAllEmbeddedPreparationDrafts } from "../PreparationTool/PreparationTool";
 import { DiaryEnvelope, envelopeTitle } from "./DiaryEnvelope";
 import { OrganizerRecords } from "./OrganizerRecords";
 import { DiaryJournal } from "./DiaryJournal";
@@ -35,9 +37,13 @@ import { LocalEventEditor } from "./LocalEventEditor";
 import { DiaryToday } from "./DiaryToday";
 import { DiaryHabits } from "./DiaryHabits";
 import { DiaryLedger } from "./DiaryLedger";
-import { Planner, type PlannerToolState } from "./Planner";
+import { Planner, PLANNER_INPUT_DRAFT_KEY, type PlannerToolState } from "./Planner";
+import { PLANNER_TEMPLATE_DRAFT_KEY } from "./PlannerTemplates";
+import { PLANNER_LIST_DRAFT_KEY } from "./PlannerListManager";
+import { PLANNER_MOVE_DRAFT_KEY } from "./PlannerMoveTaskDialog";
+import { PLANNER_WRAP_DRAFT_KEY } from "./PlannerWrapDialog";
 import { DiaryCalendarContext } from "./DiaryCalendarContext";
-import { TodoEditor } from "./TodoEditor";
+import { TodoEditor, PLANNER_TODO_EDITOR_DRAFT_KEY } from "./TodoEditor";
 import { dayDate, deviceTimeZone, eventsOn, moveDay, periodAnchor } from "./plannerData";
 import { useDiary } from "./useDiary";
 import { habitCompleted, habitScheduled } from "./diaryHabitData";
@@ -48,7 +54,10 @@ import * as s from "./diary.css";
 
 const EMPTY_TOOL_STATE: PlannerToolState = { dirty: false, busy: false, blocking: false };
 
-function habitSummary(state: DiaryState | null | undefined, day: string): { done: number; total: number } {
+function habitSummary(
+  state: DiaryState | null | undefined,
+  day: string,
+): { done: number; total: number } {
   const habits = (state?.habits ?? []).filter(
     (habit) => !habit.archived && habitScheduled(habit, day),
   );
@@ -65,26 +74,46 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
   const { snapshot, error: loadError, reload } = useWidgets();
   const diary = useDiary();
   const [day, setDay] = useState(localDay());
+  const [followingToday, setFollowingToday] = useState(true);
   const [todayTab, setTodayTab] = useState<"summary" | "journal">("summary");
   const [view, setView] = useState<View>(() =>
     new URLSearchParams(location.search).get("tab") === "calendar" ? "month" : "day",
   );
   const [pageId, setPageId] = useState("");
   const [envelopeId, setEnvelopeId] = useState("");
-  const [tool, setTool] = useState<DiaryTool | null>(() =>
-    toolForTab(new URLSearchParams(location.search).get("tab")),
+  const [restoredPlannerTool] = useState<DiaryTool | null>(() => {
+    try {
+      if (localStorage.getItem(PLANNER_TEMPLATE_DRAFT_KEY)) return "templates";
+      if (
+        localStorage.getItem(PLANNER_LIST_DRAFT_KEY) ||
+        localStorage.getItem(PLANNER_INPUT_DRAFT_KEY) ||
+        localStorage.getItem(PLANNER_TODO_EDITOR_DRAFT_KEY) ||
+        localStorage.getItem(PLANNER_MOVE_DRAFT_KEY) ||
+        localStorage.getItem(PLANNER_WRAP_DRAFT_KEY)
+      )
+        return "today";
+    } catch {
+      return null;
+    }
+    return null;
+  });
+  const [tool, setTool] = useState<DiaryTool | null>(
+    () => toolForTab(new URLSearchParams(location.search).get("tab")) ?? restoredPlannerTool,
   );
   const [toolsOpened, setToolsOpened] = useState(isPlannerTool(tool));
   const [toolState, setToolState] = useState<PlannerToolState>(EMPTY_TOOL_STATE);
   const [plannerHeader, setPlannerHeader] = useState<HTMLDivElement | null>(null);
   const [toolDismissVersion, setToolDismissVersion] = useState(0);
+  const [toolResetVersion, setToolResetVersion] = useState(0);
   const [viewTarget, setViewTarget] = useState<DiaryViewTarget | null>(null);
   const [notesOpen, setNotesOpen] = useState(false);
   const [collection, setCollection] = useState<"pages" | "envelopes" | null>(() =>
     new URLSearchParams(location.search).get("tab") === "envelopes" ? "envelopes" : null,
   );
   const [requestedNote, setRequestedNote] = useState<{ id: string; version: number } | null>(null);
-  const [requestedHabit, setRequestedHabit] = useState<{ id: string; version: number } | null>(null);
+  const [requestedHabit, setRequestedHabit] = useState<{ id: string; version: number } | null>(
+    null,
+  );
   const [archived, setArchived] = useState(false);
   const [editing, setEditing] = useState<DataRecord | null>(null);
   const [notice, setNotice] = useState("");
@@ -102,6 +131,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
   }, [bodyScope]);
   const [failure, setFailure] = useState<string | null>(null);
   const [pageDirty, setPageDirty] = useState(false);
+  const [pageDraftDay, setPageDraftDay] = useState<string | null>(null);
   const [pageContentVersion, setPageContentVersion] = useState(0);
   const [notesDirty, setNotesDirty] = useState(false);
   const [featureDirty, setFeatureDirty] = useState(false);
@@ -131,9 +161,10 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
   }, [collection, envelopeId, envelopes]);
   const pages = diary.state?.pages ?? [],
     notes = diary.state?.notes ?? [];
+  const pageDay = pageDraftDay ?? day;
   const page = pageId
     ? pages.find((value) => value.id === pageId)
-    : pages.find((value) => value.date === day);
+    : pages.find((value) => value.date === pageDay);
   const envelope = envelopes.find((value) => value.id === envelopeId);
   const actions = useDiaryWidgetActions({ snapshot, todo, reload, setFailure });
   const { busy, pending, latestWidgets, run, act, ensureWidget } = actions;
@@ -170,12 +201,13 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
     setCalendarDirty,
     saveCalendarEvent,
     reloadCalendarEvent,
+    persistCalendarDraft,
   } = useDiaryCalendarEvents({ actions, reload });
   const creation = useDiaryCreation({
     actions,
     mutate: diary.mutate,
     page,
-    day,
+    day: pageDay,
     reload,
     onPageCreated: (id) => {
       setTool(null);
@@ -237,8 +269,12 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
       toolState.blocking,
     closingUnsaved: notesDirty || toolState.dirty,
   });
+  useDiaryToday(followingToday, day, setDay);
   const close = (): void => {
-    if (onClose) { onClose(); return; }
+    if (onClose) {
+      onClose();
+      return;
+    }
     if (isDesktop())
       void getCurrentWindow()
         .destroy()
@@ -266,35 +302,44 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
         setNotesOpen(false);
       }
       setCollection(tab === "envelopes" ? "envelopes" : null);
-      const nextTool = toolForTab(tab);
+      const nextTool =
+        !resetCollections && restoredPlannerTool ? restoredPlannerTool : toolForTab(tab);
       setTool(nextTool);
       if (isPlannerTool(nextTool)) setToolsOpened(true);
       setView(tab === "calendar" ? "month" : "day");
       if (tab === "time") setTodayTab("summary");
-      setDay(localDay());
+      if (resetCollections) {
+        setDay(localDay());
+        setFollowingToday(true);
+      }
       setPageId("");
       setEnvelopeId("");
-      setCalendarDraft(null);
-      setCalendarDirty(false);
+      if (resetCollections) {
+        setCalendarDraft(null);
+        setCalendarDirty(false);
+      }
       setSelectedEvent(null);
-      setCreating(null);
+      if (resetCollections) setCreating(null);
     },
   });
   function openDay(
     date: string,
     nextView: View = "day",
     nextTab: "summary" | "journal" = "summary",
+    followToday = date === day ? followingToday : false,
   ): void {
     navigate(() => {
       setTool(null);
       setNotesOpen(false);
       setCollection(null);
       setDay(date);
+      setFollowingToday(followToday);
       setView(nextView);
       setTodayTab(nextTab);
       setPageId("");
       setEnvelopeId("");
       setPageDirty(false);
+      setPageDraftDay(null);
     });
   }
   function openPage(value: Page): void {
@@ -308,6 +353,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
         setEnvelopeId("");
         setView("day");
         setPageDirty(false);
+        setPageDraftDay(null);
       });
   }
   function openEnvelope(id: string): void {
@@ -318,6 +364,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
       setEnvelopeId(id);
       setPageId("");
       setPageDirty(false);
+      setPageDraftDay(null);
     });
   }
   useEffect(() => {
@@ -326,12 +373,13 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
     if (viewTarget.entity === "page") {
       const page = diary.state.pages.find((value) => value.id === viewTarget.targetId);
       if (page) openPage(page);
-      else if (viewTarget.fallbackToToday) openDay(localDay());
+      else if (viewTarget.fallbackToToday) openDay(localDay(), "day", "summary", true);
       else setFailure("해당 기록을 현재 찾을 수 없어요. 원본이 삭제되었는지 확인해 주세요.");
       return;
     }
     if (viewTarget.entity === "envelope") {
-      if (envelopes.some((value) => value.id === viewTarget.targetId)) openEnvelope(viewTarget.targetId);
+      if (envelopes.some((value) => value.id === viewTarget.targetId))
+        openEnvelope(viewTarget.targetId);
       else setFailure("해당 봉투를 현재 찾을 수 없어요. 봉투가 삭제되었는지 확인해 주세요.");
       return;
     }
@@ -353,7 +401,10 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
         setCollection(null);
         setTool("habits");
         if (habit)
-          setRequestedHabit((previous) => ({ id: habit.id, version: (previous?.version ?? 0) + 1 }));
+          setRequestedHabit((previous) => ({
+            id: habit.id,
+            version: (previous?.version ?? 0) + 1,
+          }));
       });
       return;
     }
@@ -378,6 +429,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
             ? localDay(new Date(event.startAt))
             : localDay(),
       );
+      setFollowingToday(false);
       setSelectedEvent(event);
     });
   }, [viewTarget, navigationReady, diary.state, snapshot, saving]);
@@ -395,11 +447,12 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
     else window.location.assign("/?view=settings&section=widgets&preview=installed");
   }
   function changeView(value: View): void {
-    openDay(day, value);
+    openDay(day, value, "summary", followingToday);
   }
   function openCalendarEvent(event: DataRecord, date = day): void {
     navigate(() => {
       setDay(date);
+      setFollowingToday(false);
       setSelectedEvent(event);
     });
   }
@@ -422,9 +475,9 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
   }
   const diaryPageProps: DiaryPageProps = {
     page,
-    date: day,
+    date: pageDay,
     items,
-    events: pageId ? [] : eventsOn(events, day),
+    events: pageId ? [] : eventsOn(events, pageDay),
     envelopes,
     moves: diary.state?.moves ?? [],
     widgets,
@@ -432,7 +485,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
     onOpenEvent: openCalendarEvent,
     busy: saving,
     onDiaryAction: diaryAction,
-    onAddTask: (title) => createTask(title, pageId ? null : day),
+    onAddTask: (title) => createTask(title, pageId ? null : pageDay),
     onToggleTask: (item) => void toggleTask(item),
     onEditTask: setEditing,
     onFocusTask: (item) => void focusTask(item),
@@ -440,7 +493,10 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
     onMoveTask: planTask,
     onOpenEnvelope: openEnvelope,
     onCreatePage: createPage,
-    onDirtyChange: setPageDirty,
+    onDirtyChange: (dirty) => {
+      setPageDirty(dirty);
+      setPageDraftDay((current) => (dirty ? (current ?? day) : null));
+    },
   };
   const diaryPageContent =
     pageId && page?.date === null ? (
@@ -456,13 +512,14 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
         onDeleted={() => {
           setPageId("");
           setPageDirty(false);
+          setPageDraftDay(null);
           setPageMenuDirty(false);
         }}
       />
     ) : (
       <DiaryPage
         {...diaryPageProps}
-        key={`${pageId ? `page:${pageId}` : `day:${day}`}:${pageContentVersion}`}
+        key={`${pageId ? `page:${pageId}` : `day:${pageDay}`}:${pageContentVersion}`}
       />
     );
   const weekStart = periodAnchor("week", day);
@@ -533,6 +590,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
             saving={saving}
             onClose={() => navigate(close, true)}
             onOpenDay={openDay}
+            onOpenToday={() => openDay(localDay(), "day", "summary", true)}
             onOpenTool={openTool}
             onOpenNotes={() =>
               navigate(() => {
@@ -662,6 +720,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
               {toolsOpened && (
                 <div hidden={!isPlannerTool(tool)} className={s.toolContent}>
                   <Planner
+                    key={toolResetVersion}
                     headerActionsTarget={plannerHeader}
                     dismissVersion={toolDismissVersion}
                     embeddedTab={isPlannerTool(tool) ? tool : "plans"}
@@ -669,6 +728,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
                     onSelectedDayChange={(date) =>
                       navigate(() => {
                         setDay(date);
+                        setFollowingToday(false);
                       })
                     }
                     onNavigate={openTool}
@@ -684,7 +744,12 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
                   state={diary.state}
                   requestedHabit={requestedHabit}
                   date={day}
-                  onDateChange={(date) => navigate(() => setDay(date))}
+                  onDateChange={(date) =>
+                    navigate(() => {
+                      setDay(date);
+                      setFollowingToday(false);
+                    })
+                  }
                   onAction={diaryAction}
                   busy={saving}
                   onDirtyChange={setFeatureDirty}
@@ -695,7 +760,12 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
                   key={featureContentVersion}
                   state={diary.state}
                   date={day}
-                  onDateChange={(date) => navigate(() => setDay(date))}
+                  onDateChange={(date) =>
+                    navigate(() => {
+                      setDay(date);
+                      setFollowingToday(false);
+                    })
+                  }
                   onAction={diaryAction}
                   actionError={diary.error}
                   busy={saving}
@@ -722,6 +792,9 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
                       onLedger={() => openTool("ledger")}
                       journal={
                         <>
+                          {pageDraftDay && pageDraftDay !== day && (
+                            <p className={s.caption}>작성 중인 {pageDraftDay} 기록이에요.</p>
+                          )}
                           {diaryPageContent}
                           <DiaryJournal key={day} date={day} />
                         </>
@@ -760,7 +833,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
                       onOpenEvent={openCalendarEvent}
                       onCreateTask={(title) => createTask(title, null)}
                       onOpenPage={openPage}
-                      onReturnToDay={() => openDay(localDay())}
+                      onReturnToDay={() => openDay(localDay(), "day", "summary", true)}
                       onDirtyChange={setPageDirty}
                     />
                   ) : (
@@ -785,7 +858,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
                       )}
                       {!pageId && view !== "day" ? (
                         <DiaryCalendar
-                          key={`${view}:${day}:${featureContentVersion}`}
+                          key={`${view}:${featureContentVersion}`}
                           eventColor={(event) =>
                             colorForEvent(
                               event,
@@ -849,6 +922,8 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
           }
           day={calendarDraft.date}
           event={calendarDraft.event}
+          restoredValues={calendarDraft.values}
+          onDraftChange={persistCalendarDraft}
           events={events}
           busy={busy}
           onSave={saveCalendarEvent}
@@ -871,6 +946,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
       />
       {creating === "envelope" && (
         <PreparationCreate
+          persistDraft
           events={events}
           busy={saving}
           onCreate={createEnvelope}
@@ -921,7 +997,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
           if (pageDirty) {
             if (envelope) discardDiaryEnvelopeNoteDrafts(text(envelope.id), notes);
             else {
-              discardDiaryPageDraft(page, day);
+              discardDiaryPageDraft(page, pageDay);
               if (page?.date === null) discardDiaryCollectionDraft(page.id);
             }
             setPageContentVersion((value) => value + 1);
@@ -929,6 +1005,7 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
           if (pageMenuDirty) setPageMenuVersion((value) => value + 1);
           if (featureDirty) setFeatureContentVersion((value) => value + 1);
           setPageDirty(false);
+          setPageDraftDay(null);
           setPageMenuDirty(false);
           setEditing(null);
           creation.discard();
@@ -936,7 +1013,24 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
           setCalendarDraft(null);
           setCalendarDirty(false);
           setFeatureDirty(false);
-          if (toolState.blocking) {
+          if (leave?.closing && toolState.dirty) {
+            try {
+              localStorage.removeItem(PLANNER_INPUT_DRAFT_KEY);
+              localStorage.removeItem(PLANNER_TEMPLATE_DRAFT_KEY);
+              localStorage.removeItem(PLANNER_LIST_DRAFT_KEY);
+              localStorage.removeItem(PLANNER_TODO_EDITOR_DRAFT_KEY);
+              localStorage.removeItem(PLANNER_MOVE_DRAFT_KEY);
+              localStorage.removeItem(PLANNER_WRAP_DRAFT_KEY);
+              if (!discardAllEmbeddedPreparationDrafts()) {
+                setFailure("이 기기에 보관한 초안을 지우지 못했어요.");
+                return;
+              }
+            } catch {
+              setFailure("이 기기에 보관한 초안을 지우지 못했어요.");
+              return;
+            }
+            setToolResetVersion((value) => value + 1);
+          } else if (toolState.blocking) {
             setToolDismissVersion((value) => value + 1);
           }
           setLeave(null);

@@ -9,7 +9,41 @@ export type DiaryCalendarDraft = {
   event?: DataRecord;
   revision?: number;
   reloadKey?: number;
+  values?: CalendarEditorValues;
 };
+
+export type CalendarEditorValues = {
+  title: string;
+  allDay: boolean;
+  startDate: string;
+  endDate: string;
+  startTime: string;
+  endTime: string;
+  location: string;
+  description: string;
+  moveTogether: boolean;
+};
+
+const CALENDAR_DRAFT_KEY = "comet:diary-calendar-draft";
+
+function readCalendarDraft(): DiaryCalendarDraft | null {
+  try {
+    const value = record(JSON.parse(localStorage.getItem(CALENDAR_DRAFT_KEY) ?? "null"));
+    const fields = record(value.values);
+    if (typeof value.date !== "string" || typeof fields.allDay !== "boolean" ||
+        typeof fields.moveTogether !== "boolean" ||
+        ["title", "startDate", "endDate", "startTime", "endTime", "location", "description"]
+          .some((key) => typeof fields[key] !== "string") ||
+        (value.event !== undefined && (!value.event || typeof value.event !== "object" || Array.isArray(value.event)))) return null;
+    return value as DiaryCalendarDraft;
+  } catch {
+    return null;
+  }
+}
+
+function clearCalendarDraft(): void {
+  try { localStorage.removeItem(CALENDAR_DRAFT_KEY); } catch { /* Storage may be unavailable. */ }
+}
 
 export type DiaryCalendarEvents = {
   selectedEvent: DataRecord | null;
@@ -20,6 +54,7 @@ export type DiaryCalendarEvents = {
   setCalendarDirty: (dirty: boolean) => void;
   saveCalendarEvent: (input: DataRecord, deleting?: boolean) => Promise<boolean>;
   reloadCalendarEvent: () => Promise<boolean>;
+  persistCalendarDraft: (values: CalendarEditorValues, dirty: boolean) => boolean;
 };
 
 const EVENT_FIELDS = [
@@ -44,8 +79,23 @@ export function useDiaryCalendarEvents({
   reload: () => void;
 }): DiaryCalendarEvents {
   const [selectedEvent, setSelectedEvent] = useState<DataRecord | null>(null);
-  const [calendarDraft, setCalendarDraft] = useState<DiaryCalendarDraft | null>(null);
+  const [calendarDraft, updateCalendarDraft] = useState<DiaryCalendarDraft | null>(readCalendarDraft);
   const [calendarDirty, setCalendarDirty] = useState(false);
+
+  function setCalendarDraft(draft: DiaryCalendarDraft | null): void {
+    clearCalendarDraft();
+    updateCalendarDraft(draft);
+  }
+  function persistCalendarDraft(values: CalendarEditorValues, dirty: boolean): boolean {
+    if (!calendarDraft) return true;
+    try {
+      if (dirty) localStorage.setItem(CALENDAR_DRAFT_KEY, JSON.stringify({ ...calendarDraft, values }));
+      else localStorage.removeItem(CALENDAR_DRAFT_KEY);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   async function saveCalendarEvent(input: DataRecord, deleting = false): Promise<boolean> {
     if (!calendarDraft) return false;
@@ -109,6 +159,7 @@ export function useDiaryCalendarEvents({
     setCalendarDirty,
     saveCalendarEvent,
     reloadCalendarEvent,
+    persistCalendarDraft,
   };
 }
 

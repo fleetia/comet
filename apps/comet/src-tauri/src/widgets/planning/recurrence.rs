@@ -347,6 +347,32 @@ pub(super) fn is_frequency(item: &Todo) -> bool {
         .is_some_and(|rule| rule.mode == "frequency")
 }
 
+pub(super) fn advance_frequency(item: &Todo, now: i64) -> Result<Todo, String> {
+    let rule = item.repeat_rule.as_ref().ok_or("주간 목표 오류")?;
+    validate(rule)?;
+    let today = local_datetime(now, &rule.time_zone)?.date();
+    let basis = item
+        .plan_anchor
+        .as_deref()
+        .or(item.planned_date.as_deref())
+        .or(item.due_date.as_deref())
+        .map(date)
+        .transpose()?
+        .unwrap_or(today)
+        .max(today);
+    let week = date(&anchor(basis, "week")?.ok_or("주간 목표 날짜 오류")?)?;
+    let next_week = week
+        .checked_add_days(Days::new(7))
+        .ok_or("반복 날짜 범위 오류")?;
+    let mut next = item.clone();
+    next.plan_period = "week".into();
+    next.plan_anchor = Some(next_week.to_string());
+    next.planned_date = None;
+    next.due_date = None;
+    next.due_at = None;
+    Ok(next)
+}
+
 pub(super) fn repeats(item: &Todo) -> bool {
     item.repeat_rule.is_some() || item.repeat != "none"
 }

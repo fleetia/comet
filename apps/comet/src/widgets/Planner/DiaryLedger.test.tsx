@@ -240,7 +240,8 @@ it("persists selected months, weekend adjustment and manual recording then gener
     ),
   );
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  fireEvent.click(screen.getByRole("button", { name: "이번 달 기록하기" }));
+  expect(screen.getByRole("heading", { name: "가계부 · 2026년 1월 고정비" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "2026년 1월 기록하기" }));
   await waitFor(() =>
     expect(onAction).toHaveBeenCalledWith("ledger-generate", {
       fromDate: "2026-01-01",

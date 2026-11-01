@@ -1,33 +1,67 @@
 import { Button, Checkbox, FormField, Select, TextInput } from "@comet/ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { localDay, text, type DataRecord, type ToolAction } from "../toolData";
+import { localDay, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import { PLANNER_TEMPLATES, templateItems } from "./templateCatalog";
 import { PERIODS, periodAnchor, repeatLabel } from "./plannerData";
 import * as s from "./planner.css";
+
+export const PLANNER_TEMPLATE_DRAFT_KEY = "comet:diary:planner-template-draft";
+
+function readDraft(): DataRecord {
+  try {
+    return record(JSON.parse(localStorage.getItem(PLANNER_TEMPLATE_DRAFT_KEY) || "null"));
+  } catch {
+    return {};
+  }
+}
 
 export function PlannerTemplates({
   act,
   busy,
   onDirtyChange,
   onShowPlans,
+  persistDraft = false,
 }: {
   act: ToolAction;
   busy: boolean;
   onDirtyChange?: (dirty: boolean) => void;
   onShowPlans?: (period: string, anchor: string) => void;
+  persistDraft?: boolean;
 }): ReactElement {
-  const [selected, setSelected] = useState(PLANNER_TEMPLATES[0]);
-  const [base, setBase] = useState(localDay());
-  const [items, setItems] = useState(() => templateItems(selected, base));
-  const [checked, setChecked] = useState([0, 1, 2, 3]);
-  const [period, setPeriod] = useState<string>(selected.period);
+  const [draft] = useState(() => (persistDraft ? readDraft() : {}));
+  const [selected, setSelected] = useState(
+    () => PLANNER_TEMPLATES.find((item) => item.id === draft.selected) ?? PLANNER_TEMPLATES[0],
+  );
+  const [base, setBase] = useState(() => text(draft.base) || localDay());
+  const [items, setItems] = useState(() =>
+    Array.isArray(draft.items) ? rows(draft.items) : templateItems(selected, base),
+  );
+  const [checked, setChecked] = useState<number[]>(() =>
+    Array.isArray(draft.checked)
+      ? draft.checked.filter((value): value is number => typeof value === "number")
+      : [0, 1, 2, 3],
+  );
+  const [period, setPeriod] = useState<string>(() => text(draft.period) || selected.period);
   const [saved, setSaved] = useState(false);
   const [savedAnchor, setSavedAnchor] = useState(base);
   const fingerprint = JSON.stringify({ items, checked, period, base });
-  const [baseline, setBaseline] = useState(fingerprint);
+  const [baseline, setBaseline] = useState(() => text(draft.baseline) || fingerprint);
   const dirty = fingerprint !== baseline;
   const report = useRef(onDirtyChange);
   report.current = onDirtyChange;
+  useEffect(() => {
+    if (!persistDraft) return;
+    try {
+      if (dirty)
+        localStorage.setItem(
+          PLANNER_TEMPLATE_DRAFT_KEY,
+          JSON.stringify({ selected: selected.id, base, items, checked, period, baseline }),
+        );
+      else localStorage.removeItem(PLANNER_TEMPLATE_DRAFT_KEY);
+    } catch {
+      // Keep the in-memory draft if browser storage is unavailable.
+    }
+  }, [persistDraft, dirty, selected, base, items, checked, period, baseline]);
   useEffect(() => {
     report.current?.(dirty);
   }, [dirty]);

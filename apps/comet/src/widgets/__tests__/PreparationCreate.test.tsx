@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   PreparationCreate,
@@ -8,6 +8,37 @@ import { PreparationSettings } from "../PreparationTool/PreparationSettings";
 import type { WidgetView } from "../types";
 
 afterEach(cleanup);
+beforeEach(() => localStorage.clear());
+
+it("restores an uncertain request after remount and retries it unchanged", async () => {
+  const onCreate = vi.fn().mockResolvedValueOnce("unknown").mockResolvedValueOnce("created");
+  const props = { events: [], busy: false, onCreate, onClose: vi.fn(), persistDraft: true };
+  const view = render(<PreparationCreate {...props} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "봉투 이름" }), {
+    target: { value: "재시작 준비" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "만들기" }));
+  await screen.findByRole("alert");
+  const request = onCreate.mock.calls[0];
+  view.unmount();
+  render(<PreparationCreate {...props} />);
+  expect(screen.getByRole("textbox", { name: "봉투 이름" })).toHaveProperty("value", "재시작 준비");
+  fireEvent.click(screen.getByRole("button", { name: "같은 요청으로 다시 시도" }));
+  await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(2));
+  expect(onCreate.mock.calls[1]).toEqual(request);
+});
+
+it("does not submit an Enter key during Korean composition", () => {
+  const onCreate = vi.fn();
+  render(<PreparationCreate events={[]} busy={false} onCreate={onCreate} onClose={vi.fn()} />);
+  const input = screen.getByRole("textbox", { name: "봉투 이름" });
+  fireEvent.change(input, { target: { value: "봉투" } });
+  fireEvent.compositionStart(input);
+  expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
+  fireEvent.compositionEnd(input);
+  expect(fireEvent.keyDown(input, { key: "Enter", keyCode: 229 })).toBe(false);
+  expect(onCreate).not.toHaveBeenCalled();
+});
 
 it("keeps the identical creation request after a lost response and guards double submits", async () => {
   let rejectRequest: (cause: Error) => void = () => {};

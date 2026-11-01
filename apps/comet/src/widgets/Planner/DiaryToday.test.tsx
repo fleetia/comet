@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { DiaryToday } from "./DiaryToday";
 import type { WidgetView } from "../types";
 
@@ -137,6 +137,35 @@ it("keeps an empty day empty instead of adding sample focus records or tasks", (
   expect(screen.getByText("이날 계획한 할 일이 없어요.")).toBeTruthy();
   expect(screen.getByText("이날 예정된 일정이 없어요.")).toBeTruthy();
   expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+});
+
+it("shows overdue and inbox counts without changing the selected day task total", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(2026, 9, 8, 12));
+  const onTasks = vi.fn();
+  render(<DiaryToday day="2026-10-08" widgets={[]} items={[
+    { id: "late", title: "지난 일", plannedDate: "2026-10-07", completedAt: null },
+    { id: "done", title: "완료", plannedDate: "2026-10-07", completedAt: 1 },
+    { id: "inbox", title: "수집", plannedDate: null, completedAt: null },
+    { id: "period", title: "기간 계획", plannedDate: null, planPeriod: "week", completedAt: null },
+    { id: "today", title: "오늘", plannedDate: "2026-10-08", completedAt: null },
+  ]} events={[]} notes={[]} busy={false} onTask={vi.fn()} onTasks={onTasks} onEvent={vi.fn()} onNotes={vi.fn()} />);
+  expect(screen.getByText("0/1")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "밀린 일 1개 · 수집함 1개" }));
+  expect(onTasks).toHaveBeenCalledOnce();
+  vi.useRealTimers();
+});
+
+it("keeps a time editor open for its original date when the displayed day changes", async () => {
+  const action = vi.fn().mockResolvedValue(true);
+  const common = { widgets: [], items: [], events: [], notes: [], busy: false, onTask: vi.fn(), onTasks: vi.fn(), onEvent: vi.fn(), onNotes: vi.fn(), state: { revision: 0, pages: [], notes: [], moves: [] }, onDiaryAction: action };
+  const { rerender } = render(<DiaryToday {...common} day="2026-10-08" />);
+  fireEvent.click(screen.getByRole("button", { name: "시간 입력" }));
+  fireEvent.change(screen.getByLabelText("시간 기록 제목"), { target: { value: "계속 쓰는 시간" } });
+  rerender(<DiaryToday {...common} day="2026-10-09" />);
+  expect(screen.getByLabelText("시간 기록 제목")).toHaveProperty("value", "계속 쓰는 시간");
+  fireEvent.click(screen.getByRole("button", { name: "칠하기" }));
+  await waitFor(() => expect(action).toHaveBeenCalledWith("time-record-save", expect.objectContaining({ date: "2026-10-08", title: "계속 쓰는 시간" })));
 });
 
 it("keeps focus totals when a session is excluded from the timeline", () => {

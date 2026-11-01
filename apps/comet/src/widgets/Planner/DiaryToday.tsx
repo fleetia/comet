@@ -15,6 +15,7 @@ import {
   eventsOn,
   eventTime,
   frequencyRecords,
+  inPeriod,
   moveDay,
   plannedDay,
   ruleOf,
@@ -114,6 +115,14 @@ export function DiaryToday({
       })),
   ];
   const tasks = items.filter((item) => plannedDay(item) === day);
+  const today = localDay(new Date(now));
+  const overdue = items.filter((item) => {
+    const planned = plannedDay(item);
+    return planned && planned < today && typeof item.completedAt !== "number";
+  }).length;
+  const inbox = items.filter(
+    (item) => typeof item.completedAt !== "number" && inPeriod(item, "inbox", today),
+  ).length;
   const currentMinute = new Date(now).getHours() * 60 + new Date(now).getMinutes();
   const elapsed = day < localDay() ? 1440 : day > localDay() ? 0 : currentMinute;
   const manual = state ? manualTimeSegments(state, day, elapsed) : [];
@@ -136,7 +145,6 @@ export function DiaryToday({
     <div className={s.todayLayout}>
       {state && onDiaryAction ? (
         <DiaryTimeEditor
-          key={day}
           className={s.todayRing}
           state={state}
           date={day}
@@ -144,7 +152,7 @@ export function DiaryToday({
           onDirtyChange={onDirtyChange}
           busy={busy}
           additionalSegments={segments}
-          currentMinute={currentMinute}
+          currentMinute={day === today ? currentMinute : undefined}
           onAdditionalSegmentClick={(segment) => {
             const event = appointments.find((item) => `event:${text(item.id)}` === segment.id);
             if (event) onEvent(event);
@@ -242,6 +250,9 @@ export function DiaryToday({
             }}
           >
             {!tasks.length && <p className={s.caption}>이날 계획한 할 일이 없어요.</p>}
+            <button type="button" className={s.summaryEvent} onClick={onTasks}>
+              밀린 일 {overdue}개 · 수집함 {inbox}개
+            </button>
           </CalendarSummaryCard>
           {state && (
             <>
@@ -269,8 +280,8 @@ export function DiaryToday({
               />
             </>
           )}
-          <section className={s.summaryCard} aria-label="오늘 일정">
-            <h3 className={s.summaryTitle}>오늘 일정</h3>
+          <section className={s.summaryCard} aria-label={day === today ? "오늘 일정" : "이날 일정"}>
+            <h3 className={s.summaryTitle}>{day === today ? "오늘 일정" : "이날 일정"}</h3>
             {!appointments.length && <p className={s.caption}>이날 예정된 일정이 없어요.</p>}
             {appointments.map((event) => (
               <button

@@ -222,6 +222,50 @@ it("opens the todo list from native startup navigation without a URL tab", async
   await waitFor(() => expect(actions("set_planner_tab").at(-1)).toEqual({ tab: "todos" }));
 });
 
+it("keeps a restored quick task without prompting when the startup tab arrives", async () => {
+  localStorage.setItem("comet:diary:quick-task", JSON.stringify({ title: "다시 쓸 할 일", date: DAY }));
+  const existing = vi.mocked(command).getMockImplementation()!;
+  let finishNavigation!: (tab: string) => void;
+  vi.mocked(command).mockImplementation((name, args) =>
+    name === "get_planner_tab"
+      ? new Promise((resolve) => { finishNavigation = resolve; })
+      : existing(name, args),
+  );
+  render(<Diary />);
+  expect(await screen.findByLabelText(/빠른 할 일 제목/)).toHaveProperty("value", "다시 쓸 할 일");
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_planner_tab"));
+  await act(async () => finishNavigation("today"));
+  expect(screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeNull();
+  expect(screen.getByLabelText(/빠른 할 일 제목/)).toHaveProperty("value", "다시 쓸 할 일");
+  expect(localStorage.getItem("comet:diary:quick-task")).toContain("다시 쓸 할 일");
+});
+
+it("keeps a restored calendar editor dirty after the startup tab arrives", async () => {
+  localStorage.setItem("comet:diary-calendar-draft", JSON.stringify({
+    date: DAY,
+    values: {
+      title: "다시 쓸 일정", allDay: true, startDate: DAY, endDate: DAY,
+      startTime: "09:00", endTime: "10:00", location: "", description: "", moveTogether: false,
+    },
+  }));
+  const existing = vi.mocked(command).getMockImplementation()!;
+  let finishNavigation!: (tab: string) => void;
+  vi.mocked(command).mockImplementation((name, args) =>
+    name === "get_planner_tab"
+      ? new Promise((resolve) => { finishNavigation = resolve; })
+      : existing(name, args),
+  );
+  render(<Diary />);
+  const editor = within(await screen.findByRole("dialog", { name: "새 일정" }));
+  expect(editor.getByLabelText("일정 제목")).toHaveProperty("value", "다시 쓸 일정");
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_planner_tab"));
+  await act(async () => finishNavigation("today"));
+  expect(screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeNull();
+  expect(editor.getByLabelText("일정 제목")).toHaveProperty("value", "다시 쓸 일정");
+  act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault: vi.fn() }));
+  expect(screen.getByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeTruthy();
+});
+
 it("keeps repeated todo open events on the list and preserves the today destination", async () => {
   setTasks([task("todo-route", "위젯에서 연 할 일")]);
   await openDiary();
@@ -401,6 +445,132 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   vi.useRealTimers();
+});
+
+it("follows the date on focus while preserving the quick task's original date and input", async () => {
+  setTasks([]);
+  execute = (request) => {
+    expect(request.input).toEqual({ title: "자정 전 입력", plannedDate: DAY });
+    return "quick-task";
+  };
+  await openDiary();
+  fireEvent.click(screen.getByRole("button", { name: "빠른 할 일 추가" }));
+  fireEvent.change(screen.getByLabelText(/빠른 할 일 제목/), { target: { value: "자정 전 입력" } });
+  act(() => {
+    vi.setSystemTime(new Date(`${NEXT_DAY}T00:01:00`));
+    window.dispatchEvent(new Event("focus"));
+  });
+  expect(screen.getByLabelText(/빠른 할 일 제목/)).toHaveProperty("value", "자정 전 입력");
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("10월 4일");
+  fireEvent.click(screen.getByRole("button", { name: "할 일 저장" }));
+  await waitFor(() => expect(actions("execute_widget")).toHaveLength(1));
+});
+
+it("continues following today after opening the calendar from the sidebar", async () => {
+  await openDiary();
+  fireEvent.click(screen.getByRole("link", { name: "캘린더" }));
+  act(() => {
+    vi.setSystemTime(new Date(`${NEXT_DAY}T00:01:00`));
+    window.dispatchEvent(new Event("focus"));
+  });
+  expect(screen.getByRole("button", { name: `${NEXT_DAY} 하루 펼치기` }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button", { name: `${DAY} 하루 펼치기` }).getAttribute("aria-pressed")).toBe("false");
+});
+
+it("preserves a weekly time draft when the followed date changes", async () => {
+  await openDiary();
+  fireEvent.click(screen.getByRole("radio", { name: "주" }));
+  fireEvent.click(screen.getByRole("button", { name: "시간 입력" }));
+  fireEvent.change(screen.getByLabelText("시간 기록 제목"), { target: { value: "자정 전 시간 기록" } });
+  act(() => {
+    vi.setSystemTime(new Date(`${NEXT_DAY}T00:01:00`));
+    window.dispatchEvent(new Event("focus"));
+  });
+  const editor = within(screen.getByRole("dialog", { name: "시간 칠하기" }));
+  expect(editor.getByText(DAY)).toBeTruthy();
+  expect(editor.getByLabelText("시간 기록 제목")).toHaveProperty("value", "자정 전 시간 기록");
+  expect(screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeNull();
+});
+
+it("keeps an embedded task's date after midnight and allows choosing another date", async () => {
+  setTasks([]);
+  execute = () => "created-task";
+  await openDiary();
+  await showTasks("today");
+  const input = screen.getByRole("textbox", { name: "새 할 일" });
+  fireEvent.change(input, { target: { value: "자정 전 계획" } });
+  act(() => {
+    vi.setSystemTime(new Date(`${NEXT_DAY}T00:01:00`));
+    window.dispatchEvent(new Event("focus"));
+  });
+  expect(input).toHaveProperty("value", "자정 전 계획");
+  expect(screen.getByLabelText("새 할 일 계획일")).toHaveProperty("value", DAY);
+  expect(JSON.parse(localStorage.getItem("comet:diary:planner-input") ?? "null").day).toBe(DAY);
+  fireEvent.submit(input.closest("form") as HTMLFormElement);
+  await waitFor(() => expect(actions("execute_widget")).toHaveLength(1));
+  expect((actions("execute_widget")[0].request as DataRecord).input).toMatchObject({ title: "자정 전 계획", plannedDate: DAY });
+  await waitFor(() => expect(input).toHaveProperty("value", ""));
+  fireEvent.change(input, { target: { value: "직접 고른 계획" } });
+  fireEvent.change(screen.getByLabelText("새 할 일 계획일"), { target: { value: "2026-10-06" } });
+  expect(screen.getByLabelText("새 할 일 계획일")).toHaveProperty("value", "2026-10-06");
+  fireEvent.submit(input.closest("form") as HTMLFormElement);
+  await waitFor(() => expect(actions("execute_widget")).toHaveLength(2));
+  expect((actions("execute_widget")[1].request as DataRecord).input).toMatchObject({ title: "직접 고른 계획", plannedDate: "2026-10-06" });
+});
+
+it("restores an embedded task's original date after restart and further edits", async () => {
+  setTasks([]);
+  execute = () => "created-task";
+  await openDiary();
+  await showTasks("today");
+  fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), { target: { value: "복원할 계획" } });
+  cleanup();
+  vi.setSystemTime(new Date(`${NEXT_DAY}T08:00:00`));
+  const existing = vi.mocked(command).getMockImplementation()!;
+  let finishNavigation!: (tab: string) => void;
+  vi.mocked(command).mockImplementation((name, args) =>
+    name === "get_planner_tab"
+      ? new Promise((resolve) => { finishNavigation = resolve; })
+      : existing(name, args),
+  );
+  render(<Diary />);
+  const input = await screen.findByRole("textbox", { name: "새 할 일" });
+  expect(input).toHaveProperty("value", "복원할 계획");
+  expect(screen.getByLabelText("새 할 일 계획일")).toHaveProperty("value", DAY);
+  expect(screen.getByText(`${DAY}에 계획한 할 일이 없어요.`)).toBeTruthy();
+  await act(async () => finishNavigation("today"));
+  expect(screen.getByText(`${DAY}에 계획한 할 일이 없어요.`)).toBeTruthy();
+  fireEvent.change(input, { target: { value: "복원 후 수정한 계획" } });
+  expect(JSON.parse(localStorage.getItem("comet:diary:planner-input") ?? "null")).toMatchObject({
+    title: "복원 후 수정한 계획", day: DAY,
+  });
+  fireEvent.submit(input.closest("form") as HTMLFormElement);
+  await waitFor(() => expect(actions("execute_widget")).toHaveLength(1));
+  expect((actions("execute_widget")[0].request as DataRecord).input).toMatchObject({
+    title: "복원 후 수정한 계획", plannedDate: DAY,
+  });
+  await waitFor(() => expect(localStorage.getItem("comet:diary:planner-input")).toBeNull());
+});
+
+it("keeps the dated journal draft and creates its original page after midnight", async () => {
+  update = (action, input) => {
+    if (action === "page-create") {
+      expect(input.date).toBe(DAY);
+      diary = { ...diary, revision: 4, pages: [{ id: "original", date: DAY, title: "", entries: [] }] };
+    } else if (action === "entry-add") {
+      expect(input.pageId).toBe("original");
+      diary = { ...diary, revision: 5 };
+    }
+    return structuredClone(diary);
+  };
+  await openDiary();
+  fireEvent.click(opened().getByRole("button", { name: "할 일, 떠오른 생각, 오늘의 일을 한 줄로…" }));
+  fireEvent.change(opened().getByRole("textbox", { name: "새 기록 내용" }), { target: { value: "자정 전 기록" } });
+  act(() => { vi.setSystemTime(new Date(`${NEXT_DAY}T00:01:00`)); window.dispatchEvent(new Event("focus")); });
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("10월 4일");
+  expect(opened().getByRole("textbox", { name: "새 기록 내용" })).toHaveProperty("value", "자정 전 기록");
+  fireEvent.click(opened().getByRole("button", { name: "메모 추가" }));
+  await waitFor(() => expect(actions("update_diary")).toHaveLength(2));
 });
 
 it("creates one quick task on the selected date without duplicating a diary record", async () => {
@@ -2065,7 +2235,33 @@ it("retries an uncertain envelope create with the same request after its linked 
   expect(await opened().findByRole("heading", { name: "같은 요청의 준비" })).toBeTruthy();
 });
 
-it("ignores guarded navigation while a quick task save is pending", async () => {
+it("restores an uncertain envelope request and its original revision after restart", async () => {
+  const preparation = widget("preparation", { envelopes: [] });
+  widgets.widgets = [preparation];
+  execute = () => {
+    preparation.revision = 8;
+    throw new Error("응답을 받지 못했어요");
+  };
+  await openDiary();
+  fireEvent.click(screen.getByRole("link", { name: /^준비 봉투/ }));
+  fireEvent.click(opened().getByRole("button", { name: "새 준비 봉투" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "봉투 이름" }), { target: { value: "복원할 봉투" } });
+  fireEvent.click(screen.getByRole("button", { name: "만들기" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "같은 요청으로 다시 시도" })).toHaveProperty("disabled", false));
+  const first = actions("execute_widget").at(-1)?.request;
+  cleanup();
+  execute = (request) => {
+    preparation.data = { envelopes: [{ id: "restored", ...(request.input as DataRecord) }] };
+    return "restored";
+  };
+  render(<Diary />);
+  fireEvent.click(await screen.findByRole("button", { name: "같은 요청으로 다시 시도" }));
+  await waitFor(() => expect(actions("execute_widget")).toHaveLength(2));
+  expect(actions("execute_widget")[1].request).toEqual(first);
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "새 준비 봉투" })).toBeNull());
+});
+
+it("opens the last requested view after a quick task save completes", async () => {
   setTasks([]);
   let finish: (id: string) => void = () => undefined;
   execute = () => new Promise<string>((resolve) => (finish = resolve)) as unknown as string;
@@ -2080,7 +2276,7 @@ it("ignores guarded navigation while a quick task save is pending", async () => 
   expect(screen.getByRole("radio", { name: "하루" })).toHaveProperty("checked", true);
   await act(async () => finish("pending-task"));
   await waitFor(() => expect(screen.queryByRole("form", { name: "빠른 할 일" })).toBeNull());
-  expect(screen.getByRole("radio", { name: "하루" })).toHaveProperty("checked", true);
+  expect(screen.getByRole("radio", { name: "월" })).toHaveProperty("checked", true);
 });
 
 it("routes a clean native close through the approved close callback", async () => {
@@ -2279,4 +2475,31 @@ it("discards an unsaved envelope note composer on native close without reviving 
   expect(screen.queryByRole("textbox", { name: "새 메모 제목" })).toBeNull();
   expect(screen.queryByRole("textbox", { name: "새 메모 내용" })).toBeNull();
   expect(actions("update_diary")).toEqual([]);
+});
+
+it("removes all embedded preparation drafts when discarding planner edits on window close", async () => {
+  setTasks([]);
+  await openDiary();
+  await showTasks("plans");
+  fireEvent.change(await screen.findByRole("textbox", { name: "새 할 일" }), {
+    target: { value: "버릴 계획" },
+  });
+  const keys = [
+    "comet:embedded-preparation:preparation:envelope",
+    "comet:embedded-preparation-schedule:preparation:envelope",
+    "comet:embedded-preparation-task:preparation:envelope",
+    "comet:embedded-preparation:preparation:another-envelope",
+  ];
+  for (const key of keys) localStorage.setItem(key, "unsaved");
+  localStorage.setItem("comet:unrelated", "preserved");
+
+  act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault: vi.fn() }));
+  fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+  for (const key of keys) expect(localStorage.getItem(key)).toBe("unsaved");
+
+  act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault: vi.fn() }));
+  fireEvent.click(screen.getByRole("button", { name: "저장하지 않고 닫기" }));
+  for (const key of keys) expect(localStorage.getItem(key)).toBeNull();
+  expect(localStorage.getItem("comet:unrelated")).toBe("preserved");
+  await waitFor(() => expect(native.destroy).toHaveBeenCalledOnce());
 });

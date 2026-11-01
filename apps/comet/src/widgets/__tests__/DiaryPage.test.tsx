@@ -115,11 +115,47 @@ it("preserves failed edits through reopening and refuses to overwrite a changed 
   fireEvent.blur(screen.getByRole("textbox", { name: "메모 내용" }));
   expect(callbacks.onDiaryAction).toHaveBeenCalledTimes(1);
   expect(screen.getByRole<HTMLButtonElement>("button", { name: "저장" }).disabled).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "최신 내용 보기" }));
+  expect(screen.getByText("다른 창에서 바뀐 기록")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "내 글 버리고 최신 내용으로 바꾸기" }));
+  let dialog = within(screen.getByRole("dialog", { name: "내 글을 버릴까요?" }));
+  fireEvent.click(dialog.getByRole("button", { name: "취소" }));
+  expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "메모 내용" }).value).toBe(
+    "지금 적은 내용\n한 줄 더",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "내 글 버리고 최신 내용으로 바꾸기" }));
+  dialog = within(screen.getByRole("dialog", { name: "내 글을 버릴까요?" }));
+  fireEvent.click(dialog.getByRole("button", { name: "내 글 버리고 최신 내용으로 바꾸기" }));
   expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "메모 내용" }).value).toBe(
     "다른 창에서 바뀐 기록",
   );
   expect(callbacks.onDirtyChange).toHaveBeenLastCalledWith(false);
+});
+
+it("confirms deleting a page record and keeps edits when cancelled", async () => {
+  const entry = { id: "note-1", kind: "note" as const, text: "원래 기록" };
+  const callbacks = props({ page: { ...initialPage, entries: [entry] } });
+  render(<DiaryPage {...callbacks} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "메모 내용" }), {
+    target: { value: "작성 중인 수정" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "원래 기록 기록 지우기" }));
+  let dialog = within(screen.getByRole("dialog", { name: "기록을 삭제할까요?" }));
+  fireEvent.click(dialog.getByRole("button", { name: "취소" }));
+  expect(callbacks.onDiaryAction).not.toHaveBeenCalled();
+  expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty(
+    "value",
+    "작성 중인 수정",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "원래 기록 기록 지우기" }));
+  dialog = within(screen.getByRole("dialog", { name: "기록을 삭제할까요?" }));
+  fireEvent.click(dialog.getByRole("button", { name: "기록 삭제" }));
+  await waitFor(() =>
+    expect(callbacks.onDiaryAction).toHaveBeenCalledWith("entry-delete", {
+      pageId: "page-1",
+      id: "note-1",
+      expectedEntry: entry,
+    }),
+  );
 });
 
 it("shows active envelopes dated for this day without calendar setup and opens their original page", () => {

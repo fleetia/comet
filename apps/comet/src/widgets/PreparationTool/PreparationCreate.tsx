@@ -1,11 +1,32 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Button, Dialog, SegmentedControl, Select, Textarea, TextInput } from "@comet/ui";
 import { localDay, text, type DataRecord } from "../toolData";
+import { useCompositionGuard } from "../useCompositionGuard";
 import { eventTime } from "../Planner/plannerData";
 import { PLANNER_TEMPLATES, templateItems } from "../Planner/templateCatalog";
 import * as s from "../Planner/diaryEnvelope.css";
 
 export type PreparationCreateResult = "created" | "rejected" | "unknown";
+export const PREPARATION_DRAFT_KEY = "comet:diary:preparation-create";
+
+type PreparationDraft = {
+  name: string;
+  when: string;
+  eventId: string;
+  date: string;
+  checks: string;
+  templateId: string;
+  reminderDays: string;
+  attempt: { id: string; input: DataRecord } | null;
+};
+
+function readDraft(): Partial<PreparationDraft> {
+  try {
+    return JSON.parse(localStorage.getItem(PREPARATION_DRAFT_KEY) || "null") ?? {};
+  } catch {
+    return {};
+  }
+}
 
 export function PreparationCreate({
   events,
@@ -13,29 +34,48 @@ export function PreparationCreate({
   onCreate,
   onClose,
   onDirtyChange,
+  persistDraft = false,
 }: {
   events: DataRecord[];
   busy: boolean;
   onCreate: (input: DataRecord, requestId: string) => Promise<PreparationCreateResult>;
   onClose: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  persistDraft?: boolean;
 }): ReactElement {
-  const [name, setName] = useState("");
-  const [when, setWhen] = useState("undated");
-  const [eventId, setEventId] = useState("");
-  const [date, setDate] = useState(localDay());
-  const [checks, setChecks] = useState("");
-  const [templateId, setTemplateId] = useState("");
-  const [reminderDays, setReminderDays] = useState("inherit");
+  const compositionGuard = useCompositionGuard();
+  const [initial] = useState(() => (persistDraft ? readDraft() : {}));
+  const [name, setName] = useState(initial.name ?? "");
+  const [when, setWhen] = useState(initial.when ?? "undated");
+  const [eventId, setEventId] = useState(initial.eventId ?? "");
+  const [date, setDate] = useState(initial.date ?? localDay());
+  const [checks, setChecks] = useState(initial.checks ?? "");
+  const [templateId, setTemplateId] = useState(initial.templateId ?? "");
+  const [reminderDays, setReminderDays] = useState(initial.reminderDays ?? "inherit");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [attempt, setAttempt] = useState<{ id: string; input: DataRecord } | null>(null);
+  const [attempt, setAttempt] = useState<{ id: string; input: DataRecord } | null>(
+    initial.attempt ?? null,
+  );
   const pending = useRef(false);
   const report = useRef(onDirtyChange);
   report.current = onDirtyChange;
   const dirty = Boolean(
     name || checks || templateId || when !== "undated" || reminderDays !== "inherit" || attempt,
   );
+  useEffect(() => {
+    if (!persistDraft) return;
+    try {
+      if (dirty)
+        localStorage.setItem(
+          PREPARATION_DRAFT_KEY,
+          JSON.stringify({ name, when, eventId, date, checks, templateId, reminderDays, attempt }),
+        );
+      else localStorage.removeItem(PREPARATION_DRAFT_KEY);
+    } catch {
+      setError("초안을 이 기기에 저장하지 못했어요.");
+    }
+  }, [persistDraft, dirty, name, when, eventId, date, checks, templateId, reminderDays, attempt]);
   useEffect(() => {
     report.current?.(dirty);
   }, [dirty]);
@@ -82,6 +122,28 @@ export function PreparationCreate({
         reminderDays: reminderDays === "inherit" ? null : Number(reminderDays),
       },
     };
+    if (persistDraft) {
+      try {
+        localStorage.setItem(
+          PREPARATION_DRAFT_KEY,
+          JSON.stringify({
+            name,
+            when,
+            eventId,
+            date,
+            checks,
+            templateId,
+            reminderDays,
+            attempt: request,
+          }),
+        );
+      } catch {
+        pending.current = false;
+        setSaving(false);
+        setError("요청을 이 기기에 저장하지 못했어요. 다시 시도해 주세요.");
+        return;
+      }
+    }
     setAttempt(request);
     try {
       const result = await onCreate(request.input, request.id);
@@ -90,6 +152,8 @@ export function PreparationCreate({
         setError("봉투를 저장하지 않았어요. 입력한 내용을 확인하고 다시 만들어 주세요.");
       } else if (result === "unknown") {
         setError("봉투 저장을 확인하지 못했어요. 다시 시도하면 같은 요청으로 결과를 확인해요.");
+      } else if (persistDraft) {
+        localStorage.removeItem(PREPARATION_DRAFT_KEY);
       }
     } catch {
       setError("봉투 저장을 확인하지 못했어요. 입력한 내용은 남아 있어요. 다시 시도해 주세요.");
@@ -126,6 +190,7 @@ export function PreparationCreate({
       }
     >
       <form
+        {...compositionGuard}
         id="preparation-create"
         className={s.createForm}
         onSubmit={(event) => {

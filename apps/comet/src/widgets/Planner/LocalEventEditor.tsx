@@ -10,6 +10,7 @@ import {
   overlappingEvents,
 } from "./plannerData";
 import * as s from "./planner.css";
+import type { CalendarEditorValues } from "./useDiaryCalendarEvents";
 
 export function LocalEventEditor({
   event,
@@ -21,6 +22,8 @@ export function LocalEventEditor({
   onReload,
   onClose,
   onDirtyChange,
+  restoredValues,
+  onDraftChange,
 }: {
   event?: DataRecord;
   events?: DataRecord[];
@@ -31,33 +34,39 @@ export function LocalEventEditor({
   onReload?: () => Promise<boolean>;
   onClose: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  restoredValues?: CalendarEditorValues;
+  onDraftChange?: (values: CalendarEditorValues, dirty: boolean) => boolean;
 }): ReactElement {
   const titleRef = useRef<HTMLInputElement>(null);
-  const [title, setTitle] = useState(text(event?.title));
-  const [allDay, setAllDay] = useState(event ? Boolean(event.allDay) : true);
-  const [startDate, setStartDate] = useState(
-    typeof event?.startAt === "number"
+  const initial: CalendarEditorValues = {
+    title: text(event?.title),
+    allDay: event ? Boolean(event.allDay) : true,
+    startDate: typeof event?.startAt === "number"
       ? localDay(new Date(event.startAt))
       : text(event?.startDate) || day,
-  );
-  const [endDate, setEndDate] = useState(
-    typeof event?.endAt === "number"
+    endDate: typeof event?.endAt === "number"
       ? localDay(new Date(event.endAt))
       : event?.allDay && text(event.endDate)
         ? moveDay(text(event.endDate), -1)
         : day,
-  );
-  const [startTime, setStartTime] = useState(
-    typeof event?.startAt === "number" ? clockLabel(event.startAt) : "09:00",
-  );
-  const [endTime, setEndTime] = useState(
-    typeof event?.endAt === "number" ? clockLabel(event.endAt) : "10:00",
-  );
-  const [location, setLocation] = useState(text(event?.location));
-  const [description, setDescription] = useState(text(event?.description));
+    startTime: typeof event?.startAt === "number" ? clockLabel(event.startAt) : "09:00",
+    endTime: typeof event?.endAt === "number" ? clockLabel(event.endAt) : "10:00",
+    location: text(event?.location),
+    description: text(event?.description),
+    moveTogether: false,
+  };
+  const [title, setTitle] = useState(restoredValues?.title ?? initial.title);
+  const [allDay, setAllDay] = useState(restoredValues?.allDay ?? initial.allDay);
+  const [startDate, setStartDate] = useState(restoredValues?.startDate ?? initial.startDate);
+  const [endDate, setEndDate] = useState(restoredValues?.endDate ?? initial.endDate);
+  const [startTime, setStartTime] = useState(restoredValues?.startTime ?? initial.startTime);
+  const [endTime, setEndTime] = useState(restoredValues?.endTime ?? initial.endTime);
+  const [location, setLocation] = useState(restoredValues?.location ?? initial.location);
+  const [description, setDescription] = useState(restoredValues?.description ?? initial.description);
   const [error, setError] = useState("");
   const [validationError, setValidationError] = useState("");
-  const [moveTogether, setMoveTogether] = useState(false);
+  const [storageFailure, setStorageFailure] = useState(false);
+  const [moveTogether, setMoveTogether] = useState(restoredValues?.moveTogether ?? false);
   const [confirmation, setConfirmation] = useState<"close" | "delete" | "reload" | null>(null);
   const [working, setWorking] = useState(false);
   const pending = useRef(false);
@@ -70,9 +79,10 @@ export function LocalEventEditor({
     endTime,
     location,
     description,
+    moveTogether,
   });
   useEffect(() => setValidationError(""), [fingerprint]);
-  const baseline = useRef(fingerprint);
+  const baseline = useRef(JSON.stringify(initial));
   const dirty = fingerprint !== baseline.current;
   const disabled = busy || working;
   const report = useRef(onDirtyChange);
@@ -80,6 +90,12 @@ export function LocalEventEditor({
   useEffect(() => {
     report.current?.(dirty);
   }, [dirty]);
+  const reportDraft = useRef(onDraftChange);
+  reportDraft.current = onDraftChange;
+  useEffect(() => {
+    const saved = reportDraft.current?.({ title, allDay, startDate, endDate, startTime, endTime, location, description, moveTogether }, dirty);
+    setStorageFailure(saved === false);
+  }, [fingerprint, dirty]);
   useEffect(
     () => () => {
       report.current?.(false);
@@ -284,6 +300,7 @@ export function LocalEventEditor({
             />
           </FormField>
           <p className={s.caption}>Comet 일정 · 이 기기에 저장</p>
+          {storageFailure && <p role="alert" className={s.error}>초안을 이 기기에 저장하지 못했어요. 앱을 닫기 전에 일정을 저장해 주세요.</p>}
           <Checkbox
             checked={allDay}
             onChange={(change) => setAllDay(change.target.checked)}

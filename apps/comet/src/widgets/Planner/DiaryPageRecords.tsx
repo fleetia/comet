@@ -1,5 +1,5 @@
-import { Button, TextInput } from "@comet/ui";
-import type { ReactElement } from "react";
+import { Button, Dialog, TextInput } from "@comet/ui";
+import { useState, type ReactElement } from "react";
 import { text } from "../toolData";
 import type { DiaryPageProps } from "./DiaryPage";
 import type { DiaryEntry } from "./diaryTypes";
@@ -52,6 +52,8 @@ export function DiaryPageRecords({
     saveEntry,
     removeEntry,
   } = draft;
+  const [deletingEntry, setDeletingEntry] = useState<DiaryEntry | null>(null);
+  const [discardingId, setDiscardingId] = useState<string | null>(null);
 
   function renderEntry(entry: DiaryEntry): ReactElement {
     if (entry.kind === "widget") {
@@ -204,7 +206,7 @@ export function DiaryPageRecords({
                     size="small"
                     variant="ghost"
                     disabled={disabled}
-                    onClick={() => void removeEntry(entry)}
+                    onClick={() => setDeletingEntry(entry)}
                     aria-label={`${entry.text} 기록 지우기`}
                   >
                     지우기
@@ -235,9 +237,9 @@ export function DiaryPageRecords({
                   size="small"
                   variant="ghost"
                   disabled={disabled}
-                  onClick={() => discardEntry(entry.id)}
+                  onClick={() => (conflict ? setDiscardingId(entry.id) : discardEntry(entry.id))}
                 >
-                  {conflict ? "최신 내용 보기" : "수정 취소"}
+                  {conflict ? "내 글 버리고 최신 내용으로 바꾸기" : "수정 취소"}
                 </Button>
               </>
             </div>
@@ -249,7 +251,7 @@ export function DiaryPageRecords({
               size="small"
               variant="ghost"
               disabled={disabled}
-              onClick={() => void removeEntry(entry)}
+              onClick={() => setDeletingEntry(entry)}
               aria-label={`${entry.text} 기록 지우기`}
             >
               기록 지우기
@@ -260,6 +262,19 @@ export function DiaryPageRecords({
               {errors[entry.id] ||
                 "다른 곳에서 기록이 바뀌었어요. 작성 중인 내용은 그대로 남아 있어요."}
             </p>
+          )}
+          {conflict && (
+            <div className={s.meta}>
+              <strong>최신 내용</strong>
+              {latest ? (
+                <p style={{ whiteSpace: "pre-wrap" }}>
+                  {latest.time && `${latest.time} `}
+                  {latest.text}
+                </p>
+              ) : (
+                <p>최신 기록이 삭제되었어요.</p>
+              )}
+            </div>
           )}
         </div>
       </li>
@@ -308,6 +323,63 @@ export function DiaryPageRecords({
           <p className={s.empty}>할 일도, 떠오른 생각도 이 페이지에 이어서 적어 보세요.</p>
         )}
       <DiaryPageComposer draft={draft.composer} envelopes={envelopes} />
+      <Dialog
+        isOpen={deletingEntry !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeletingEntry(null);
+        }}
+        title="기록을 삭제할까요?"
+        closeLabel="취소"
+        variant="confirm"
+        footer={
+          <>
+            <Button variant="ghost" disabled={disabled} onClick={() => setDeletingEntry(null)}>
+              취소
+            </Button>
+            <Button
+              variant="danger"
+              disabled={disabled}
+              onClick={async () => {
+                if (!deletingEntry) return;
+                await removeEntry(deletingEntry);
+                setDeletingEntry(null);
+              }}
+            >
+              기록 삭제
+            </Button>
+          </>
+        }
+      >
+        <p>기록과 작성 중인 수정 내용이 삭제돼요.</p>
+      </Dialog>
+      <Dialog
+        isOpen={discardingId !== null}
+        onOpenChange={(open) => {
+          if (!open) setDiscardingId(null);
+        }}
+        title="내 글을 버릴까요?"
+        closeLabel="취소"
+        variant="confirm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDiscardingId(null)}>
+              취소
+            </Button>
+            <Button
+              variant="danger"
+              disabled={disabled}
+              onClick={() => {
+                if (discardingId) discardEntry(discardingId);
+                setDiscardingId(null);
+              }}
+            >
+              내 글 버리고 최신 내용으로 바꾸기
+            </Button>
+          </>
+        }
+      >
+        <p>작성 중인 내용이 사라지고 최신 내용으로 바뀌어요.</p>
+      </Dialog>
     </div>
   );
 }

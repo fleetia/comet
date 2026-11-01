@@ -1,6 +1,7 @@
 import { Button, FormField, TextInput } from "@comet/ui";
 import type { ReactElement } from "react";
 import type { DiaryQuickTask } from "./useDiaryQuickTask";
+import { useCompositionGuard } from "../useCompositionGuard";
 import * as s from "./diary.css";
 
 export function DiaryQuickTaskForm({
@@ -10,8 +11,10 @@ export function DiaryQuickTaskForm({
   task: DiaryQuickTask;
   saving: boolean;
 }): ReactElement {
+  const compositionGuard = useCompositionGuard();
   return (
     <form
+      {...compositionGuard}
       className={s.form}
       aria-label="빠른 할 일"
       onSubmit={async (event) => {

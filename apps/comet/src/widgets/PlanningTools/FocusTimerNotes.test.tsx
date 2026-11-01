@@ -56,7 +56,7 @@ it("returns focus to the direct note-title opener without changing the original"
   await user.keyboard("{Enter}");
   const dialog = screen.getByRole("dialog", { name: "원본 노트" });
   fireEvent(dialog, new Event("cancel", { cancelable: true }));
-  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "원본 노트" })).toBeNull();
   expect(document.activeElement).toBe(opener);
   expect(mocked.mutate).not.toHaveBeenCalled();
 });
@@ -100,7 +100,7 @@ it("portals the original-note editor outside its pane and locks it while saving"
   );
   const noteRef = { kind: "diary", id: "note", title: "원본 제목" };
   const view = render(<FocusTimerNotes {...props} noteRef={noteRef} />);
-  expect(document.querySelector("dialog")).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "원본 노트" })).toBeNull();
   await reactAct(async () => fireEvent.click(screen.getByRole("button", { name: "제목 편집" })));
   const dialog = screen.getByRole("dialog", { name: "원본 노트" });
   expect(dialog.parentElement).toBe(document.body);
@@ -120,7 +120,7 @@ it("portals the original-note editor outside its pane and locks it while saving"
     expectedBody: "원본 내용",
   });
   await reactAct(async () => finish?.(mocked.state));
-  expect(document.querySelector("dialog")).toBeNull();
+  expect(dialog.isConnected).toBe(false);
 });
 
 async function debounce(): Promise<void> {

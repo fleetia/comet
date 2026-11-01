@@ -302,7 +302,7 @@ export function DiaryTimeEditor({
       {draft && (
         <>
           <div>
-            {renderTimeline && <p className={s.meta}>{draft.date}</p>}
+            {(renderTimeline || draft.date !== date) && <p className={s.meta}>{draft.date}</p>}
             <h3 className={s.heading}>
               {draft.start} – {draft.end}
             </h3>
@@ -619,7 +619,7 @@ export function DiaryTimeEditor({
           layout="fill"
           segments={segments}
           value={timeDuration(recordedTimeMinutes(segments))}
-          centerLabel="오늘 칠한 시간"
+          centerLabel={date === localDay() ? "오늘 칠한 시간" : "이날 칠한 시간"}
           caption="수동 기록과 실제 집중 시간 · 일정은 안쪽 링"
           toolbar={toolbar}
           overlay={overlay}

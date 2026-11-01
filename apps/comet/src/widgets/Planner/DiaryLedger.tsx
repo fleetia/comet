@@ -186,7 +186,7 @@ export function DiaryLedger({
         <h1 className={s.title}>
           가계부 ·{" "}
           {mode === "recurring"
-            ? "고정비"
+            ? `${monthTitle(date)} 고정비`
             : mode === "week"
               ? `${from.slice(0, 4)}.${Number(from.slice(5, 7))}.${Number(from.slice(8))}–${from.slice(0, 4) !== through.slice(0, 4) ? `${through.slice(0, 4)}.` : ""}${Number(through.slice(5, 7))}.${Number(through.slice(8))}`
               : monthTitle(date)}
@@ -341,7 +341,7 @@ export function DiaryLedger({
                     })
                   }
                 >
-                  이번 달 기록하기
+                  {monthTitle(date)} 기록하기
                 </Button>
               </div>
               {FREQUENCIES.map((frequency) => {
@@ -402,7 +402,7 @@ export function DiaryLedger({
           {mode === "recurring" ? (
             <>
               <section className={s.card}>
-                <h2 className={s.heading}>{Number(date.slice(5, 7))}월 고정비</h2>
+                <h2 className={s.heading}>{monthTitle(date)} 고정비</h2>
                 <strong className={s.amount}>{won(planned)}</strong>
                 <p className={s.caption}>
                   {monthlyOccurrences.length}건 예정 · 금액이 달라지는 항목은 예상 금액이에요.
@@ -484,7 +484,7 @@ export function DiaryLedger({
               />
               <section className={s.card}>
                 <div className={s.row}>
-                  <h2 className={`${s.heading} ${s.spread}`}>이번 달 고정비</h2>
+                  <h2 className={`${s.heading} ${s.spread}`}>{monthTitle(date)} 고정비</h2>
                   <Button variant="link" size="small" onClick={() => changeMode("recurring")}>
                     모두 보기
                   </Button>
@@ -501,7 +501,7 @@ export function DiaryLedger({
                   </div>
                 ))}
                 {!monthlyOccurrences.length && (
-                  <p className={s.caption}>이번 달 예정된 고정비가 없어요.</p>
+                  <p className={s.caption}>{monthTitle(date)}에 예정된 고정비가 없어요.</p>
                 )}
               </section>
               <LedgerCategorySummary

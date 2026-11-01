@@ -502,6 +502,7 @@ function DiaryNoteEditor({
   const [draftError, setDraftError] = useState(false);
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [discardingConflict, setDiscardingConflict] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const article = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -614,9 +615,19 @@ function DiaryNoteEditor({
             </Button>
           </div>
           {conflict && (
-            <Button variant="ghost" size="small" disabled={busy} onClick={edit}>
-              최신 내용 다시 불러오기
-            </Button>
+            <div className={s.caption}>
+              <strong>최신 내용</strong>
+              <p style={{ whiteSpace: "pre-wrap" }}>{note.title}</p>
+              <p style={{ whiteSpace: "pre-wrap" }}>{note.body}</p>
+              <Button
+                variant="ghost"
+                size="small"
+                disabled={busy}
+                onClick={() => setDiscardingConflict(true)}
+              >
+                내 글 버리고 최신 내용으로 바꾸기
+              </Button>
+            </div>
           )}
         </form>
       ) : (
@@ -704,6 +715,32 @@ function DiaryNoteEditor({
           {error}
         </p>
       )}
+      <Dialog
+        isOpen={discardingConflict}
+        onOpenChange={setDiscardingConflict}
+        title="내 글을 버릴까요?"
+        closeLabel="취소"
+        variant="confirm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDiscardingConflict(false)}>
+              취소
+            </Button>
+            <Button
+              variant="danger"
+              disabled={busy}
+              onClick={() => {
+                edit();
+                setDiscardingConflict(false);
+              }}
+            >
+              내 글 버리고 최신 내용으로 바꾸기
+            </Button>
+          </>
+        }
+      >
+        <p>작성 중인 내용이 사라지고 최신 내용으로 바뀌어요.</p>
+      </Dialog>
       <Dialog
         isOpen={deleting}
         onOpenChange={setDeleting}

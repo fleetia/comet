@@ -17,6 +17,7 @@ export function DiaryRail({
   saving,
   onClose,
   onOpenDay,
+  onOpenToday,
   onOpenTool,
   onOpenNotes,
   onOpenEnvelopes,
@@ -35,6 +36,7 @@ export function DiaryRail({
   saving: boolean;
   onClose: () => void;
   onOpenDay: (date: string, view?: View) => void;
+  onOpenToday: () => void;
   onOpenTool: (tool: DiaryTool) => void;
   onOpenNotes: () => void;
   onOpenEnvelopes: () => void;
@@ -53,10 +55,10 @@ export function DiaryRail({
       <SidebarItem
         href="#today"
         icon="today"
-        current={!notesOpen && !collection && !tool && view === "day"}
+        current={!notesOpen && !collection && !tool && view === "day" && day === localDay()}
         onClick={(event) => {
           event.preventDefault();
-          onOpenDay(localDay());
+          onOpenToday();
         }}
       >
         오늘
