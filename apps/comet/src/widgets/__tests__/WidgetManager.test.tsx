@@ -417,10 +417,10 @@ it("discards widget setting drafts on catalog navigation while preserving them d
   vi.mocked(useWidgets).mockReturnValue({ snapshot, error: null, reload });
   const dirty = vi.fn();
   const view = render(<WidgetManager embedded onDirtyChange={dirty} />);
-  chooseWidget(/^음악 정보/);
+  chooseWidget("음악 정보 켜짐");
   fireEvent.change(screen.getByLabelText("음악 앱"), { target: { value: "spotify" } });
   await waitFor(() => expect(dirty).toHaveBeenLastCalledWith(true));
-  chooseWidget(/^캘린더/);
+  chooseWidget("캘린더 켜짐");
   fireEvent.click(screen.getByRole("button", { name: /캘린더 연결…/ }));
   expect(dirty).toHaveBeenLastCalledWith(false);
   fireEvent.change(screen.getByLabelText(/^연결 이름/), { target: { value: "개인 일정" } });
@@ -428,7 +428,7 @@ it("discards widget setting drafts on catalog navigation while preserving them d
     target: { value: "https://example.com/private.ics" },
   });
   expect(dirty).toHaveBeenLastCalledWith(true);
-  chooseWidget(/^음악 정보/);
+  chooseWidget("음악 정보 켜짐");
   expect(screen.getByLabelText("음악 앱")).toHaveProperty("value", "auto");
   expect(dirty).toHaveBeenLastCalledWith(false);
   fireEvent.change(screen.getByLabelText("음악 앱"), { target: { value: "spotify" } });
@@ -448,7 +448,7 @@ it("discards widget setting drafts on catalog navigation while preserving them d
   expect(screen.getByLabelText("음악 앱")).toHaveProperty("value", "spotify");
   fireEvent.click(screen.getByRole("button", { name: "선택 초기화" }));
   expect(dirty).toHaveBeenLastCalledWith(false);
-  chooseWidget(/^캘린더/);
+  chooseWidget("캘린더 켜짐");
   expect(screen.queryByRole("textbox", { name: /^연결 이름/ })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /캘린더 연결…/ }));
   expect(screen.getByLabelText(/^연결 이름/)).toHaveProperty("value", "");
@@ -459,6 +459,53 @@ it("discards widget setting drafts on catalog navigation while preserving them d
       .mocked(command)
       .mock.calls.filter(([name]) => name !== "get_planner_notification_permission" && name !== "get_music_launch_preference"),
   ).toEqual([]);
+});
+
+it("keeps Google approval controls enabled through the settings busy boundary", async () => {
+  const calendar = {
+    ...installed("calendar"),
+    data: {
+      connections: [
+        {
+          id: "google",
+          name: "내 캘린더",
+          provider: "google",
+          status: "auth-error",
+          selectedCalendarIds: ["primary"],
+        },
+      ],
+      events: [],
+    },
+  };
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, onboardingDone: true, widgets: [calendar] },
+    error: null,
+    reload,
+  });
+  let cancelConnection: (reason: Error) => void = () => {};
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "connect_calendar_google"
+      ? new Promise((_resolve, reject) => {
+          cancelConnection = reject;
+        })
+      : null,
+  );
+  const onBusyChange = vi.fn();
+  render(<WidgetManager embedded onBusyChange={onBusyChange} />);
+  chooseWidget("캘린더 켜짐");
+  fireEvent.click(screen.getByRole("button", { name: "다시 연결" }));
+  fireEvent.click(screen.getByRole("button", { name: "브라우저에서 Google 읽기 연결" }));
+  const cancel = await screen.findByRole("button", { name: "Google 연결 취소" });
+  await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(true));
+  for (let ancestor = cancel.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    expect(ancestor.tagName === "FIELDSET" && ancestor.hasAttribute("disabled")).toBe(false);
+  }
+  fireEvent.click(cancel);
+  expect(command).toHaveBeenCalledWith("cancel_calendar_google", { id: "calendar" });
+  await act(async () => cancelConnection(new Error("Google 연결을 취소했어요.")));
+  await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(false));
+  expect(screen.getByRole("alert").textContent).toContain("Google 연결을 취소했어요.");
+  expect(screen.getByLabelText("연결 이름")).toHaveProperty("value", "내 캘린더");
 });
 
 it.each(["clock", "weather", "focus-timer", "calendar", "music", "preparation"])(
@@ -850,6 +897,48 @@ it("places and removes desktop widgets through the shared desktop commands", asy
         ["open_widget_display", "close_widget_display", "open_widget_stack"].includes(name),
       ),
   ).toEqual([]);
+});
+
+it.each([
+  ["focus-timer", "집중 타이머 켜짐"],
+  ["music", "음악 정보 켜짐"],
+  ["calendar", "캘린더 켜짐"],
+  ["clock", "시계·기념일 켜짐"],
+  ["weather", "날씨 켜짐"],
+])("opens %s from its detail using the existing command", async (kind, name) => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [installed(kind)] },
+    error: null,
+    reload,
+  });
+  render(<WidgetManager embedded />);
+  chooseWidget(name);
+  fireEvent.click(screen.getByRole("button", { name: "위젯 열기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("open_widget", { id: kind }));
+});
+
+it("exposes row actions and restores a closed image through the shared image command", async () => {
+  const image = { ...installed("image"), data: { images: [{ id: "image-1", isOpen: false }] } };
+  desktop.state.order = ["todo"];
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: {
+      ...PREVIEW_WIDGETS,
+      widgets: [installed("todo"), installed("memo"), installed("calendar"), image],
+    },
+    error: null,
+    reload,
+  });
+  render(<WidgetManager embedded />);
+  expect(screen.getByRole("button", { name: "할 일 켜짐" }).textContent).toContain(
+    "바탕화면에 놓여 있어요",
+  );
+  expect(screen.getByRole("button", { name: "메모 켜짐" }).textContent).toContain("새 메모 꺼내기");
+  expect(screen.getByRole("button", { name: "캘린더 켜짐" }).textContent).toContain("설정 열기");
+  fireEvent.click(screen.getByRole("button", { name: "닫아 둔 이미지 1장" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "이미지 1" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("open_widget_image", { id: "image", imageId: "image-1" }),
+  );
 });
 
 it("offers toy actions without a duplicate generic window and keeps creation failure distinct from counts", () => {

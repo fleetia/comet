@@ -32,6 +32,8 @@ struct State {
     configured: bool,
     status: String,
     last_success_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_manual_attempt_at: Option<i64>,
     #[serde(default)]
     last_wake_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -43,6 +45,8 @@ struct State {
     error: Option<String>,
     config: Value,
     observation: Option<Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    warnings: Vec<Value>,
     #[serde(default)]
     forecast: Option<Value>,
     #[serde(default)]
@@ -251,17 +255,35 @@ pub fn configure(kind: &str, data: &Value, input: &Value) -> Result<Value, Strin
         "device" => state.configured,
         _ => false,
     };
+    if let Some(Value::Object(observation)) = state
+        .observation
+        .as_mut()
+        .filter(|_| kind == "weather" && !same_source)
+    {
+        observation
+            .entry("name")
+            .or_insert_with(|| state.config["name"].clone());
+    }
     state.config = config;
     state.configured = true;
     if !same_source {
         state.status = "stale".into();
         state.last_success_at = None;
-        state.observation = None;
+        if kind != "weather" {
+            state.observation = None;
+        }
+        if kind == "music" {
+            state.warnings.clear();
+        }
         state.forecast = None;
         state.last_year = None;
         state.error = None;
     }
-    serde_json::to_value(state).map_err(|error| error.to_string())
+    let mut result = serde_json::to_value(state).map_err(|error| error.to_string())?;
+    if kind == "weather" && same_source && data["lastAttemptAt"].is_number() {
+        result["lastAttemptAt"] = data["lastAttemptAt"].clone();
+    }
+    Ok(result)
 }
 
 pub(crate) fn device_events(previous: &Value, next: &mut Value) -> (Vec<EventDraft>, bool) {
@@ -346,27 +368,27 @@ fn client() -> Result<reqwest::Client, ConnectionError> {
         .timeout(Duration::from_secs(12))
         .redirect(reqwest::redirect::Policy::none())
         .build()
-        .map_err(|_| failure("offline", "조회 연결을 준비하지 못했어요."))
+        .map_err(|_| failure("offline", "연결을 준비하지 못했어요. 잠시 후 다시 시도해 주세요."))
 }
 
 async fn fetch_json(request: reqwest::RequestBuilder) -> Result<Value, ConnectionError> {
     let mut response = request.send().await.map_err(|_| {
         failure(
             "offline",
-            "정보 제공자에 연결하지 못했어요. 마지막 성공 정보는 보존합니다.",
+            "인터넷 연결을 확인하고 다시 시도해 주세요.",
         )
     })?;
     if !response.status().is_success() {
         return Err(match response.status().as_u16() {
             401 | 403 => failure(
                 "permission-needed",
-                "정보 제공자가 조회를 허용하지 않았어요.",
+                "연결 권한을 확인하고 다시 시도해 주세요.",
             ),
             429 => failure(
                 "offline",
-                "정보 제공자의 조회 한도에 도달했어요. 잠시 후 다시 조회해 주세요.",
+                "요청이 많아요. 잠시 후 다시 시도해 주세요.",
             ),
-            _ => failure("offline", "정보 제공자가 조회에 실패했어요."),
+            _ => failure("offline", "정보를 가져오지 못했어요. 잠시 후 다시 시도해 주세요."),
         });
     }
     if response
@@ -971,47 +993,63 @@ pub(crate) fn select_music(
     })
 }
 
-async fn music(config: &MusicConfig, previous: &Value, now: i64) -> Result<Value, ConnectionError> {
+async fn music(
+    config: &MusicConfig,
+    previous: &Value,
+    now: i64,
+) -> Result<(Value, Vec<Value>), ConnectionError> {
     if config.provider != "auto" {
-        return super::music_native::observe_source(&config.provider, None, now).await;
+        return super::music_native::observe_source(&config.provider, None, now)
+            .await
+            .map(|value| (value, vec![]));
     }
-    let candidates = music_candidates(&config.allowed_providers, now).await?;
-    select_music(candidates, previous, &config.priority, now).ok_or_else(|| {
-        failure(
-            "permission-needed",
-            "조회가 허용된 음악 앱을 선택해 주세요.",
-        )
-    })
+    let (candidates, warnings, error) = music_candidates(&config.allowed_providers, now).await;
+    let selected = select_music(candidates, previous, &config.priority, now).ok_or_else(|| {
+        error.unwrap_or_else(|| {
+            failure(
+                "permission-needed",
+                "조회가 허용된 음악 앱을 선택해 주세요.",
+            )
+        })
+    })?;
+    Ok((selected, warnings))
 }
 
 pub(crate) async fn music_candidates(
     allowed: &[String],
     now: i64,
-) -> Result<Vec<Value>, ConnectionError> {
-    let providers = ["music", "spotify", "system"]
+) -> (Vec<Value>, Vec<Value>, Option<ConnectionError>) {
+    let providers: Vec<_> = ["music", "spotify", "system"]
         .into_iter()
-        .filter(|provider| allowed.iter().any(|allowed| allowed == provider));
+        .filter(|provider| allowed.iter().any(|allowed| allowed == provider))
+        .collect();
     let results = futures_util::future::join_all(
-        providers.map(|provider| super::music_native::observe_source(provider, None, now)),
+        providers
+            .iter()
+            .map(|provider| super::music_native::observe_source(provider, None, now)),
     )
     .await;
+    collect_music_candidates(providers.into_iter().zip(results))
+}
+
+fn collect_music_candidates<'a>(
+    results: impl IntoIterator<Item = (&'a str, Result<Value, ConnectionError>)>,
+) -> (Vec<Value>, Vec<Value>, Option<ConnectionError>) {
     let mut candidates = vec![];
+    let mut warnings = vec![];
     let mut error = None;
-    for result in results {
+    for (provider, result) in results {
         match result {
             Ok(value) => candidates.push(value),
-            Err(failure) => error = Some(failure),
+            Err(failure) => {
+                if failure.status == "permission-needed" {
+                    warnings.push(json!({"provider":provider,"status":failure.status,"message":failure.message}));
+                }
+                error = Some(failure);
+            }
         }
     }
-    if candidates.is_empty() {
-        return Err(error.unwrap_or_else(|| {
-            failure(
-                "permission-needed",
-                "조회가 허용된 음악 앱을 선택해 주세요.",
-            )
-        }));
-    }
-    Ok(candidates)
+    (candidates, warnings, error)
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -1153,13 +1191,15 @@ pub async fn refresh(kind: &str, data: &Value, now: i64) -> Result<Value, Connec
             observation
         }
         "music" => {
-            music(
+            let (observation, warnings) = music(
                 &music_config(&state.config)
                     .map_err(|message| failure("permission-needed", &message))?,
                 state.observation.as_ref().unwrap_or(&Value::Null),
                 now,
             )
-            .await?
+            .await?;
+            state.warnings = warnings;
+            observation
         }
         "device" => {
             device_config(&state.config)
@@ -1208,7 +1248,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_region_config_rejects_invalid_coordinates_and_resets_old_region_cache() {
+    fn explicit_region_config_rejects_invalid_coordinates_and_preserves_old_observation() {
         assert!(configure(
             "weather",
             &initial("weather"),
@@ -1229,15 +1269,56 @@ mod tests {
         .unwrap();
         old["observation"] = json!({"temperature":25});
         old["lastSuccessAt"] = json!(100);
+        old["lastAttemptAt"] = json!(100);
+        old["lastManualAttemptAt"] = json!(90);
+        old["forecast"] = json!({"today":{"code":0}});
+        old["lastYear"] = json!({"code":0});
         let new = configure(
             "weather",
             &old,
             &json!({"name":"Busan","latitude":35.17,"longitude":129.07}),
         )
         .unwrap();
-        assert!(new["observation"].is_null());
+        assert_eq!(new["observation"], json!({"temperature":25,"name":"Seoul"}));
         assert!(new["lastSuccessAt"].is_null());
+        assert!(new["lastAttemptAt"].is_null());
+        assert_eq!(new["lastManualAttemptAt"], 90);
+        assert!(new["forecast"].is_null());
+        assert!(new["lastYear"].is_null());
         assert_eq!(new["config"]["name"], "Busan");
+        let next = configure(
+            "weather",
+            &new,
+            &json!({"name":"Jeju","latitude":33.5,"longitude":126.5}),
+        )
+        .unwrap();
+        assert_eq!(next["observation"], new["observation"]);
+        let state: State = serde_json::from_value(next).unwrap();
+        assert_eq!(
+            serde_json::to_value(state).unwrap()["lastManualAttemptAt"],
+            90
+        );
+    }
+
+    #[test]
+    fn weather_preferences_preserve_failed_attempt_for_same_region() {
+        let mut failed = configure(
+            "weather",
+            &initial("weather"),
+            &json!({"name":"Seoul","latitude":37.56,"longitude":126.97}),
+        )
+        .unwrap();
+        failed["status"] = json!("offline");
+        failed["lastAttemptAt"] = json!(100);
+        let updated = configure(
+            "weather",
+            &failed,
+            &json!({"name":"Seoul","latitude":37.56,"longitude":126.97,"temperatureUnit":"fahrenheit"}),
+        )
+        .unwrap();
+        assert_eq!(updated["status"], "offline");
+        assert_eq!(updated["lastAttemptAt"], 100);
+        assert!(updated["observation"].is_null());
     }
 
     #[test]
@@ -1406,6 +1487,40 @@ mod tests {
             });
             let (events, _) = device_events(&next, &mut charging);
             assert!(events.iter().any(|event| event.kind == "device.charging-started"));
+        }
+    }
+
+    #[test]
+    fn automatic_music_keeps_permission_warnings_with_or_without_playback() {
+        for playing in [false, true] {
+            let (candidates, warnings, _) = collect_music_candidates([
+                (
+                    "music",
+                    Err(failure("permission-needed", "자동화 권한이 필요해요.")),
+                ),
+                (
+                    "spotify",
+                    Ok(
+                        json!({"provider":"spotify","sourceId":"spotify","running":playing,"playing":playing,"title":if playing { Some("곡") } else { None }}),
+                    ),
+                ),
+            ]);
+            let observation = select_music(candidates, &Value::Null, "last-played", 100).unwrap();
+            assert_eq!(observation["playing"], playing);
+            if playing {
+                assert_eq!(observation["title"], "곡");
+            }
+            assert_eq!(
+                warnings,
+                vec![
+                    json!({"provider":"music","status":"permission-needed","message":"자동화 권한이 필요해요."})
+                ]
+            );
+            let mut state: State = serde_json::from_value(initial("music")).unwrap();
+            state.observation = Some(observation);
+            state.warnings = warnings;
+            let data = serde_json::to_value(state).unwrap();
+            assert_eq!(data["warnings"][0]["provider"], "music");
         }
     }
 

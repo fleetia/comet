@@ -514,6 +514,29 @@ pub fn retire(db: &Connection, id: &str, expected_revision: i64) -> Result<Gener
     })
 }
 
+pub fn restore(db: &Connection, id: &str, expected_revision: i64) -> Result<GeneratedWidget> {
+    let tx = db.unchecked_transaction().map_err(err)?;
+    let mut widget = get(&tx, id)?;
+    if widget.installed || widget.revision != expected_revision {
+        return Err("위젯이 변경됐어요. 최신 상태를 확인해 주세요.".into());
+    }
+    widget.revision = widget
+        .revision
+        .checked_add(1)
+        .ok_or("위젯 수정 횟수가 한도를 넘었어요.")?;
+    let updated = tx.execute(
+        "UPDATE generated_widgets SET installed=1,revision=?1 WHERE id=?2 AND revision=?3 AND installed=0",
+        params![widget.revision, id, expected_revision],
+    ).map_err(err)?;
+    if updated != 1 {
+        return Err("위젯이 변경됐어요. 최신 상태를 확인해 주세요.".into());
+    }
+    invalidate_rule_source(&tx, id)?;
+    tx.commit().map_err(err)?;
+    widget.installed = true;
+    Ok(widget)
+}
+
 pub fn mark_ready(db: &Connection, id: &str, expected_revision: i64) -> Result<GeneratedWidget> {
     change(db, id, expected_revision, |widget| {
         widget.status = "ready".into();
@@ -1121,6 +1144,27 @@ mod tests {
     fn ready(db: &Connection) -> GeneratedWidget {
         let widget = create(db, definition(), InstallationOrigin::Import, None).unwrap();
         mark_ready(db, &widget.id, widget.revision).unwrap()
+    }
+
+    #[test]
+    fn retired_widget_restores_data_and_rejects_stale_revisions() {
+        let db = database();
+        let widget = ready(&db);
+        let saved = save_state(&db, &widget.id, widget.revision, json!({"count": 7})).unwrap();
+        let mut replacement = saved.definition.clone();
+        replacement.name = "새 이름".into();
+        let replaced = replace(&db, &saved.id, saved.revision, replacement).unwrap();
+        let before = mark_ready(&db, &replaced.id, replaced.revision).unwrap();
+        let retired = retire(&db, &before.id, before.revision).unwrap();
+        assert!(restore(&db, &retired.id, before.revision).is_err());
+        assert!(save_state(&db, &retired.id, retired.revision, json!({"count": 0})).is_err());
+        let restored = restore(&db, &retired.id, retired.revision).unwrap();
+        let mut expected = before;
+        expected.revision = retired.revision + 1;
+        assert_eq!(restored, expected);
+        assert_eq!(get(&db, &restored.id).unwrap(), expected);
+        assert!(restore(&db, &restored.id, retired.revision).is_err());
+        assert!(save_state(&db, &restored.id, retired.revision, json!({"count": 0})).is_err());
     }
 
     fn rule(widget_id: &str) -> StateRule {

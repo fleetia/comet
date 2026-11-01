@@ -49,6 +49,7 @@ export const groupHeading = style({
   fontWeight: 400,
   margin: 0,
 });
+export const reactionHeading = style({ marginLeft: "auto", fontSize: 12 });
 export const rows = style({
   border: `1px solid ${tokens["color/card-border"]}`,
   borderRadius: 9,
@@ -107,6 +108,18 @@ export const description = style({
   lineHeight: "16px",
   color: tokens["color/ink-3"],
   overflowWrap: "anywhere",
+});
+export const actionLabel = style({ fontSize: 12, color: tokens["color/ink-2"] });
+export const menuButton = style({
+  flexShrink: 0,
+  border: 0,
+  padding: 4,
+  color: tokens["color/ink-2"],
+  background: "transparent",
+  font: "inherit",
+  fontSize: 12,
+  cursor: "pointer",
+  selectors: { "&:disabled": { opacity: 0.5, cursor: "default" } },
 });
 export const empty = style({ margin: 0, color: tokens["color/ink-2"], fontSize: 13 });
 

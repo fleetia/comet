@@ -92,6 +92,7 @@ it("waits to confirm a click reaction and routes right click to menu and double 
   fireEvent.click(body, { detail: 2 });
   fireEvent.doubleClick(body, { detail: 2 });
   act(() => vi.advanceTimersByTime(500));
+  await act(async () => {});
   expect(command).toHaveBeenCalledWith("open_panel", { persona: "builtin-a", mode: "input" });
   expect(
     vi.mocked(command).mock.calls.filter(([name]) => name === "trigger_character_interaction"),
@@ -459,4 +460,18 @@ it("opens the third character by identity and can address the full roster", asyn
       clientMessageId: expect.any(String),
     }),
   );
+});
+
+it("consumes a tutorial double click before it can open the input panel", async () => {
+  vi.mocked(isDesktop).mockReturnValue(true);
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_character_gesture_settings") return { doubleClickMs: 500 };
+    if (name === "consume_body_double_click") return true;
+    return undefined;
+  });
+  render(<CompanionBox id="builtin-a" snapshot={PREVIEW_SNAPSHOT} />);
+  const body = screen.getByRole("button", { name: / 반응$/ });
+  fireEvent.doubleClick(body, { detail: 2 });
+  await waitFor(() => expect(command).toHaveBeenCalledWith("consume_body_double_click"));
+  expect(command).not.toHaveBeenCalledWith("open_panel", expect.anything());
 });

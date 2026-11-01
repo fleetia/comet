@@ -122,7 +122,23 @@ it("does not repeat the empty calendar message or show a placeholder dash for un
   const weather = desktopSummary(widget("weather", {}), now);
   expect(weather.title).toBe("날씨");
   expect(weather.value).toBe("");
-  expect(weather.meta).toBe("아직 확인하지 않았어요");
+  expect(weather.meta).toBe("지역을 골라 주세요");
+});
+
+it("shows weather lookup states and labels the previous region", () => {
+  const now = Date.now();
+  expect(desktopSummary(widget("weather", { configured: true, status: "stale" }), now).meta)
+    .toBe("아직 확인하지 않았어요");
+  expect(desktopSummary(widget("weather", { configured: true, status: "syncing", lastAttemptAt: now }), now).meta)
+    .toBe("날씨 확인 중");
+  const failed = widget("weather", { configured: true, status: "offline", lastAttemptAt: now });
+  expect(desktopSummary(failed, now).meta).toBe("날씨 확인 실패");
+  render(<FreeformWidget widget={failed} now={now} />);
+  expect(screen.getByText("날씨 확인 실패")).toBeTruthy();
+  expect(desktopSummary(widget("weather", {
+    configured: true, status: "offline", lastAttemptAt: now, lastSuccessAt: null,
+    config: { name: "부산" }, observation: { name: "서울", temperature: 21, weatherCode: 0 },
+  }), now)).toMatchObject({ description: "서울", meta: "새 지역 확인 실패 · 이전 지역 정보" });
 });
 
 it("keeps a readable label on the empty calendar chip", () => {

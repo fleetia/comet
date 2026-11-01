@@ -402,6 +402,49 @@ fn swept(from: Rect, to: Rect) -> Rect {
     }
 }
 
+fn path_clear(from: Rect, to: Rect, widgets: &[Rect]) -> bool {
+    !widgets
+        .iter()
+        .any(|widget| intersects(swept(from, to), *widget))
+}
+
+fn desktop_obstacles(app: &AppHandle) -> Option<(bool, Vec<Rect>)> {
+    let mut focused = false;
+    let mut widgets = Vec::new();
+    for window in app.webview_windows().into_values() {
+        focused |= window.is_focused().ok()?;
+        if (window.label() == "widget-stack" || window.label().starts_with("widget-display-"))
+            && window.is_visible().ok()?
+            && !window.is_minimized().ok()?
+        {
+            let position = window.outer_position().ok()?;
+            let size = window.outer_size().ok()?;
+            widgets.push(Rect {
+                x: position.x as f64,
+                y: position.y as f64,
+                width: size.width as f64,
+                height: size.height as f64,
+            });
+        }
+    }
+    Some((focused, widgets))
+}
+
+fn wandering_allowed(state: &AppState, id: &str) -> Result<bool> {
+    Ok(super::ambient_allowed(state, id)?
+        && store::settings(&*lock(&state.db)?)?.wandering_enabled)
+}
+
+fn window_path_clear(size: tauri::PhysicalSize<u32>, plan: Plan, widgets: &[Rect]) -> bool {
+    let rect = |point: Point| Rect {
+        x: point.x,
+        y: point.y,
+        width: size.width as f64,
+        height: size.height as f64,
+    };
+    path_clear(rect(plan.anchor), rect(plan.target), widgets)
+}
+
 // prepare_direct owns action when checking this reservation. User contact
 // removes it before an older automatic start can replace the user's reaction.
 pub(crate) fn accepts_start(
@@ -784,6 +827,9 @@ pub(crate) fn tick(app: &AppHandle, state: &Arc<AppState>) -> Result<()> {
         };
         let visible =
             window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true);
+        let desktop = desktop_obstacles(app);
+        let window_size = window.outer_size().ok();
+        let desktop_ready = desktop.as_ref().is_some_and(|(focused, _)| !focused);
         let definition = characters::reaction_host::definition_revision(&member.definition);
         let epoch = state.epoch.load(Ordering::SeqCst);
         let saved = saved_position(state, id)?;
@@ -806,7 +852,7 @@ pub(crate) fn tick(app: &AppHandle, state: &Arc<AppState>) -> Result<()> {
         }
         let (start, allowed_before, reduced_before) = {
             let _action = lock(&state.action)?;
-            let allowed = visible && super::ambient_allowed(state, id)?;
+            let allowed = visible && desktop_ready && wandering_allowed(state, id)?;
             let trace_status = if crate::characters::gestures::trace_enabled() {
                 Some(lock(&state.runtime)?.clone())
             } else {
@@ -910,7 +956,11 @@ pub(crate) fn tick(app: &AppHandle, state: &Arc<AppState>) -> Result<()> {
                     .filter(|gesture| gesture.hold.is_some())
                     .map(|gesture| gesture.gesture.clone())
                     .collect::<Vec<_>>();
-                plan(entry.bounds, entry.anchor, &available, random()).map(|plan| {
+                plan(entry.bounds, entry.anchor, &available, random()).filter(|plan| {
+                    desktop.as_ref().is_some_and(|(_, widgets)| {
+                        window_size.is_some_and(|size| window_path_clear(size, *plan, widgets))
+                    })
+                }).map(|plan| {
                     let run = Run {
                         token: uuid::Uuid::new_v4().to_string(),
                         execution: None,
@@ -946,7 +996,7 @@ pub(crate) fn tick(app: &AppHandle, state: &Arc<AppState>) -> Result<()> {
             };
             (start, allowed, reduced)
         };
-        let allowed_after = visible && super::ambient_allowed(state, id)?;
+        let allowed_after = visible && desktop_ready && wandering_allowed(state, id)?;
         let reduced_after = lock(&state.life)?.wandering.reduced_motion(id, identity);
         if !allowed_after || reduced_after {
             if crate::characters::gestures::trace_enabled()
@@ -1054,9 +1104,24 @@ fn frame(
     run: &Run,
     elapsed: Duration,
 ) -> Result<bool> {
+    let Some((focused, widgets)) = desktop_obstacles(app) else {
+        return Ok(false);
+    };
+    let Some(window) = app.get_webview_window(&format!("body-{id}")) else {
+        trace_frame_skip(id, run, FrameSkip::MissingWindow);
+        return Ok(false);
+    };
+    if focused
+        || window
+            .outer_size()
+            .ok()
+            .is_none_or(|size| !window_path_clear(size, run.plan, &widgets))
+    {
+        return Ok(false);
+    }
     {
         let _action = lock(&state.action)?;
-        if state.epoch.load(Ordering::SeqCst) != run.epoch || !super::ambient_allowed(state, id)? {
+        if state.epoch.load(Ordering::SeqCst) != run.epoch || !wandering_allowed(state, id)? {
             trace_frame_skip(id, run, FrameSkip::AmbientOrEpoch);
             return Ok(false);
         }
@@ -1081,10 +1146,6 @@ fn frame(
             return Ok(false);
         }
     }
-    let Some(window) = app.get_webview_window(&format!("body-{id}")) else {
-        trace_frame_skip(id, run, FrameSkip::MissingWindow);
-        return Ok(false);
-    };
     if !same_geometry(&window, run.bounds) {
         trace_frame_skip(id, run, FrameSkip::Geometry);
         return Ok(false);
@@ -1101,6 +1162,15 @@ fn frame(
                 || !same_geometry(&window, run.bounds)
             {
                 trace_frame_skip(&id, &run, FrameSkip::WindowChanged);
+                return;
+            }
+            if desktop_obstacles(&app).is_none_or(|(focused, widgets)| {
+                focused
+                    || window
+                        .outer_size()
+                        .ok()
+                        .is_none_or(|size| !window_path_clear(size, run.plan, &widgets))
+            }) {
                 return;
             }
             // Read native poses before mutexes; other bodies are obstacles even while idle.
@@ -1156,7 +1226,7 @@ fn frame(
                 return;
             };
             if state.epoch.load(Ordering::SeqCst) != run.epoch
-                || !super::ambient_allowed(&state, &id).unwrap_or(false)
+                || !wandering_allowed(&state, &id).unwrap_or(false)
             {
                 trace_frame_skip(&id, &run, FrameSkip::QueuedAmbientOrEpoch);
                 return;
@@ -1246,6 +1316,43 @@ mod tests {
             restore: None,
             trace_gate: None,
         }
+    }
+
+    #[test]
+    fn widget_obstacles_block_the_whole_swept_window_path() {
+        let from = Rect { x: 0.0, y: 0.0, width: 100.0, height: 100.0 };
+        let to = Rect { x: 200.0, ..from };
+        let obstacle = |x, y| Rect { x, y, width: 20.0, height: 20.0 };
+        assert!(!path_clear(from, to, &[obstacle(140.0, 20.0)]));
+        assert!(!path_clear(from, to, &[obstacle(290.0, 90.0)]));
+        assert!(path_clear(from, to, &[obstacle(300.0, 0.0)]));
+        assert!(path_clear(from, to, &[]));
+    }
+
+    #[test]
+    fn disabled_wandering_uses_the_existing_blocked_interval() {
+        let now = Instant::now();
+        let mut entry = entry(now);
+        entry.due = now;
+        assert!(!entry.ready(false, now, 0));
+        assert_eq!(entry.due, now + interval(0));
+        assert!(!entry.ready(true, now, 0));
+        assert!(entry.ready(true, now + interval(0), 0));
+    }
+
+    #[test]
+    fn wandering_switch_does_not_disable_other_ambient_activity() {
+        let state = crate::app::tests::state();
+        let id = characters::active_ids(&lock(&state.db).unwrap()).unwrap()[0].clone();
+        state.last_input.store(crate::app::now() - 3, Ordering::SeqCst);
+        assert!(wandering_allowed(&state, &id).unwrap());
+        let db = lock(&state.db).unwrap();
+        let mut settings = store::settings(&db).unwrap();
+        settings.wandering_enabled = false;
+        store::save_settings(&db, &settings).unwrap();
+        drop(db);
+        assert!(!wandering_allowed(&state, &id).unwrap());
+        assert!(super::super::ambient_allowed(&state, &id).unwrap());
     }
 
     #[test]

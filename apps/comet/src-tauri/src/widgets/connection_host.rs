@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, OnceLock,
+    Arc, Mutex, OnceLock,
 };
 use tauri::AppHandle;
 
@@ -28,6 +28,36 @@ struct CalendarState {
 struct Job {
     instance: WidgetInstance,
     cancel: Arc<AtomicBool>,
+}
+fn calendar_connection_jobs() -> &'static Mutex<Vec<Arc<AtomicBool>>> {
+    static JOBS: OnceLock<Mutex<Vec<Arc<AtomicBool>>>> = OnceLock::new();
+    JOBS.get_or_init(|| Mutex::new(Vec::new()))
+}
+#[cfg(any(test, target_os = "macos", target_os = "windows"))]
+pub(crate) fn calendar_connection_in_progress(token: &Arc<AtomicBool>) -> Result<bool, String> {
+    Ok(lock(calendar_connection_jobs())?
+        .iter()
+        .any(|current| Arc::ptr_eq(current, token)))
+}
+fn clear_calendar_connection(job: &Job) {
+    if let Ok(mut jobs) = calendar_connection_jobs().lock() {
+        jobs.retain(|token| !Arc::ptr_eq(token, &job.cancel));
+    }
+}
+type GoogleAuthorizations = std::collections::HashMap<String, (Arc<AtomicBool>, String)>;
+fn google_authorizations() -> &'static Mutex<GoogleAuthorizations> {
+    static PENDING: OnceLock<Mutex<GoogleAuthorizations>> = OnceLock::new();
+    PENDING.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+fn clear_google_authorization(job: &Job) {
+    if let Ok(mut pending) = google_authorizations().lock() {
+        if pending
+            .get(&job.instance.id)
+            .is_some_and(|(token, _)| Arc::ptr_eq(token, &job.cancel))
+        {
+            pending.remove(&job.instance.id);
+        }
+    }
 }
 fn timestamp() -> i64 {
     chrono::Utc::now().timestamp_millis()
@@ -69,6 +99,7 @@ fn begin(
     state: &AppState,
     id: &str,
     kind: Option<&str>,
+    google: bool,
     prepare: impl FnOnce(&WidgetInstance) -> Result<Option<Value>, String>,
 ) -> Result<Job, String> {
     let _action = lock(&state.action)?;
@@ -79,6 +110,7 @@ fn begin(
     let mut instance = storage::get(&db, id)?;
     active(&instance, kind)?;
     let data = prepare(&instance)?;
+    let calendar_connection = kind == Some("calendar") && data.is_none();
     if let Some(data) = data {
         storage::commit_data(&db, id, instance.revision, data, vec![], timestamp())?;
         instance = storage::get(&db, id)?;
@@ -86,6 +118,12 @@ fn begin(
     let cancel = Arc::new(AtomicBool::new(false));
     if let Some(previous) = lock(&state.widget_jobs)?.insert(id.into(), cancel.clone()) {
         previous.store(true, Ordering::SeqCst);
+    }
+    if calendar_connection {
+        lock(calendar_connection_jobs())?.push(cancel.clone());
+    }
+    if google {
+        lock(google_authorizations())?.insert(id.into(), (cancel.clone(), String::new()));
     }
     Ok(Job { instance, cancel })
 }
@@ -118,9 +156,14 @@ fn finish(
     {
         jobs.remove(&job.instance.id);
     }
+    drop(jobs);
+    clear_calendar_connection(job);
+    clear_google_authorization(job);
     result
 }
 fn abandon(state: &AppState, job: &Job) {
+    clear_calendar_connection(job);
+    clear_google_authorization(job);
     if let Ok(mut jobs) = lock(&state.widget_jobs) {
         if jobs
             .get(&job.instance.id)
@@ -159,9 +202,12 @@ fn merge_calendar(
     let interval = calendar::refresh_interval(&json!({"settings":settings}));
     if connection.status == "ready" {
         connection.next_refresh_at = timestamp().saturating_add(interval);
-    } else if connection.next_refresh_at != i64::MAX && connection.failure_count > 0 {
-        connection.next_refresh_at = timestamp()
-            .saturating_add(interval.saturating_mul(1i64 << connection.failure_count.min(6)));
+    } else if connection.status != "auth-error" && connection.failure_count > 0 {
+        connection.next_refresh_at = timestamp().saturating_add(
+            interval
+                .saturating_mul(1i64 << connection.failure_count.min(6))
+                .min(3_600_000),
+        );
     }
     let id = connection.id.clone();
     if let Some(existing) = data.connections.iter_mut().find(|x| x.id == id) {
@@ -224,11 +270,85 @@ pub(crate) fn open_browser(url: &str) -> Result<(), String> {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .map_err(|_| "기본 브라우저를 열지 못했습니다.")?;
+        .map_err(|_| "기본 브라우저를 열지 못했어요. 다시 시도해 주세요.")?;
     std::thread::spawn(move || {
         let _ = child.wait();
     });
     Ok(())
+}
+fn complete_calendar_connect(
+    db: &rusqlite::Connection,
+    current: &WidgetInstance,
+    connected: &calendar::Connected,
+    result: Result<calendar::Refreshed, calendar::CalendarError>,
+) -> Result<(), String> {
+    let mut data = decode_calendar(&current.data)?;
+    let previous = data
+        .connections
+        .iter()
+        .find(|connection| connection.id == connected.connection.id)
+        .cloned();
+    if let (None, Err(failure)) = (&previous, &result) {
+        return Err(failure.message.clone());
+    }
+    let (connection, events) = match &result {
+        Ok(refreshed) => (
+            calendar::refreshed_connection(&connected.connection, refreshed, timestamp()),
+            Some(refreshed.events.clone()),
+        ),
+        Err(failure) => (
+            calendar::failed(
+                previous.as_ref().unwrap_or(&connected.connection),
+                failure,
+                timestamp(),
+            ),
+            None,
+        ),
+    };
+    if previous.is_none() && data.connections.len() >= 20 {
+        return Err("캘린더 연결은 20개까지 추가할 수 있어요. 기존 연결을 해제하고 다시 시도해 주세요.".into());
+    }
+    if previous.is_none() {
+        if let Some(color) = data
+            .extra
+            .get("settings")
+            .and_then(|settings| settings["connectionColor"].as_str())
+        {
+            let keys = if connection.provider == "ics" {
+                vec![String::new()]
+            } else {
+                connection.selected_calendar_ids.clone()
+            };
+            let colors = data
+                .calendar_colors
+                .entry(connection.id.clone())
+                .or_default();
+            for key in keys {
+                colors.insert(key, color.to_owned());
+            }
+        }
+    }
+    merge_calendar(&mut data, connection, events);
+    // A failed reconnect keeps the old selection, key and cached events intact.
+    if previous.is_some() && result.is_err() {
+        store_calendar(db, current, data)?;
+        return result.map(|_| ()).map_err(|failure| failure.message);
+    }
+    let rollback = calendar::commit_connected(connected).map_err(|x| x.message)?;
+    if let Ok(refreshed) = &result {
+        if let Err(error) = calendar::commit_refresh(refreshed) {
+            let _ = calendar::rollback_connected(&rollback);
+            return Err(error.message);
+        }
+    }
+    if let Err(error) = store_calendar(db, current, data) {
+        let _ = calendar::rollback_connected(&rollback);
+        return Err(error);
+    }
+    match result {
+        Ok(_) => Ok(()),
+        Err(failure) => Err(failure.message),
+    }
 }
 async fn connect_result(
     app: &AppHandle,
@@ -242,70 +362,7 @@ async fn connect_result(
     .await;
     let outcome = match result {
         Ok(result) => finish(state, &job, |db, current| {
-            let mut data = decode_calendar(&current.data)?;
-            let previous = data
-                .connections
-                .iter()
-                .find(|connection| connection.id == connected.connection.id)
-                .cloned();
-            let (connection, events) = match &result {
-                Ok(refreshed) => (
-                    calendar::refreshed_connection(&connected.connection, refreshed, timestamp()),
-                    Some(refreshed.events.clone()),
-                ),
-                Err(failure) => (
-                    calendar::failed(
-                        previous.as_ref().unwrap_or(&connected.connection),
-                        failure,
-                        timestamp(),
-                    ),
-                    None,
-                ),
-            };
-            if previous.is_none() && data.connections.len() >= 20 {
-                return Err("캘린더 연결은 20개까지 추가할 수 있습니다.".into());
-            }
-            if previous.is_none() {
-                if let Some(color) = data
-                    .extra
-                    .get("settings")
-                    .and_then(|settings| settings["connectionColor"].as_str())
-                {
-                    let keys = if connection.provider == "ics" {
-                        vec![String::new()]
-                    } else {
-                        connection.selected_calendar_ids.clone()
-                    };
-                    let colors = data
-                        .calendar_colors
-                        .entry(connection.id.clone())
-                        .or_default();
-                    for key in keys {
-                        colors.insert(key, color.to_owned());
-                    }
-                }
-            }
-            merge_calendar(&mut data, connection, events);
-            // A failed reconnect keeps the old selection, key and cached events intact.
-            if previous.is_some() && result.is_err() {
-                store_calendar(db, current, data)?;
-                return result.map(|_| ()).map_err(|failure| failure.message);
-            }
-            let rollback = calendar::commit_connected(&connected).map_err(|x| x.message)?;
-            if let Ok(refreshed) = &result {
-                if let Err(error) = calendar::commit_refresh(refreshed) {
-                    let _ = calendar::rollback_connected(&rollback);
-                    return Err(error.message);
-                }
-            }
-            if let Err(error) = store_calendar(db, current, data) {
-                let _ = calendar::rollback_connected(&rollback);
-                return Err(error);
-            }
-            match result {
-                Ok(_) => Ok(()),
-                Err(failure) => Err(failure.message),
-            }
+            complete_calendar_connect(db, current, &connected, result)
         }),
         Err(error) => {
             abandon(state, &job);
@@ -326,7 +383,7 @@ fn reuse_connection(
             .connections
             .iter()
             .find(|connection| connection.id == id)
-            .ok_or("다시 연결할 캘린더를 찾을 수 없습니다.")?;
+            .ok_or("다시 연결할 캘린더를 찾지 못했어요. 목록을 확인하고 다시 시도해 주세요.")?;
         calendar::reconnect(connected, previous).map_err(|error| error.message)?;
     }
     Ok(())
@@ -341,7 +398,7 @@ pub(crate) async fn connect_calendar_ics(
 ) -> Result<(), String> {
     let mut connected = calendar::connect_ics(input).map_err(|x| x.message)?;
     let state = state.inner().clone();
-    let job = begin(&state, &id, Some("calendar"), |_| Ok(None))?;
+    let job = begin(&state, &id, Some("calendar"), false, |_| Ok(None))?;
     if let Err(error) = reuse_connection(&job, &mut connected, connection_id.as_deref()) {
         abandon(&state, &job);
         return Err(error);
@@ -353,20 +410,40 @@ pub(crate) async fn connect_calendar_google(
     app: AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
-    input: calendar::GoogleConnectInput,
+    mut input: calendar::GoogleConnectInput,
     connection_id: Option<String>,
 ) -> Result<(), String> {
     let state = state.inner().clone();
-    let job = begin(&state, &id, Some("calendar"), |_| Ok(None))?;
+    let job = begin(&state, &id, Some("calendar"), true, |_| Ok(None))?;
     if let Some(connection_id) = connection_id.as_deref() {
-        let valid = decode_calendar(&job.instance.data)?
+        let data = match decode_calendar(&job.instance.data) {
+            Ok(data) => data,
+            Err(error) => {
+                abandon(&state, &job);
+                return Err(error);
+            }
+        };
+        let previous = data
             .connections
-            .iter()
-            .any(|connection| connection.id == connection_id && connection.provider == "google");
-        if !valid {
+            .into_iter()
+            .find(|connection| connection.id == connection_id && connection.provider == "google");
+        let Some(previous) = previous else {
             abandon(&state, &job);
-            return Err("다시 연결할 Google 캘린더를 찾을 수 없습니다.".into());
-        }
+            return Err("다시 연결할 Google 캘린더를 찾지 못했어요. 목록을 확인하고 다시 시도해 주세요.".into());
+        };
+        input = tokio::select! {
+            _ = models::cancelled(job.cancel.clone()) => {
+                abandon(&state, &job);
+                return Err("Google 연결을 취소했어요.".into());
+            }
+            result = calendar::reuse_google_credentials(input, previous) => match result {
+                Ok(value) => value,
+                Err(error) => {
+                    abandon(&state, &job);
+                    return Err(error.message);
+                }
+            }
+        };
     }
     let pending: calendar::GooglePending = match calendar::begin_google(input).await {
         Ok(value) => value,
@@ -377,13 +454,26 @@ pub(crate) async fn connect_calendar_google(
     };
     if job.cancel.load(Ordering::SeqCst) {
         abandon(&state, &job);
-        return Err("Google 연결을 취소했습니다.".into());
+        return Err("Google 연결을 취소했어요.".into());
     }
-    if let Err(error) = open_browser(&pending.authorization_url) {
-        abandon(&state, &job);
-        return Err(error);
+    {
+        let _action = lock(&state.action)?;
+        let db = lock(&state.db)?;
+        let current = storage::get(&db, &id)?;
+        if !is_current(&state, &job, &current)? {
+            abandon(&state, &job);
+            return Err("Google 연결을 취소했어요.".into());
+        }
+        lock(google_authorizations())?.insert(
+            id.clone(),
+            (job.cancel.clone(), pending.authorization_url.clone()),
+        );
+        if let Err(error) = open_browser(&pending.authorization_url) {
+            abandon(&state, &job);
+            return Err(error);
+        }
     }
-    let result = tokio::select! {_ = models::cancelled(job.cancel.clone())=>Err("Google 연결을 취소했습니다.".into()),result=calendar::finish_google(pending)=>result.map_err(|x|x.message)};
+    let result = tokio::select! {_ = models::cancelled(job.cancel.clone())=>Err("Google 연결을 취소했어요.".into()),result=calendar::finish_google(pending)=>result.map_err(|x|x.message)};
     match result {
         Ok(mut connected) => {
             if let Err(error) = reuse_connection(&job, &mut connected, connection_id.as_deref()) {
@@ -399,13 +489,53 @@ pub(crate) async fn connect_calendar_google(
     }
 }
 #[tauri::command]
+pub(crate) fn cancel_calendar_google(
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+) -> Result<(), String> {
+    cancel_google_job(&state, &id)
+}
+fn cancel_google_job(state: &AppState, id: &str) -> Result<(), String> {
+    let _action = lock(&state.action)?;
+    let (token, _) = lock(google_authorizations())?
+        .remove(id)
+        .ok_or("연결을 준비하고 있어요. 잠시 후 다시 취소해 주세요.")?;
+    token.store(true, Ordering::SeqCst);
+    let mut jobs = lock(&state.widget_jobs)?;
+    if jobs
+        .get(id)
+        .is_some_and(|current| Arc::ptr_eq(current, &token))
+    {
+        jobs.remove(id);
+    }
+    Ok(())
+}
+#[tauri::command]
+pub(crate) fn reopen_calendar_google(
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+) -> Result<(), String> {
+    let _action = lock(&state.action)?;
+    let pending = lock(google_authorizations())?;
+    let (token, url) = pending.get(&id).ok_or("진행 중인 Google 연결이 없어요.")?;
+    if url.is_empty()
+        || token.load(Ordering::SeqCst)
+        || !lock(&state.widget_jobs)?
+            .get(&id)
+            .is_some_and(|current| Arc::ptr_eq(current, token))
+    {
+        return Err("진행 중인 Google 연결이 없어요.".into());
+    }
+    open_browser(url)
+}
+#[tauri::command]
 pub(crate) async fn list_apple_calendars(
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
     request_access: bool,
 ) -> Result<calendar::apple::AppleCalendars, String> {
     let state = state.inner().clone();
-    let job = begin(&state, &id, Some("calendar"), |_| Ok(None))?;
+    let job = begin(&state, &id, Some("calendar"), false, |_| Ok(None))?;
     let result = execute(&job, async {
         calendar::apple::list(request_access)
             .await
@@ -433,7 +563,7 @@ pub(crate) async fn connect_calendar_apple(
 ) -> Result<(), String> {
     let mut connected = calendar::apple::connect(input).map_err(|error| error.message)?;
     let state = state.inner().clone();
-    let job = begin(&state, &id, Some("calendar"), |_| Ok(None))?;
+    let job = begin(&state, &id, Some("calendar"), false, |_| Ok(None))?;
     if let Err(error) = reuse_connection(&job, &mut connected, connection_id.as_deref()) {
         abandon(&state, &job);
         return Err(error);
@@ -448,7 +578,7 @@ async fn refresh_calendar_inner(
     manual: bool,
 ) -> Result<(), String> {
     let time = timestamp();
-    let job = begin(state, id, Some("calendar"), |instance| {
+    let job = begin(state, id, Some("calendar"), false, |instance| {
         if !manual && lock(&state.widget_jobs)?.contains_key(id) {
             return Err("이미 조회 중입니다.".into());
         }
@@ -457,7 +587,7 @@ async fn refresh_calendar_inner(
             .connections
             .iter_mut()
             .find(|x| x.id == connection_id)
-            .ok_or("캘린더 연결을 찾을 수 없습니다.")?;
+            .ok_or("캘린더 연결을 찾지 못했어요. 목록을 확인하고 다시 시도해 주세요.")?;
         if manual {
             if data
                 .attempts
@@ -482,7 +612,7 @@ async fn refresh_calendar_inner(
         .connections
         .iter()
         .find(|x| x.id == connection_id)
-        .ok_or("캘린더 연결을 찾을 수 없습니다.")?
+        .ok_or("캘린더 연결을 찾지 못했어요. 목록을 확인하고 다시 시도해 주세요.")?
         .clone();
     let result = execute(&job, async {
         Ok(calendar::refresh(&connection, time).await)
@@ -543,7 +673,7 @@ pub(crate) fn disconnect_calendar(
             .connections
             .iter()
             .find(|x| x.id == connection_id)
-            .ok_or("캘린더 연결을 찾을 수 없습니다.")?
+            .ok_or("캘린더 연결을 찾지 못했어요. 목록을 확인하고 다시 시도해 주세요.")?
             .clone();
         if let Some(job) = lock(&state.widget_jobs)?.remove(&id) {
             job.store(true, Ordering::SeqCst);
@@ -590,6 +720,7 @@ pub(crate) fn configure_connection_widget(
     Ok(())
 }
 fn information_failure(
+    kind: &str,
     data: &Value,
     failure: &connections::ConnectionError,
     now: i64,
@@ -598,12 +729,27 @@ fn information_failure(
     let mut next = data.clone();
     let count = next["failureCount"].as_u64().unwrap_or(0).saturating_add(1);
     next["status"] = json!(failure.status);
-    next["error"] = json!(failure.message);
+    next["error"] = if kind == "weather" {
+        let detail = if data["observation"].is_null() {
+            "아직 확인한 날씨가 없어요."
+        } else if data["lastSuccessAt"].is_null() {
+            "이전 지역에서 마지막으로 확인한 날씨를 보여 드려요."
+        } else {
+            "마지막으로 확인한 날씨를 보여 드려요."
+        };
+        json!(format!("{} {detail}", failure.message))
+    } else {
+        json!(failure.message)
+    };
     next["failureCount"] = json!(count);
-    next["nextRefreshAt"] = json!(if count >= 5
-        || ["auth-error", "permission-needed", "unsupported"].contains(&failure.status.as_str())
+    next["nextRefreshAt"] = json!(if failure.status == "auth-error"
+        || (kind != "weather"
+            && (count >= 5
+                || ["permission-needed", "unsupported"].contains(&failure.status.as_str())))
     {
         i64::MAX
+    } else if kind == "weather" {
+        now.saturating_add(interval.saturating_mul(1 << count.min(6)).min(3_600_000))
     } else {
         now.saturating_add(interval.saturating_mul(1 << count.min(6)))
     });
@@ -622,14 +768,18 @@ fn information_due_with_connection(instance: &WidgetInstance, now: i64, reconnec
             .as_i64()
             .is_none_or(|last| now.saturating_sub(last) >= connections::min_interval("music"));
     }
+    let weather = instance.kind == "weather";
+    let status = instance.data["status"].as_str();
+    let retry_legacy = weather
+        && status != Some("auth-error")
+        && instance.data["nextRefreshAt"].as_i64() == Some(i64::MAX);
     instance.data["configured"] == true
-        && instance.data["failureCount"].as_u64().unwrap_or(0) < 5
-        && (instance.data["status"] == "syncing"
+        && (weather || instance.data["failureCount"].as_u64().unwrap_or(0) < 5)
+        && (retry_legacy
+            || status == Some("syncing")
             || instance.data["nextRefreshAt"].as_i64().unwrap_or(0) <= now)
-        && !matches!(
-            instance.data["status"].as_str(),
-            Some("permission-needed" | "unsupported" | "auth-error")
-        )
+        && status != Some("auth-error")
+        && (weather || !matches!(status, Some("permission-needed" | "unsupported")))
 }
 
 fn pairing_id(data: &Value) -> Option<&str> {
@@ -808,7 +958,7 @@ async fn prepare_music_widget_inner(
     }
     // The resume job is finished before launch gets its own cancellation token. A subsequent
     // playback command may cancel launching, but must not cancel the established listener.
-    let job = begin(state, id, Some("music"), |current| {
+    let job = begin(state, id, Some("music"), false, |current| {
         validate_story(state, story)?;
         if !spotify_widget(current)
             || current.data["config"]["provider"] != original.data["config"]["provider"]
@@ -821,21 +971,35 @@ async fn prepare_music_widget_inner(
     let result = execute_story_job(&job, story, async {
         music_job_current(state, &job)?;
         validate_story_available(state, story)?;
-        crate::widgets::music_native::launch_spotify(job.cancel.clone())
-            .await
-            .map_err(|error| error.message)?;
-        restored
+        let auto = original.data["config"]["provider"] == "auto";
+        let launched = music_launch_outcome(
+            auto,
+            crate::widgets::music_native::launch_spotify(job.cancel.clone(), auto).await,
+        )?;
+        restored?;
+        Ok(launched)
     })
     .await;
     let outcome = finish_music_preparation(state, &job, &result, story);
     publish_widgets(app, state);
-    outcome.and(result)
+    outcome.and(result.map(|_| ()))
+}
+
+fn music_launch_outcome(
+    auto: bool,
+    result: Result<bool, connections::ConnectionError>,
+) -> Result<bool, String> {
+    match result {
+        Ok(launched) => Ok(launched),
+        Err(error) if auto && error.status != "stale" => Ok(false),
+        Err(error) => Err(error.message),
+    }
 }
 
 fn finish_music_preparation(
     state: &AppState,
     job: &Job,
-    result: &Result<(), String>,
+    result: &Result<bool, String>,
     story: Option<StoryGuard<'_>>,
 ) -> Result<(), String> {
     finish(state, job, |db, current| {
@@ -845,7 +1009,14 @@ fn finish_music_preparation(
         }
         let mut data = current.data.clone();
         match result {
-            Ok(()) => {
+            Ok(false)
+                if current.data["config"]["provider"] != "auto"
+                    || current.data["status"] != "offline"
+                    || current.data["nextRefreshAt"].as_i64() != Some(i64::MAX) =>
+            {
+                return Ok(());
+            }
+            Ok(_) => {
                 data["status"] = json!("stale");
                 data["error"] = Value::Null;
                 data["failureCount"] = json!(0);
@@ -867,7 +1038,7 @@ async fn resume_music_widget(
     id: &str,
     story: Option<StoryGuard<'_>>,
 ) -> Result<(), String> {
-    let job = begin(state, id, Some("music"), |instance| {
+    let job = begin(state, id, Some("music"), false, |instance| {
         validate_story(state, story)?;
         if !spotify_widget(instance) {
             return Err("Spotify를 사용하는 음악 위젯이 아닙니다.".into());
@@ -893,7 +1064,12 @@ async fn resume_music_widget(
         restored
     })
     .await;
-    let outcome = finish_music_preparation(state, &job, &result, story);
+    let outcome = finish_music_preparation(
+        state,
+        &job,
+        &result.as_ref().map(|_| true).map_err(Clone::clone),
+        story,
+    );
     if outcome.is_err() {
         job.cancel.store(true, Ordering::SeqCst);
         if let Some(pairing) = pairing {
@@ -951,8 +1127,8 @@ async fn refresh_observation(
             .filter(|provider| !bridge_connected || *provider != "spotify")
             .map(str::to_owned)
             .collect();
-        let native = connections::music_candidates(&allowed, now).await;
-        let mut candidates = native.as_ref().cloned().unwrap_or_default();
+        let (mut candidates, warnings, native_error) =
+            connections::music_candidates(&allowed, now).await;
         let mut bridge_error = None;
         if bridge_connected {
             match crate::widgets::music_bridge::request(&instance.id, "observe", Value::Null).await
@@ -982,15 +1158,14 @@ async fn refresh_observation(
                     message,
                 };
             }
-            native
-                .err()
-                .unwrap_or_else(|| connections::ConnectionError {
-                    status: "offline".into(),
-                    message: "음악 앱 정보를 확인하지 못했어요.".into(),
-                })
+            native_error.unwrap_or_else(|| connections::ConnectionError {
+                status: "offline".into(),
+                message: "음악 앱 정보를 확인하지 못했어요.".into(),
+            })
         })?;
         let mut data = instance.data.clone();
         data["observation"] = observation;
+        data["warnings"] = json!(warnings);
         data["lastSuccessAt"] = json!(now);
         data["status"] = json!("ready");
         data["error"] = Value::Null;
@@ -1008,6 +1183,7 @@ async fn refresh_observation(
     observation["source"] = json!("Spotify · Spicetify");
     let mut data = instance.data.clone();
     data["observation"] = observation;
+    data["warnings"] = json!([]);
     data["lastSuccessAt"] = json!(timestamp());
     data["status"] = json!("ready");
     data["error"] = Value::Null;
@@ -1094,7 +1270,7 @@ pub(crate) async fn music_request(
     let _gate = music_gate()
         .try_lock()
         .map_err(|_| "다른 음악 명령을 처리하고 있어요. 잠시 후 다시 눌러 주세요.")?;
-    let job = begin(&state, &id, Some("music"), |instance| {
+    let job = begin(&state, &id, Some("music"), false, |instance| {
         check_music_request(instance, expected_revision, &action, timestamp())?;
         Ok(None)
     })?;
@@ -1171,6 +1347,7 @@ pub(crate) async fn music_request(
                 let mut data = match &refreshed {
                     Ok(data) => data.clone(),
                     Err(error) => information_failure(
+                        &current.kind,
                         &current.data,
                         error,
                         timestamp(),
@@ -1271,7 +1448,7 @@ pub(crate) async fn music_bridge_pair(
         .map_err(|_| "다른 음악 명령을 처리하고 있어요.")?;
     let pairing = uuid::Uuid::new_v4().to_string();
     let mut previous_pairing = None;
-    let job = begin(&state, &id, Some("music"), |instance| {
+    let job = begin(&state, &id, Some("music"), false, |instance| {
         if instance.revision != expected_revision
             || !connections::uses_music_bridge(&instance.data["config"])
         {
@@ -1332,8 +1509,14 @@ fn add_wake_event_if_no_transition(events: &mut Vec<super::EventDraft>) {
     }
 }
 
-fn begin_information(state: &AppState, id: &str, manual: bool, time: i64) -> Result<Job, String> {
-    begin(state, id, None, |instance| {
+fn begin_information(
+    state: &AppState,
+    id: &str,
+    manual: bool,
+    time: i64,
+) -> Result<Option<Job>, String> {
+    let mut throttled = false;
+    let result = begin(state, id, None, false, |instance| {
         if !manual && lock(&state.widget_jobs)?.contains_key(id) {
             return Err("이미 조회 중입니다.".into());
         }
@@ -1345,11 +1528,12 @@ fn begin_information(state: &AppState, id: &str, manual: bool, time: i64) -> Res
         }
         if manual {
             let minimum = connections::min_interval(&instance.kind).min(30000);
-            if instance.data["lastAttemptAt"]
+            if instance.data["lastManualAttemptAt"]
                 .as_i64()
                 .is_some_and(|last| time.saturating_sub(last) < minimum)
             {
-                return Err("잠시 기다린 뒤 다시 조회해 주세요.".into());
+                throttled = true;
+                return Err(String::new());
             }
         } else if !information_due(instance, time) {
             return Err("아직 조회할 시간이 아닙니다.".into());
@@ -1357,11 +1541,17 @@ fn begin_information(state: &AppState, id: &str, manual: bool, time: i64) -> Res
         let mut data = instance.data.clone();
         if manual {
             data["failureCount"] = json!(0);
+            data["lastManualAttemptAt"] = json!(time);
         }
         data["status"] = json!("syncing");
         data["lastAttemptAt"] = json!(time);
         Ok(Some(data))
-    })
+    });
+    if throttled {
+        Ok(None)
+    } else {
+        result.map(Some)
+    }
 }
 
 fn reserve_weather_archive(
@@ -1394,6 +1584,9 @@ async fn refresh_information(
     };
     let job = begin_information(state, id, manual, time)?;
     publish_widgets(app, state);
+    let Some(job) = job else {
+        return Ok(());
+    };
     let result = execute(&job, async {
         Ok(refresh_observation(&job.instance, time).await)
     })
@@ -1465,6 +1658,7 @@ async fn refresh_information(
                     value
                 }
                 Err(failure) => information_failure(
+                    &current.kind,
                     &current.data,
                     failure,
                     timestamp(),
@@ -1679,6 +1873,199 @@ mod tests {
     }
 
     #[test]
+    fn wake_identifies_current_calendar_connection_job_even_after_an_old_sync() {
+        let state = crate::lifecycle_tests::state();
+        let id = installed_information(&state, "calendar", true);
+        let mut old_connection = calendar::connect_ics(calendar::IcsConnectInput {
+            name: "기존 일정".into(),
+            url: "https://example.com/calendar.ics".into(),
+        })
+        .unwrap()
+        .connection;
+        old_connection.status = "syncing".into();
+        let refresh = begin(&state, &id, Some("calendar"), false, |instance| {
+            let mut data = instance.data.clone();
+            data["connections"] = json!([old_connection]);
+            Ok(Some(data))
+        })
+        .unwrap();
+        assert!(!calendar_connection_in_progress(&refresh.cancel).unwrap());
+
+        let connection = begin(&state, &id, Some("calendar"), false, |_| Ok(None)).unwrap();
+        assert!(refresh.cancel.load(Ordering::SeqCst));
+        assert!(calendar_connection_in_progress(&connection.cancel).unwrap());
+        abandon(&state, &refresh);
+        assert!(calendar_connection_in_progress(&connection.cancel).unwrap());
+
+        let newer_refresh = begin(&state, &id, Some("calendar"), false, |instance| {
+            Ok(Some(instance.data.clone()))
+        })
+        .unwrap();
+        assert!(!calendar_connection_in_progress(&newer_refresh.cancel).unwrap());
+        abandon(&state, &connection);
+        abandon(&state, &newer_refresh);
+    }
+
+    #[test]
+    fn failed_new_calendar_retries_do_not_save_connections() {
+        let state = crate::lifecycle_tests::state();
+        let id = installed_information(&state, "calendar", true);
+        for _ in 0..2 {
+            let connected = calendar::connect_ics(calendar::IcsConnectInput {
+                name: "구독".into(),
+                url: "https://example.com/feed".into(),
+            })
+            .unwrap();
+            let job = begin(&state, &id, Some("calendar"), false, |_| Ok(None)).unwrap();
+            let result = finish(&state, &job, |db, current| {
+                complete_calendar_connect(
+                    db,
+                    current,
+                    &connected,
+                    Err(calendar::CalendarError {
+                        status: "offline".into(),
+                        message: "연결 실패".into(),
+                    }),
+                )
+            });
+            assert!(result.is_err());
+            let db = lock(&state.db).unwrap();
+            let stored = storage::get(&db, &id).unwrap();
+            assert!(decode_calendar(&stored.data)
+                .unwrap()
+                .connections
+                .is_empty());
+        }
+    }
+
+    #[test]
+    fn failed_reconnect_preserves_existing_connection_and_cached_events() {
+        let state = crate::lifecycle_tests::state();
+        let id = installed_information(&state, "calendar", true);
+        let original = calendar::connect_ics(calendar::IcsConnectInput {
+            name: "기존".into(),
+            url: "https://example.com/old".into(),
+        })
+        .unwrap();
+        let mut replacement = calendar::connect_ics(calendar::IcsConnectInput {
+            name: "새 이름".into(),
+            url: "https://example.com/new".into(),
+        })
+        .unwrap();
+        calendar::reconnect(&mut replacement, &original.connection).unwrap();
+        {
+            let db = lock(&state.db).unwrap();
+            let instance = storage::get(&db, &id).unwrap();
+            let mut data = decode_calendar(&instance.data).unwrap();
+            data.connections.push(original.connection.clone());
+            let source = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:a\r\nDTSTART;VALUE=DATE:20260915\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+            let now = chrono::DateTime::parse_from_rfc3339("2026-09-15T00:00:00Z")
+                .unwrap()
+                .timestamp_millis();
+            data.events = calendar::parse_ics(source, &original.connection.id, now).unwrap();
+            store_calendar(&db, &instance, data).unwrap();
+        }
+        let job = begin(&state, &id, Some("calendar"), false, |_| Ok(None)).unwrap();
+        let before = decode_calendar(&job.instance.data).unwrap();
+        let result = finish(&state, &job, |db, current| {
+            complete_calendar_connect(
+                db,
+                current,
+                &replacement,
+                Err(calendar::CalendarError {
+                    status: "offline".into(),
+                    message: "연결 실패".into(),
+                }),
+            )
+        });
+        assert!(result.is_err());
+        let db = lock(&state.db).unwrap();
+        let after = decode_calendar(&storage::get(&db, &id).unwrap().data).unwrap();
+        assert_eq!(after.connections.len(), 1);
+        assert_eq!(after.connections[0].id, original.connection.id);
+        assert_eq!(after.connections[0].name, original.connection.name);
+        assert_eq!(
+            serde_json::to_value(after.events).unwrap(),
+            serde_json::to_value(before.events).unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn google_cancel_rejects_late_completion_and_preserves_new_jobs() {
+        let state = crate::lifecycle_tests::state();
+        let id = installed_information(&state, "calendar", true);
+        assert_eq!(
+            cancel_google_job(&state, &id).unwrap_err(),
+            "연결을 준비하고 있어요. 잠시 후 다시 취소해 주세요."
+        );
+        let job = begin(&state, &id, Some("calendar"), true, |_| Ok(None)).unwrap();
+        assert_eq!(lock(google_authorizations()).unwrap()[&id].1, "");
+        cancel_google_job(&state, &id).unwrap();
+        assert!(job.cancel.load(Ordering::SeqCst));
+        assert!(execute(&job, std::future::pending::<Result<(), String>>())
+            .await
+            .is_err());
+        assert!(finish(&state, &job, |_, _| panic!(
+            "cancelled Google result committed"
+        ))
+        .is_err());
+        let next = begin(&state, &id, Some("calendar"), true, |_| Ok(None)).unwrap();
+        abandon(&state, &job);
+        assert!(is_current(&state, &next, &next.instance).unwrap());
+        assert!(lock(google_authorizations()).unwrap().contains_key(&id));
+        abandon(&state, &next);
+    }
+
+    #[test]
+    fn offline_weather_and_calendar_keep_retrying_after_five_failures() {
+        let failure = connections::ConnectionError {
+            status: "offline".into(),
+            message: "연결 실패".into(),
+        };
+        let mut data = json!({"configured":true,"status":"ready","failureCount":0});
+        for _ in 0..6 {
+            data = information_failure("weather", &data, &failure, 1000, 1_800_000);
+        }
+        assert_eq!(data["nextRefreshAt"], 3_601_000);
+        let mut weather = WidgetInstance {
+            id: "weather".into(),
+            kind: "weather".into(),
+            version: 1,
+            revision: 1,
+            error: None,
+            data,
+        };
+        assert!(information_due_with_connection(&weather, 3_601_000, false));
+        weather.data["nextRefreshAt"] = json!(i64::MAX);
+        assert!(information_due_with_connection(&weather, 1000, false));
+        weather.data["status"] = json!("auth-error");
+        assert!(!information_due_with_connection(&weather, i64::MAX, false));
+
+        let connected = calendar::connect_ics(calendar::IcsConnectInput {
+            name: "구독".into(),
+            url: "https://example.com/feed".into(),
+        })
+        .unwrap();
+        let mut connection = connected.connection;
+        for _ in 0..6 {
+            connection = calendar::failed(
+                &connection,
+                &calendar::CalendarError {
+                    status: "offline".into(),
+                    message: "연결 실패".into(),
+                },
+                1000,
+            );
+        }
+        assert_eq!(connection.next_refresh_at, 3_601_000);
+        assert!(calendar_due(&connection, 3_601_000));
+        connection.next_refresh_at = i64::MAX;
+        assert!(calendar_due(&connection, 1000));
+        connection.status = "auth-error".into();
+        assert!(!calendar_due(&connection, i64::MAX));
+    }
+
+    #[test]
     fn wake_does_not_hide_a_battery_transition_from_reaction_selection() {
         for (before, after, percent, expected) in [
             ("discharging", "discharging", 80, "device-woke"),
@@ -1708,7 +2095,9 @@ mod tests {
         let state = crate::lifecycle_tests::state();
         for kind in ["weather", "music", "device"] {
             let id = installed_information(&state, kind, true);
-            let job = begin_information(&state, &id, true, 100_000).unwrap();
+            let job = begin_information(&state, &id, true, 100_000)
+                .unwrap()
+                .unwrap();
             assert_eq!(job.instance.kind, kind);
             assert_eq!(job.instance.data["status"], "syncing");
             assert_eq!(job.instance.data["lastAttemptAt"], 100_000);
@@ -1746,6 +2135,35 @@ mod tests {
     }
 
     #[test]
+    fn automatic_information_attempt_does_not_throttle_manual_refresh() {
+        let state = crate::lifecycle_tests::state();
+        for kind in ["weather", "music", "device"] {
+            let id = installed_information(&state, kind, true);
+            {
+                let db = lock(&state.db).unwrap();
+                let instance = storage::get(&db, &id).unwrap();
+                let mut data = instance.data;
+                data["status"] = json!("ready");
+                storage::commit_data(&db, &id, instance.revision, data, vec![], 1).unwrap();
+            }
+            let automatic = begin_information(&state, &id, false, 100_000)
+                .unwrap()
+                .unwrap();
+            let manual = begin_information(&state, &id, true, 100_001)
+                .unwrap()
+                .unwrap();
+            assert!(automatic.cancel.load(Ordering::SeqCst));
+            assert_eq!(manual.instance.data["lastManualAttemptAt"], 100_001);
+            assert!(begin_information(&state, &id, true, 100_002)
+                .unwrap()
+                .is_none());
+            assert!(!manual.cancel.load(Ordering::SeqCst));
+            let current = storage::get(&lock(&state.db).unwrap(), &id).unwrap();
+            assert_eq!(current.revision, manual.instance.revision);
+        }
+    }
+
+    #[test]
     fn manual_device_refresh_preserves_throttle_and_resets_failure_backoff() {
         let state = crate::lifecycle_tests::state();
         let id = installed_information(&state, "device", true);
@@ -1755,20 +2173,21 @@ mod tests {
             let mut data = instance.data;
             data["failureCount"] = json!(5);
             data["nextRefreshAt"] = json!(i64::MAX);
-            data["lastAttemptAt"] = json!(100_000);
+            data["lastAttemptAt"] = json!(129_999);
+            data["lastManualAttemptAt"] = json!(100_000);
             storage::commit_data(&db, &id, instance.revision, data, vec![], 1).unwrap();
         }
-        assert_eq!(
-            begin_information(&state, &id, true, 129_999).err().unwrap(),
-            "잠시 기다린 뒤 다시 조회해 주세요."
-        );
-        let job = begin_information(&state, &id, true, 130_000).unwrap();
+        assert!(begin_information(&state, &id, true, 129_999)
+            .unwrap()
+            .is_none());
+        let job = begin_information(&state, &id, true, 130_000)
+            .unwrap()
+            .unwrap();
         assert_eq!(job.instance.data["failureCount"], 0);
         assert_eq!(job.instance.data["status"], "syncing");
-        assert_eq!(
-            begin_information(&state, &id, true, 130_001).err().unwrap(),
-            "잠시 기다린 뒤 다시 조회해 주세요."
-        );
+        assert!(begin_information(&state, &id, true, 130_001)
+            .unwrap()
+            .is_none());
         assert!(!job.cancel.load(Ordering::SeqCst));
     }
 
@@ -1776,13 +2195,17 @@ mod tests {
     async fn manual_device_jobs_reject_stale_cancelled_and_superseded_results() {
         let state = crate::lifecycle_tests::state();
         let id = installed_information(&state, "device", true);
-        let stale = begin_information(&state, &id, true, 100_000).unwrap();
+        let stale = begin_information(&state, &id, true, 100_000)
+            .unwrap()
+            .unwrap();
         {
             let db = lock(&state.db).unwrap();
             storage::bump_revision(&db, &id, stale.instance.revision).unwrap();
         }
         assert!(finish(&state, &stale, |_, _| panic!("stale result committed")).is_err());
-        let cancelled = begin_information(&state, &id, true, 130_000).unwrap();
+        let cancelled = begin_information(&state, &id, true, 130_000)
+            .unwrap()
+            .unwrap();
         crate::widgets::commands::cancel_widget_jobs(&state, Some(&id)).unwrap();
         let result: Result<(), String> = execute(&cancelled, std::future::pending()).await;
         assert_eq!(result.unwrap_err(), "위젯 조회를 취소했습니다.");
@@ -1790,8 +2213,12 @@ mod tests {
             "cancelled result committed"
         ))
         .is_err());
-        let old = begin_information(&state, &id, true, 160_000).unwrap();
-        let current = begin_information(&state, &id, true, 190_000).unwrap();
+        let old = begin_information(&state, &id, true, 160_000)
+            .unwrap()
+            .unwrap();
+        let current = begin_information(&state, &id, true, 190_000)
+            .unwrap()
+            .unwrap();
         assert!(old.cancel.load(Ordering::SeqCst));
         assert!(finish(&state, &old, |_, _| panic!("superseded result committed")).is_err());
         assert!(is_current(&state, &current, &current.instance).unwrap());
@@ -1817,7 +2244,9 @@ mod tests {
             data["config"] = json!({"unexpected": true});
             storage::commit_data(&db, &id, instance.revision, data, vec![], 1).unwrap();
         }
-        let job = begin_information(&state, &id, true, 100_000).unwrap();
+        let job = begin_information(&state, &id, true, 100_000)
+            .unwrap()
+            .unwrap();
         let error = refresh_observation(&job.instance, 100_000)
             .await
             .unwrap_err();
@@ -1830,7 +2259,9 @@ mod tests {
     async fn manual_device_refresh_reports_and_stores_linux_unsupported() {
         let state = crate::lifecycle_tests::state();
         let id = installed_information(&state, "device", true);
-        let job = begin_information(&state, &id, true, 100_000).unwrap();
+        let job = begin_information(&state, &id, true, 100_000)
+            .unwrap()
+            .unwrap();
         let error = execute(&job, async {
             Ok(refresh_observation(&job.instance, 100_000).await)
         })
@@ -1844,6 +2275,7 @@ mod tests {
         );
         finish(&state, &job, |db, current| {
             let data = information_failure(
+                &current.kind,
                 &current.data,
                 &error,
                 100_000,
@@ -1865,7 +2297,9 @@ mod tests {
     async fn manual_device_refresh_reads_supported_host_battery() {
         let state = crate::lifecycle_tests::state();
         let id = installed_information(&state, "device", true);
-        let job = begin_information(&state, &id, true, 100_000).unwrap();
+        let job = begin_information(&state, &id, true, 100_000)
+            .unwrap()
+            .unwrap();
         let data = execute(&job, async {
             Ok(refresh_observation(&job.instance, 100_000).await)
         })
@@ -1942,6 +2376,102 @@ mod tests {
         assert!(validate_story(&state, Some((&run, &cancel))).is_err());
     }
     #[test]
+    fn auto_music_launch_failure_keeps_polling() {
+        let error = connections::ConnectionError {
+            status: "offline".into(),
+            message: "실행 실패".into(),
+        };
+        assert_eq!(music_launch_outcome(true, Err(error)), Ok(false));
+    }
+
+    #[test]
+    fn auto_music_launch_cancellation_returns_error() {
+        let error = connections::ConnectionError {
+            status: "stale".into(),
+            message: "실행 취소".into(),
+        };
+        assert_eq!(music_launch_outcome(true, Err(error)), Err("실행 취소".into()));
+    }
+
+    #[test]
+    fn explicit_music_launch_failure_returns_error() {
+        let error = connections::ConnectionError {
+            status: "offline".into(),
+            message: "실행 실패".into(),
+        };
+        assert_eq!(music_launch_outcome(false, Err(error)), Err("실행 실패".into()));
+    }
+
+    #[test]
+    fn auto_music_missing_spotify_keeps_polling_state() {
+        let state = crate::lifecycle_tests::state();
+        let id = installed_information(&state, "music", true);
+        let job = begin(&state, &id, Some("music"), false, |instance| {
+            let mut data = instance.data.clone();
+            data["config"] = json!({"provider":"auto","allowedProviders":["music","spotify"]});
+            data["status"] = json!("ready");
+            data["nextRefreshAt"] = json!(1234);
+            data["error"] = Value::Null;
+            Ok(Some(data))
+        })
+        .unwrap();
+        finish_music_preparation(&state, &job, &Ok(false), None).unwrap();
+        let instance = storage::get(&lock(&state.db).unwrap(), &id).unwrap();
+        assert_eq!(instance.data["status"], "ready");
+        assert_eq!(instance.data["nextRefreshAt"], 1234);
+        assert!(instance.data["error"].is_null());
+        assert!(information_due(&instance, 1234));
+    }
+
+    #[test]
+    fn missing_spotify_recovers_only_legacy_auto_failure() {
+        for (provider, status, next_refresh_at, should_recover) in [
+            ("auto", "offline", i64::MAX, true),
+            ("auto", "ready", 1234, false),
+            ("auto", "offline", 1234, false),
+            ("auto", "ready", i64::MAX, false),
+            ("spotify", "offline", i64::MAX, false),
+        ] {
+            let state = crate::lifecycle_tests::state();
+            let id = installed_information(&state, "music", true);
+            let job = begin(&state, &id, Some("music"), false, |instance| {
+                let mut data = instance.data.clone();
+                data["config"] = json!({"provider":provider,"allowedProviders":["music","spotify"]});
+                data["status"] = json!(status);
+                data["error"] = if status == "offline" {
+                    json!("Spotify를 실행하지 못했어요.")
+                } else {
+                    Value::Null
+                };
+                data["failureCount"] = json!(if status == "offline" { 5 } else { 0 });
+                data["nextRefreshAt"] = json!(next_refresh_at);
+                Ok(Some(data))
+            })
+            .unwrap();
+            let before = storage::get(&lock(&state.db).unwrap(), &id).unwrap();
+            finish_music_preparation(&state, &job, &Ok(false), None).unwrap();
+            let instance = storage::get(&lock(&state.db).unwrap(), &id).unwrap();
+            if should_recover {
+                let mut expected = before.data.clone();
+                expected["status"] = json!("stale");
+                expected["error"] = Value::Null;
+                expected["failureCount"] = json!(0);
+                expected["nextRefreshAt"] = json!(0);
+                assert_eq!(instance.data, expected);
+                assert_eq!(instance.data["status"], "stale");
+                assert!(instance.data["error"].is_null());
+                assert_eq!(instance.data["failureCount"], 0);
+                assert_eq!(instance.data["nextRefreshAt"], 0);
+                assert!(information_due(&instance, 1234));
+                assert!(instance.revision > before.revision);
+            } else {
+                assert_eq!(instance.data, before.data);
+                assert_eq!(instance.revision, before.revision);
+            }
+        }
+    }
+
+    #[test]
     fn completed_resume_token_is_not_cancelled_by_launch_or_playback_jobs() {
         let state = crate::lifecycle_tests::state();
         let directory = tempfile::tempdir().unwrap();
@@ -1955,13 +2485,13 @@ mod tests {
                 .unwrap()
                 .id
         };
-        let resume = begin(&state, &id, Some("music"), |_| Ok(None)).unwrap();
-        finish_music_preparation(&state, &resume, &Ok(()), None).unwrap();
-        let launch = begin(&state, &id, Some("music"), |_| Ok(None)).unwrap();
-        let _playback = begin(&state, &id, Some("music"), |_| Ok(None)).unwrap();
+        let resume = begin(&state, &id, Some("music"), false, |_| Ok(None)).unwrap();
+        finish_music_preparation(&state, &resume, &Ok(true), None).unwrap();
+        let launch = begin(&state, &id, Some("music"), false, |_| Ok(None)).unwrap();
+        let _playback = begin(&state, &id, Some("music"), false, |_| Ok(None)).unwrap();
         assert!(launch.cancel.load(Ordering::SeqCst));
         assert!(!resume.cancel.load(Ordering::SeqCst));
-        assert!(finish_music_preparation(&state, &launch, &Ok(()), None).is_err());
+        assert!(finish_music_preparation(&state, &launch, &Ok(true), None).is_err());
     }
     #[test]
     fn unlink_removes_restore_authority_before_credential_cleanup() {
@@ -2018,7 +2548,7 @@ mod tests {
                 .unwrap()
                 .id
         };
-        let job = begin(&state, &id, Some("music"), |_| Ok(None)).unwrap();
+        let job = begin(&state, &id, Some("music"), false, |_| Ok(None)).unwrap();
         assert!(music_job_current(&state, &job).is_ok());
         {
             let db = lock(&state.db).unwrap();
@@ -2030,7 +2560,7 @@ mod tests {
         }
         assert!(music_job_current(&state, &job).is_err());
         assert!(finish(&state, &job, |_, _| panic!("stale commit executed")).is_err());
-        let job = begin(&state, &id, Some("music"), |_| Ok(None)).unwrap();
+        let job = begin(&state, &id, Some("music"), false, |_| Ok(None)).unwrap();
         crate::widgets::commands::cancel_widget_jobs(&state, Some(&id)).unwrap();
         assert!(music_job_current(&state, &job).is_err());
     }
@@ -2157,9 +2687,10 @@ mod tests {
             status: "offline".into(),
             message: "연결 실패".into(),
         };
-        let result = information_failure(&data, &failure, 1000, 60000);
+        let result = information_failure("weather", &data, &failure, 1000, 60000);
         assert_eq!(result["observation"], data["observation"]);
         assert_eq!(result["lastSuccessAt"], 123);
+        assert_eq!(result["error"], "연결 실패 마지막으로 확인한 날씨를 보여 드려요.");
         assert_eq!(result["nextRefreshAt"], 121000);
         let links = json!({"events":[{"url":"https://example.com","cancelled":false},{"url":"https://cancelled.example.com","cancelled":true}]});
         assert!(allowed_link(&links, "calendar", "https://example.com"));
@@ -2173,5 +2704,45 @@ mod tests {
             "calendar",
             "https://other.example.com"
         ));
+    }
+
+    #[test]
+    fn failed_new_weather_region_keeps_previous_observation_without_forecast() {
+        let mut previous = connections::configure(
+            "weather",
+            &connections::initial("weather"),
+            &json!({"name":"서울","latitude":37.56,"longitude":126.97}),
+        )
+        .unwrap();
+        previous["observation"] = json!({"name":"서울","temperature":25});
+        previous["forecast"] = json!({"today":{"code":0}});
+        previous["lastSuccessAt"] = json!(100);
+        let changed = connections::configure(
+            "weather",
+            &previous,
+            &json!({"name":"부산","latitude":35.17,"longitude":129.07}),
+        )
+        .unwrap();
+        let failure = connections::ConnectionError {
+            status: "offline".into(),
+            message: "날씨를 확인하지 못했어요.".into(),
+        };
+        let failed = information_failure("weather", &changed, &failure, 200, 1_800_000);
+        assert_eq!(failed["config"]["name"], "부산");
+        assert_eq!(failed["observation"], previous["observation"]);
+        assert!(failed["lastSuccessAt"].is_null());
+        assert!(failed["forecast"].is_null());
+        assert_eq!(failed["status"], "offline");
+        assert_eq!(failed["error"], "날씨를 확인하지 못했어요. 이전 지역에서 마지막으로 확인한 날씨를 보여 드려요.");
+        let first = connections::configure(
+            "weather",
+            &connections::initial("weather"),
+            &json!({"name":"부산","latitude":35.17,"longitude":129.07}),
+        )
+        .unwrap();
+        let first_failure = information_failure("weather", &first, &failure, 200, 1_800_000);
+        assert_eq!(first_failure["error"], "날씨를 확인하지 못했어요. 아직 확인한 날씨가 없어요.");
+        let music_failure = information_failure("music", &first, &failure, 200, 15_000);
+        assert_eq!(music_failure["error"], failure.message);
     }
 }

@@ -25,7 +25,7 @@ import * as s from "../../common.css";
 import * as styles from "./settings.css";
 
 type Props = { snapshot: Snapshot; preview?: boolean; initialSection?: string };
-type HighlightRequest = { id: number; value: "ai.recommended" | "general.guide" };
+type HighlightRequest = { id: number; value: "ai.recommended" | "general.guide" | "general.autostart" };
 type GuideErrorRequest = { id: number; error: GuideOpenError };
 function DraftActions({
   draft,
@@ -106,7 +106,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
   const containerRef = useRef<HTMLElement>(null);
   const requestRevision = useRef(0);
   const [highlight, setHighlight] = useState<{
-    value: "ai.recommended" | "general.guide";
+    value: "ai.recommended" | "general.guide" | "general.autostart";
     revision: number;
   } | null>(null);
   const [guideOpenResult, setGuideOpenResult] = useState<{ error: GuideOpenError | null }>();
@@ -125,7 +125,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
     let lastHighlightId = 0;
     function applyHighlight(request: HighlightRequest | null, revision: number): void {
       if (!active || !request || request.id <= lastHighlightId) return;
-      if (request.value !== "ai.recommended" && request.value !== "general.guide") return;
+      if (request.value !== "ai.recommended" && request.value !== "general.guide" && request.value !== "general.autostart") return;
       if (revision !== requestRevision.current) return;
       lastHighlightId = request.id;
       navigateSection(request.value === "ai.recommended" ? "model" : "general");
@@ -307,7 +307,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
   const topSections = [
     { value: "characters", label: "친구들", icon: "look" as const, content: null },
     { value: "automatic", label: "대화", icon: "chat" as const, content: null },
-    { value: "desktop", label: "바탕화면", icon: "calendar" as const, content: null },
+    { value: "desktop", label: "바탕화면", icon: "monitor" as const, content: null },
     { value: "widgets", label: "위젯", icon: "grid" as const, content: null },
     { value: "model", label: "AI 연결", icon: "memory" as const, content: null },
     { value: "general", label: "일반", icon: "gear" as const, content: null },
@@ -452,6 +452,10 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
             <DesktopPreferences
               hidden={snapshot.runtime.hidden}
               platform={snapshot.device.platform}
+              settings={snapshot.settings}
+              onToggleCharacters={() =>
+                void act(snapshot.runtime.hidden ? "show_characters" : "hide_boxes")
+              }
               onDirtyChange={setGeneralDirty}
             />
           )}

@@ -192,6 +192,8 @@ pub enum SettingsHighlight {
     AiRecommended,
     #[serde(rename = "general.guide")]
     GeneralGuide,
+    #[serde(rename = "general.autostart")]
+    GeneralAutostart,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -249,6 +251,8 @@ pub enum SavedWidget {
 pub enum StoryEvent {
     #[serde(rename = "body.clicked")]
     BodyClicked {},
+    #[serde(rename = "body.double-clicked")]
+    BodyDoubleClicked {},
     #[serde(rename = "body.moved")]
     BodyMoved {},
     #[serde(rename = "widget.saved")]

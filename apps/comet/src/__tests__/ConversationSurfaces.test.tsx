@@ -64,7 +64,10 @@ it("keeps the desktop input compact with only its shortcuts", () => {
   expect(screen.queryByText("더보기")).toBeNull();
   expect(screen.queryByText("  적어 둔 대답\n다음 줄  ", { exact: true })).toBeNull();
   expect(screen.getByRole("button", { name: "지난 대화" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "이어서 하기" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "이어서 하기 (멈춘 대화가 없어요)" })).toHaveProperty(
+    "disabled",
+    true,
+  );
   expect(screen.getByRole("button", { name: "함께 이야기해 봐" })).toBeTruthy();
 });
 
@@ -131,19 +134,14 @@ it("saves the current draft before resuming a paused conversation from the short
   ]);
 });
 
-it("opens past chats when there is no paused chat and saves the pending draft first", async () => {
+it("disables resume when there is no paused chat and keeps the pending draft", () => {
   render(<Balloon snapshot={conversationSnapshot()} surface="input" preview />);
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "지난 대화를 열기 전 초안" } });
-  fireEvent.click(screen.getByRole("button", { name: "이어서 하기" }));
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("open_panel", { persona: "builtin-a", mode: "history" }),
-  );
-  expect(vi.mocked(command).mock.calls[0]).toEqual([
-    "save_conversation_draft",
-    { sessionId: "surface-session", draft: "지난 대화를 열기 전 초안", inputOwner: "desktop" },
-  ]);
-  expect(command).not.toHaveBeenCalledWith("get_conversation_notes");
-  expect(command).not.toHaveBeenCalledWith("resume_chat", expect.anything());
+  const resume = screen.getByRole("button", { name: "이어서 하기 (멈춘 대화가 없어요)" });
+  expect(resume).toHaveProperty("disabled", true);
+  fireEvent.click(resume);
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "지난 대화를 열기 전 초안");
+  expect(command).not.toHaveBeenCalled();
 });
 
 it("saves the draft before asking the characters to talk together", async () => {
@@ -188,7 +186,7 @@ it("preserves IME, Shift+Enter and a failed raw draft through the capsule", asyn
   );
 });
 
-it.each(["지난 대화", "이어서 하기"])(
+it.each(["지난 대화"])(
   "opens all-recipient history from %s without selecting its first speaker",
   async (shortcut) => {
     const snapshot = conversationSnapshot();
@@ -321,12 +319,14 @@ it("shows the scene question and submits its answer while retaining prompt playb
   vi.useRealTimers();
   expect(screen.getByRole("button", { name: "보내기" })).toHaveProperty("disabled", false);
   fireEvent.keyDown(input, { key: "Enter" });
-  await waitFor(() => expect(command).toHaveBeenCalledWith("send_message", {
-    content: "별",
-    target: "builtin-a",
-    clientMessageId: expect.any(String),
-    sceneAskId: "ask-topic",
-  }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("send_message", {
+      content: "별",
+      target: "builtin-a",
+      clientMessageId: expect.any(String),
+      sceneAskId: "ask-topic",
+    }),
+  );
   expect(command).not.toHaveBeenCalledWith("save_conversation_draft", expect.anything());
   const next = { ...snapshot, sceneAskId: undefined, playback: null };
   view.rerender(

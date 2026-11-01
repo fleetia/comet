@@ -301,24 +301,30 @@ pub async fn observe_source(
     }
 }
 
-pub async fn launch_spotify(cancel: Arc<AtomicBool>) -> Result<(), ConnectionError> {
+pub async fn launch_spotify(
+    cancel: Arc<AtomicBool>,
+    skip_missing: bool,
+) -> Result<bool, ConnectionError> {
     ensure_active(&cancel)?;
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         #[cfg(target_os = "macos")]
-        let launch = macos::launch_spotify(&cancel);
+        let launch = macos::launch_spotify(&cancel, skip_missing);
         #[cfg(target_os = "windows")]
-        let launch = windows::launch_spotify(&cancel);
+        let launch = windows::launch_spotify(&cancel, skip_missing);
         tokio::select! {
             _ = crate::models::cancelled(cancel.clone()) => Err(failure("stale", "Spotify 실행을 취소했어요.")),
-            result = launch => { result?; ensure_active(&cancel) }
+            result = launch => { let launched = result?; ensure_active(&cancel)?; Ok(launched) }
         }
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    Err(failure(
-        "unsupported",
-        "이 운영체제에서는 Spotify 자동 실행을 지원하지 않아요.",
-    ))
+    {
+        let _ = skip_missing;
+        Err(failure(
+            "unsupported",
+            "이 운영체제에서는 Spotify 자동 실행을 지원하지 않아요.",
+        ))
+    }
 }
 
 pub async fn open_source(
@@ -439,7 +445,10 @@ mod tests {
             "unsupported"
         );
         assert_eq!(
-            launch_spotify(cancel.clone()).await.unwrap_err().status,
+            launch_spotify(cancel.clone(), false)
+                .await
+                .unwrap_err()
+                .status,
             "unsupported"
         );
 
@@ -451,7 +460,10 @@ mod tests {
                 .status,
             "stale"
         );
-        assert_eq!(launch_spotify(cancel).await.unwrap_err().status, "stale");
+        assert_eq!(
+            launch_spotify(cancel, false).await.unwrap_err().status,
+            "stale"
+        );
     }
 
     #[tokio::test]

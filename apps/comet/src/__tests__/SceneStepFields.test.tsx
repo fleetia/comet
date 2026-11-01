@@ -51,6 +51,8 @@ it("edits and retains an optional wait appearance when the event changes", () =>
   expect((screen.getByLabelText("단계 1 동작") as HTMLSelectElement).value).toBe("static");
   fireEvent.change(screen.getByLabelText("단계 1 기다릴 이벤트"), { target: { value: "body.moved" } });
   expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ event: "body.moved", appearance: step.appearance }));
+  fireEvent.change(screen.getByLabelText("단계 1 기다릴 이벤트"), { target: { value: "body.double-clicked" } });
+  expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ event: "body.double-clicked", appearance: step.appearance }));
   fireEvent.change(screen.getByLabelText("단계 1 대기 표정 화자"), { target: { value: "" } });
   expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ appearance: undefined }));
 });

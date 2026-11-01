@@ -68,13 +68,20 @@ fn is_spotify_source(source: &str) -> bool {
     source == "spotify.exe" || source.starts_with("spotifyab.spotifymusic_")
 }
 
-pub(super) async fn launch_spotify(cancel: &AtomicBool) -> Result<(), ConnectionError> {
+pub(super) async fn launch_spotify(
+    cancel: &AtomicBool,
+    skip_missing: bool,
+) -> Result<bool, ConnectionError> {
     // A Spotify process can exist without a media session. Only open the URI when it is absent.
     let mut child = dispatch_if_active(cancel, || {
         tokio::process::Command::new("powershell.exe")
             .args([
                 "-NoProfile", "-NonInteractive", "-Command",
-                "if (-not (Get-Process -Name Spotify -ErrorAction SilentlyContinue)) { Start-Process 'spotify:' -ErrorAction Stop }",
+                if skip_missing {
+                    "if (-not (Get-Process -Name Spotify -ErrorAction SilentlyContinue)) { if (-not (Test-Path 'Registry::HKEY_CLASSES_ROOT\\spotify')) { exit 2 }; Start-Process 'spotify:' -ErrorAction Stop }"
+                } else {
+                    "if (-not (Get-Process -Name Spotify -ErrorAction SilentlyContinue)) { Start-Process 'spotify:' -ErrorAction Stop }"
+                },
             ])
             .creation_flags(0x08000000)
             .stdin(std::process::Stdio::null())
@@ -88,13 +95,16 @@ pub(super) async fn launch_spotify(cancel: &AtomicBool) -> Result<(), Connection
         .await
         .map_err(|_| failure("offline", "Spotify 실행 대기 시간이 초과됐어요."))?
         .map_err(|_| failure("offline", "Spotify 실행을 확인하지 못했어요."))?;
+    if skip_missing && status.code() == Some(2) {
+        return Ok(false);
+    }
     if !status.success() {
         return Err(failure(
             "offline",
             "Spotify를 실행하지 못했어요. 앱 설치 상태를 확인해 주세요.",
         ));
     }
-    Ok(())
+    Ok(true)
 }
 
 pub(super) async fn open_spotify(cancel: &AtomicBool) -> Result<(), ConnectionError> {

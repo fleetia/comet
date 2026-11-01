@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act as reactAct, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { command } from "../../hooks/useSnapshot";
 import { ConnectionTool } from "../ConnectionTools/ConnectionTools";
 import { CalendarTool } from "../CalendarTool/CalendarTool";
@@ -473,6 +473,74 @@ it("configures weather only from an explicit selected search result", async () =
   );
 });
 
+it("shows weather search and refresh errors next to their controls", async () => {
+  vi.mocked(command).mockRejectedValueOnce("검색 실패").mockRejectedValueOnce("조회 실패");
+  render(
+    <ConnectionTool
+      mode="settings"
+      widget={widget("weather", {
+        ...EMPTY,
+        configured: true,
+        config: { name: "서울", latitude: 37.5, longitude: 127 },
+      })}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText(/^지역 이름\s*\*?$/), { target: { value: "서울" } });
+  fireEvent.click(screen.getByRole("button", { name: "지역 검색" }));
+  expect(
+    (await within(screen.getByRole("region", { name: "날씨 지역 설정" })).findByRole("alert"))
+      .textContent,
+  ).toContain("검색 실패");
+  fireEvent.click(screen.getByRole("button", { name: "다시 확인" }));
+  const refresh = screen.getByRole("button", { name: "다시 확인" });
+  await waitFor(() => expect(refresh.closest("fieldset")?.textContent).toContain("조회 실패"));
+});
+
+it("shows a failed first weather lookup in settings", () => {
+  render(
+    <ConnectionTool mode="settings" widget={widget("weather", {
+      ...EMPTY, configured: true, status: "offline", lastAttemptAt: 1000,
+      config: { name: "서울" }, error: "아직 확인한 날씨가 없어요",
+    })} />,
+  );
+  expect(screen.getByText("날씨 확인 실패")).toBeTruthy();
+  expect(screen.queryByText("아직 조회하지 않았어요")).toBeNull();
+});
+
+it("labels the previous region when the new weather lookup fails in settings", () => {
+  render(
+    <ConnectionTool mode="settings" widget={widget("weather", {
+      ...EMPTY, configured: true, status: "offline", lastAttemptAt: 1000,
+      config: { name: "부산" }, observation: { name: "서울", temperature: 21, weatherCode: 0 },
+      error: "새 지역 조회 실패",
+    })} />,
+  );
+  expect(screen.getByText("새 지역 확인 실패 · 이전 지역 정보")).toBeTruthy();
+  expect(screen.queryByText("아직 조회하지 않았어요")).toBeNull();
+});
+
+it("shows weather refresh in progress even when an earlier lookup succeeded", () => {
+  render(
+    <ConnectionTool mode="settings" widget={widget("weather", {
+      ...EMPTY, configured: true, status: "syncing", lastAttemptAt: 2000,
+      lastSuccessAt: 1000, observation: { name: "서울", temperature: 21, weatherCode: 0 },
+    })} />,
+  );
+  expect(screen.getByText("날씨 확인 중")).toBeTruthy();
+  expect(screen.queryByText(/마지막 확인/)).toBeNull();
+});
+
+it("shows the last successful weather lookup in settings", () => {
+  render(
+    <ConnectionTool mode="settings" widget={widget("weather", {
+      ...EMPTY, configured: true, status: "ready", lastAttemptAt: 1000,
+      lastSuccessAt: 1000, observation: { name: "서울", temperature: 21, weatherCode: 0 },
+    })} />,
+  );
+  expect(screen.getByText(/마지막 확인/)).toBeTruthy();
+  expect(screen.queryByText("날씨 확인 실패")).toBeNull();
+});
+
 it("saves weather presentation and refresh preferences without changing the selected region", async () => {
   render(
     <ConnectionTool
@@ -572,6 +640,63 @@ it("shows the last weather observation as stale through the desktop weather rend
   // The stale marker stays inside the cloud so the window never clips it.
   expect(screen.getByText(/· 이전 정보/)).toBeTruthy();
   expect(screen.getByRole("alert")).toHaveProperty("textContent", "연결 실패");
+});
+it("distinguishes a failed first weather lookup from a missing region", () => {
+  render(
+    <ConnectionTool widget={widget("weather", {
+      ...EMPTY, configured: true, status: "offline", lastAttemptAt: 1000, error: "조회 실패",
+    })} />,
+  );
+  expect(screen.getByText("날씨를 확인하지 못했어요. 다시 확인해 주세요.")).toBeTruthy();
+  expect(screen.queryByText(/지역을 고르면/)).toBeNull();
+  expect(screen.getByRole("button", { name: "다시 확인" })).toHaveProperty("disabled", false);
+});
+it("labels an older region when the new region lookup fails", () => {
+  render(
+    <ConnectionTool widget={widget("weather", {
+      ...EMPTY, configured: true, config: { name: "부산" }, status: "offline",
+      lastAttemptAt: 1000, observation: { name: "서울", temperature: 21, weatherCode: 0 },
+      error: "새 지역 조회 실패",
+    })} />,
+  );
+  expect(screen.getByText(/서울/)).toBeTruthy();
+  expect(screen.getByText(/새 지역 확인 실패 · 이전 지역 정보/)).toBeTruthy();
+  expect(screen.getByText(/새 지역 확인 실패 · Weather data by/)).toBeTruthy();
+  expect(screen.queryByText(/새 지역 확인 중/)).toBeNull();
+});
+it("announces a region search while the request is pending", async () => {
+  let complete!: (value: unknown) => void;
+  vi.mocked(command).mockReturnValueOnce(new Promise((resolve) => { complete = resolve; }));
+  render(<ConnectionTool mode="settings" widget={widget("weather", EMPTY)} />);
+  fireEvent.change(screen.getByLabelText("지역 이름"), { target: { value: "서울" } });
+  fireEvent.click(screen.getByRole("button", { name: "지역 검색" }));
+  expect(screen.getByRole("status").textContent).toBe("지역을 찾는 중이에요.");
+  await reactAct(async () => { complete([]); });
+  expect(screen.queryByRole("status")).toBeNull();
+});
+it.each([
+  [1, "위치 권한을 확인해 주세요. 지역 이름으로도 검색할 수 있어요."],
+  [2, "현재 위치를 확인할 수 없어요. 지역 이름으로 검색해 주세요."],
+  [3, "위치 확인 시간이 초과됐어요. 지역 이름으로 검색해 주세요."],
+])("announces location lookup and explains geolocation error %i", (code, message) => {
+  let fail!: PositionErrorCallback;
+  const original = Object.getOwnPropertyDescriptor(navigator, "geolocation");
+  Object.defineProperty(navigator, "geolocation", {
+    configurable: true,
+    value: { getCurrentPosition: (_success: PositionCallback, error: PositionErrorCallback) => { fail = error; } },
+  });
+  try {
+    render(<ConnectionTool mode="settings" widget={widget("weather", EMPTY)} />);
+    fireEvent.click(screen.getByRole("button", { name: "현재 위치 쓰기" }));
+    expect(screen.getByRole("status").textContent).toBe("현재 위치를 확인 중이에요.");
+    reactAct(() => fail({ code, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3, message: "" }));
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toBe(message);
+    expect(screen.getByLabelText("지역 이름")).toBeTruthy();
+  } finally {
+    if (original) Object.defineProperty(navigator, "geolocation", original);
+    else Reflect.deleteProperty(navigator, "geolocation");
+  }
 });
 it("clears the private ICS URL only after successful connection", async () => {
   render(

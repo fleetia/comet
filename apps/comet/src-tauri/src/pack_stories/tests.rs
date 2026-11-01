@@ -1165,6 +1165,41 @@ fn name_ask_saved_line_validates_and_round_trips() {
 }
 
 #[test]
+fn bundled_tutorial_introduces_the_move_menu_after_the_wait() {
+    let scenario: serde_json::Value =
+        serde_json::from_str(include_str!("../../content/byulkkori-tutorial.json")).unwrap();
+    let chapter = scenario["chapters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|chapter| chapter["id"] == "move")
+        .unwrap();
+    let steps = chapter["steps"].as_array().unwrap();
+    assert_eq!(
+        steps[0]["text"],
+        "Command를 누른 채 나를 끌어 봐. Windows에서는 Ctrl이야."
+    );
+    assert_eq!(steps[1]["event"], "body.moved");
+    let menu_hint = "이 이야기가 끝난 뒤에는 오른쪽 버튼 메뉴의 교감에서 움직이기를 골라도 옮길 수 있어.";
+    assert!(steps[1]["onTimeout"]["steps"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains(menu_hint));
+    assert!(steps[2]["text"].as_str().unwrap().contains(menu_hint));
+
+    let entrances = scenario["chapters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|chapter| chapter["id"] == "entrances")
+        .unwrap();
+    assert!(entrances["steps"][0]["text"]
+        .as_str()
+        .unwrap()
+        .starts_with("이 이야기가 끝난 뒤에는 나를 오른쪽 버튼으로 누르면"));
+}
+
+#[test]
 fn bundled_tutorial_name_confirmation_is_only_in_saved_line() {
     let scenario: ScenarioDefinition =
         serde_json::from_str(include_str!("../../content/byulkkori-tutorial.json")).unwrap();

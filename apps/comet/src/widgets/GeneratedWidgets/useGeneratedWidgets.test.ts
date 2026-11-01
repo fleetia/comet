@@ -57,7 +57,7 @@ it("ignores queued callbacks from the previous subscription after reload", async
   expect(result.current.workshop.automatic).toBe(false);
 });
 
-it("keeps the latest event snapshot when initial reads resolve late and hides removed records", async () => {
+it("keeps the latest event snapshot including archived records when initial reads resolve late", async () => {
   const initial = deferred<Workshop>();
   const newer = deferred<Workshop>();
   vi.mocked(command).mockReturnValueOnce(initial.promise).mockReturnValueOnce(newer.promise);
@@ -85,7 +85,7 @@ it("keeps the latest event snapshot when initial reads resolve late and hides re
     }),
   );
   expect(result.current.workshop.automatic).toBe(false);
-  expect(result.current.workshop.widgets).toEqual([]);
+  expect(result.current.workshop.widgets.map((item) => item.id)).toEqual(["gone"]);
   await act(async () => initial.resolve(EMPTY));
   expect(result.current.workshop.automatic).toBe(false);
 });

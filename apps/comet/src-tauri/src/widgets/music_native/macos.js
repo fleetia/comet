@@ -6,7 +6,11 @@ function run(argv) {
   if (input.action === "launch" || input.action === "open") {
     if (!running || input.action === "open") {
       const url = $.NSWorkspace.sharedWorkspace.URLForApplicationWithBundleIdentifier(input.appId);
-      if (!url || url.isNil() || !$.NSWorkspace.sharedWorkspace.openURL(url)) throw new Error("LAUNCH_FAILED");
+      if (!url || url.isNil()) {
+        if (input.action === "launch" && input.skipMissing) return JSON.stringify({ installed: false });
+        throw new Error("LAUNCH_FAILED");
+      }
+      if (!$.NSWorkspace.sharedWorkspace.openURL(url)) throw new Error("LAUNCH_FAILED");
     }
     return JSON.stringify({ running: true });
   }

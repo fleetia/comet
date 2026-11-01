@@ -35,6 +35,7 @@ import { anniversaryLabel, clockDate, clockFeatured, clockTime } from "../Planni
 import {
   weatherCondition,
   weatherConfig,
+  weatherLookupState,
   weatherTemperature,
 } from "../ConnectionTools/weatherData";
 import { readDraft, TimerTool } from "../PlanningTools/FocusTimerTool";
@@ -157,7 +158,8 @@ export function desktopSummary(
         meta: anniversary ? text(anniversary.title) : "",
       };
     }
-    case "weather":
+    case "weather": {
+      const weatherState = weatherLookupState(data);
       return {
         icon: "cloud",
         title: data.observation
@@ -166,11 +168,22 @@ export function desktopSummary(
         description: text(observation.name),
         value: data.observation ? weatherCondition(observation.weatherCode) : "",
         meta: !data.observation
-          ? "아직 확인하지 않았어요"
-          : data.status === "ready"
-            ? ""
-            : "이전 정보 · 갱신 필요",
+          ? weatherState.lookup === "unconfigured"
+            ? "지역을 골라 주세요"
+            : weatherState.lookup === "syncing"
+              ? "날씨 확인 중"
+              : weatherState.lookup === "failed"
+                ? "날씨 확인 실패"
+                : "아직 확인하지 않았어요"
+          : weatherState.hasPreviousRegion
+            ? weatherState.previousRegion === "checking"
+              ? "새 지역 확인 중 · 이전 지역 정보"
+              : "새 지역 확인 실패 · 이전 지역 정보"
+            : data.status === "ready"
+              ? ""
+              : "이전 정보 · 갱신 필요",
       };
+    }
     case "focus-timer": {
       // Before a start, the row shows the same unsaved choice as the open timer.
       const draft = (text(data.status) || "idle") === "idle" ? readDraft(widget) : undefined;
@@ -337,10 +350,10 @@ export function FreeformWidget({
           temperature={summary.title}
           condition={
             data.observation
-              ? [summary.value, data.status === "ready" ? "" : "이전 정보", ...details]
+              ? [summary.value, summary.meta, ...details]
                   .filter(Boolean)
                   .join(" · ")
-              : "확인 필요"
+              : summary.meta
           }
           location={[summary.description, apparent].filter(Boolean).join(" · ")}
           tomorrow={tomorrowWeather(data, now)}

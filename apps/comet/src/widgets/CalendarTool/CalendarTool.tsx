@@ -79,6 +79,89 @@ export function CalendarTool({
       (event.connectionId === "local" || connectedIds.has(text(event.connectionId))),
   );
   const { busy, error, clearError, run } = useConnectionCommand();
+  const [errorTarget, setErrorTarget] = useState("");
+  const [refreshErrors, setRefreshErrors] = useState<
+    Record<
+      string,
+      {
+        message: string;
+        status: string;
+        error: string;
+        lastSuccessAt: unknown;
+        fromRefreshAll: boolean;
+      }
+    >
+  >({});
+  const connectionsRef = useRef(connections);
+  connectionsRef.current = connections;
+  useEffect(() => {
+    setRefreshErrors((current) => {
+      const next = { ...current };
+      let changed = false;
+      for (const [id, failure] of Object.entries(current)) {
+        const connection = connections.find((item) => text(item.id) === id);
+        if (
+          !connection ||
+          (connection.status === "ready" && failure.status !== "ready") ||
+          (text(connection.error) !== failure.error && text(connection.error) !== failure.message) ||
+          connection.lastSuccessAt !== failure.lastSuccessAt
+        ) {
+          delete next[id];
+          changed = true;
+        } else if (text(connection.error) !== failure.error) {
+          next[id] = { ...failure, error: text(connection.error) };
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [d.connections]);
+  const refreshFailures = Object.values(refreshErrors).filter(
+    (failure) => failure.fromRefreshAll,
+  ).length;
+  function recordRefreshError(
+    id: string,
+    message: string,
+    fromRefreshAll: boolean,
+    started: DataRecord | undefined,
+  ): void {
+    const connection = connectionsRef.current.find((item) => text(item.id) === id);
+    if (
+      !connection ||
+      connection.lastSuccessAt !== started?.lastSuccessAt ||
+      (text(connection.error) !== text(started?.error) && text(connection.error) !== message) ||
+      (connection.status === "ready" && started?.status !== "ready")
+    ) {
+      return;
+    }
+    setRefreshErrors((current) => ({
+      ...current,
+      [id]: {
+        message,
+        status: text(connection?.status),
+        error: text(connection?.error),
+        lastSuccessAt: connection?.lastSuccessAt,
+        fromRefreshAll: fromRefreshAll || current[id]?.fromRefreshAll === true,
+      },
+    }));
+  }
+  async function refreshConnection(id: string): Promise<void> {
+    const started = connectionsRef.current.find((item) => text(item.id) === id);
+    setErrorTarget(id);
+    if (
+      await run("refresh_calendar", { id: widget.id, connectionId: id }, (message) =>
+        recordRefreshError(id, message, false, started),
+      )
+    ) {
+      setRefreshErrors((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+    }
+  }
+  const [googlePending, setGooglePending] = useState(false);
+  const [googleActionError, setGoogleActionError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now()),
     [day, setDay] = useState(localDay()),
     [free, setFree] = useState(false);
@@ -189,6 +272,7 @@ export function CalendarTool({
   }
   function resetConnection(): void {
     clearError();
+    setErrorTarget("");
     setAlertsDirty(false);
     appleRequest.current += 1;
     setAppleCalendars(null);
@@ -390,14 +474,18 @@ export function CalendarTool({
             disabled={disabled || busy || appleBusy || connections.length === 0}
             onClick={() =>
               void (async () => {
+                setErrorTarget("refresh-all");
+                setRefreshErrors({});
                 for (const connection of connections) {
-                  if (
-                    !(await run("refresh_calendar", {
-                      id: widget.id,
-                      connectionId: text(connection.id),
-                    }))
-                  )
-                    break;
+                  const connectionId = text(connection.id);
+                  const started = connectionsRef.current.find(
+                    (item) => text(item.id) === connectionId,
+                  );
+                  await run(
+                    "refresh_calendar",
+                    { id: widget.id, connectionId },
+                    (message) => recordRefreshError(connectionId, message, true, started),
+                  );
                 }
               })()
             }
@@ -406,15 +494,21 @@ export function CalendarTool({
             다시 확인
           </Button>
         </div>
+        {refreshFailures > 0 && (
+          <p role="alert" className={c.error}>
+            {refreshFailures}개 연결을 확인하지 못했어요. 각 연결의 안내를 확인해 주세요.
+          </p>
+        )}
       </div>
     </section>
   );
   return (
+    <>
     <fieldset
       className={mode === "settings" ? settings.root : s.body}
       disabled={disabled || busy || appleBusy}
     >
-      {error && !disconnect && (
+      {error && mode === "tool" && !disconnect && (
         <p role="alert" className={c.error}>
           {error}
         </p>
@@ -582,15 +676,16 @@ export function CalendarTool({
                       <Button
                         variant="ghost"
                         size="small"
-                        onClick={() =>
-                          void run("refresh_calendar", {
-                            id: widget.id,
-                            connectionId: text(connection.id),
-                          })
-                        }
+                        onClick={() => {
+                          if (connection.status === "auth-error") {
+                            editConnection(connection);
+                            return;
+                          }
+                          void refreshConnection(text(connection.id));
+                        }}
                       >
                         <Icon name="habit" size={15} />
-                        다시 확인
+                        {connection.status === "auth-error" ? "다시 연결" : "다시 확인"}
                       </Button>
                     )}
                     <details className={settings.connectionMenu}>
@@ -601,12 +696,9 @@ export function CalendarTool({
                         <Button
                           variant="ghost"
                           size="small"
-                          onClick={() =>
-                            void run("refresh_calendar", {
-                              id: widget.id,
-                              connectionId: text(connection.id),
-                            })
-                          }
+                          onClick={() => {
+                            void refreshConnection(text(connection.id));
+                          }}
                         >
                           다시 조회
                         </Button>
@@ -633,7 +725,11 @@ export function CalendarTool({
                       </div>
                     </details>
                   </div>
-                  {text(connection.error) && <p className={c.error}>{text(connection.error)}</p>}
+                  {(refreshErrors[text(connection.id)]?.message || text(connection.error)) && (
+                    <p role="alert" className={c.error}>
+                      {refreshErrors[text(connection.id)]?.message || text(connection.error)}
+                    </p>
+                  )}
                   {connection.provider !== "ics" && (
                     <div className={settings.connectionCalendars}>
                       {connectionColors(connection)}
@@ -667,20 +763,23 @@ export function CalendarTool({
                             .filter(Boolean),
                         };
                 if (!(await act("configure", { connectionColor }))) return;
-                if (
-                  await run(
-                    provider === "ics"
-                      ? "connect_calendar_ics"
-                      : provider === "apple"
-                        ? "connect_calendar_apple"
-                        : "connect_calendar_google",
-                    {
-                      id: widget.id,
-                      input,
-                      ...(editingConnectionId ? { connectionId: editingConnectionId } : {}),
-                    },
-                  )
-                ) {
+                setErrorTarget("form");
+                setGoogleActionError(null);
+                if (provider === "google") setGooglePending(true);
+                const connected = await run(
+                  provider === "ics"
+                    ? "connect_calendar_ics"
+                    : provider === "apple"
+                      ? "connect_calendar_apple"
+                      : "connect_calendar_google",
+                  {
+                    id: widget.id,
+                    input,
+                    ...(editingConnectionId ? { connectionId: editingConnectionId } : {}),
+                  },
+                );
+                setGooglePending(false);
+                if (connected) {
                   resetConnection();
                   setConnectionOpen(false);
                 }
@@ -818,10 +917,19 @@ export function CalendarTool({
                 ) : (
                   <>
                     <p className={c.quiet}>
-                      설정한 Google OAuth 데스크톱 클라이언트로 브라우저에서 읽기 권한을 승인합니다.
-                      캘린더를 수정하지 않아요.
+                      Google Cloud에서 Calendar API를 사용 설정하고 OAuth 동의 화면을 구성한 뒤,
+                      데스크톱 앱 유형의 OAuth 클라이언트를 만들어 ID와 보안 비밀을 입력해 주세요.
+                      테스트 중인 앱이라면 Google 계정을 테스트 사용자로 추가해 주세요.
+                      브라우저에서 읽기 권한을 승인하며 캘린더는 수정하지 않아요.
                     </p>
-                    <FormField className={c.field} label="Google OAuth 클라이언트 ID" required>
+                    {editingConnectionId && (
+                      <p className={c.quiet}>비워 두면 저장된 클라이언트 정보를 사용해요.</p>
+                    )}
+                    <FormField
+                      className={c.field}
+                      label="Google OAuth 클라이언트 ID"
+                      required={!editingConnectionId}
+                    >
                       <TextInput
                         fill
                         autoComplete="off"
@@ -851,6 +959,10 @@ export function CalendarTool({
                         onChange={(e) => setCalendarIds(e.target.value)}
                       />
                     </FormField>
+                    <p className={c.quiet}>
+                      primary는 승인한 계정의 기본 캘린더예요. 다른 캘린더는 Google 캘린더의
+                      설정에서 해당 캘린더를 선택하고 ‘캘린더 통합’의 캘린더 ID를 확인해 주세요.
+                    </p>
                   </>
                 )}
                 <div className={settings.settingRow}>
@@ -965,6 +1077,11 @@ export function CalendarTool({
                   </Button>
                 )}
               </div>
+              {errorTarget === "form" && error && (
+                <p role="alert" className={c.error}>
+                  {error}
+                </p>
+              )}
             </form>
           </section>
           {!connectionOpen && (
@@ -1053,5 +1170,39 @@ export function CalendarTool({
         </div>
       </Dialog>
     </fieldset>
+      {mode === "settings" && googlePending && (
+        <div>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              setGoogleActionError(null);
+              void command("cancel_calendar_google", { id: widget.id }).catch((cause: unknown) =>
+                setGoogleActionError(errorText(cause)),
+              );
+            }}
+          >
+            Google 연결 취소
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              setGoogleActionError(null);
+              void command("reopen_calendar_google", { id: widget.id }).catch((cause: unknown) =>
+                setGoogleActionError(errorText(cause)),
+              );
+            }}
+          >
+            브라우저 다시 열기
+          </Button>
+          {googleActionError && (
+            <p role="alert" className={c.error}>
+              {googleActionError}
+            </p>
+          )}
+        </div>
+      )}
+    </>
   );
 }

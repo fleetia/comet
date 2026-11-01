@@ -6,7 +6,7 @@ import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
 import { useConnectionCommand } from "../useConnectionCommand";
-import { weatherConfig, type WeatherConfig } from "./weatherData";
+import { weatherConfig, weatherLookupState, type WeatherConfig } from "./weatherData";
 import * as s from "./weatherSettings.css";
 
 export function WeatherSettings({
@@ -23,13 +23,15 @@ export function WeatherSettings({
   onBusyChange?: (busy: boolean) => void;
 }): ReactElement {
   const data = record(widget.data);
+  const weatherState = weatherLookupState(data);
   const stored = weatherConfig(data);
   const [draft, setDraft] = useState<WeatherConfig | null>(null);
   const config = draft ?? stored;
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<DataRecord[] | null>(null);
-  const [searching, setSearching] = useState(false);
+  const [searching, setSearching] = useState<"search" | "locate" | null>(null);
   const [localError, setLocalError] = useState("");
+  const [commandAction, setCommandAction] = useState<"save" | "refresh">("save");
   const searchPending = useRef(false);
   const current = useRef(0);
   useEffect(() => {
@@ -39,17 +41,18 @@ export function WeatherSettings({
     };
   }, [widget.id]);
   const { busy, error, run } = useConnectionCommand();
-  const locked = disabled || busy || searching;
+  const locked = disabled || busy || searching !== null;
   const dirty =
     (draft !== null && JSON.stringify(draft) !== JSON.stringify(stored)) || query.length > 0;
   useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
   useEffect(() => {
-    onBusyChange?.(busy || searching);
+    onBusyChange?.(busy || searching !== null);
   }, [busy, searching, onBusyChange]);
   useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
   async function save(next: WeatherConfig): Promise<boolean> {
+    setCommandAction("save");
     setDraft(next);
     if (!next.name) return false;
     if (await run("configure_connection_widget", { id: widget.id, input: next })) {
@@ -65,7 +68,7 @@ export function WeatherSettings({
       return;
     }
     searchPending.current = true;
-    setSearching(true);
+    setSearching("search");
     setLocalError("");
     const generation = current.current;
     try {
@@ -75,7 +78,7 @@ export function WeatherSettings({
       if (current.current === generation) setLocalError(errorText(cause));
     } finally {
       searchPending.current = false;
-      if (current.current === generation) setSearching(false);
+      if (current.current === generation) setSearching(null);
     }
   }
   async function choose(region: DataRecord): Promise<void> {
@@ -92,23 +95,31 @@ export function WeatherSettings({
       setLocalError("현재 위치를 지원하지 않는 환경이에요. 지역 이름으로 검색해 주세요.");
       return;
     }
-    setSearching(true);
+    setSearching("locate");
     setLocalError("");
     const generation = current.current;
     navigator.geolocation.getCurrentPosition(
       (position) => {
         if (current.current !== generation) return;
-        setSearching(false);
+        setSearching(null);
         void choose({
           name: "현재 위치",
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
         });
       },
-      () => {
+      (cause) => {
         if (current.current !== generation) return;
-        setSearching(false);
-        setLocalError("위치 권한을 확인해 주세요. 지역 이름으로도 검색할 수 있어요.");
+        setSearching(null);
+        setLocalError(
+          cause.code === cause.PERMISSION_DENIED
+            ? "위치 권한을 확인해 주세요. 지역 이름으로도 검색할 수 있어요."
+            : cause.code === cause.POSITION_UNAVAILABLE
+              ? "현재 위치를 확인할 수 없어요. 지역 이름으로 검색해 주세요."
+              : cause.code === cause.TIMEOUT
+                ? "위치 확인 시간이 초과됐어요. 지역 이름으로 검색해 주세요."
+                : "현재 위치를 확인하지 못했어요. 지역 이름으로 검색해 주세요.",
+        );
       },
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
     );
@@ -140,21 +151,38 @@ export function WeatherSettings({
           <span className={s.copy}>
             지금 다시 확인
             <span className={s.caption}>
-              {typeof data.lastSuccessAt === "number"
-                ? `마지막 확인 ${new Date(data.lastSuccessAt).toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" })}`
-                : "아직 조회하지 않았어요"}
+              {weatherState.hasPreviousRegion
+                ? weatherState.previousRegion === "checking"
+                  ? "새 지역 확인 중 · 이전 지역 정보"
+                  : "새 지역 확인 실패 · 이전 지역 정보"
+                : weatherState.lookup === "syncing"
+                  ? "날씨 확인 중"
+                  : weatherState.lookup === "failed" &&
+                      (data.status !== "ready" || typeof data.lastSuccessAt !== "number")
+                    ? "날씨 확인 실패"
+                    : typeof data.lastSuccessAt === "number"
+                      ? `마지막 확인 ${new Date(data.lastSuccessAt).toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" })}`
+                      : "아직 조회하지 않았어요"}
             </span>
           </span>
           <Button
             variant="ghost"
             size="small"
             disabled={data.configured !== true}
-            onClick={() => void run("refresh_connection_widget", { id: widget.id })}
+            onClick={() => {
+              setCommandAction("refresh");
+              void run("refresh_connection_widget", { id: widget.id });
+            }}
           >
             <Icon name="habit" size={15} />
             다시 확인
           </Button>
         </div>
+        {(commandAction === "refresh" ? error : null) || text(data.error) ? (
+          <p className={s.error} role="alert">
+            {(commandAction === "refresh" ? error : null) || text(data.error)}
+          </p>
+        ) : null}
       </div>
     </fieldset>
   );
@@ -192,6 +220,12 @@ export function WeatherSettings({
               현재 위치 쓰기
             </Button>
           </form>
+          {searching && (
+            <p className={s.caption} role="status">
+              {searching === "search" ? "지역을 찾는 중이에요." : "현재 위치를 확인 중이에요."}
+            </p>
+          )}
+          {localError && <p className={s.error} role="alert">{localError}</p>}
           <div className={s.results} role="group" aria-label="지역 검색 결과">
             {regions.map((region, index) => {
               const current =
@@ -288,9 +322,9 @@ export function WeatherSettings({
             </div>
           </div>
         </section>
-        {(error || localError || text(data.error)) && (
+        {commandAction === "save" && error && (
           <p className={s.error} role="alert">
-            {error || localError || text(data.error)}
+            {error}
           </p>
         )}
         {draft && !busy && (
