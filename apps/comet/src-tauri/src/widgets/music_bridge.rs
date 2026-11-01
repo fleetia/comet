@@ -35,8 +35,7 @@ const MAX_MESSAGE: usize = 128 * 1024;
 const MAX_PENDING: usize = 8;
 const PAIRING_MS: i64 = 180_000;
 const REQUEST_MS: i64 = 20_000;
-const DISCONNECTED: &str =
-    "Spotify 연결이 필요해요. 설정 → 위젯 → 음악 앱 연결에서 연결해 주세요.";
+const DISCONNECTED: &str = "Spotify 연결이 필요해요. 설정 → 위젯 → 음악 정보에서 연결해 주세요.";
 
 struct Pending {
     action: String,
@@ -258,7 +257,7 @@ pub async fn resume(
     .await
     .map_err(|_| "저장된 음악 연결을 읽는 시간이 초과됐어요.")?
     .map_err(|_| "저장된 음악 연결을 읽지 못했어요.")??
-    .ok_or("Spotify 연결이 필요해요. 설정 → 위젯 → 음악 앱 연결에서 연결해 주세요.")?;
+    .ok_or("Spotify 연결이 필요해요. 설정 → 위젯 → 음악 정보에서 연결해 주세요.")?;
     bind_session(
         owner,
         pairing_id,

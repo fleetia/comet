@@ -1544,12 +1544,17 @@ mod tests {
         assert_eq!(fresh["environment.weatherTemperature"], 0);
         assert_eq!(fresh["environment.weatherCode"], 3);
         assert_eq!(fresh["environment.weatherName"], "서울");
-        for failure in ["stale", "offline", "missing"] {
+        for failure in ["stale", "offline", "missing", "new-region-syncing"] {
             let mut state = snapshot("weather", source.clone());
             match failure {
                 "stale" => state.widgets[0].instance.data["observation"]["observedAt"] = json!(0),
                 "offline" => state.widgets[0].instance.data["status"] = json!("offline"),
                 "missing" => state.widgets[0].instance.data["observation"] = Value::Null,
+                "new-region-syncing" => {
+                    state.widgets[0].instance.data["config"] = json!({"name":"부산"});
+                    state.widgets[0].instance.data["status"] = json!("syncing");
+                    state.widgets[0].instance.data["lastSuccessAt"] = Value::Null;
+                }
                 _ => unreachable!(),
             }
             let (values, _) = project(&state, now);
