@@ -23,7 +23,7 @@ export function FocusTimerContext({
   layout: FocusTimerLayout;
   panel: FocusTimerContextState;
 }): ReactElement {
-  const { widgets, act, active, busy } = tool;
+  const { widgets, widget, act, active, busy, onDirtyChange } = tool;
   const {
     data,
     now,
@@ -72,9 +72,9 @@ export function FocusTimerContext({
           ]}
           onValueChange={setTab}
         />
-        {tab === "queue" && (
-          <FocusTimerQueue data={data} tasks={tasks} act={act} defaultMinutes={draft.minutes} />
-        )}
+        <div hidden={tab !== "queue"}>
+          <FocusTimerQueue key={widget.id} data={data} tasks={tasks} act={act} revision={widget.revision} defaultMinutes={draft.minutes} onDirtyChange={onDirtyChange} />
+        </div>
         {tab === "calendar" && (
           <div className={s.tabPanel}>
             <Button variant="ghost" size="small" onClick={() => setTab("stats")}>

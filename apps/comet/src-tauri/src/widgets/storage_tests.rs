@@ -740,6 +740,29 @@ fn duplicate_request_is_noop_but_changed_replay_and_stale_revision_fail() {
 }
 
 #[test]
+fn anniversary_edit_rejects_changed_original_even_with_latest_widget_revision() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    prepare_widgets(&db, directory.path(), &["clock"]);
+    act(&db, "clock", "add", json!({"title":"처음","date":"2026-01-01","celebrate":true}), 100, 1);
+    let id = instance(&db, "clock").data["anniversaries"][0]["id"].clone();
+    let original = json!({"title":"처음","date":"2026-01-01","repeat":"none","countMode":"remaining","showOnWidget":true,"celebrate":true});
+    act(&db, "clock", "update", json!({"id":id,"title":"다른 창"}), 101, 2);
+    let conflict = request(&db, "clock", "update", json!({"id":id,"title":"내 초안","original":original}));
+    assert!(storage::execute(&db, &conflict, 102, 3).unwrap_err().contains("기념일이 변경"));
+    assert_eq!(instance(&db, "clock").data["anniversaries"][0]["title"], "다른 창");
+    let current = json!({"title":"다른 창","date":"2026-01-01","repeat":"none","countMode":"remaining","showOnWidget":true,"celebrate":true});
+    let update = request(&db, "clock", "update", json!({"id":id,"title":"내 초안","original":current}));
+    storage::execute(&db, &update, 103, 4).unwrap();
+    assert_eq!(instance(&db, "clock").data["anniversaries"][0]["title"], "내 초안");
+    act(&db, "clock", "configure", json!({"featuredEnabled":false}), 104, 5);
+    let original = json!({"title":"내 초안","date":"2026-01-01","repeat":"none","countMode":"remaining","showOnWidget":true,"celebrate":true});
+    let conflict = request(&db, "clock", "update", json!({"id":id,"title":"다시 저장","original":original}));
+    assert!(storage::execute(&db, &conflict, 105, 6).is_err());
+    assert_eq!(instance(&db, "clock").data["featuredEnabled"], false);
+}
+
+#[test]
 fn preparation_is_available_alongside_the_official_calendar() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();

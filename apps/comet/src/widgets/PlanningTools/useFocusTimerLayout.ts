@@ -26,7 +26,7 @@ export type FocusTimerLayoutState = {
 };
 
 export type FocusTimerLayout = FocusTimerLayoutState & {
-  resize: (nextExpanded: boolean, nextCollapsed?: boolean) => Promise<void>;
+  resize: (nextExpanded: boolean, nextCollapsed?: boolean) => Promise<boolean>;
   expand: () => Promise<void>;
 };
 
@@ -78,8 +78,8 @@ export function useFocusTimerLayout(
     lastFit,
   } = state;
   const { tab, usagePickerOpen } = panel;
-  async function resize(nextExpanded: boolean, nextCollapsed = false): Promise<void> {
-    if (resizing.current) return;
+  async function resize(nextExpanded: boolean, nextCollapsed = false): Promise<boolean> {
+    if (resizing.current) return false;
     const animate = !(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
     resizing.current = true;
     setResizeWidth(556);
@@ -112,17 +112,19 @@ export function useFocusTimerLayout(
       } else if (animate) {
         await new Promise<void>((resolve) => window.setTimeout(resolve, 280));
       }
+      return true;
     } catch (cause: unknown) {
       setExpanded(expanded);
       setCollapsed(collapsed);
       setError(errorText(cause));
+      return false;
     } finally {
       resizing.current = false;
       setResizeWidth(null);
     }
   }
-  function expand(): Promise<void> {
-    return resize(!expanded);
+  async function expand(): Promise<void> {
+    await resize(!expanded);
   }
   useEffect(() => {
     if (!active || embedded || collapsed || !isDesktop() || typeof ResizeObserver === "undefined")

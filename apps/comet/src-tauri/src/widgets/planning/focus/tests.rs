@@ -468,8 +468,92 @@ fn suspend_closes_focus_before_disabled_time_and_restart_expiry_finishes_without
     let expired = suspend(&restarted, 1000 + 25 * 60000, true).unwrap();
     assert_eq!(expired["status"], "finished");
     assert_eq!(expired["sessions"][0]["elapsedMs"], 20 * 60000);
+    assert_eq!(expired["sessions"][0]["includesAwayTime"], true);
+    assert_eq!(expired["cycle"], 1);
     assert_eq!(expired["sessions"][0]["endedAt"], 1000 + 20 * 60000);
     assert!(tick(&expired, 1000 + 26 * 60000).unwrap().is_none());
+}
+
+#[test]
+fn recovery_counts_completion_and_resets_the_long_rest_cycle() {
+    let mut data = manual_timer();
+    data["cycle"] = json!(3);
+    data["settings"]["longRestEvery"] = json!(4);
+    let started = run(&data, "start", json!({"durationMs":60_000}), 1000);
+    let recovered = suspend(&started.data, 100_000, true).unwrap();
+    assert_eq!(recovered["cycle"], 0);
+    assert_eq!(recovered["sessions"][0]["includesAwayTime"], true);
+    assert_eq!(recovered["sessions"][0]["endedAt"], 61_000);
+    assert_eq!(recovered["status"], "finished");
+    assert_eq!(recovered["mode"], "focus");
+}
+
+#[test]
+fn idle_can_start_the_first_queued_focus() {
+    let queued = run(&initial(), "queue-add", json!({"title":"다음 집중", "focusDurationMs":60_000}), 1000);
+    let started = run(&queued.data, "continue", json!({}), 2000);
+    assert_eq!(started.data["title"], "다음 집중");
+    assert_eq!(started.data["status"], "running");
+    assert_eq!(started.data["deadline"], 62_000);
+    assert!(started.data["queue"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn idle_queued_focus_preserves_saved_or_submitted_memo() {
+    let started = run(
+        &manual_timer(),
+        "start",
+        json!({"durationMs":60_000, "memo":"기존 메모"}),
+        1000,
+    );
+    let cancelled = run(&started.data, "cancel", json!({}), 2000);
+    assert_eq!(cancelled.data["memo"], "기존 메모");
+    assert!(cancelled.data["sessions"].as_array().unwrap().is_empty());
+    let queued = run(&cancelled.data, "queue-add", json!({"title":"다음 집중"}), 3000);
+
+    for (input, expected) in [
+        (json!({}), "기존 메모"),
+        (json!({"memo":"새 초안", "expectedMemo":"기존 메모"}), "새 초안"),
+    ] {
+        let next = run(&queued.data, "continue", input, 4000);
+        assert_eq!(next.data["memo"], expected);
+        assert_eq!(next.data["activeSession"]["memo"], expected);
+    }
+}
+
+#[test]
+fn queued_focus_after_completion_or_rest_starts_with_an_empty_memo() {
+    let started = run(
+        &manual_timer(),
+        "start",
+        json!({"durationMs":1000, "memo":"완료 메모"}),
+        1000,
+    );
+    let queued = run(&started.data, "queue-add", json!({"title":"다음 집중"}), 1500);
+    let finished = tick(&queued.data, 2000).unwrap().unwrap();
+    let next = run(
+        &finished.data,
+        "continue",
+        json!({"memo":"완료 수정", "expectedMemo":"완료 메모"}),
+        3000,
+    );
+    assert_eq!(next.data["sessions"][0]["memo"], "완료 수정");
+    assert_eq!(next.data["memo"], "");
+    assert_eq!(next.data["activeSession"]["memo"], "");
+
+    let rest = run(&finished.data, "rest", json!({}), 3000);
+    let next = run(&rest.data, "continue", json!({}), 4000);
+    assert_eq!(next.data["sessions"][0]["memo"], "완료 메모");
+    assert_eq!(next.data["memo"], "");
+    assert_eq!(next.data["activeSession"]["memo"], "");
+
+    let mut automatic_rest = rest.data.clone();
+    automatic_rest["settings"]["continuous"] = json!(true);
+    let deadline = automatic_rest["deadline"].as_i64().unwrap();
+    let next = tick(&automatic_rest, deadline).unwrap().unwrap();
+    assert_eq!(next.data["sessions"][0]["memo"], "완료 메모");
+    assert_eq!(next.data["memo"], "");
+    assert_eq!(next.data["activeSession"]["memo"], "");
 }
 
 #[test]

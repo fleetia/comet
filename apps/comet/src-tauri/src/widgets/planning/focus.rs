@@ -161,6 +161,8 @@ struct Session {
     elapsed_ms: i64,
     duration_ms: i64,
     outcome: String,
+    #[serde(default)]
+    includes_away_time: bool,
     todo_id: Option<String>,
     event_ref: Option<EventReference>,
     note_ref: Option<NoteReference>,
@@ -462,6 +464,7 @@ fn save_session(state: &mut Timer, now: i64, outcome: &str) {
         elapsed_ms: active.elapsed_ms,
         duration_ms: active.duration_ms,
         outcome: outcome.into(),
+        includes_away_time: false,
         todo_id: active.todo_id,
         event_ref: active.event_ref,
         note_ref: active.note_ref,
@@ -493,7 +496,9 @@ fn start_queued(
     state.title = item.title;
     state.event_ref = item.event_ref;
     state.note_ref = item.note_ref;
-    state.memo.clear();
+    if state.status != "idle" || state.mode == "rest" {
+        state.memo.clear();
+    }
     state.app_usage_target = None;
     state.focus_duration_ms = Some(item.focus_duration_ms);
     state.duration_ms = item.focus_duration_ms;
@@ -774,7 +779,8 @@ pub(super) fn act(
                 return Err("진행 중인 타이머를 먼저 마쳐 주세요.".into());
             }
             let continuing_rest = action == "continue" && state.mode == "rest";
-            if !starting && state.status != "finished" && !continuing_rest {
+            let starting_queued = action == "continue" && state.status == "idle" && !state.queue.is_empty();
+            if !starting && state.status != "finished" && !continuing_rest && !starting_queued {
                 return Err("타이머 종료 후 선택할 수 있습니다.".into());
             }
             if !starting && input.get("memo").is_some() {
@@ -946,7 +952,20 @@ pub(super) fn suspend(data: &Value, now: i64, restarting: bool) -> Result<Value,
         .max(0)
         .min(state.remaining_ms);
     if remaining == 0 {
-        return finish(state, now, false, &BTreeMap::new()).map(|effect| effect.data);
+        let recovering_focus = restarting && state.mode == "focus";
+        let recovered_session_id = state.active_session.as_ref().map(|session| session.id.clone());
+        let mut effect = finish(state, now, false, &BTreeMap::new())?;
+        if recovering_focus {
+            let mut finished: Timer = decode(&effect.data)?;
+            if let Some(session) = finished.sessions.iter_mut().find(|session| Some(&session.id) == recovered_session_id.as_ref()) {
+                session.includes_away_time = true;
+            }
+            if finished.cycle % u64::from(finished.settings.long_rest_every.clamp(2, 8)) == 0 {
+                finished.cycle = 0;
+            }
+            effect.data = serde_json::to_value(finished).map_err(|error| error.to_string())?;
+        }
+        return Ok(effect.data);
     }
     state.remaining_ms = remaining;
     if !restarting {

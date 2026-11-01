@@ -599,6 +599,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     desktop::create_boxes(app.handle(), &state).map_err(std::io::Error::other)?;
     desktop::menu::create(app.handle()).map_err(std::io::Error::other)?;
     crate::widgets::desktop::restore_on_start(app.handle(), state.clone());
+    crate::widgets::commands::restore_focus_windows(app.handle().clone(), state.clone());
     crate::widgets::planning::notifications::install(app.handle())?;
     crate::external_notice::finish_startup(app.handle(), &state).map_err(std::io::Error::other)?;
     if let Err(error) = crate::external_api::start(app.handle(), state.clone()) {

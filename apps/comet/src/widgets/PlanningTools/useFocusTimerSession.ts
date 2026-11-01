@@ -386,6 +386,7 @@ export function useFocusTimerSession(
         if (await act(action, { ...input, memo: draft.memo, expectedMemo: memoBase })) {
           if (
             action === "continue" &&
+            !idle &&
             rows(data.queue).length > 0 &&
             latestDraft.current.memo === draft.memo
           ) {

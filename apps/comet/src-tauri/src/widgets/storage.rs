@@ -262,6 +262,14 @@ pub fn instances(db: &Connection) -> Result<Vec<WidgetInstance>> {
     })
 }
 
+pub(crate) fn installed_and_enabled(db: &Connection, id: &str) -> Result<bool> {
+    db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM widget_instances WHERE id=?1 AND installed=1 AND enabled=1)",
+        [id],
+        |row| row.get(0),
+    ).map_err(err)
+}
+
 pub fn get(db: &Connection, id: &str) -> Result<WidgetInstance> {
     instances(db)?
         .into_iter()
@@ -667,6 +675,38 @@ pub(crate) fn execute_in_transaction(
         return Err(
             "다른 화면에서 위젯이 변경됐어요. 최신 상태를 확인하고 다시 시도해 주세요.".into(),
         );
+    }
+    if instance.kind == "clock" && request.action == "update" {
+        if let Some(original) = request.input.get("original") {
+            let items = instance.data["anniversaries"].as_array();
+            let item = items.and_then(|items| {
+                items.iter().find(|item| item["id"] == request.input["id"])
+            });
+            let featured = if instance.data["featuredEnabled"] == false {
+                None
+            } else {
+                items.and_then(|items| {
+                    items
+                        .iter()
+                        .find(|item| item["id"] == instance.data["featuredId"])
+                        .or_else(|| items.first())
+                })
+            };
+            let unchanged = item.is_some_and(|item| {
+                original["title"].as_str() == item["title"].as_str()
+                    && original["date"].as_str() == item["date"].as_str()
+                    && original["repeat"].as_str()
+                        == Some(item["repeat"].as_str().filter(|value| !value.is_empty()).unwrap_or("none"))
+                    && original["countMode"].as_str()
+                        == Some(item["countMode"].as_str().filter(|value| !value.is_empty()).unwrap_or("remaining"))
+                    && original["celebrate"].as_bool() == Some(item["celebrate"] == true)
+                    && original["showOnWidget"].as_bool()
+                        == Some(featured.is_some_and(|featured| featured["id"] == item["id"]))
+            });
+            if !unchanged {
+                return Err("다른 화면에서 기념일이 변경됐어요. 입력한 내용은 그대로 두었어요.".into());
+            }
+        }
     }
     if (instance.kind == "interaction"
         && matches!(request.action.as_str(), "stroke" | "poke" | "snack"))

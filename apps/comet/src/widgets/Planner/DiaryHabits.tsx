@@ -447,7 +447,7 @@ export function DiaryHabits({
                 })
               }
             >
-              {selected.archived ? "습관 다시 시작하기" : "습관 보관하기…"}
+              {selected.archived ? "습관 다시 시작하기" : "습관 보관하기"}
             </Button>
             {selected.archived && (
               <Button

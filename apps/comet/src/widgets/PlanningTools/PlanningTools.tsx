@@ -1,4 +1,4 @@
-import { Button, SegmentedControl, Select, SettingControlRow, Switch, TextInput } from "@comet/ui";
+import { Button, Dialog, SegmentedControl, Select, SettingControlRow, Switch, TextInput } from "@comet/ui";
 import { Icon } from "@comet/icon";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { localDay, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
@@ -44,6 +44,8 @@ export function ClockTool({
     celebrate,
   });
   const [saving, setSaving] = useState(false);
+  const [nextItem, setNextItem] = useState<DataRecord | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const pending = useRef(false);
   const editRevision = useRef(0);
   function changeDraft(change: () => void): void {
@@ -116,6 +118,9 @@ export function ClockTool({
     try {
       if (await act(action, input)) {
         if (editRevision.current === revision) reset();
+        else if (action === "update") {
+          setBaseline({ title, date, repeat, countMode, showOnWidget, celebrate });
+        }
       }
     } finally {
       pending.current = false;
@@ -147,7 +152,7 @@ export function ClockTool({
       onSubmit={(event) => {
         event.preventDefault();
         void save(id ? "update" : "add", {
-          ...(id ? { id } : {}),
+          ...(id ? { id, original: baseline } : {}),
           title,
           date,
           repeat,
@@ -275,7 +280,7 @@ export function ClockTool({
             variant="danger"
             size="small"
             disabled={saving}
-            onClick={() => void save("delete", { id })}
+            onClick={() => setConfirmDelete(true)}
           >
             <Icon name="remove" size={15} />
             지우기…
@@ -344,7 +349,10 @@ export function ClockTool({
                   size="small"
                   disabled={saving}
                   aria-label={`수정 ${text(item.title)}`}
-                  onClick={() => edit(item)}
+                  onClick={() => {
+                    if (dirty) setNextItem(item);
+                    else edit(item);
+                  }}
                 >
                   <Icon name="habit" size={15} />
                   고치기
@@ -356,7 +364,38 @@ export function ClockTool({
         ))}
       </div>
       {((creating && id === null) || editingMissing) && editor}
-      <p className={clock.caption}>위젯에는 하나만 보여요. 그날이 되면 친구가 먼저 축하해 줘요.</p>
+      <p className={clock.caption}>위젯에는 하나만 보여요. 축하를 켠 기념일에는 친구가 축하해 줘요.</p>
+      <Dialog
+        isOpen={nextItem !== null}
+        title="작성 중인 내용을 버릴까요?"
+        onOpenChange={(open) => { if (!open) setNextItem(null); }}
+        variant="confirm"
+        footer={<>
+          <Button variant="ghost" onClick={() => setNextItem(null)}>계속 편집</Button>
+          <Button variant="danger" onClick={() => {
+            const latest = anniversaries.find((item) => item.id === nextItem?.id);
+            if (latest) edit(latest);
+            setNextItem(null);
+          }}>버리고 이동</Button>
+        </>}
+      >
+        <p>저장하지 않은 내용이 사라져요.</p>
+      </Dialog>
+      <Dialog
+        isOpen={confirmDelete}
+        title="기념일을 지울까요?"
+        onOpenChange={(open) => { if (!open) setConfirmDelete(false); }}
+        variant="confirm"
+        footer={<>
+          <Button variant="ghost" onClick={() => setConfirmDelete(false)}>취소</Button>
+          <Button variant="danger" disabled={saving} onClick={() => {
+            setConfirmDelete(false);
+            if (id) void save("delete", { id });
+          }}>지우기</Button>
+        </>}
+      >
+        <p>지운 기념일은 되돌릴 수 없어요.</p>
+      </Dialog>
     </section>
   );
 }

@@ -1,6 +1,6 @@
-import type { ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { Icon } from "@comet/icon";
-import { Button, Checkbox, FormField, Select, TextInput } from "@comet/ui";
+import { Button, Checkbox, Dialog, FormField, Select, TextInput } from "@comet/ui";
 import { number, text } from "../toolData";
 import { clockLabel, ruleOf } from "../Planner/plannerData";
 import { FrequencyRecordAction } from "./FrequencyRecordAction";
@@ -68,6 +68,10 @@ export function FocusTimerControls({
   const { expanded, collapsed, resizeWidth, resize, expand } = layout;
   const { setTab, usagePickerOpen, setUsagePickerOpen, openSettings } = panel;
   const { completingTodo, completingTodoLock, completeTodo } = completion;
+  const [confirmStop, setConfirmStop] = useState(false);
+  useEffect(() => {
+    setConfirmStop(false);
+  }, [phase]);
   return (
     <div className={s.timer}>
       <FocusTimerView
@@ -110,7 +114,10 @@ export function FocusTimerControls({
           else void transition("continue");
         }}
         onPause={() => void act(status === "paused" ? "resume" : "pause")}
-        onStop={() => void transition("cancel")}
+        onStop={() => {
+          if (phase === "running" && remaining > 0 && timer.duration - remaining >= 60000) setConfirmStop(true);
+          else void transition("cancel");
+        }}
         onContinue={() => void transition("continue")}
         onSkipRest={() => void transition("continue")}
         onRest={
@@ -124,6 +131,8 @@ export function FocusTimerControls({
         }
         longRestLabel={`길게 쉬기 (${focusDuration(longRestDuration)})`}
         nextTitle={text(queue[0]?.title)}
+        hasLinkedTodo={idle ? Boolean(selectedTodoId) : Boolean(linked)}
+        onStartNext={idle && queue.length > 0 ? () => void transition("continue") : undefined}
         note={draft.memo}
         noteLabel={previousMemoPending ? "이전 집중 메모" : "완료한 집중 메모"}
         onNoteChange={changeMemo}
@@ -206,7 +215,8 @@ export function FocusTimerControls({
                     ×
                   </Button>
                 </div>
-              ) : selectedTodoId ? (
+              ) : null}
+              {selectedTodoId ? (
                 <div className={s.linkedChip}>
                   <Icon name="todo" size={13} />
                   <span>{text(tasks.find((task) => task.id === selectedTodoId)?.title)}</span>
@@ -294,6 +304,15 @@ export function FocusTimerControls({
           </>
         }
       />
+      <Dialog
+        isOpen={confirmStop && phase === "running" && remaining > 0}
+        title="기록 없이 끝낼까요?"
+        variant="confirm"
+        onOpenChange={(open) => { if (!open) setConfirmStop(false); }}
+        footer={<><Button variant="ghost" onClick={() => setConfirmStop(false)}>계속 집중</Button><Button variant="danger" onClick={() => { setConfirmStop(false); void transition("cancel"); }}>기록 없이 끝내기</Button></>}
+      >
+        <p>지금 끝내면 진행한 집중은 기록되지 않아요.</p>
+      </Dialog>
     </div>
   );
 }

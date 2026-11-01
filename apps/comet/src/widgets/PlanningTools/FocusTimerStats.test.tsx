@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { FocusTimerStats } from "./FocusTimerStats";
 import type { FocusSession } from "./FocusTimerData";
 import type { ToolAction } from "../toolData";
+import { focusSessions } from "./FocusTimerData";
 
 const session: FocusSession = {
   id: "session",
@@ -18,6 +19,18 @@ const session: FocusSession = {
 };
 beforeEach(() => localStorage.clear());
 afterEach(cleanup);
+
+it("shows the saved away-time marker in the record list and detail", () => {
+  const saved = { ...session, includesAwayTime: true, segments: [{ startAt: session.startedAt, endAt: session.endedAt }] };
+  const sessions = focusSessions({ sessions: [saved] }, session.endedAt);
+  const props = { day: "2026-10-07", onSelect: vi.fn(), onOpenNote: vi.fn(), act: vi.fn<ToolAction>().mockResolvedValue(true) };
+  const view = render(<FocusTimerStats {...props} sessions={sessions} selectedId={null} />);
+  const row = screen.getByRole("button", { name: "원고 집중 기록 상세" });
+  expect(row.textContent).toContain("자리 비움 포함");
+  expect(row.getAttribute("aria-description")).toContain("자리 비움 포함");
+  view.rerender(<FocusTimerStats {...props} sessions={sessions} selectedId="session" />);
+  expect(screen.getByText("자리 비움 포함")).toBeTruthy();
+});
 
 it("preserves a dirty record memo across remote updates and reopening instead of overwriting either version", () => {
   const act = vi.fn<ToolAction>().mockResolvedValue(true);
