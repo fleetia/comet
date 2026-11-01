@@ -50,9 +50,22 @@ export const ItemStates: Story = {
   name: "항목 상태",
   args: {
     items: [
-      { id: "focus", icon: "timer", label: "집중 18:42", expanded: true },
-      { id: "envelope", icon: "envelope", label: "편지 열기", haspopup: "dialog" },
-      { id: "music", icon: "music", label: "길고 긴 하루 끝에 함께 듣는 밤의 산책 음악" },
+      {
+        id: "focus",
+        icon: "timer",
+        label: "집중 18:42",
+        active: true,
+        expanded: true,
+        haspopup: "dialog",
+      },
+      { id: "envelope", icon: "envelope", label: "편지 열기", expanded: false, haspopup: "dialog" },
+      {
+        id: "music",
+        icon: "music",
+        label: "길고 긴 하루 끝에 함께 듣는 밤의 산책 음악",
+        expanded: false,
+        haspopup: "dialog",
+      },
     ],
   },
 };

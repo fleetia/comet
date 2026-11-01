@@ -17,7 +17,7 @@ const request = {
 beforeEach(() => localStorage.clear());
 afterEach(cleanup);
 
-it("keeps an uncertain request on close but clears it and the draft on discard", () => {
+it("preserves a closed uncertain request until its restored envelope is discarded", () => {
   localStorage.setItem(PREPARATION_DRAFT_KEY, JSON.stringify({ title: "준비" }));
   localStorage.setItem(requestKey, JSON.stringify(request));
   const actions: DiaryWidgetActions = {
@@ -46,16 +46,23 @@ it("keeps an uncertain request on close but clears it and the draft on discard",
   expect(JSON.parse(localStorage.getItem(requestKey) ?? "null")).toEqual(request);
   expect(view.result.current.envelopeCreateRequest.current).toEqual(request);
 
-  act(() => {
-    view.result.current.start("envelope");
-    view.result.current.discard();
-  });
-  expect(localStorage.getItem(PREPARATION_DRAFT_KEY)).toBeNull();
-  expect(localStorage.getItem(requestKey)).toBeNull();
-  expect(view.result.current.envelopeCreateRequest.current).toBeNull();
-  expect(view.result.current.creating).toBeNull();
+  act(() => view.result.current.discard());
+  expect(localStorage.getItem(PREPARATION_DRAFT_KEY)).not.toBeNull();
+  expect(JSON.parse(localStorage.getItem(requestKey) ?? "null")).toEqual(request);
+  expect(view.result.current.envelopeCreateRequest.current).toEqual(request);
+
+  act(() => view.result.current.start("page"));
+  act(() => view.result.current.discard());
+  expect(localStorage.getItem(PREPARATION_DRAFT_KEY)).not.toBeNull();
+  expect(JSON.parse(localStorage.getItem(requestKey) ?? "null")).toEqual(request);
+  expect(view.result.current.envelopeCreateRequest.current).toEqual(request);
+
   view.unmount();
   const restored = renderHook(() => useDiaryCreation(props));
-  expect(restored.result.current.creating).toBeNull();
+  expect(restored.result.current.creating).toBe("envelope");
+  act(() => restored.result.current.discard());
+  expect(localStorage.getItem(PREPARATION_DRAFT_KEY)).toBeNull();
+  expect(localStorage.getItem(requestKey)).toBeNull();
   expect(restored.result.current.envelopeCreateRequest.current).toBeNull();
+  expect(restored.result.current.creating).toBeNull();
 });
