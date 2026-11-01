@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { DiaryNotes } from "./DiaryNotes";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { DiaryNoteCollection, DiaryNotes } from "./DiaryNotes";
 import type { DiaryAction } from "./diaryTypes";
 
 beforeEach(() => {
@@ -133,12 +133,59 @@ it("keeps hidden drafts and refuses to overwrite a remote change", async () => {
   fireEvent.click(screen.getByRole("button", { name: "작은 생각 메모 열기" }));
   expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty("value", "남길 초안");
   expect(screen.getByRole("alert").textContent).toContain("다른 곳");
-  fireEvent.click(screen.getByRole("button", { name: "최신 내용 다시 불러오기" }));
+  expect(
+    within(screen.getByRole("article", { name: "작은 생각 메모" })).getByText("밖에서 바뀐 내용"),
+  ).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "내 글 버리고 최신 내용으로 바꾸기" }));
+  let dialog = within(screen.getByRole("dialog", { name: "내 글을 버릴까요?" }));
+  fireEvent.click(dialog.getByRole("button", { name: "취소" }));
+  expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty("value", "남길 초안");
+  expect(localStorage.getItem("comet.diary.note-draft:sidebar:one")).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "내 글 버리고 최신 내용으로 바꾸기" }));
+  dialog = within(screen.getByRole("dialog", { name: "내 글을 버릴까요?" }));
+  fireEvent.click(dialog.getByRole("button", { name: "내 글 버리고 최신 내용으로 바꾸기" }));
   expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty(
     "value",
     "밖에서 바뀐 내용",
   );
+  expect(localStorage.getItem("comet.diary.note-draft:sidebar:one")).toBeNull();
 });
+
+it.each([undefined, "envelope"])(
+  "shows the latest note and confirms before discarding the collection draft (%s)",
+  (envelopeId) => {
+    const save = vi.fn<DiaryAction>().mockResolvedValue(true);
+    const props = { diaryAction: save, busy: false, envelopeId };
+    const latest = { ...note, title: "바뀐 제목", body: "바깥에서\n바뀐 내용" };
+    const draftKey = `comet.diary.note-draft:${envelopeId ? "envelope" : "sidebar"}:one`;
+    const view = render(<DiaryNoteCollection {...props} notes={[note]} />);
+    fireEvent.click(screen.getByRole("button", { name: "작은 생각 메모 메뉴" }));
+    fireEvent.click(screen.getByRole("button", { name: "편집" }));
+    fireEvent.change(screen.getByLabelText(/메모 제목/), { target: { value: "내 제목" } });
+    fireEvent.change(screen.getByLabelText("메모 내용"), { target: { value: "내 초안" } });
+    view.rerender(<DiaryNoteCollection {...props} notes={[latest]} />);
+
+    const article = within(screen.getByRole("article", { name: "바뀐 제목 메모" }));
+    expect(article.getByText("바뀐 제목")).toBeTruthy();
+    expect(article.getByText("바깥에서 바뀐 내용")).toBeTruthy();
+    fireEvent.click(article.getByRole("button", { name: "내 글 버리고 최신 내용으로 바꾸기" }));
+    let dialog = within(screen.getByRole("dialog", { name: "내 글을 버릴까요?" }));
+    fireEvent.click(dialog.getByRole("button", { name: "취소" }));
+    expect(screen.getByLabelText(/메모 제목/)).toHaveProperty("value", "내 제목");
+    expect(screen.getByLabelText("메모 내용")).toHaveProperty("value", "내 초안");
+    expect(JSON.parse(localStorage.getItem(draftKey) || "null")).toMatchObject({
+      title: "내 제목",
+      body: "내 초안",
+    });
+    fireEvent.click(article.getByRole("button", { name: "내 글 버리고 최신 내용으로 바꾸기" }));
+    dialog = within(screen.getByRole("dialog", { name: "내 글을 버릴까요?" }));
+    fireEvent.click(dialog.getByRole("button", { name: "내 글 버리고 최신 내용으로 바꾸기" }));
+    expect(screen.getByLabelText(/메모 제목/)).toHaveProperty("value", latest.title);
+    expect(screen.getByLabelText("메모 내용")).toHaveProperty("value", latest.body);
+    expect(localStorage.getItem(draftKey)).toBeNull();
+    expect(save).not.toHaveBeenCalled();
+  },
+);
 
 it("does not retry failed autosaves until the user retries and restores the draft after remount", async () => {
   const save = vi.fn<DiaryAction>().mockResolvedValue(false);

@@ -1,6 +1,6 @@
 import { TabPanel, externalTabPanels } from "../../primitives";
 import { Button, IconButton, Tabs } from "@comet/ui";
-import { useEffect, useId, useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { WindowHeader } from "../../components/WindowHeader/WindowHeader";
@@ -10,7 +10,12 @@ import type { WidgetView } from "../types";
 import { PlannerCalendar } from "./PlannerCalendar";
 import { PlannerPreparation } from "./PlannerPreparation";
 import { PlannerTemplates } from "./PlannerTemplates";
-import { TodoEditor, type TodoEditorField } from "./TodoEditor";
+import {
+  TodoEditor,
+  PLANNER_TODO_EDITOR_DRAFT_KEY,
+  readTodoEditorDraft,
+  type TodoEditorField,
+} from "./TodoEditor";
 import {
   dayDate,
   deviceTimeZone,
@@ -26,9 +31,17 @@ import { usePlannerActions } from "./usePlannerActions";
 import { usePlannerTasks } from "./usePlannerTasks";
 import { usePlannerLeave } from "./usePlannerLeave";
 import { PlannerCloseDialog } from "./PlannerCloseDialog";
-import { PlannerListManager } from "./PlannerListManager";
-import { PlannerMoveTaskDialog } from "./PlannerMoveTaskDialog";
-import { PlannerWrapDialog } from "./PlannerWrapDialog";
+import { PlannerListManager, PLANNER_LIST_DRAFT_KEY } from "./PlannerListManager";
+import {
+  PlannerMoveTaskDialog,
+  PLANNER_MOVE_DRAFT_KEY,
+  readPlannerMoveDraft,
+} from "./PlannerMoveTaskDialog";
+import {
+  PlannerWrapDialog,
+  PLANNER_WRAP_DRAFT_KEY,
+  readPlannerWrapDraft,
+} from "./PlannerWrapDialog";
 import {
   elapsedWithin,
   focusDuration,
@@ -76,6 +89,23 @@ function planScopeLabel(period: string, day: string): string {
 
 export type PlannerToolTab = "today" | "plans" | "templates";
 export type PlannerToolState = { dirty: boolean; busy: boolean; blocking: boolean };
+
+export const PLANNER_INPUT_DRAFT_KEY = "comet:diary:planner-input";
+type PlannerInputDraft = {
+  title: string;
+  day: string;
+  planDay: string;
+  period: string;
+  list: string;
+  visibleList: string;
+};
+function readPlannerInputDraft(): PlannerInputDraft | null {
+  try {
+    return JSON.parse(localStorage.getItem(PLANNER_INPUT_DRAFT_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
 
 function PlannerPanel({
   tabs,
@@ -134,8 +164,7 @@ export function Planner({
 } = {}): ReactElement {
   const { snapshot, error: loadError, reload } = useWidgets();
   const widgets = snapshot?.widgets ?? [];
-  const enabled = (kind: string): WidgetView | undefined =>
-    widgets.find((w) => w.kind === kind);
+  const enabled = (kind: string): WidgetView | undefined => widgets.find((w) => w.kind === kind);
   const todo = enabled("todo"),
     calendar = enabled("calendar"),
     preparation = enabled("preparation"),
@@ -146,6 +175,7 @@ export function Planner({
     initialTab || new URLSearchParams(window.location.search).get("tab") || "today",
   );
   const embedded = embeddedTab !== undefined;
+  const [inputDraft] = useState(() => (embedded ? readPlannerInputDraft() : null));
   const tab = embeddedTab ?? internalTab;
   const tabsId = useId();
   function setTab(value: string): void {
@@ -174,32 +204,107 @@ export function Planner({
     if (onSelectedDayChange) onSelectedDayChange(value);
     else setInternalDay(value);
   }
-  const [period, setPeriod] = useState("week");
-  const [planDay, setPlanDay] = useState(localDay());
-  const [title, setTitle] = useState("");
-  const [newTaskList, setNewTaskList] = useState("default");
-  const [visibleList, setVisibleList] = useState("all");
+  const [period, setPeriod] = useState(inputDraft?.period ?? "week");
+  const [planDay, setPlanDay] = useState(inputDraft?.planDay ?? localDay());
+  const [title, setTitle] = useState(inputDraft?.title ?? "");
+  const [inputDay, setInputDay] = useState(inputDraft?.day ?? day);
+  const [newTaskList, setNewTaskList] = useState(inputDraft?.list ?? "default");
+  const [visibleList, setVisibleList] = useState(inputDraft?.visibleList ?? "all");
   const [showCompleted, setShowCompleted] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState("");
   const [selectedTask, setSelectedTask] = useState("");
   const [movingTask, setMovingTask] = useState<{ id: string; date: string } | null>(null);
+  const attemptedMoveRestore = useRef(false);
+  useEffect(() => {
+    if (!embedded || !todo || attemptedMoveRestore.current) return;
+    attemptedMoveRestore.current = true;
+    const saved = readPlannerMoveDraft();
+    if (saved?.widgetId === todo.id) setMovingTask(saved.movingTask);
+  }, [embedded, todo]);
   const [editing, setEditing] = useState<{
     item: DataRecord;
     widget: WidgetView;
     field?: TodoEditorField;
   } | null>(null);
+  const attemptedEditorRestore = useRef(false);
+  useEffect(() => {
+    if (!embedded || !todo || attemptedEditorRestore.current) return;
+    attemptedEditorRestore.current = true;
+    const saved = readTodoEditorDraft(PLANNER_TODO_EDITOR_DRAFT_KEY);
+    const item = record(saved.item);
+    if (saved.widgetId === todo.id && text(item.id)) setEditing({ item, widget: todo });
+  }, [embedded, todo]);
   const [wrap, setWrap] = useState(false);
   const [rollIds, setRollIds] = useState<string[]>([]);
   const [rollDate, setRollDate] = useState(moveDay(localDay(), 1));
-  const [manageLists, setManageLists] = useState(false);
+  const attemptedWrapRestore = useRef(false);
+  useEffect(() => {
+    if (!embedded || !todo || attemptedWrapRestore.current) return;
+    attemptedWrapRestore.current = true;
+    const saved = readPlannerWrapDraft();
+    if (saved?.widgetId === todo.id) {
+      setDay(saved.day);
+      setRollIds(saved.rollIds);
+      setRollDate(saved.rollDate);
+      setWrap(true);
+    }
+  }, [embedded, todo]);
+  const [manageLists, setManageLists] = useState(() => {
+    try {
+      return embedded && Boolean(localStorage.getItem(PLANNER_LIST_DRAFT_KEY));
+    } catch {
+      return false;
+    }
+  });
   const [templateDirty, setTemplateDirty] = useState(false);
   const [preparationDirty, setPreparationDirty] = useState(false);
   const [preparationBusy, setPreparationBusy] = useState(false);
+  const previousDismissVersion = useRef(dismissVersion);
   useEffect(() => {
-    setEditing(null);
-    setManageLists(false);
-    setWrap(false);
-    setMovingTask(null);
+    if (embedded && inputDraft?.title && inputDraft.day) onSelectedDayChange?.(inputDraft.day);
+  }, []);
+  useEffect(() => {
+    if (!embedded) return;
+    try {
+      if (title)
+        localStorage.setItem(
+          PLANNER_INPUT_DRAFT_KEY,
+          JSON.stringify({ title, day: inputDay, planDay, period, list: newTaskList, visibleList }),
+        );
+      else localStorage.removeItem(PLANNER_INPUT_DRAFT_KEY);
+    } catch {
+      // Keep the in-memory draft if browser storage is unavailable.
+    }
+  }, [embedded, title, inputDay, planDay, period, newTaskList, visibleList]);
+  useEffect(() => {
+    if (previousDismissVersion.current !== dismissVersion) {
+      previousDismissVersion.current = dismissVersion;
+      if (embedded && editing) {
+        try {
+          localStorage.removeItem(PLANNER_TODO_EDITOR_DRAFT_KEY);
+        } catch {
+          setFailure({ message: "이 기기에 보관한 초안을 지우지 못했어요.", saving: false });
+        }
+      }
+      if (embedded && movingTask) {
+        try {
+          localStorage.removeItem(PLANNER_MOVE_DRAFT_KEY);
+        } catch {
+          setFailure({ message: "이 기기에 보관한 초안을 지우지 못했어요.", saving: false });
+        }
+      }
+      if (embedded && wrap) {
+        try {
+          localStorage.removeItem(PLANNER_WRAP_DRAFT_KEY);
+        } catch {
+          setFailure({ message: "이 기기에 보관한 초안을 지우지 못했어요.", saving: false });
+        }
+      }
+      setEditing(null);
+      setManageLists(false);
+      setWrap(false);
+      setMovingTask(null);
+    }
   }, [dismissVersion]);
   const blocking = Boolean(
     editing || manageLists || wrap || movingTask || preparationDirty || preparationBusy,
@@ -292,7 +397,7 @@ export function Planner({
       await act("add", {
         title,
         listId: diaryQuickAdd ? quickList : visibleList === "all" ? "default" : visibleList,
-        plannedDate: isToday ? day : null,
+        plannedDate: isToday ? (embedded ? inputDay : day) : null,
         planPeriod: isToday || period === "inbox" ? "none" : period,
         planAnchor:
           isToday || ["inbox", "someday"].includes(period) ? null : periodAnchor(period, planDay),
@@ -305,7 +410,7 @@ export function Planner({
       <PlannerQuickInput
         isToday={isToday}
         embedded={embedded}
-        day={day}
+        day={embedded && title ? inputDay : day}
         period={period}
         planScope={planScope}
         title={title}
@@ -313,8 +418,14 @@ export function Planner({
         hasTodo={Boolean(todo)}
         lists={lists}
         quickList={quickList}
-        onTitleChange={setTitle}
-        onDayChange={setDay}
+        onTitleChange={(value) => {
+          if (!title && value) setInputDay(day);
+          setTitle(value);
+        }}
+        onDayChange={(value) => {
+          setInputDay(value);
+          setDay(value);
+        }}
         onListChange={setNewTaskList}
         onTemplates={() => selectTab("templates")}
         onSubmit={() => addTask(isToday)}
@@ -344,7 +455,11 @@ export function Planner({
       return;
     }
     if (
-      await act("queue-add", { title: text(currentTask.title), todoId: text(currentTask.id) }, timer)
+      await act(
+        "queue-add",
+        { title: text(currentTask.title), todoId: text(currentTask.id) },
+        timer,
+      )
     ) {
       setNotice("다음 집중에 추가했어요.");
     }
@@ -661,6 +776,7 @@ export function Planner({
           <PlannerPanel tabs={tabsId} embedded={embedded} current={tab} value="templates">
             {todo ? (
               <PlannerTemplates
+                persistDraft={embedded}
                 act={act}
                 busy={busy}
                 onDirtyChange={setTemplateDirty}
@@ -671,9 +787,7 @@ export function Planner({
                 }}
               />
             ) : (
-              <PlannerTodoEmpty
-                message="할 일을 시작하면 템플릿을 사용할 수 있어요."
-              />
+              <PlannerTodoEmpty message="할 일을 시작하면 템플릿을 사용할 수 있어요." />
             )}
           </PlannerPanel>
         </div>
@@ -691,6 +805,7 @@ export function Planner({
       </footer>
       {editing && (
         <TodoEditor
+          draftKey={embedded ? PLANNER_TODO_EDITOR_DRAFT_KEY : undefined}
           key={`${text(editing.item.id)}:${editing.widget.revision}`}
           widgetId={editing.widget.id}
           item={editing.item}
@@ -719,6 +834,8 @@ export function Planner({
       )}
       {movingTask && (
         <PlannerMoveTaskDialog
+          persistDraft={embedded}
+          widgetId={todo?.id}
           movingTask={movingTask}
           items={items}
           hasTodo={Boolean(todo)}
@@ -729,23 +846,28 @@ export function Planner({
           onClose={() => setMovingTask(null)}
         />
       )}
-      <PlannerWrapDialog
-        isOpen={wrap}
-        day={day}
-        completedCount={chosen.length - remaining.length}
-        focusLabel={timer ? focusDuration(focusWithin(record(timer.data), day)) : undefined}
-        habits={habitSummary}
-        remaining={remaining}
-        rollIds={rollIds}
-        rollDate={rollDate}
-        busy={busy}
-        failure={failure}
-        act={act}
-        onOpenChange={setWrap}
-        onRollIdsChange={setRollIds}
-        onRollDateChange={setRollDate}
-      />
+      {wrap && (
+        <PlannerWrapDialog
+          persistDraft={embedded}
+          widgetId={todo?.id}
+          isOpen={wrap}
+          day={day}
+          completedCount={chosen.length - remaining.length}
+          focusLabel={timer ? focusDuration(focusWithin(record(timer.data), day)) : undefined}
+          habits={habitSummary}
+          remaining={remaining}
+          rollIds={rollIds}
+          rollDate={rollDate}
+          busy={busy}
+          failure={failure}
+          act={act}
+          onOpenChange={setWrap}
+          onRollIdsChange={setRollIds}
+          onRollDateChange={setRollDate}
+        />
+      )}
       <PlannerListManager
+        persistDraft={embedded}
         isOpen={manageLists}
         lists={lists}
         items={items}

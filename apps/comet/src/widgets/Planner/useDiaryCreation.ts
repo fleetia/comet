@@ -2,7 +2,10 @@ import { useRef, useState, type RefObject } from "react";
 import { command, errorText } from "../../hooks/useSnapshot";
 import type { DataRecord } from "../toolData";
 import type { WidgetSnapshot } from "../types";
-import type { PreparationCreateResult } from "../PreparationTool/PreparationCreate";
+import {
+  PREPARATION_DRAFT_KEY,
+  type PreparationCreateResult,
+} from "../PreparationTool/PreparationCreate";
 import type { DiaryPage, DiaryState } from "./diaryTypes";
 import type { DiaryWidgetActions } from "./useDiaryWidgetActions";
 
@@ -13,6 +16,17 @@ type EnvelopeCreateRequest = {
   action: string;
   input: DataRecord;
 };
+const ENVELOPE_REQUEST_KEY = "comet:diary:preparation-request";
+
+function readEnvelopeRequest(): EnvelopeCreateRequest | null {
+  try {
+    return JSON.parse(
+      localStorage.getItem(ENVELOPE_REQUEST_KEY) || "null",
+    ) as EnvelopeCreateRequest | null;
+  } catch {
+    return null;
+  }
+}
 
 export type DiaryCreation = {
   creating: "page" | "envelope" | null;
@@ -48,10 +62,16 @@ export function useDiaryCreation({
   onPageCreated: (id: string) => void;
   onEnvelopeCreated: (id: string) => void;
 }): DiaryCreation {
-  const [creating, setCreating] = useState<"page" | "envelope" | null>(null);
+  const [creating, setCreating] = useState<"page" | "envelope" | null>(() => {
+    try {
+      return localStorage.getItem(PREPARATION_DRAFT_KEY) ? "envelope" : null;
+    } catch {
+      return null;
+    }
+  });
   const [name, setName] = useState("");
   const [envelopeCreateDirty, setEnvelopeCreateDirty] = useState(false);
-  const envelopeCreateRequest = useRef<EnvelopeCreateRequest | null>(null);
+  const envelopeCreateRequest = useRef<EnvelopeCreateRequest | null>(readEnvelopeRequest());
 
   function start(kind: "page" | "envelope"): void {
     setCreating(kind);
@@ -62,13 +82,13 @@ export function useDiaryCreation({
     setName("");
   }
   function closeEnvelope(): void {
-    envelopeCreateRequest.current = null;
+    if (!envelopeCreateRequest.current) localStorage.removeItem(PREPARATION_DRAFT_KEY);
     setCreating(null);
   }
   function discard(): void {
     setName("");
     setEnvelopeCreateDirty(false);
-    envelopeCreateRequest.current = null;
+    if (!envelopeCreateRequest.current) localStorage.removeItem(PREPARATION_DRAFT_KEY);
     setCreating(null);
   }
   async function createPage(): Promise<string | null> {
@@ -97,13 +117,15 @@ export function useDiaryCreation({
       if (!envelopeCreateRequest.current || envelopeCreateRequest.current.requestId !== requestId) {
         if (Array.isArray(input.tasks) && input.tasks.length) await ensureWidget("todo");
         const target = await ensureWidget("preparation");
-        envelopeCreateRequest.current = {
+        const request = {
           requestId,
           instanceId: target.id,
           expectedRevision: target.revision,
           action: "create",
           input,
         };
+        localStorage.setItem(ENVELOPE_REQUEST_KEY, JSON.stringify(request));
+        envelopeCreateRequest.current = request;
       }
       let createdId: string | null;
       try {
@@ -116,6 +138,7 @@ export function useDiaryCreation({
         if (!message.startsWith(prefix)) throw cause;
         outcome = "rejected";
         envelopeCreateRequest.current = null;
+        localStorage.removeItem(ENVELOPE_REQUEST_KEY);
         try {
           const fresh = await command<WidgetSnapshot>("get_widgets");
           latestWidgets.current = fresh.widgets;
@@ -131,6 +154,7 @@ export function useDiaryCreation({
     });
     if (!result?.value) return outcome;
     envelopeCreateRequest.current = null;
+    localStorage.removeItem(ENVELOPE_REQUEST_KEY);
     setCreating(null);
     onEnvelopeCreated(result.value);
     return "created";

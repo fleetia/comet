@@ -135,6 +135,235 @@ fn calendar_completion_weekdays_and_skip_use_distinct_bases() {
 }
 
 #[test]
+fn deleting_an_occurrence_keeps_the_next_calendar_completion_and_frequency_occurrence() {
+    let now = stamp("2026-09-25T12:00:00Z");
+    let calendar = run(
+        &initial("todo"),
+        "add",
+        json!({"title":"날짜 반복","dueDate":"2026-09-21","repeatRule":rule("calendar","day")}),
+        1,
+    );
+    let calendar_id = calendar.data["items"][0]["id"].clone();
+    let skipped = run(&calendar.data, "skip", json!({"id":calendar_id}), now);
+    assert_eq!(skipped.data["items"][0]["dueDate"], "2026-09-22");
+    assert_eq!(skipped.data["items"][0]["id"], calendar_id);
+    let edited_calendar = run(
+        &calendar.data,
+        "update",
+        json!({"id":calendar_id,"repeatRule":null,"scope":"occurrence"}),
+        now,
+    );
+    let skipped_edited = run(
+        &edited_calendar.data,
+        "skip",
+        json!({"id":calendar_id}),
+        now,
+    );
+    assert_eq!(skipped_edited.data["items"][0]["dueDate"], "2026-09-22");
+    assert_eq!(
+        skipped_edited.data["items"][0]["repeatRule"]["mode"],
+        "calendar"
+    );
+
+    let completion = run(
+        &initial("todo"),
+        "add",
+        json!({"title":"완료 기준","dueDate":"2026-09-21","repeatRule":rule("completion","day")}),
+        1,
+    );
+    let completion_id = completion.data["items"][0]["id"].clone();
+    let next = run(
+        &completion.data,
+        "delete-occurrence",
+        json!({"id":completion_id}),
+        now,
+    );
+    assert_eq!(next.data["items"].as_array().unwrap().len(), 1);
+    assert_ne!(next.data["items"][0]["id"], completion_id);
+    assert_eq!(next.data["items"][0]["dueDate"], "2026-09-26");
+    assert_eq!(next.data["items"][0]["repeatRule"]["mode"], "completion");
+    let edited_completion = run(
+        &completion.data,
+        "update",
+        json!({"id":completion_id,"repeatRule":null,"scope":"occurrence"}),
+        now,
+    );
+    let next_edited = run(
+        &edited_completion.data,
+        "delete-occurrence",
+        json!({"id":completion_id}),
+        now,
+    );
+    assert_eq!(next_edited.data["items"][0]["dueDate"], "2026-09-26");
+    assert_eq!(
+        next_edited.data["items"][0]["repeatRule"]["mode"],
+        "completion"
+    );
+
+    let frequency = run(
+        &initial("todo"),
+        "add",
+        json!({"title":"주간 목표","repeatRule":{"mode":"frequency","unit":"week","interval":1,"timesPerWeek":2,"timeZone":"UTC"}}),
+        1,
+    );
+    let frequency_id = frequency.data["items"][0]["id"].clone();
+    let recorded = run(
+        &frequency.data,
+        "record-frequency",
+        json!({"id":frequency_id,"date":"2026-09-21"}),
+        now,
+    );
+    let next = run(
+        &recorded.data,
+        "delete-occurrence",
+        json!({"id":frequency_id}),
+        now,
+    );
+    assert_eq!(next.data["items"].as_array().unwrap().len(), 1);
+    assert_ne!(next.data["items"][0]["id"], frequency_id);
+    assert_eq!(next.data["items"][0]["planAnchor"], "2026-09-28");
+    assert_eq!(next.data["items"][0]["repeatRule"]["mode"], "frequency");
+    assert_eq!(
+        next.data["items"][0]["frequencyRecords"],
+        recorded.data["items"][0]["frequencyRecords"]
+    );
+    let future = run(
+        &frequency.data,
+        "update",
+        json!({"id":frequency_id,"planPeriod":"week","planAnchor":"2026-10-12"}),
+        now,
+    );
+    let future_next = run(
+        &future.data,
+        "delete-occurrence",
+        json!({"id":frequency_id}),
+        now,
+    );
+    assert_eq!(future_next.data["items"][0]["planAnchor"], "2026-10-19");
+    reject(
+        &calendar.data,
+        "delete-occurrence",
+        json!({"id":calendar_id}),
+        now,
+    );
+}
+
+#[test]
+fn ending_a_repeat_refuses_to_erase_frequency_history_without_changing_delete() {
+    let now = stamp("2026-09-25T12:00:00Z");
+    let added = run(
+        &initial("todo"),
+        "add",
+        json!({"title":"산책","repeatRule":{"mode":"frequency","unit":"week","interval":1,"timesPerWeek":2,"timeZone":"UTC"}}),
+        1,
+    );
+    let key = added.data["items"][0]["id"].clone();
+    let recorded = run(
+        &added.data,
+        "record-frequency",
+        json!({"id":key,"date":"2026-09-21"}),
+        now,
+    );
+    let result = act(
+        "todo",
+        &recorded.data,
+        "end-repeat",
+        &json!({"id":key}),
+        &BTreeMap::new(),
+        now,
+        17,
+    );
+    assert_eq!(
+        result.err().as_deref(),
+        Some("주간 횟수 기록을 보존하려면 반복을 끝낼 수 없습니다.")
+    );
+    assert_eq!(
+        recorded.data["items"][0]["frequencyRecords"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let deleted = run(&recorded.data, "delete", json!({"id":key}), now);
+    assert!(deleted.data["items"].as_array().unwrap().is_empty());
+    let ended = run(&added.data, "end-repeat", json!({"id":key}), now);
+    assert!(ended.data["items"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn completed_occurrence_deletion_keeps_existing_next_and_cannot_claim_to_end_it() {
+    let added = run(
+        &initial("todo"),
+        "add",
+        json!({"title":"반복","dueDate":"2026-09-21","repeatRule":rule("calendar","day")}),
+        1,
+    );
+    let key = added.data["items"][0]["id"].clone();
+    let completed = run(&added.data, "complete", json!({"id":key}), 2);
+    let next = completed.data["items"][1].clone();
+    let result = act(
+        "todo",
+        &completed.data,
+        "end-repeat",
+        &json!({"id":key}),
+        &BTreeMap::new(),
+        3,
+        17,
+    );
+    assert_eq!(
+        result.err().as_deref(),
+        Some("이미 만들어진 다음 회차에서 반복을 끝내 주세요.")
+    );
+    let deleted = run(&completed.data, "delete", json!({"id":key}), 3);
+    assert_eq!(
+        deleted.data["items"].as_array().unwrap().as_slice(),
+        &[next]
+    );
+    let mut legacy = completed.data.clone();
+    legacy["items"][0]["generation"] = Value::Null;
+    reject(&legacy, "end-repeat", json!({"id":key}), 4);
+}
+
+#[test]
+fn deleting_an_edited_occurrence_keeps_frequency_records_newer_than_its_template() {
+    let now = stamp("2026-09-25T12:00:00Z");
+    for (mode, action) in [("calendar", "skip"), ("completion", "delete-occurrence")] {
+        let added = run(
+            &initial("todo"),
+            "add",
+            json!({"title":"반복","dueDate":"2026-09-21","repeatRule":rule(mode,"day")}),
+            1,
+        );
+        let key = added.data["items"][0]["id"].clone();
+        let edited = run(
+            &added.data,
+            "update",
+            json!({"id":key,"scope":"occurrence","repeatRule":{"mode":"frequency","unit":"week","interval":1,"timesPerWeek":2,"timeZone":"UTC"}}),
+            2,
+        );
+        let recorded = run(
+            &edited.data,
+            "record-frequency",
+            json!({"id":key,"date":"2026-09-21"}),
+            now,
+        );
+        let next = run(&recorded.data, action, json!({"id":key}), now);
+        assert_eq!(next.data["items"][0]["repeatRule"]["mode"], mode);
+        assert_eq!(
+            next.data["items"][0]["frequencyRecords"],
+            recorded.data["items"][0]["frequencyRecords"]
+        );
+        assert_eq!(
+            next.data["items"][0]["frequencyRecords"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+}
+
+#[test]
 fn preview_is_read_only_and_completion_months_use_completion_day() {
     let data = initial("todo");
     let input = json!({"dueDate":"2026-01-31","repeatRule":rule("calendar","month")});

@@ -1,10 +1,13 @@
-import { afterEach, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PreparationTool } from "../PreparationTool/PreparationTool";
+import { PlannerPreparation } from "../Planner/PlannerPreparation";
+import * as nativeCommands from "../../hooks/useSnapshot";
 import type { ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 
 afterEach(cleanup);
+beforeEach(() => localStorage.clear());
 const envelope = {
   id: "envelope",
   title: "여행",
@@ -176,4 +179,170 @@ it("ignores the old A save when its envelope unmounts through A to B to A", asyn
   await act(async () => finish(false));
   expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.getByLabelText("봉투에 연결할 일정")).toHaveProperty("value", "old");
+});
+
+it("restores an embedded schedule draft with its original revision and guards a later conflict", () => {
+  const action = vi.fn<ToolAction>().mockResolvedValue(true);
+  const view = render(
+    <PreparationTool
+      widget={preparation()}
+      widgets={[calendar]}
+      act={action}
+      selectedId="envelope"
+    />,
+  );
+  edit("new");
+  view.unmount();
+  render(
+    <PreparationTool
+      widget={preparation(8)}
+      widgets={[calendar]}
+      act={action}
+      selectedId="envelope"
+    />,
+  );
+  openEditor();
+  expect(screen.getByLabelText("봉투에 연결할 일정")).toHaveProperty("value", "new");
+  expect(screen.getByRole("button", { name: "일정 연결 저장" })).toHaveProperty("disabled", true);
+  expect(action).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "최신 연결 불러오기" }));
+  expect(
+    localStorage.getItem("comet:embedded-preparation-schedule:preparation:envelope"),
+  ).toBeNull();
+});
+
+it("restores the embedded draft through the planner and clears it after confirming discard", () => {
+  const element = (
+    <PlannerPreparation
+      event={{ id: "old", title: "기존 일정", connectionId: "local" }}
+      calendar={calendar}
+      preparation={preparation()}
+      widgets={[calendar]}
+      act={vi.fn<ToolAction>().mockResolvedValue(true)}
+      openSettings={vi.fn()}
+    />
+  );
+  const view = render(element);
+  fireEvent.click(screen.getByRole("button", { name: "+ 준비 항목 · 자료 편집" }));
+  fireEvent.change(screen.getByLabelText("체크할 준비물"), { target: { value: "남긴 준비물" } });
+  expect(localStorage.getItem("comet:embedded-preparation:preparation:envelope")).not.toBeNull();
+  view.unmount();
+  render(element);
+  fireEvent.click(screen.getByRole("button", { name: "+ 준비 항목 · 자료 편집" }));
+  expect(screen.getByLabelText("체크할 준비물")).toHaveProperty("value", "남긴 준비물");
+  fireEvent.click(screen.getByRole("button", { name: "준비 편집 닫기" }));
+  fireEvent.click(
+    within(screen.getByRole("dialog", { name: "준비 내용을 버릴까요?" })).getByRole("button", {
+      name: "저장하지 않고 닫기",
+    }),
+  );
+  expect(localStorage.getItem("comet:embedded-preparation:preparation:envelope")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "+ 준비 항목 · 자료 편집" }));
+  expect(screen.getByLabelText("체크할 준비물")).toHaveProperty("value", "");
+});
+
+it("retries an unresolved embedded task request with the original identifier and revision", async () => {
+  const request = {
+    id: "request-1",
+    title: "표 확인",
+    targetId: "todo",
+    revision: 4,
+    scope: "preparation:envelope",
+  };
+  localStorage.setItem(
+    "comet:embedded-preparation-task:preparation:envelope",
+    JSON.stringify(request),
+  );
+  localStorage.setItem(
+    "comet:embedded-preparation:preparation:envelope",
+    JSON.stringify({ task: "표 확인" }),
+  );
+  const command = vi.spyOn(nativeCommands, "command").mockResolvedValue("todo-new");
+  const action = vi.fn<ToolAction>().mockResolvedValue(true);
+  const todo: WidgetView = { ...preparation(8), id: "todo", kind: "todo", data: { items: [] } };
+  try {
+    render(
+      <PreparationTool
+        widget={preparation()}
+        widgets={[todo, calendar]}
+        act={action}
+        selectedId="envelope"
+      />,
+    );
+    const input = screen.getByLabelText("봉투에 추가할 할 일");
+    expect(input).toHaveProperty("value", "표 확인");
+    const form = input.closest("form");
+    if (!form) throw new Error("missing task form");
+    fireEvent.submit(form);
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("execute_widget", {
+        request: {
+          requestId: "request-1",
+          instanceId: "todo",
+          expectedRevision: 4,
+          action: "add",
+          input: { title: "표 확인", plannedDate: null },
+        },
+      }),
+    );
+    await waitFor(() =>
+      expect(action).toHaveBeenCalledWith(
+        "todo-link",
+        { id: "envelope", todoId: "todo-new" },
+        preparation(),
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        localStorage.getItem("comet:embedded-preparation-task:preparation:envelope"),
+      ).toBeNull(),
+    );
+  } finally {
+    command.mockRestore();
+  }
+});
+
+it("reuses the confirmed task id after restart before its envelope link was saved", async () => {
+  localStorage.setItem(
+    "comet:embedded-preparation-task:preparation:envelope",
+    JSON.stringify({
+      id: "request-1",
+      title: "표 확인",
+      targetId: "todo",
+      revision: 4,
+      scope: "preparation:envelope",
+      result: "todo-new",
+    }),
+  );
+  localStorage.setItem(
+    "comet:embedded-preparation:preparation:envelope",
+    JSON.stringify({ task: "표 확인" }),
+  );
+  const command = vi.spyOn(nativeCommands, "command").mockResolvedValue(undefined);
+  const action = vi.fn<ToolAction>().mockResolvedValue(true);
+  const todo: WidgetView = { ...preparation(8), id: "todo", kind: "todo", data: { items: [] } };
+  try {
+    render(
+      <PreparationTool
+        widget={preparation()}
+        widgets={[todo, calendar]}
+        act={action}
+        selectedId="envelope"
+      />,
+    );
+    const form = screen.getByLabelText("봉투에 추가할 할 일").closest("form");
+    if (!form) throw new Error("missing task form");
+    fireEvent.submit(form);
+    await waitFor(() =>
+      expect(action).toHaveBeenCalledWith(
+        "todo-link",
+        { id: "envelope", todoId: "todo-new" },
+        preparation(),
+      ),
+    );
+    expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
+    expect(localStorage.getItem("comet:embedded-preparation-task:preparation:envelope")).toBeNull();
+  } finally {
+    command.mockRestore();
+  }
 });

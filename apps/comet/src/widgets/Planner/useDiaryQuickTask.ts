@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 
+const QUICK_TASK_DRAFT_KEY = "comet:diary:quick-task";
+
+function readQuickTask(): { title: string; date: string | null } | null {
+  try {
+    return JSON.parse(localStorage.getItem(QUICK_TASK_DRAFT_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+
 export type DiaryQuickTask = {
   open: boolean;
   title: string;
@@ -23,9 +33,10 @@ export function useDiaryQuickTask({
   pending: RefObject<boolean>;
   createTask: (title: string, plannedDate: string | null) => Promise<string | null>;
 }): DiaryQuickTask {
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [date, setDate] = useState<string | null>(null);
+  const [draft] = useState(readQuickTask);
+  const [open, setOpen] = useState(Boolean(draft?.title));
+  const [title, setTitle] = useState(draft?.title ?? "");
+  const [date, setDate] = useState<string | null>(draft?.date ?? null);
   // Invalidates a pending save once the draft changes, is discarded, or the diary unmounts.
   const version = useRef(0);
   const mounted = useRef(true);
@@ -39,6 +50,14 @@ export function useDiaryQuickTask({
   useEffect(() => {
     if (!title) setDate(defaultDate);
   }, [title, defaultDate]);
+  useEffect(() => {
+    try {
+      if (title) localStorage.setItem(QUICK_TASK_DRAFT_KEY, JSON.stringify({ title, date }));
+      else localStorage.removeItem(QUICK_TASK_DRAFT_KEY);
+    } catch {
+      // Keep the in-memory draft if browser storage is unavailable.
+    }
+  }, [title, date]);
 
   async function submit(): Promise<void> {
     if (pending.current || saving || !title.trim() || title.length > 500) return;
