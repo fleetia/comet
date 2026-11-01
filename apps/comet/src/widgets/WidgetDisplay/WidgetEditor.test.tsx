@@ -106,19 +106,7 @@ it("changes layout mode and stack options live with the current revision", async
   expect(screen.getByRole("heading", { name: "바탕화면 위젯 편집" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "왼쪽 아래" }));
   await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("configure_widget_desktop", {
-      expectedRevision: 5,
-      input: {
-        mode: "stack",
-        order: ["clock", "focus"],
-        anchor: "bottom-left",
-        width: 370,
-        overlapped: true,
-        oneExpanded: true,
-        snapToGrid: false,
-        showGuides: true,
-      },
-    }),
+    expect(command).toHaveBeenCalledWith("reset_widget_desktop_position", { anchor: "bottom-left" }),
   );
   fireEvent.click(screen.getByRole("radio", { name: "자유 배치" }));
   await waitFor(() =>
@@ -126,6 +114,17 @@ it("changes layout mode and stack options live with the current revision", async
       expectedRevision: 6,
       input: expect.objectContaining({ mode: "freeform" }),
     }),
+  );
+});
+
+it("clears the anchor selection for a dragged stack and resets the same anchor", async () => {
+  state.stackPosition = { x: 100, y: 200 };
+  render(<WidgetEditor />);
+  const anchor = await screen.findByRole("button", { name: "오른쪽 위" });
+  expect(anchor.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(anchor);
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("reset_widget_desktop_position", { anchor: "top-right" }),
   );
 });
 

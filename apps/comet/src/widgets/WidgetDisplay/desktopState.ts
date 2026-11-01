@@ -31,6 +31,7 @@ export type DesktopLayout = {
   width: number;
   overlapped: boolean;
   oneExpanded: boolean;
+  expanded?: string[];
   positions: Record<string, { x: number; y: number }>;
   shapes: Record<string, DesktopShape>;
   stackStyles?: Record<string, StackStyle>;
@@ -42,7 +43,7 @@ export type DesktopLayout = {
 export type DesktopState = DesktopLayout & { revision: number; editing: boolean };
 export type LayoutSettings = Pick<
   DesktopLayout,
-  "mode" | "order" | "anchor" | "width" | "overlapped" | "oneExpanded" | "snapToGrid" | "showGuides"
+  "mode" | "order" | "anchor" | "width" | "overlapped" | "oneExpanded" | "expanded" | "snapToGrid" | "showGuides"
 >;
 
 type DesktopKind = { width: number; height: number; appearance: boolean };

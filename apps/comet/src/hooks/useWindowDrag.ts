@@ -1,6 +1,6 @@
 import { useRef, type PointerEvent } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { errorText, isDesktop } from "./useSnapshot";
+import { command, errorText, isDesktop } from "./useSnapshot";
 
 type Handlers = {
   onPointerDown: (event: PointerEvent<HTMLElement>) => void;
@@ -28,6 +28,7 @@ export function useWindowDrag(enabled: boolean, onError: (message: string) => vo
       }
       start.dragged = true;
       if (enabled && isDesktop()) {
+        void command("mark_widget_desktop_drag").catch(() => undefined);
         void getCurrentWindow()
           .startDragging()
           .catch((cause: unknown) => onError(errorText(cause)));

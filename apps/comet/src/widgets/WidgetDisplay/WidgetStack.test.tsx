@@ -134,7 +134,45 @@ it("expands rows in place and moves settings and open actions to the hover toolb
   fireEvent.click(screen.getByRole("button", { name: "날씨 접기" }));
   expect(screen.getAllByRole("button", { expanded: false })).toHaveLength(3);
   expect(command).not.toHaveBeenCalledWith("open_widget", expect.anything());
-  expect(command).not.toHaveBeenCalledWith("configure_widget_desktop", expect.anything());
+  await waitFor(() =>
+    expect(vi.mocked(command).mock.calls.filter(([name]) => name === "configure_widget_desktop"))
+      .toHaveLength(3),
+  );
+  const configureCalls = vi.mocked(command).mock.calls.filter(
+    ([name]) => name === "configure_widget_desktop",
+  );
+  expect(configureCalls.map(([, args]) => args?.input)).toEqual(
+    [["memo"], ["weather"], []].map((expanded) => ({
+      mode: state.mode,
+      order: state.order,
+      anchor: state.anchor,
+      width: state.width,
+      overlapped: state.overlapped,
+      oneExpanded: state.oneExpanded,
+      snapToGrid: state.snapToGrid,
+      showGuides: state.showGuides,
+      expanded,
+    })),
+  );
+});
+
+it("restores saved expanded rows when the stack window opens", async () => {
+  Object.assign(state, { expanded: ["weather"] });
+  render(<WidgetStack />);
+  await screen.findByRole("button", { name: "날씨 접기" });
+  expect(screen.getByRole("button", { name: "날씨 접기" })).toBeTruthy();
+});
+
+it("saves an expanded row in the desktop layout", async () => {
+  render(<WidgetStack />);
+  await screen.findByText("21°C");
+  fireEvent.click(screen.getByText("21°C").closest("button")!);
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("configure_widget_desktop", {
+      expectedRevision: 5,
+      input: expect.objectContaining({ expanded: ["weather"] }),
+    }),
+  );
 });
 
 it("reorders stack rows from the hover handle by dragging or arrow keys", async () => {
@@ -594,6 +632,9 @@ it("routes the embedded timer lifecycle to its current widget revision", async (
   const view = render(<WidgetStack />);
   await screen.findByText("01:00");
   fireEvent.click(document.querySelector('[data-desktop-widget="focus"] button')!);
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("configure_widget_desktop", expect.anything()),
+  );
   fireEvent.change(screen.getByLabelText("집중할 일"), { target: { value: "스택 집중" } });
   for (const [label, actionName, status] of [
     ["집중 시작", "start", "running"],

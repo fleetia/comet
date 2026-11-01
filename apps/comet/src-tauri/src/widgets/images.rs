@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use std::{
     collections::BTreeSet,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
 };
@@ -85,17 +85,8 @@ fn reconcile(app: &tauri::AppHandle) -> Result<()> {
         storage::instances(&*lock(&state.db)?)?
     };
     let mut desired = BTreeSet::new();
-    let mut occupied: Vec<Rect> = instances
-        .iter()
-        .filter(|item| item.kind == "image")
-        .flat_map(|item| item.data["images"].as_array().into_iter().flatten())
-        .filter(|image| image["isOpen"] == true)
-        .filter_map(|image| position(image).map(|point| Rect::at(&point, size(image))))
-        .collect();
-    for instance in instances
-        .iter()
-        .filter(|item| item.kind == "image")
-    {
+    let mut occupied: Vec<Rect> = desktop::visible_widget_areas(app, "");
+    for instance in instances.iter().filter(|item| item.kind == "image") {
         let Some(items) = instance.data["images"].as_array() else {
             continue;
         };
@@ -112,16 +103,14 @@ fn reconcile(app: &tauri::AppHandle) -> Result<()> {
             if app.get_webview_window(&window_label).is_some() {
                 continue;
             }
-            let area = desktop::primary_area(app)?;
+            let area = desktop::preferred_area(app, None)?;
             let point = match position(image) {
                 Some(point) => {
-                    desktop::clamp_point(&point, (width, height), &desktop::work_areas(app)?)
+                    desktop::restore_point(&point, (width, height), &desktop::work_areas(app)?)
                 }
                 None => desktop::auto_place(area, (width, height), &occupied),
             };
-            if position(image).is_none() {
-                occupied.push(Rect::at(&point, (width, height)));
-            }
+            occupied.push(Rect::at(&point, (width, height)));
             let window = tauri::WebviewWindowBuilder::new(
                 app,
                 &window_label,
@@ -169,20 +158,50 @@ fn reconcile(app: &tauri::AppHandle) -> Result<()> {
             let image_id = image_id.to_string();
             let moved_image_id = image_id.clone();
             let moved = Arc::new(AtomicU64::new(0));
+            let dragging = Arc::new(AtomicBool::new(false));
+            let drag_epoch = Arc::new(AtomicU64::new(desktop::drag_epoch(app)));
             let event_window = window.clone();
             window.on_window_event(move |event| match event {
                 tauri::WindowEvent::Moved(_) => {
+                    let epoch = desktop::drag_epoch(&app_handle);
+                    if drag_epoch.load(Ordering::SeqCst) != epoch {
+                        dragging.store(false, Ordering::SeqCst);
+                    }
+                    let active = dragging.load(Ordering::SeqCst);
+                    let marked = !active && desktop::take_drag(&app_handle, event_window.label());
+                    if !desktop::accepts_drag_move(active, marked) {
+                        return;
+                    }
+                    drag_epoch.store(epoch, Ordering::SeqCst);
+                    dragging.store(true, Ordering::SeqCst);
                     let generation = moved.fetch_add(1, Ordering::SeqCst) + 1;
                     let moved = moved.clone();
+                    let dragging = dragging.clone();
                     let app = app_handle.clone();
                     let window = event_window.clone();
                     let id = id.clone();
                     let image_id = moved_image_id.clone();
                     tauri::async_runtime::spawn(async move {
-                        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-                        if moved.load(Ordering::SeqCst) != generation {
-                            return;
+                        let started = std::time::Instant::now();
+                        loop {
+                            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                            if moved.load(Ordering::SeqCst) != generation {
+                                return;
+                            }
+                            if desktop::drag_epoch(&app) != epoch
+                                || !desktop::screen_unchanged(&app)
+                            {
+                                dragging.store(false, Ordering::SeqCst);
+                                return;
+                            }
+                            if !desktop::wait_for_drag_release(
+                                desktop::drag_button_pressed(),
+                                started.elapsed(),
+                            ) {
+                                break;
+                            }
                         }
+                        dragging.store(false, Ordering::SeqCst);
                         let Ok(scale) = window.scale_factor() else {
                             return;
                         };
@@ -190,6 +209,9 @@ fn reconcile(app: &tauri::AppHandle) -> Result<()> {
                             return;
                         };
                         let point = position.to_logical::<f64>(scale);
+                        if desktop::drag_epoch(&app) != epoch || !desktop::screen_unchanged(&app) {
+                            return;
+                        }
                         let state = app.state::<Arc<AppState>>();
                         let _ = move_image(&app, &state, &id, &image_id, point.x, point.y);
                     });
@@ -222,15 +244,17 @@ fn reconcile(app: &tauri::AppHandle) -> Result<()> {
                 }
                 window.show().map_err(err)?;
             }
-            let _ = mutate(&state, &instance.id, false, |current| {
-                let item = image_mut(current, &image_id)?;
-                if item["isOpen"] != true {
-                    return Ok(());
-                }
-                item["x"] = json!(point.x);
-                item["y"] = json!(point.y);
-                Ok(())
-            });
+            if position(image).is_none() {
+                let _ = mutate(&state, &instance.id, false, |current| {
+                    let item = image_mut(current, &image_id)?;
+                    if item["isOpen"] != true {
+                        return Ok(());
+                    }
+                    item["x"] = json!(point.x);
+                    item["y"] = json!(point.y);
+                    Ok(())
+                });
+            }
         }
     }
     for (window_label, window) in app.webview_windows() {
@@ -257,6 +281,38 @@ pub(crate) fn schedule_sync(app: &tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         if let Err(error) = sync(&app).await {
             crate::report_error!("image_window_refresh", "이미지 창 갱신 실패: {error}");
+        }
+    });
+}
+
+pub(crate) fn reposition_on_screen_change(app: &tauri::AppHandle) {
+    let state = app.state::<Arc<AppState>>();
+    let instances = (|| -> Result<_> {
+        let _action = lock(&state.action)?;
+        storage::instances(&*lock(&state.db)?)
+    })();
+    let (Ok(instances), Ok(areas)) = (instances, desktop::work_areas(app)) else {
+        return;
+    };
+    let epoch = desktop::drag_epoch(app);
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if desktop::drag_epoch(&handle) != epoch {
+            return;
+        }
+        for instance in instances.iter().filter(|item| item.kind == "image") {
+            for image in instance.data["images"].as_array().into_iter().flatten() {
+                let (Some(image_id), Some(point)) = (image["id"].as_str(), position(image)) else {
+                    continue;
+                };
+                if image["isOpen"] != true {
+                    continue;
+                }
+                if let Some(window) = handle.get_webview_window(&label(&instance.id, image_id)) {
+                    let point = desktop::restore_point(&point, size(image), &areas);
+                    let _ = window.set_position(tauri::LogicalPosition::new(point.x, point.y));
+                }
+            }
         }
     });
 }
@@ -549,11 +605,15 @@ mod tests {
         let state = crate::app::tests::state();
         let id = {
             let db = lock(&state.db).unwrap();
-            let mut instance = storage::instances(&db).unwrap().into_iter()
-                .find(|instance| instance.kind == "image").unwrap();
+            let mut instance = storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|instance| instance.kind == "image")
+                .unwrap();
             instance.data["images"] = json!([{ "id": "image-one", "isOpen": true }]);
             storage::put(&db, &instance).unwrap();
-            super::super::backgrounds::put_media(&db, "image:image-one", "image/png", b"original").unwrap();
+            super::super::backgrounds::put_media(&db, "image:image-one", "image/png", b"original")
+                .unwrap();
             storage::set_reaction(&db, &instance.id, false).unwrap();
             instance.id
         };
@@ -561,11 +621,19 @@ mod tests {
             active(instance)?;
             image_mut(instance, "image-one")?["isOpen"] = json!(false);
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
         let db = lock(&state.db).unwrap();
         let instance = storage::get(&db, &id).unwrap();
         assert_eq!(instance.data["images"][0]["isOpen"], false);
-        assert_eq!(super::super::backgrounds::get(&db, "image:image-one").unwrap().unwrap().data.as_slice(), b"original");
+        assert_eq!(
+            super::super::backgrounds::get(&db, "image:image-one")
+                .unwrap()
+                .unwrap()
+                .data
+                .as_slice(),
+            b"original"
+        );
         assert!(!storage::reaction_enabled(&db, &id).unwrap());
     }
 }
