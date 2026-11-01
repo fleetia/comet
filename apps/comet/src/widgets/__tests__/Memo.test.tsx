@@ -6,6 +6,7 @@ import { MemoNote } from "../MemoNote/MemoNote";
 import { useWidgets } from "../useWidgets";
 import type { WidgetView } from "../types";
 import catalog from "../../../widgets/catalog.json";
+import * as paper from "../MemoNote/memoNote.css";
 
 vi.mock("../../hooks/useSnapshot", () => ({
   command: vi.fn(),
@@ -173,15 +174,39 @@ it("keeps a conflicting draft until it is saved as another memo", async () => {
 });
 
 it("requires confirmation before discarding a conflicting draft", async () => {
-  vi.mocked(command).mockRejectedValueOnce(new Error("다른 화면에서 이 메모가 변경됐어요. 내용을 확인한 뒤 다시 저장해 주세요."));
-  render(<MemoNote id="memo" noteId="one" />);
-  fireEvent.change(screen.getByRole("textbox"), { target: { value: "보존할 초안" } });
-  fireEvent.click(screen.getByRole("button", { name: "넣어두기" }));
-  fireEvent.click(await screen.findByRole("button", { name: "내 글 버리고 최신 내용으로 바꾸기" }));
-  expect(screen.getByText("내 글을 버리고 최신 내용으로 바꿀까요?")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "취소" }));
-  expect(screen.getByRole("textbox")).toHaveProperty("value", "보존할 초안");
-  expect(command).not.toHaveBeenCalledWith("get_widgets");
+  const originalScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+  const scrollIntoView = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+  try {
+    vi.mocked(command).mockRejectedValueOnce(new Error("다른 화면에서 이 메모가 변경됐어요. 내용을 확인한 뒤 다시 저장해 주세요."));
+    render(<MemoNote id="memo" noteId="one" />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "보존할 초안" } });
+    fireEvent.click(screen.getByRole("button", { name: "넣어두기" }));
+    const discard = await screen.findByRole("button", { name: "내 글 버리고 최신 내용으로 바꾸기" });
+    const failureArea = screen.getByRole("alert").parentElement;
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest" });
+    expect(scrollIntoView.mock.contexts[0]).toBe(failureArea);
+    discard.focus();
+    fireEvent.click(discard);
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest" });
+    expect(scrollIntoView.mock.contexts[1]).toBe(failureArea);
+    expect(document.activeElement).toBe(discard);
+    expect(screen.getByText("내 글을 버리고 최신 내용으로 바꿀까요?")).toBeTruthy();
+    const content = screen.getByRole("alert").parentElement?.parentElement;
+    expect(content?.classList.contains(paper.contentWithFailure)).toBe(true);
+    expect(content?.nextElementSibling?.tagName).toBe("FOOTER");
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.getByRole("textbox")).toHaveProperty("value", "보존할 초안");
+    expect(command).not.toHaveBeenCalledWith("get_widgets");
+  } finally {
+    if (originalScrollIntoView) {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", originalScrollIntoView);
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    }
+  }
 });
 
 it("adopts the newer original received while the conflict copy is saving", async () => {

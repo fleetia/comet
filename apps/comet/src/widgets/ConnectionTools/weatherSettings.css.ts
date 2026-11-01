@@ -98,4 +98,5 @@ export const result = style({
 });
 globalStyle(`${result} > svg`, { marginTop: 2, flexShrink: 0 });
 export const error = style([caption, { color: tokens["color/danger"] }]);
+globalStyle(`${group} > .${error}`, { padding: `11px ${tokens["spacing/space-16"]}` });
 export const observation = style({ display: "grid", gap: 12, minWidth: 0 });

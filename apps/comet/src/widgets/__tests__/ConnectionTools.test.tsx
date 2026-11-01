@@ -3,6 +3,8 @@ import { act as reactAct, cleanup, fireEvent, render, screen, waitFor, within } 
 import { command } from "../../hooks/useSnapshot";
 import { ConnectionTool } from "../ConnectionTools/ConnectionTools";
 import { CalendarTool } from "../CalendarTool/CalendarTool";
+import * as calendarStyles from "../CalendarTool/calendarTool.css";
+import * as weatherStyles from "../ConnectionTools/weatherSettings.css";
 import type { WidgetValue, WidgetView } from "../types";
 vi.mock("../../hooks/useSnapshot", async (load) => ({
   ...(await load<typeof import("../../hooks/useSnapshot")>()),
@@ -190,6 +192,12 @@ it("shows the connection provider step beside the form and returns without chang
     expect(onConnectionOpenChange).toHaveBeenLastCalledWith(true);
     fireEvent.click(within(side).getByRole("button", { name: /^Google 캘린더/ }));
     expect(screen.getByLabelText(/^Google OAuth 클라이언트 ID/)).toBeTruthy();
+    const guide = screen.getByText(/Google Cloud에서 Calendar API/);
+    const group = guide.parentElement;
+    expect(group?.classList.contains(calendarStyles.group)).toBe(true);
+    for (const label of [/^Google OAuth 클라이언트 ID/, "클라이언트 보안 비밀 (선택)", /^조회할 캘린더 ID/]) {
+      expect(screen.getByLabelText(label).closest(`.${calendarStyles.formRow}`)?.parentElement).toBe(group);
+    }
     fireEvent.change(screen.getByLabelText(/^연결 이름/), { target: { value: "새 계정" } });
     expect(screen.getByRole("region", { name: "캘린더 연결 미리보기" }).textContent).toContain(
       "새 계정",
@@ -512,6 +520,7 @@ it("shows weather search and refresh errors next to their controls", async () =>
   fireEvent.click(screen.getByRole("button", { name: "다시 확인" }));
   const refresh = screen.getByRole("button", { name: "다시 확인" });
   await waitFor(() => expect(refresh.closest("fieldset")?.textContent).toContain("조회 실패"));
+  expect(screen.getByText("조회 실패").parentElement).toBe(refresh.closest(`.${weatherStyles.group}`));
 });
 
 it("shows a failed first weather lookup in settings", () => {
