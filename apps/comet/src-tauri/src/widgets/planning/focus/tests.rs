@@ -83,7 +83,7 @@ fn queued_focus_links_only_todos_that_are_still_incomplete() {
                 data["mode"] = json!("rest");
                 data["deadline"] = json!(2000);
                 data["settings"]["continuous"] = json!(true);
-                tick_with_related(&data, 2000, &related).unwrap().unwrap()
+                tick_with_related(&data, 2000, &related, true).unwrap().unwrap()
             } else {
                 data["status"] = json!("finished");
                 act(&data, "continue", &json!({}), &related, 2000).unwrap()
@@ -93,6 +93,39 @@ fn queued_focus_links_only_todos_that_are_still_incomplete() {
             assert_eq!(started.data["activeSession"]["todoId"], expected, "automatic={automatic}");
             assert_eq!(started.data["activeSession"]["title"], "계속할 일");
             assert!(started.data["queue"].as_array().unwrap().is_empty());
+        }
+    }
+}
+
+#[test]
+fn screen_blocked_finishes_rest_and_notifies_without_starting_the_queued_focus() {
+    for allow_auto_focus in [false, true] {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        storage::initialize(&db).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        storage::verify_packages(&db, directory.path()).unwrap();
+        let timer = storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "focus-timer").unwrap();
+        let mut data = initial();
+        data["status"] = json!("running");
+        data["mode"] = json!("rest");
+        data["deadline"] = json!(2000);
+        data["settings"]["continuous"] = json!(true);
+        data["settings"]["finishNotification"] = json!("both");
+        data["queue"] = json!([{"id":"next", "title":"다음 집중", "focusDurationMs":60000, "todoId":null, "eventRef":null, "noteRef":null}]);
+        storage::commit_data(&db, &timer.id, timer.revision, data, vec![], 1000).unwrap();
+        let mut clocks = BTreeMap::new();
+        crate::widgets::reminders::advance(&db, &mut clocks, 1500, false).unwrap();
+        storage::advance_with_presence(&db, 2000, true, &[], Some(1500), allow_auto_focus).unwrap();
+        let result = crate::widgets::reminders::advance(&db, &mut clocks, 2000, false).unwrap();
+        let finished = storage::get(&db, &timer.id).unwrap();
+        assert_eq!(finished.data["settings"]["continuous"], true);
+        assert_eq!(finished.data["status"], if allow_auto_focus { "running" } else { "finished" });
+        assert_eq!(finished.data["queue"].as_array().unwrap().len(), usize::from(!allow_auto_focus));
+        assert_eq!(result.os.len(), 1);
+        assert_eq!(storage::take_reaction(&db, 2000).unwrap().unwrap().event.kind, "timer-finished");
+        if !allow_auto_focus {
+            assert!(finished.data["activeSession"].is_null());
+            assert_eq!(finished.data["mode"], "rest");
         }
     }
 }

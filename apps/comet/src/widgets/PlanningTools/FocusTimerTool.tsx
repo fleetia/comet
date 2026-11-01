@@ -11,6 +11,8 @@ import { useFocusTimerLayout, useFocusTimerLayoutState } from "./useFocusTimerLa
 import { useFocusTimerSession } from "./useFocusTimerSession";
 import { useFocusTimerTodoCompletion } from "./useFocusTimerTodoCompletion";
 import * as s from "./FocusTimer.css";
+import { record, text } from "../toolData";
+import { notificationUnavailable, useNotificationAvailability } from "./useNotificationAvailability";
 
 export { readDraft } from "./useFocusTimerSession";
 
@@ -38,6 +40,8 @@ export function TimerTool(props: TimerToolProps): ReactElement {
   const { widget, widgets, act, busy: hostBusy = false, embedded = false, active = true } = props;
   const busy = hostBusy || !active;
   const [error, setError] = useState("");
+  const availability = useNotificationAvailability(widget.id);
+  const channel = text(record(record(widget.data).settings).finishNotification) || "bubble";
   const drag = useWindowDrag(!embedded, setError);
   const layoutState = useFocusTimerLayoutState(embedded);
   const panel = useFocusTimerContext(widget, active, hostBusy, layoutState, setError);
@@ -101,6 +105,9 @@ export function TimerTool(props: TimerToolProps): ReactElement {
         <p role="alert" className={s.error}>
           {error}
         </p>
+      )}
+      {notificationUnavailable(channel, availability.bubble, availability.permission) && (
+        <p role="status" className={s.error}>지금은 알림이 나가지 않아요.</p>
       )}
       {calendar && <PlannerAlertNotice widget={calendar} act={act} />}
       <div

@@ -243,6 +243,9 @@ pub(crate) fn apply_settings_with_keys(
     if restore_presence {
         lock(&state.presence)?.reset(super::now());
     }
+    if old_automatic && !settings.autonomous_enabled {
+        crate::widgets::storage::discard_pending(&db)?;
+    }
     let token = super::interrupt_with_db(state, false, &db)?;
     schedule_idle(state, settings.idle_minutes);
     let mut runtime = lock(&state.runtime)?;

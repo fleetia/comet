@@ -14,6 +14,19 @@ use tauri::Manager;
 mod tests;
 
 #[tauri::command]
+pub(crate) fn get_planner_bubble_available(
+    state: tauri::State<'_, Arc<crate::AppState>>,
+    id: String,
+) -> Result<bool, String> {
+    let _action = crate::lock(&state.action)?;
+    let db = crate::lock(&state.db)?;
+    Ok(!state.launcher_open.load(Ordering::SeqCst)
+        && !crate::lock(&state.runtime)?.hidden
+        && crate::store::settings(&db)?.autonomous_enabled
+        && crate::widgets::storage::reaction_enabled(&db, &id)?)
+}
+
+#[tauri::command]
 pub(crate) async fn get_planner_notification_permission(
     app: tauri::AppHandle,
 ) -> Result<String, String> {

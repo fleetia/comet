@@ -105,6 +105,81 @@ fn queued_external_notices_are_discarded_on_cancellation() {
 }
 
 #[test]
+fn temporal_reactions_wait_past_expiry_and_play_in_order() {
+    let db = database();
+    let calendar = instance(&db, "calendar");
+    let timer = instance(&db, "focus-timer");
+    let ordinary = instance(&db, "small-match");
+    for (id, source, kind) in [
+        ("first", &calendar, "planner-reminder"),
+        ("second", &timer, "timer-finished"),
+        ("third", &calendar, "planner-reminder"),
+        ("ordinary", &ordinary, "play.result"),
+    ] {
+        let event = super::WidgetEvent {
+            id: id.into(), instance_id: source.id.clone(), widget_kind: source.kind.clone(),
+            revision: source.revision, created_at: 0, expires_at: 30_000,
+            event: super::EventDraft { kind: kind.into(), text: id.into(), payload: json!({}) },
+        };
+        db.execute("INSERT INTO widget_events(id,instance_id,data,pending) VALUES(?1,?2,?3,1)",
+            rusqlite::params![event.id, event.instance_id, serde_json::to_string(&event).unwrap()]).unwrap();
+    }
+    storage::discard_pending_except_temporal(&db).unwrap();
+    for id in ["first", "second", "third"] {
+        assert_eq!(storage::take_reaction(&db, 60_000).unwrap().unwrap().id, id);
+    }
+    assert!(storage::take_reaction(&db, 60_000).unwrap().is_none());
+}
+
+#[test]
+fn temporal_reactions_obey_explicit_cancellation_and_timer_revision() {
+    let db = database();
+    let timer = instance(&db, "focus-timer");
+    let draft = || super::EventDraft { kind: "timer-finished".into(), text: "done".into(), payload: json!({}) };
+    storage::commit_data(&db, &timer.id, timer.revision, timer.data.clone(), vec![draft()], 1).unwrap();
+    storage::discard_pending(&db).unwrap();
+    assert!(storage::take_reaction(&db, 60_000).unwrap().is_none());
+    let timer = storage::get(&db, &timer.id).unwrap();
+    storage::commit_data(&db, &timer.id, timer.revision, timer.data.clone(), vec![draft()], 2).unwrap();
+    let timer = storage::get(&db, &timer.id).unwrap();
+    let mut changed = timer.data.clone();
+    changed["status"] = json!("paused");
+    storage::commit_data(&db, &timer.id, timer.revision, changed, vec![], 3).unwrap();
+    assert!(storage::take_reaction(&db, 60_000).unwrap().is_none());
+}
+
+#[test]
+fn temporal_queue_overflow_is_recorded_in_planner_notice() {
+    let db = database();
+    let calendar = instance(&db, "calendar");
+    let drafts = (0..9).map(|n| super::EventDraft {
+        kind: "planner-reminder".into(), text: format!("notice {n}"),
+        payload: json!({"targets":[{"kind":"preparation", "id":n}]}),
+    }).collect();
+    storage::commit_data(&db, &calendar.id, calendar.revision, calendar.data.clone(), drafts, 1_000).unwrap();
+    let count: i64 = db.query_row("SELECT COUNT(*) FROM widget_events WHERE pending=1", [], |row| row.get(0)).unwrap();
+    assert_eq!(count, 8);
+    let calendar = storage::get(&db, &calendar.id).unwrap();
+    assert_eq!(calendar.data["alertState"]["lastNotification"]["text"], "notice 8");
+    assert_eq!(calendar.data["alertState"]["lastNotification"]["targets"][0]["id"], 8);
+}
+
+#[test]
+fn pending_temporal_event_survives_old_unjournaled_cleanup() {
+    let db = database();
+    let timer = instance(&db, "focus-timer");
+    let event = super::WidgetEvent {
+        id: "pending-old".into(), instance_id: timer.id, widget_kind: timer.kind,
+        revision: timer.revision, created_at: 1, expires_at: 30_001,
+        event: super::EventDraft { kind: "timer-finished".into(), text: "done".into(), payload: json!({}) },
+    };
+    db.execute("INSERT INTO widget_events(id,instance_id,data,pending) VALUES(?1,?2,?3,1)",
+        rusqlite::params![event.id, event.instance_id, serde_json::to_string(&event).unwrap()]).unwrap();
+    storage::advance(&db, 600_000).unwrap();
+    assert_eq!(storage::take_reaction(&db, 600_000).unwrap().unwrap().id, "pending-old");
+}
+
+#[test]
 fn changing_external_notice_settings_invalidates_queued_notices() {
     let db = database();
     let instance = instance(&db, "external-notice");

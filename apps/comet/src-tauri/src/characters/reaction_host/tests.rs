@@ -783,13 +783,21 @@ fn widget_reactions_obey_owner_epoch_revision_expiry_and_same_cooldown_policy() 
             .is_none()
     );
     event.revision -= 1;
-    event.expires_at = 0;
+    let mut ordinary = event.clone();
+    ordinary.event.kind = "calendar-reminder".into();
     assert!(
-        prepare_reaction(&state, &id, "timer-finished", 7, Some((&event, 0)), None)
+        crate::widgets::commands::event_current(&lock(&state.db).unwrap(), &ordinary).unwrap()
+    );
+    ordinary.expires_at = 0;
+    assert!(
+        !crate::widgets::commands::event_current(&lock(&state.db).unwrap(), &ordinary).unwrap()
+    );
+    assert!(
+        prepare_reaction(&state, &id, "calendar-reminder", 7, Some((&ordinary, 0)), None)
             .unwrap()
             .is_none()
     );
-    event.expires_at = i64::MAX;
+    event.expires_at = 0;
     let accepted = prepare_reaction(&state, &id, "timer-finished", 7, Some((&event, 0)), None)
         .unwrap()
         .unwrap();

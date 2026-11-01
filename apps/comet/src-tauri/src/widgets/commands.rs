@@ -52,7 +52,7 @@ pub(crate) fn hold_for_focus(state: &AppState, db: &rusqlite::Connection) -> Res
 fn current_events(state: &AppState, db: &rusqlite::Connection) -> Result<(), String> {
     let epoch = state.epoch.load(Ordering::SeqCst);
     if state.widget_epoch.load(Ordering::SeqCst) != epoch {
-        storage::discard_pending(db)?;
+        storage::discard_pending_except_temporal(db)?;
         state.widget_epoch.store(epoch, Ordering::SeqCst);
     }
     Ok(())
@@ -565,18 +565,19 @@ pub(crate) fn event_current(
         return Ok(false);
     };
     Ok(storage::reaction_enabled(db, &event.instance_id)?
-        && event.expires_at > chrono::Utc::now().timestamp_millis()
+        && (storage::temporal_reaction(event) || event.expires_at > chrono::Utc::now().timestamp_millis())
         && widgets::reminders::event_current(db, event)?
         && weather_event_current(db, event)?
         && !widgets::is_retired(&instance.kind)
-        && instance.revision == event.revision)
+        && (event.event.kind == "planner-reminder" || instance.revision == event.revision))
 }
 
 pub(crate) fn focus_transition(event: &WidgetEvent) -> bool {
-    event.widget_kind == "focus-timer"
+    (event.event.kind == "planner-mood" && event.event.payload["focusStart"] == true)
+        || (event.widget_kind == "focus-timer"
         && event.event.kind == "timer-finished"
         && event.event.payload["mode"] == "rest"
-        && event.event.payload["nextTitle"].is_string()
+        && event.event.payload["nextTitle"].is_string())
 }
 
 #[tauri::command]
@@ -619,8 +620,11 @@ pub(crate) async fn execute_widget(
         });
     }
     let from_widget_window = window.label() == format!("widget-{}", request.instance_id);
-    let (created_id, interaction_accepted) = change_with_epoch(&state, from_widget_window, |db| {
+    let (created_id, interaction_accepted, focus_start, action_epoch) = change_with_epoch(&state, from_widget_window, |db| {
         let timestamp = chrono::Utc::now().timestamp_millis();
+        let start_before = if matches!(request.action.as_str(), "start" | "start-once" | "continue") {
+            storage::get(db, &request.instance_id).ok().filter(|item| item.kind == "focus-timer")
+        } else { None };
         let focus_before = if request.action == "cancel"
             && lock(&state.widget_clocks)?
                 .get("focus-completions")
@@ -672,8 +676,11 @@ pub(crate) async fn execute_widget(
             lock(&state.calendar_reminder_clocks)?.remove(&request.instance_id);
         }
         crate::characters::life::note_mood_input(&state)?;
-        Ok((created_id, interaction_accepted))
-    }, |result, _| Ok(result))?;
+        let focus_start = start_before.and_then(|before| storage::get(db, &before.id).ok().filter(|after| {
+            after.revision != before.revision && after.data["status"] == "running" && after.data["mode"] == "focus"
+        }).map(|after| after.revision));
+        Ok((created_id, interaction_accepted, focus_start))
+    }, |(created_id, interaction_accepted, focus_start), epoch| Ok((created_id, interaction_accepted, focus_start, epoch)))?;
     crate::widgets::memo_notes::schedule_sync(&app);
     // New state can invalidate an already playing reaction to this widget.
     if let Err(error) = cancel_widget_scene_for_interaction(
@@ -692,7 +699,48 @@ pub(crate) async fn execute_widget(
         publish(&app, &state);
     }
     publish_widgets(&app, &state);
+    if let Some(revision) = focus_start {
+        if let Err(error) = show_focus_start_greeting(&app, &state, &request.instance_id, revision, action_epoch) {
+            crate::report_error!("focus_start_greeting", "집중 시작 응원 표시 실패: {error}");
+        }
+    }
     Ok(created_id)
+}
+
+fn show_focus_start_greeting(app: &tauri::AppHandle, state: &Arc<AppState>, timer_id: &str, revision: i64, action_epoch: u64) -> Result<(), String> {
+    let prepared = {
+        let _action = lock(&state.action)?;
+        if state.epoch.load(Ordering::SeqCst) != action_epoch || crate::unavailable(state) {
+            return Ok(());
+        }
+        let db = lock(&state.db)?;
+        let runtime = lock(&state.runtime)?.clone();
+        if runtime.hidden || runtime.paused || runtime.phase != "idle"
+            || lock(&state.panel)?.is_some() || lock(&state.pack_stories)?.run.is_some()
+            || state.launcher_open.load(Ordering::SeqCst)
+            || !store::settings(&db)?.autonomous_enabled
+            || crate::app::quiet_hours::automatic_blocked(state, &store::settings(&db)?)?
+            || crate::behavior::reactions_blocked(state)? {
+            return Ok(());
+        }
+        let timer = storage::get(&db, timer_id)?;
+        if timer.revision != revision { return Ok(()); }
+        let Some(calendar) = storage::instances(&db)?.into_iter().find(|item| item.kind == "calendar") else { return Ok(()); };
+        if !storage::reaction_enabled(&db, &calendar.id)? { return Ok(()); }
+        let Some(draft) = widgets::reminders::focus_start_greeting(&calendar, &timer)? else { return Ok(()); };
+        let timestamp = chrono::Utc::now().timestamp_millis();
+        let event = WidgetEvent { id: uuid::Uuid::new_v4().to_string(), instance_id: calendar.id,
+            widget_kind: calendar.kind, revision: calendar.revision, created_at: timestamp,
+            expires_at: timestamp + 30_000, event: draft };
+        let token = crate::app::interrupt_with_db(state, true, &db)?;
+        state.widget_epoch.store(token.0, Ordering::SeqCst);
+        *lock(&state.widget_playback)? = Some(event.clone());
+        (event, token)
+    };
+    let (event, token) = prepared;
+    start_scene(app.clone(), state.clone(), vec![SceneLine { motion: Default::default(), widget: None,
+        persona: "a".into(), expression: "평온".into(), text: event.event.text }], "widget", token, Some(event.id));
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1813,11 +1861,27 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
                 .copied()
                 .filter(|previous| timestamp >= *previous && timestamp - *previous <= 120_000);
             let continuous = previous.is_some();
-            let present =
-                crate::app::presence::present_ids(state, &crate::characters::active_ids(db)?)?;
-            let changed = storage::advance_with_presence(db, timestamp, continuous, &present, previous)?;
+            let active = crate::characters::active_ids(db)?;
+            let present = crate::app::presence::present_ids(state, &active)?;
+            let changed = storage::advance_with_presence(db, timestamp, continuous, &present, previous, !crate::device::wake::screen_blocked())?;
             let quiet = lock(&state.runtime)?.paused
                 || crate::app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?;
+            let runtime = lock(&state.runtime)?.clone();
+            let suspended = state.launcher_open.load(Ordering::SeqCst)
+                || runtime.hidden
+                || !store::settings(db)?.autonomous_enabled;
+            let anniversary_allowed = !suspended
+                && runtime.phase == "idle"
+                && lock(&state.panel)?.is_none()
+                && lock(&state.pack_stories)?.run.is_none()
+                && now() - state.last_input.load(Ordering::SeqCst) >= 3
+                && !storage::focus_active(db, timestamp)?
+                && !crate::behavior::reactions_blocked(state)?
+                && widgets::reminders::anniversary_speaker_available(
+                    &active,
+                    &present,
+                    &lock(&state.life)?.sleeping_ids(),
+                );
             let alerted = widgets::reminders::advance_with_presence(
                 db,
                 &mut *lock(&state.widget_clocks)?,
@@ -1825,11 +1889,8 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
                 timestamp,
                 quiet,
                 &present,
+                anniversary_allowed,
             )?;
-            let runtime = lock(&state.runtime)?.clone();
-            let suspended = state.launcher_open.load(Ordering::SeqCst)
-                || runtime.hidden
-                || !store::settings(db)?.autonomous_enabled;
             if suspended {
                 storage::discard_pending(db)?;
             }
@@ -1998,6 +2059,7 @@ pub(crate) fn take_pending_reaction(
         return Ok(None);
     }
     if state.stopping.load(Ordering::SeqCst)
+        || crate::device::wake::screen_blocked()
         || status.phase != "idle"
         || lock(&state.panel)?.is_some()
         || lock(&state.pack_stories)?.run.is_some()
@@ -2009,14 +2071,37 @@ pub(crate) fn take_pending_reaction(
     let event = storage::take_reaction(db, chrono::Utc::now().timestamp_millis())?;
     match event {
         Some(event)
-            if widgets::reminders::event_current(db, &event)?
-                && weather_event_current(db, &event)?
+            if event_current(db, &event)?
                 && weather_reaction_pending(db, &event)? =>
         {
             Ok(Some(event))
         }
         _ => Ok(None),
     }
+}
+
+/// Caller holds action and db; only a current, undisplayed temporal reaction may be retried.
+pub(crate) fn restore_unshown_temporal_reaction(
+    state: &AppState,
+    db: &rusqlite::Connection,
+    event: &WidgetEvent,
+    epoch: u64,
+) -> Result<bool, String> {
+    let status = lock(&state.runtime)?.clone();
+    if !storage::temporal_reaction(event)
+        || state.epoch.load(Ordering::SeqCst) != epoch
+        || state.widget_epoch.load(Ordering::SeqCst) != epoch
+        || state.launcher_open.load(Ordering::SeqCst)
+        || status.hidden
+        || status.paused
+        || !store::settings(db)?.autonomous_enabled
+        || lock(&state.playback)?.as_ref().is_some_and(|line| line.line_index > 0 || line.display_started_at.is_some())
+        || !event_current(db, event)?
+    {
+        return Ok(false);
+    }
+    db.execute("UPDATE widget_events SET pending=1 WHERE id=?1 AND pending=0 AND COALESCE(json_extract(data,'$.payload.temporalDisplayed'),0)=0", [&event.id])
+        .map(|changed| changed == 1).map_err(|error| error.to_string())
 }
 
 pub(crate) fn play_widget_reaction(
@@ -2039,15 +2124,30 @@ pub(crate) fn play_widget_reaction(
                     .filter(|_| !special_completion)
             {
                 let epoch = state.epoch.load(Ordering::SeqCst);
+                if storage::temporal_reaction(&event) {
+                    *lock(&state.widget_playback)? = Some(event.clone());
+                }
                 drop(db);
                 drop(_action);
-                crate::characters::reaction_host::trigger_widget(
+                let result = crate::characters::reaction_host::trigger_widget(
                     app,
                     state.clone(),
                     &character_id,
                     &event,
                     epoch,
-                )?;
+                );
+                let _action = lock(&state.action)?;
+                let reserved = lock(&state.widget_playback)?.as_ref().is_some_and(|current| current.id == event.id);
+                if state.epoch.load(Ordering::SeqCst) == epoch
+                    && reserved
+                {
+                    if crate::device::wake::screen_blocked() {
+                        let db = lock(&state.db)?;
+                        restore_unshown_temporal_reaction(state, &db, &event, epoch)?;
+                    }
+                    *lock(&state.widget_playback)? = None;
+                }
+                result?;
                 return Ok(true);
             }
             let token = crate::app::interrupt_with_db(state, true, &db)?;
@@ -2241,6 +2341,63 @@ mod tests {
         assert!(!weather_reaction_pending(&db, &event).unwrap());
         event.event.payload = json!({"day": "2026-10-29"});
         assert!(weather_reaction_pending(&db, &event).unwrap());
+    }
+
+    #[test]
+    fn delayed_reaction_rechecks_its_source_and_reminder_target() {
+        let state = crate::app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let instances = storage::instances(&db).unwrap();
+        let timer = instances.iter().find(|item| item.kind == "focus-timer").unwrap();
+        let calendar = instances.iter().find(|item| item.kind == "calendar").unwrap();
+        let mut event = WidgetEvent {
+            id: "delayed".into(), instance_id: timer.id.clone(), widget_kind: timer.kind.clone(),
+            revision: timer.revision, created_at: 0, expires_at: 1,
+            event: widgets::EventDraft { kind: "timer-finished".into(), text: "done".into(), payload: json!({}) },
+        };
+        assert!(event_current(&db, &event).unwrap());
+        event.revision += 1;
+        assert!(!event_current(&db, &event).unwrap());
+        event.instance_id = calendar.id.clone();
+        event.widget_kind = calendar.kind.clone();
+        event.revision = calendar.revision;
+        event.event.kind = "planner-reminder".into();
+        event.event.payload = json!({"targets":[{"kind":"calendar","id":"removed"}]});
+        assert!(!event_current(&db, &event).unwrap());
+    }
+
+    #[test]
+    fn epoch_change_keeps_temporal_queue_but_discards_other_events() {
+        let state = crate::app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let timer = storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "focus-timer").unwrap();
+        let drafts = ["timer-finished", "planner-mood"].into_iter().map(|kind| widgets::EventDraft {
+            kind: kind.into(), text: kind.into(), payload: json!({}),
+        }).collect();
+        storage::commit_data(&db, &timer.id, timer.revision, timer.data, drafts, chrono::Utc::now().timestamp_millis()).unwrap();
+        state.epoch.fetch_add(1, Ordering::SeqCst);
+        current_events(&state, &db).unwrap();
+        assert_eq!(storage::take_reaction(&db, chrono::Utc::now().timestamp_millis()).unwrap().unwrap().event.kind, "timer-finished");
+        assert!(storage::take_reaction(&db, chrono::Utc::now().timestamp_millis()).unwrap().is_none());
+    }
+
+    #[test]
+    fn undisplayed_temporal_reaction_is_restored_only_while_current() {
+        let state = crate::app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let timer = storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "focus-timer").unwrap();
+        storage::commit_data(&db, &timer.id, timer.revision, timer.data, vec![widgets::EventDraft {
+            kind: "timer-finished".into(), text: "done".into(), payload: json!({}),
+        }], chrono::Utc::now().timestamp_millis()).unwrap();
+        let event = storage::take_reaction(&db, chrono::Utc::now().timestamp_millis()).unwrap().unwrap();
+        let epoch = state.epoch.load(Ordering::SeqCst);
+        assert!(restore_unshown_temporal_reaction(&state, &db, &event, epoch).unwrap());
+        assert_eq!(storage::take_reaction(&db, chrono::Utc::now().timestamp_millis()).unwrap().unwrap().id, event.id);
+        storage::mark_temporal_reaction_displayed(&db, &event).unwrap();
+        assert!(!restore_unshown_temporal_reaction(&state, &db, &event, epoch).unwrap());
+        state.epoch.fetch_add(1, Ordering::SeqCst);
+        assert!(!restore_unshown_temporal_reaction(&state, &db, &event, epoch).unwrap());
+        assert!(storage::take_reaction(&db, chrono::Utc::now().timestamp_millis()).unwrap().is_none());
     }
 
     #[test]

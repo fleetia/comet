@@ -483,7 +483,7 @@ impl Session {
                 Err(error) => return Err(error),
             }
         }
-        let fullscreen = foreground_fullscreen(&monitors, &windows);
+        let fullscreen = foreground_fullscreen_monitors(&monitors, &windows);
         Ok(from_snapshot(
             monitors,
             windows.into_iter().map(|(rect, _)| rect).collect(),
@@ -492,13 +492,22 @@ impl Session {
     }
 }
 
+fn foreground_fullscreen_monitors(monitors: &[Rect], front_to_back: &[(Rect, bool)]) -> Vec<Rect> {
+    monitors
+        .iter()
+        .copied()
+        .filter(|monitor| {
+            front_to_back
+                .iter()
+                .find(|(window, _)| intersects(*window, *monitor))
+                .is_some_and(|(_, fullscreen)| *fullscreen)
+        })
+        .collect()
+}
+
+#[cfg(test)]
 fn foreground_fullscreen(monitors: &[Rect], front_to_back: &[(Rect, bool)]) -> bool {
-    monitors.iter().any(|monitor| {
-        front_to_back
-            .iter()
-            .find(|(window, _)| intersects(*window, *monitor))
-            .is_some_and(|(_, fullscreen)| *fullscreen)
-    })
+    !foreground_fullscreen_monitors(monitors, front_to_back).is_empty()
 }
 
 fn intersects(a: Rect, b: Rect) -> bool {
@@ -626,10 +635,10 @@ mod tests {
             width: 1920.0,
             height: 1080.0,
         };
-        let maximized = from_snapshot(vec![area], vec![area], false);
+        let maximized = from_snapshot(vec![area], vec![area], vec![]);
         assert!(!maximized.fullscreen);
         assert!(maximized.external_windows_available);
-        assert!(from_snapshot(vec![area], vec![area], true).fullscreen);
+        assert!(from_snapshot(vec![area], vec![area], vec![area]).fullscreen);
         assert!(foreground_fullscreen(&[area], &[(area, true)]));
         assert!(!foreground_fullscreen(
             &[area],

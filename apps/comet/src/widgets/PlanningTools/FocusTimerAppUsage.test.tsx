@@ -232,8 +232,11 @@ describe("backend-owned usage readout", () => {
     window.innerHeight = 580;
     vi.mocked(command).mockImplementation(async (name, args) => {
       if (name === "set_focus_expanded") window.innerHeight = Number(args?.height);
+      if (name === "get_planner_bubble_available") return true;
+      if (name === "get_planner_notification_permission") return "granted";
       return undefined;
     });
+    const resizeCalls = () => vi.mocked(command).mock.calls.filter(([name]) => name === "set_focus_expanded");
     async function settle(): Promise<void> {
       await reactAct(async () => new Promise((resolve) => setTimeout(resolve, 10)));
     }
@@ -245,35 +248,36 @@ describe("backend-owned usage readout", () => {
       };
       const view = render(<TimerTool {...props} />);
       await settle();
-      expect(command).toHaveBeenCalledExactlyOnceWith("set_focus_expanded", {
+      expect(resizeCalls()).toEqual([["set_focus_expanded", {
         id: "focus",
         expanded: true,
         collapsed: false,
         height: 748,
         animate: false,
         autoFit: true,
-      });
+      }]]);
       bodyHeight = 620;
       callbacks.forEach((callback) => callback());
       await settle();
-      expect(command).toHaveBeenLastCalledWith("set_focus_expanded", {
+      expect(resizeCalls()).toHaveLength(2);
+      expect(resizeCalls()[1]).toEqual(["set_focus_expanded", {
         id: "focus",
         expanded: true,
         collapsed: false,
         height: 620,
         animate: false,
         autoFit: true,
-      });
+      }]);
       window.innerHeight = 900;
       bodyHeight = 600;
       callbacks.forEach((callback) => callback());
       await settle();
-      expect(command).toHaveBeenCalledTimes(2);
+      expect(resizeCalls()).toHaveLength(2);
       view.rerender(<TimerTool {...props} embedded />);
       bodyHeight = 1100;
       callbacks.forEach((callback) => callback());
       await settle();
-      expect(command).toHaveBeenCalledTimes(2);
+      expect(resizeCalls()).toHaveLength(2);
       expect(action).not.toHaveBeenCalled();
     } finally {
       scrollHeight.mockRestore();
@@ -285,6 +289,11 @@ describe("backend-owned usage readout", () => {
   it("keeps embedded focus expansion local and delegates collapse to its desktop stack", async () => {
     vi.useFakeTimers();
     const onCollapse = vi.fn();
+    vi.mocked(command).mockImplementation(async (name) => {
+      if (name === "get_planner_bubble_available") return false;
+      if (name === "get_planner_notification_permission") return "denied";
+      return undefined;
+    });
     render(
       <TimerTool
         widget={widget({ status: "idle", durationMs: 1500000 })}
@@ -297,11 +306,12 @@ describe("backend-owned usage readout", () => {
     expect(screen.getByLabelText("일정과 집중 기록").hasAttribute("inert")).toBe(true);
     await click("기록과 노트");
     await reactAct(async () => vi.advanceTimersByTimeAsync(300));
+    expect(screen.getByText("지금은 알림이 나가지 않아요.").getAttribute("role")).toBe("status");
     expect(screen.getByRole("region", { name: "집중 통계" })).toBeTruthy();
     expect(screen.getByLabelText("일정과 집중 기록").hasAttribute("inert")).toBe(false);
     await click("접기");
     expect(onCollapse).toHaveBeenCalledOnce();
-    expect(command).not.toHaveBeenCalled();
+    expect(vi.mocked(command).mock.calls.filter(([name]) => name === "set_focus_expanded")).toEqual([]);
     expect(action).not.toHaveBeenCalled();
   });
 

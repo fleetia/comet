@@ -17,7 +17,7 @@ vi.mock("../../hooks/useSnapshot", () => ({
   command: vi.fn(),
   errorText: (cause: unknown) => String(cause),
 }));
-beforeEach(() => vi.mocked(command).mockReset().mockResolvedValue("prompt"));
+beforeEach(() => { vi.mocked(command).mockReset().mockResolvedValue("prompt"); });
 afterEach(cleanup);
 function deferred<T>(): {
   promise: Promise<T>;
@@ -246,4 +246,30 @@ it("keeps the latest permission result and ignores unmounted completion", async 
   view.unmount();
   await reactAct(async () => later.resolve("denied"));
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("warns only when neither selected channel can deliver", async () => {
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "get_planner_bubble_available" ? false : "denied",
+  );
+  const timer = widget("focus-timer", { settings: { finishNotification: "both" } });
+  render(<FocusTimerSettings widget={timer} act={vi.fn<ToolAction>().mockResolvedValue(true)} />);
+  await waitFor(() => expect(screen.getByText("지금은 알림이 나가지 않아요.")).toBeTruthy());
+  fireEvent.click(screen.getByRole("radio", { name: "말풍선" }));
+  expect(screen.getByText("지금은 알림이 나가지 않아요.")).toBeTruthy();
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "get_planner_bubble_available" ? false : "granted",
+  );
+  fireEvent(window, new Event("focus"));
+  fireEvent.click(screen.getByRole("radio", { name: "둘 다" }));
+  await waitFor(() => expect(screen.queryByText("지금은 알림이 나가지 않아요.")).toBeNull());
+});
+
+it("warns for unavailable bubbles even when OS permission lookup fails", async () => {
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_planner_bubble_available") return false;
+    throw new Error("권한 확인 실패");
+  });
+  render(<FocusTimerSettings widget={widget("focus-timer", { settings: { finishNotification: "bubble" } })} act={vi.fn<ToolAction>()} />);
+  await waitFor(() => expect(screen.getByText("지금은 알림이 나가지 않아요.")).toBeTruthy());
 });

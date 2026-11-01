@@ -631,6 +631,7 @@ pub(crate) async fn hide_boxes(
         preferences.characters_visible = false;
         behavior::save(&db, &preferences)?;
         store::pause_conversations(&db)?;
+        widgets::storage::discard_pending(&db)?;
         lock(&state.runtime)?.hidden = true;
         *lock(&state.panel)? = None;
         let token = super::interrupt_with_db(&state, false, &db)?;

@@ -120,8 +120,9 @@ pub(super) fn focus_due(
     calendar_due: &[Value],
     drafts: &mut Vec<EventDraft>,
     os: &mut Vec<Delivery>,
-) {
+) -> Vec<(Value, String)> {
     let (after, now, catch_up) = interval;
+    let mut notices = vec![];
     for timer in timers {
         let Some(target) = focus_target(timer, calendar, now) else {
             continue;
@@ -134,17 +135,33 @@ pub(super) fn focus_due(
         } else {
             (lead == 0 || starts >= now) && crossed(after, now, threshold)
         };
-        if !due {
+        let snoozed = calendar.data["alertState"]["snoozeAt"].as_i64().is_some_and(|at| {
+            if catch_up { at > after && at <= now } else { crossed(after, now, at) }
+        })
+            && (!catch_up || starts > now)
+            && calendar.data["alertState"]["lastNotification"]["targets"]
+                .as_array().is_some_and(|items| items.iter().any(|old| {
+                    ["kind", "id", "calendarWidgetId", "eventId", "title", "at", "leadMinutes"]
+                        .iter().all(|key| old[*key] == target[*key])
+                }));
+        if !due && !snoozed {
             continue;
         }
         let title = target["title"].as_str().unwrap_or("연결 일정");
-        let text = if catch_up {
+        let text = if snoozed && !due {
+            if starts > now {
+                format!("집중에 연결한 일정이 곧 시작돼요. {title}")
+            } else {
+                format!("집중에 연결한 일정이 시작했어요. {title}")
+            }
+        } else if catch_up {
             format!("집중에 연결한 일정이 곧 시작돼요. {title}")
         } else if lead == 0 {
             format!("집중에 연결한 일정이 시작돼요. {title}")
         } else {
             format!("집중에 연결한 일정이 {lead}분 뒤 시작돼요. {title}")
         };
+        notices.push((target.clone(), text.clone()));
         let (bubble, system, sound) = focus_channels(timer);
         let grouped = catch_up && bubble && drafts.iter_mut().any(|draft| {
             if draft.kind != "planner-reminder" || draft.payload["bubbleEnabled"] == false {
@@ -235,6 +252,7 @@ pub(super) fn focus_due(
             });
         }
     }
+    notices
 }
 
 fn envelope_target(

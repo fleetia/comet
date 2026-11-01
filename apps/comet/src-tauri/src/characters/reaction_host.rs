@@ -1114,6 +1114,10 @@ fn prepare_reaction_inner(
                 {
                     return Ok(None);
                 }
+                if crate::device::wake::screen_blocked() {
+                    crate::widgets::commands::restore_unshown_temporal_reaction(state, &db, widget, epoch)?;
+                    return Ok(None);
+                }
             }
             let definition = owner.definition;
             if let Some((app, gesture)) = gesture {
@@ -1127,6 +1131,14 @@ fn prepare_reaction_inner(
             }
             (definition, roster, actor)
         };
+        if let Some((widget, epoch)) = widget {
+            let mut reserved = lock(&state.widget_playback)?;
+            if state.epoch.load(Ordering::SeqCst) == epoch
+                && reserved.as_ref().is_some_and(|event| event.id == widget.id)
+            {
+                *reserved = None;
+            }
+        }
         let at = chrono::Utc::now().timestamp_millis();
         let selection = {
             let reactions = lock(&state.reactions)?;
@@ -1444,10 +1456,13 @@ fn acknowledge_current(
             if !run.ready && run.widget_visual_epoch == Some(state.epoch.load(Ordering::SeqCst)) {
                 if let Some(event) = run.widget.as_ref() {
                     if (!status.paused || app::quiet_hours::event_allowed(&event.event))
+                        && !crate::device::wake::screen_blocked()
                         && crate::store::settings(&db)?.autonomous_enabled
                         && crate::widgets::commands::event_current(&db, event)?
                     {
                         crate::widgets::storage::mark_weather_reaction_started(&db, event)?;
+                        crate::widgets::storage::mark_temporal_reaction_displayed(&db, event)?;
+                        crate::widgets::reminders::mark_anniversary_displayed(&db, event)?;
                     }
                 }
             }

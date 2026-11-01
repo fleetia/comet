@@ -386,10 +386,20 @@ fn claim_recall_opportunity(db: &Connection) -> Result<bool, String> {
 }
 
 fn skip_blocked_recall_opportunity(state: &AppState) -> Result<(), String> {
+    skip_blocked_recall_opportunity_for_screen(state, crate::device::wake::screen_blocked())
+}
+
+fn skip_blocked_recall_opportunity_for_screen(state: &AppState, screen_blocked: bool) -> Result<(), String> {
+    if screen_blocked {
+        return Ok(());
+    }
     if now() < state.next_idle.load(Ordering::SeqCst) {
         return Ok(());
     }
     let _action = lock(&state.action)?;
+    if crate::device::wake::screen_blocked() {
+        return Ok(());
+    }
     let status = lock(&state.runtime)?.clone();
     let db = lock(&state.db)?;
     let settings = store::settings(&db)?;
@@ -429,6 +439,7 @@ pub(crate) fn begin_background(state: &AppState) -> Result<Option<(u64, Arc<Atom
     let _action = lock(&state.action)?;
     let status = lock(&state.runtime)?.clone();
     if unavailable(state)
+        || super::widget_form_active(state)?
         || state.launcher_open.load(Ordering::SeqCst)
         || status.hidden
         || status.paused
@@ -473,6 +484,9 @@ pub(crate) async fn run_background(
     epoch: u64,
     cancel: Arc<AtomicBool>,
 ) -> Result<(), String> {
+    if super::widget_form_active(state)? {
+        return Ok(());
+    }
     let (settings, pending, memories, relationships, revision, scenes, characters, installed) = {
         let db = lock(&state.db)?;
         // Focus may start while this task waits for the gate.
@@ -1414,6 +1428,30 @@ mod recall_opportunity_tests {
         drop(db);
         assert!(!defer_recent_recall(&state, true, 115));
         assert!(!defer_recent_recall(&state, false, 105));
+    }
+
+    #[test]
+    fn screen_lock_preserves_recall_opportunity_but_hidden_still_skips_it() {
+        let state = super::super::tests::state();
+        state.next_idle.store(0, Ordering::SeqCst);
+        lock(&state.runtime).unwrap().hidden = true;
+        {
+            let db = lock(&state.db).unwrap();
+            let mut settings = store::settings(&db).unwrap();
+            settings.autonomous_enabled = true;
+            settings.diary_recall_enabled = true;
+            store::save_settings(&db, &settings).unwrap();
+        }
+        skip_blocked_recall_opportunity_for_screen(&state, true).unwrap();
+        {
+            let db = lock(&state.db).unwrap();
+            let count: i64 = db.query_row("SELECT COUNT(*) FROM widget_preferences WHERE key='recall:opportunity'", [], |row| row.get(0)).unwrap();
+            assert_eq!(count, 0);
+        }
+        skip_blocked_recall_opportunity_for_screen(&state, false).unwrap();
+        let db = lock(&state.db).unwrap();
+        let count: i64 = db.query_row("SELECT COUNT(*) FROM widget_preferences WHERE key='recall:opportunity'", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 1);
     }
 }
 

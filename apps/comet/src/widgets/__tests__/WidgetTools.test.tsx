@@ -1060,13 +1060,16 @@ it.each([false, true])(
       reload: vi.fn(),
     });
     let fail: ((cause: Error) => void) | undefined;
-    vi.mocked(command).mockImplementation((name) =>
-      name === "set_focus_expanded"
-        ? new Promise<void>((_resolve, reject) => {
-            fail = reject;
-          })
-        : Promise.resolve(undefined),
-    );
+    vi.mocked(command).mockImplementation((name) => {
+      if (name === "set_focus_expanded") {
+        return new Promise<void>((_resolve, reject) => {
+          fail = reject;
+        });
+      }
+      if (name === "get_planner_bubble_available") return Promise.resolve(true);
+      if (name === "get_planner_notification_permission") return Promise.resolve("granted");
+      return Promise.resolve(undefined);
+    });
     render(<WidgetTool id="focus-timer" />);
     const title = screen.getByLabelText("집중할 일");
     fireEvent.change(title, { target: { value: "작업 초안" } });
@@ -1083,13 +1086,13 @@ it.each([false, true])(
     fireEvent.click(toggle);
 
     expect(matchMedia).toHaveBeenCalledWith("(prefers-reduced-motion: reduce)");
-    expect(command).toHaveBeenCalledExactlyOnceWith("set_focus_expanded", {
+    expect(vi.mocked(command).mock.calls.filter(([name]) => name === "set_focus_expanded")).toEqual([["set_focus_expanded", {
       id: "focus-timer",
       expanded: false,
       collapsed: false,
       height: 464,
       animate: !reducedMotion,
-    });
+    }]]);
     expect(screen.getByRole("button", { name: "기록과 노트" })).toHaveProperty("disabled", true);
     expect(root.getAttribute("data-window-resizing")).toBe("true");
     expect(panel.hasAttribute("inert")).toBe(true);

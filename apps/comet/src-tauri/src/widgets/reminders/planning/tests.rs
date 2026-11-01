@@ -169,6 +169,90 @@ fn selected_event_notice_uses_its_lead_and_revalidates_the_current_event() {
 }
 
 #[test]
+fn linked_notice_is_saved_and_snoozed_using_timer_channels() {
+    for (channel, lead, expected) in [
+        ("bubble", 30, "곧 시작돼요"),
+        ("os", 30, "곧 시작돼요"),
+        ("both", 30, "곧 시작돼요"),
+        ("bubble", 5, "시작했어요"),
+        ("os", 5, "시작했어요"),
+        ("both", 5, "시작했어요"),
+    ] {
+        let db = setup(&["calendar", "focus-timer"]);
+        let now = chrono::Utc::now().timestamp_millis();
+        linked_focus(&db, now, lead);
+        let timer = widget(&db, "focus-timer");
+        let mut data = timer.data.clone();
+        data["settings"]["finishNotification"] = json!(channel);
+        save(&db, &timer, data, now - 1000);
+        let mut clocks = BTreeMap::new();
+        tick(&db, &mut clocks, now - 500);
+        tick(&db, &mut clocks, now);
+        let calendar = widget(&db, "calendar");
+        assert_eq!(calendar.data["alertState"]["lastNotification"]["targets"][0]["kind"], "focus-event");
+        let snoozed = crate::widgets::reminders::act(&calendar.data, "snooze-alert", &json!({}), now + 1000).unwrap();
+        save(&db, &calendar, snoozed.data, now + 1000);
+        let timer = widget(&db, "focus-timer");
+        let mut changed_timer = timer.data.clone();
+        changed_timer["status"] = json!("finished");
+        save(&db, &timer, changed_timer, now + 100_000);
+        let _ = storage::take_reaction(&db, now + 1000);
+        tick(&db, &mut clocks, now + 600_500);
+        let result = tick(&db, &mut clocks, now + 601_000);
+        assert_eq!(!result.os.is_empty(), channel != "bubble");
+        if let Some(delivery) = result.os.first() {
+            assert!(delivery.text.contains(expected));
+        }
+        let reaction = storage::take_reaction(&db, now + 601_001).unwrap();
+        assert_eq!(reaction.is_some(), channel != "os");
+        if let Some(reaction) = reaction {
+            assert!(reaction.event.text.contains(expected));
+        }
+        let calendar = widget(&db, "calendar");
+        assert!(calendar.data["alertState"]["lastNotification"]["text"]
+            .as_str().unwrap().contains(expected));
+    }
+}
+
+#[test]
+fn suspended_snoozed_linked_notice_excludes_already_started_event() {
+    let db = setup(&["calendar", "focus-timer"]);
+    let now = chrono::Utc::now().timestamp_millis();
+    linked_focus(&db, now, 5);
+    let mut clocks = BTreeMap::new();
+    tick(&db, &mut clocks, now - 500);
+    tick(&db, &mut clocks, now);
+    let calendar = widget(&db, "calendar");
+    let snoozed = crate::widgets::reminders::act(&calendar.data, "snooze-alert", &json!({}), now + 1000).unwrap();
+    save(&db, &calendar, snoozed.data, now + 1000);
+    let _ = storage::take_reaction(&db, now + 1001);
+    let result = tick(&db, &mut clocks, now + 601_000);
+    assert!(result.os.is_empty());
+    assert!(storage::take_reaction(&db, now + 601_001).unwrap().is_none());
+}
+
+#[test]
+fn snoozed_linked_notice_is_not_sent_after_the_link_changes() {
+    let db = setup(&["calendar", "focus-timer"]);
+    let now = chrono::Utc::now().timestamp_millis();
+    linked_focus(&db, now, 30);
+    let mut clocks = BTreeMap::new();
+    tick(&db, &mut clocks, now - 500);
+    tick(&db, &mut clocks, now);
+    let calendar = widget(&db, "calendar");
+    let snoozed = crate::widgets::reminders::act(&calendar.data, "snooze-alert", &json!({}), now + 1000).unwrap();
+    save(&db, &calendar, snoozed.data, now + 1000);
+    let _ = storage::take_reaction(&db, now + 1001);
+    let timer = widget(&db, "focus-timer");
+    let mut data = timer.data.clone();
+    data["eventRef"] = Value::Null;
+    save(&db, &timer, data, now + 2000);
+    tick(&db, &mut clocks, now + 600_500);
+    assert!(tick(&db, &mut clocks, now + 601_000).os.is_empty());
+    assert!(storage::take_reaction(&db, now + 601_001).unwrap().is_none());
+}
+
+#[test]
 fn calendar_and_focus_share_one_system_notice_for_the_same_event_and_time() {
     for (calendar_os, channel, sound) in [(true, "both", true), (true, "os", false), (false, "os", true)] {
         let db = setup(&["calendar", "focus-timer"]);
@@ -229,9 +313,9 @@ fn resumed_calendar_and_different_focus_event_share_one_system_notice() {
     save(&db, &timer, data, now - 500_000);
     let mut clocks = BTreeMap::new();
     let mut calendar_clocks = BTreeMap::new();
-    crate::widgets::reminders::advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now - 500_000, false, &[]).unwrap();
+    crate::widgets::reminders::advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now - 500_000, false, &[], true).unwrap();
     clocks.clear();
-    let result = crate::widgets::reminders::advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now, false, &[]).unwrap();
+    let result = crate::widgets::reminders::advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now, false, &[], true).unwrap();
     assert_eq!(result.os.len(), 1);
     assert!(result.os[0].text.contains("다른 일정"));
     assert!(result.os[0].text.contains("선택한 일정"));
@@ -253,7 +337,7 @@ fn resumed_calendar_and_different_focus_event_share_one_system_notice() {
     assert_eq!(reaction.event.text.contains("집중에 연결한 일정이 곧 시작돼요"), channel == "both");
     assert!(!reaction.event.text.contains("10분 뒤"));
     assert!(crate::widgets::reminders::event_current(&db, &reaction).unwrap());
-    assert!(crate::widgets::reminders::advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now + 500, false, &[]).unwrap().os.is_empty());
+    assert!(crate::widgets::reminders::advance_with_presence(&db, &mut clocks, &mut calendar_clocks, now + 500, false, &[], true).unwrap().os.is_empty());
     }
     }
 }

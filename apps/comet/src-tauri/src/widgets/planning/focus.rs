@@ -519,6 +519,7 @@ fn finish(
     mut state: Timer,
     now: i64,
     allow_auto_rest: bool,
+    allow_auto_focus: bool,
     related: &BTreeMap<String, Value>,
 ) -> Result<WidgetEffect, String> {
     let finished_at = state.deadline.unwrap_or(now);
@@ -539,6 +540,7 @@ fn finish(
     let start_next = finished_mode == "rest"
         && state.settings.continuous
         && allow_auto_rest
+        && allow_auto_focus
         && !state.queue.is_empty();
     let next_title = start_next.then(|| state.queue[0].title.clone());
     let text = if let Some(title) = &next_title {
@@ -866,7 +868,7 @@ pub(super) fn act(
                 .max(0)
                 .min(state.remaining_ms);
             if remaining == 0 {
-                return finish(state, now, true, related);
+                return finish(state, now, true, true, related);
             }
             close_segment(&mut state, now);
             state.remaining_ms = remaining;
@@ -920,18 +922,19 @@ pub(super) fn act(
 }
 
 pub(super) fn tick(data: &Value, now: i64) -> Result<Option<WidgetEffect>, String> {
-    tick_with_related(data, now, &BTreeMap::new())
+    tick_with_related(data, now, &BTreeMap::new(), true)
 }
 
 pub(super) fn tick_with_related(
     data: &Value,
     now: i64,
     related: &BTreeMap<String, Value>,
+    allow_auto_focus: bool,
 ) -> Result<Option<WidgetEffect>, String> {
     let mut state: Timer = decode(data)?;
     let migrated = migrate_active(&mut state, now);
     if state.status == "running" && state.deadline.is_some_and(|deadline| deadline <= now) {
-        return finish(state, now, true, related).map(Some);
+        return finish(state, now, true, allow_auto_focus, related).map(Some);
     }
     if migrated {
         return encode(state, vec![]).map(Some);
@@ -954,7 +957,7 @@ pub(super) fn suspend(data: &Value, now: i64, restarting: bool) -> Result<Value,
     if remaining == 0 {
         let recovering_focus = restarting && state.mode == "focus";
         let recovered_session_id = state.active_session.as_ref().map(|session| session.id.clone());
-        let mut effect = finish(state, now, false, &BTreeMap::new())?;
+        let mut effect = finish(state, now, false, false, &BTreeMap::new())?;
         if recovering_focus {
             let mut finished: Timer = decode(&effect.data)?;
             if let Some(session) = finished.sessions.iter_mut().find(|session| Some(&session.id) == recovered_session_id.as_ref()) {
