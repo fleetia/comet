@@ -52,7 +52,7 @@ pub(super) fn save(
 ) -> Result<(), String> {
     let _gate = gate().lock().unwrap();
     if !active() {
-        return Err("이미 해제한 음악 연결이에요.".into());
+        return Err("이미 끊은 음악 연결이에요.".into());
     }
     let value = serde_json::to_string(&Credential {
         owner: owner.into(),
@@ -65,7 +65,7 @@ pub(super) fn save(
         .map_err(|_| "OS 자격 증명 저장소에 음악 연결을 저장하지 못했어요.".to_string())?;
     if !active() {
         let _ = entry.delete_credential();
-        return Err("이미 해제한 음악 연결이에요.".into());
+        return Err("이미 끊은 음악 연결이에요.".into());
     }
     Ok(())
 }
@@ -107,7 +107,7 @@ pub(super) fn save(
 ) -> Result<(), String> {
     let _gate = gate().lock().unwrap();
     if !active() {
-        return Err("이미 해제한 음악 연결이에요.".into());
+        return Err("이미 끊은 음악 연결이에요.".into());
     }
     memory().lock().unwrap().insert(
         account(owner, pairing_id)?,

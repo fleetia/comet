@@ -589,7 +589,7 @@ export function DiaryHabits({
               onChange={(event) => setDraft({ ...draft, reminderTime: event.target.value || null })}
             />
             <p className={s.caption}>
-              알림 시각을 비우면 알림을 끕니다. 집중 중이거나 자동 대화를 꺼 둔 동안에는 말을 걸지
+              알림 시각을 비우면 알림을 꺼요. 집중 중이거나 자동 잡담을 꺼 둔 동안에는 말을 걸지
               않아요.
             </p>
             {failure && (

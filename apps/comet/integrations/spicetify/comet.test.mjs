@@ -532,7 +532,7 @@ describe("Spicetify local bridge", () => {
     await again.receive({ type: "disconnected", version: 2 });
     expect(test.storage.getItem(storageKey)).toBeNull();
     expect(test.tasks).toEqual([]);
-    expect(test.states).toHaveBeenLastCalledWith("연결 해제됨");
+    expect(test.states).toHaveBeenLastCalledWith("연결 끊김");
   });
   it("sends online unlink immediately and keeps it pending until server acknowledgement", async () => {
     const test = scheduledBridge({ id: pairingId, secret });

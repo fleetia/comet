@@ -59,7 +59,7 @@ export function PlannerTimedTasks({
             </Button>
           </div>
         ))}
-      <p className={s.caption}>내장 할 일의 기한만 바뀝니다. 외부 일정은 수정하지 않아요.</p>
+      <p className={s.caption}>내장 할 일의 기한만 바뀌어요. 외부 일정은 수정하지 않아요.</p>
     </section>
   );
 }

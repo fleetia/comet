@@ -105,7 +105,7 @@ function SongInformation({
   ];
   return (
     <section className={s.info} aria-label="곡 정보">
-      <p className={c.quiet}>음악 앱이 제공하는 정보입니다.</p>
+      <p className={c.quiet}>음악 앱이 제공하는 정보예요.</p>
       <dl className={s.metadata}>
         {entries
           .filter(

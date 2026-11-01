@@ -622,8 +622,8 @@ export function FocusTimerSettings({
               title="친구가 시작할 때 응원하기"
               description={
                 calendar
-                  ? "무드메이커 · 조용한 시간에는 쉬어요"
-                  : "캘린더를 켜면 무드메이커 응원을 설정할 수 있어요"
+                  ? "친구의 하루 인사 · 조용한 시간에는 쉬어요"
+                  : "캘린더를 켜면 친구의 하루 인사 응원을 설정할 수 있어요"
               }
               control={
                 <Switch

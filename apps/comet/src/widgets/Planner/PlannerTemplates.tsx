@@ -241,7 +241,7 @@ export function PlannerTemplates({
           {saved && (
             <div className={s.actions}>
               <p role="status" className={s.caption}>
-                새 할 일을 저장했어요. 기존 항목은 그대로입니다.
+                새 할 일을 저장했어요. 기존 항목은 그대로예요.
               </p>
               {onShowPlans && (
                 <Button

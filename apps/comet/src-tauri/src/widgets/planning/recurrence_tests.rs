@@ -275,7 +275,7 @@ fn ending_a_repeat_refuses_to_erase_frequency_history_without_changing_delete() 
     );
     assert_eq!(
         result.err().as_deref(),
-        Some("주간 횟수 기록을 보존하려면 반복을 끝낼 수 없습니다.")
+        Some("주간 횟수 기록을 보존하려면 반복을 끝낼 수 없어요.")
     );
     assert_eq!(
         recorded.data["items"][0]["frequencyRecords"]

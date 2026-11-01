@@ -101,7 +101,7 @@ export function MusicLibrary({ mode, can, busy, request }: Props): ReactElement 
         <p className={s.empty}>
           {mode === "playlists"
             ? "Spotify의 플레이리스트와 곡 정보를 읽어요. 재생은 Spotify에서 해 주세요."
-            : "Spotify의 현재 재생 대기열을 불러옵니다."}
+            : "Spotify의 현재 재생 대기열을 불러와요."}
         </p>
       )}
       {items?.length === 0 && (

@@ -577,7 +577,7 @@ pub(super) async fn revoke(account: &Account) -> bool {
         let endpoint = discovery()
             .await?
             .revocation_endpoint
-            .ok_or("ChatGPT 연결 해제 주소가 없어요.")?;
+            .ok_or("ChatGPT 연결을 끊을 주소가 없어요.")?;
         for attempt in 0..2 {
             let result = http()?
                 .post(&endpoint)

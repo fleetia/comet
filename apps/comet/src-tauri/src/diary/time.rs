@@ -46,7 +46,7 @@ fn minute(input: &Value, key: &str, max: u64) -> Result<u16> {
         .get(key)
         .and_then(Value::as_u64)
         .filter(|value| *value <= max && value % 10 == 0)
-        .ok_or("시각은 00:00부터 24:00 사이의 10분 단위여야 합니다.")?;
+        .ok_or("시각은 00:00부터 24:00 사이의 10분 단위여야 해요.")?;
     Ok(value as u16)
 }
 
@@ -102,7 +102,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
             }
             let category_id = string(input, "categoryId", 200, true)?;
             if !categories.iter().any(|category| category.id == category_id) {
-                return Err("분류를 찾을 수 없습니다. 다른 분류를 선택해 주세요.".into());
+                return Err("분류를 찾을 수 없어요. 다른 분류를 선택해 주세요.".into());
             }
             let title = string(input, "title", 500, false)?;
             let mut next = Vec::with_capacity(records.len() + 2);
@@ -154,12 +154,12 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
             let name = string(input, "name", 40, true)?;
             let color = string(input, "color", 20, true)?;
             if !["work", "record", "life", "exercise", "rest", "focus"].contains(&color.as_str()) {
-                return Err("분류 색상이 올바르지 않습니다.".into());
+                return Err("분류 색상이 올바르지 않아요.".into());
             }
             if categories.iter().any(|category| {
                 category.name.trim() == name.trim() && Some(&category.id) != id.as_ref()
             }) {
-                return Err("같은 이름의 분류가 이미 있습니다.".into());
+                return Err("같은 이름의 분류가 이미 있어요.".into());
             }
             if let Some(id) = id {
                 let category = categories
@@ -186,7 +186,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
                 .ok_or_else(missing)?;
             expected(input, "expectedCategory", &categories[index])?;
             if categories.len() == 1 {
-                return Err("시간 기록에는 한 개 이상의 분류가 필요합니다.".into());
+                return Err("시간 기록에는 한 개 이상의 분류가 필요해요.".into());
             }
             if records.iter().any(|record| record.category_id == id) {
                 let target = string(input, "reassignTo", 200, true)?;
@@ -201,7 +201,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
             }
             categories.remove(index);
         }
-        _ => return Err("알 수 없는 시간 기록 작업입니다.".into()),
+        _ => return Err("알 수 없는 시간 기록 작업이에요.".into()),
     }
     state.time_categories = categories;
     state.time_records = records;

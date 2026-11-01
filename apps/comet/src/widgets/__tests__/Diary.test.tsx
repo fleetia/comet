@@ -537,9 +537,9 @@ it("restores an embedded task's original date after restart and further edits", 
   const input = await screen.findByRole("textbox", { name: "새 할 일" });
   expect(input).toHaveProperty("value", "복원할 계획");
   expect(screen.getByLabelText("새 할 일 계획일")).toHaveProperty("value", DAY);
-  expect(screen.getByText(`${DAY}에 계획한 할 일이 없어요.`)).toBeTruthy();
+  expect(screen.getByText("2026년 10월 3일에 계획한 할 일이 없어요.")).toBeTruthy();
   await act(async () => finishNavigation("today"));
-  expect(screen.getByText(`${DAY}에 계획한 할 일이 없어요.`)).toBeTruthy();
+  expect(screen.getByText("2026년 10월 3일에 계획한 할 일이 없어요.")).toBeTruthy();
   fireEvent.change(input, { target: { value: "복원 후 수정한 계획" } });
   expect(JSON.parse(localStorage.getItem("comet:diary:planner-input") ?? "null")).toMatchObject({
     title: "복원 후 수정한 계획", day: DAY,

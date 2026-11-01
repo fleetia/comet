@@ -77,10 +77,10 @@ export function DiaryPageRecords({
                 variant="ghost"
                 size="small"
                 disabled={disabled}
-                aria-label={`${title} 연결 해제`}
+                aria-label={`${title} 페이지에서 빼기`}
                 onClick={() => void removeEntry(entry)}
               >
-                연결 해제
+                페이지에서 빼기
               </Button>
             </div>
             {note && (

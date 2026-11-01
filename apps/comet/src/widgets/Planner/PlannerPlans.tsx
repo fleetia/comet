@@ -4,6 +4,7 @@ import { localDay, text, type DataRecord, type ToolAction } from "../toolData";
 import { PlannerTodoEmpty } from "./PlannerTodoEmpty";
 import {
   dueLabel,
+  formatPlannerDate,
   movePeriod,
   PERIODS,
   periodAnchor,
@@ -88,7 +89,12 @@ export function PlannerPlans({
             >
               ‹
             </Button>
-            <span className={s.caption}>{periodAnchor(period, planDay)}</span>
+            <span className={s.caption}>
+              {formatPlannerDate(
+                periodAnchor(period, planDay),
+                period === "month" || period === "year" ? period : "day",
+              )}
+            </span>
             <Button
               variant="ghost"
               size="small"

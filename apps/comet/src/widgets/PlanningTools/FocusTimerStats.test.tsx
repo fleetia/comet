@@ -30,6 +30,7 @@ it("shows the saved away-time marker in the record list and detail", () => {
   expect(row.getAttribute("aria-description")).toContain("자리 비움 포함");
   view.rerender(<FocusTimerStats {...props} sessions={sessions} selectedId="session" />);
   expect(screen.getByText("자리 비움 포함")).toBeTruthy();
+  expect(screen.getByText(/2026년 10월 7일 ·/)).toBeTruthy();
 });
 
 it("preserves a dirty record memo across remote updates and reopening instead of overwriting either version", () => {
@@ -111,25 +112,28 @@ it("distinguishes a selected date from a midnight-spanning session while preserv
     />,
   );
   const record = (): HTMLElement => screen.getByRole("button", { name: "원고 집중 기록 상세" });
-  expect(screen.getByText("2026-10-05 – 2026-10-11 합계")).toBeTruthy();
+  expect(screen.getByText("2026년 10월 5일 – 2026년 10월 11일 합계")).toBeTruthy();
   expect(record().getAttribute("aria-description")).toContain("이 날짜 10분 · 이번 집중 전체 25분");
-  expect(screen.getByRole("heading", { name: "2026-10-08 · 10분" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "2026년 10월 8일 · 10분" })).toBeTruthy();
   expect(record().textContent).toContain("이 날짜 10분 · 이번 집중 전체 25분");
   expect(record().getAttribute("aria-description")).toContain(
     "이 앱을 쓴 시간 · 이번 집중 전체 · 글쓰기 07:00",
   );
-  expect(screen.getByText("2026-10-05 – 2026-10-11 합계")).toBeTruthy();
+  expect(screen.getByText("2026년 10월 5일 – 2026년 10월 11일 합계")).toBeTruthy();
   expect(screen.getByText("25분")).toBeTruthy();
 
   fireEvent.click(screen.getByRole("radio", { name: "일" }));
-  expect(screen.getByText("2026-10-08 합계")).toBeTruthy();
+  expect(screen.getByText("2026년 10월 8일 합계")).toBeTruthy();
   expect(record().textContent).toContain("이 기간 10분 · 이번 집중 전체 25분");
-  fireEvent.click(screen.getByRole("button", { name: "2026-10-08 00:00–04:00 10분" }));
-  expect(screen.getByRole("heading", { name: "2026-10-08 00:00–04:00 · 10분" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "2026년 10월 8일 00:00–04:00 10분" }));
+  expect(screen.getByRole("heading", { name: "2026년 10월 8일 00:00–04:00 · 10분" })).toBeTruthy();
   expect(record().textContent).toContain("선택 구간 10분 · 이번 집중 전체 25분");
   expect(record().getAttribute("aria-description")).toContain(
     "이 앱을 쓴 시간 · 이번 집중 전체 · 글쓰기 07:00",
   );
+
+  fireEvent.click(screen.getByRole("radio", { name: "월" }));
+  expect(screen.getByText("2026년 10월 합계")).toBeTruthy();
 
   fireEvent.click(screen.getByRole("radio", { name: "년" }));
   fireEvent.click(screen.getByRole("button", { name: "2026년 10월 25분" }));

@@ -148,13 +148,13 @@ export function PreparationTool({
     : !calendar
       ? "연결 끊김 · 캘린더를 찾을 수 없어요. 준비 내용은 계속 편집할 수 있어요."
       : !event || event.cancelled === true || (!source && event.connectionId !== "local")
-        ? "연결 끊김 · 원본 일정을 현재 찾을 수 없거나 취소되었습니다. 준비 내용은 보존됩니다."
+        ? "연결 끊김 · 원본 일정을 현재 찾을 수 없거나 취소됐어요. 준비 내용은 보존돼요."
         : event.connectionId === "local"
           ? ""
           : source?.status === "syncing"
-            ? "일정 조회 중 · 마지막으로 확인한 준비 내용을 표시합니다."
+            ? "일정 조회 중 · 마지막으로 확인한 준비 내용을 표시해요."
             : source?.status !== "ready"
-              ? "이전 일정 정보 · 원본 연결이 최신 상태가 아닙니다. 캘린더 연결을 확인해 주세요."
+              ? "이전 일정 정보 · 원본 연결이 최신 상태가 아니에요. 캘린더 연결을 확인해 주세요."
               : "";
   function select(id: string): void {
     if (busy) return;

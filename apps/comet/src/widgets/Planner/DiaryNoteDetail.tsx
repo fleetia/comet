@@ -405,7 +405,7 @@ export function DiaryNoteDetail(props: DetailProps): ReactElement {
             </>
           }
         >
-          <p>{discardDraft ? "보존하면 삭제를 취소하고 낱장과 초안을 그대로 둘게요. 폐기하면 초안과 메모를 삭제해요." : "메모 내용도 함께 삭제됩니다."}</p>
+          <p>{discardDraft ? "보존하면 삭제를 취소하고 낱장과 초안을 그대로 둘게요. 폐기하면 초안과 메모를 삭제해요." : "메모 내용도 함께 삭제돼요."}</p>
           {error && <p className={s.error} role="alert">{error}</p>}
         </Dialog>
       )}

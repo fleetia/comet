@@ -189,9 +189,9 @@ fn string(input: &Value, key: &str, limit: usize, required: bool) -> Result<Stri
     let value = input
         .get(key)
         .and_then(Value::as_str)
-        .ok_or_else(|| format!("{key} 문자열이 필요합니다."))?;
+        .ok_or_else(|| format!("{key} 문자열이 필요해요."))?;
     if value.chars().count() > limit || (required && value.trim().is_empty()) {
-        return Err(format!("{key} 길이가 올바르지 않습니다."));
+        return Err(format!("{key} 길이가 올바르지 않아요."));
     }
     Ok(value.into())
 }
@@ -208,15 +208,15 @@ fn boolean(input: &Value, key: &str, fallback: bool) -> Result<bool> {
         None => Ok(fallback),
         Some(value) => value
             .as_bool()
-            .ok_or_else(|| format!("{key} 값이 올바르지 않습니다.")),
+            .ok_or_else(|| format!("{key} 값이 올바르지 않아요.")),
     }
 }
 
 fn date(value: String) -> Result<String> {
     let parsed =
-        NaiveDate::parse_from_str(&value, "%Y-%m-%d").map_err(|_| "날짜가 올바르지 않습니다.")?;
+        NaiveDate::parse_from_str(&value, "%Y-%m-%d").map_err(|_| "날짜가 올바르지 않아요.")?;
     if value.len() != 10 || parsed.year() < 1 || parsed.format("%Y-%m-%d").to_string() != value {
-        return Err("날짜는 YYYY-MM-DD 형식이어야 합니다.".into());
+        return Err("날짜는 YYYY-MM-DD 형식이어야 해요.".into());
     }
     Ok(value)
 }
@@ -228,9 +228,9 @@ fn time(input: &Value, key: &str) -> Result<Option<String>> {
     let value = optional_string(input, key, 5)?;
     if let Some(value) = &value {
         let parsed = chrono::NaiveTime::parse_from_str(value, "%H:%M")
-            .map_err(|_| "시각은 HH:MM 형식이어야 합니다.")?;
+            .map_err(|_| "시각은 HH:MM 형식이어야 해요.")?;
         if parsed.format("%H:%M").to_string() != *value {
-            return Err("시각은 HH:MM 형식이어야 합니다.".into());
+            return Err("시각은 HH:MM 형식이어야 해요.".into());
         }
     }
     Ok(value)
@@ -238,7 +238,7 @@ fn time(input: &Value, key: &str) -> Result<Option<String>> {
 
 fn capacity(length: usize, limit: usize) -> Result<()> {
     if length >= limit {
-        return Err(format!("항목은 {limit}개까지 저장할 수 있습니다."));
+        return Err(format!("항목은 {limit}개까지 저장할 수 있어요."));
     }
     Ok(())
 }
@@ -248,12 +248,12 @@ fn new_id() -> String {
 }
 
 fn missing() -> String {
-    "항목을 찾을 수 없습니다. 최신 다이어리를 다시 불러와 주세요.".into()
+    "항목을 찾을 수 없어요. 최신 다이어리를 다시 불러와 주세요.".into()
 }
 
 fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
     if !input.is_object() {
-        return Err("다이어리 입력 형식이 올바르지 않습니다.".into());
+        return Err("다이어리 입력 형식이 올바르지 않아요.".into());
     }
     if action.starts_with("habit-") {
         return habits::mutate(state, action, input);
@@ -315,7 +315,7 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
                     value
                         .as_u64()
                         .filter(|value| *value <= 5)
-                        .ok_or("별점은 0부터 5까지의 정수여야 합니다.")? as u8,
+                        .ok_or("별점은 0부터 5까지의 정수여야 해요.")? as u8,
                 ),
             };
             let review = match input.get("review") {
@@ -329,15 +329,15 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
                     .pages
                     .iter()
                     .find(|page| &page.id == source_id)
-                    .ok_or("원본 페이지를 찾을 수 없습니다.")?;
+                    .ok_or("원본 페이지를 찾을 수 없어요.")?;
                 if source_entry_id
                     .as_ref()
                     .is_some_and(|id| !source.entries.iter().any(|entry| &entry.id == id))
                 {
-                    return Err("원본 기록을 찾을 수 없습니다.".into());
+                    return Err("원본 기록을 찾을 수 없어요.".into());
                 }
             } else if source_entry_id.is_some() {
-                return Err("원본 기록의 페이지가 필요합니다.".into());
+                return Err("원본 기록의 페이지가 필요해요.".into());
             }
             let page_id = string(input, "pageId", 200, true)?;
             let page = state
@@ -348,11 +348,11 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
             if action == "entry-add" {
                 capacity(page.entries.len(), 2000)?;
                 let kind: EntryKind = serde_json::from_value(input["kind"].clone())
-                    .map_err(|_| "기록 종류가 올바르지 않습니다.")?;
+                    .map_err(|_| "기록 종류가 올바르지 않아요.")?;
                 let ref_id = optional_string(input, "refId", 1000)?;
                 let item_id = optional_string(input, "itemId", 1000)?;
                 if item_id.is_some() && kind != EntryKind::Widget {
-                    return Err("위젯 기록에만 항목을 연결할 수 있습니다.".into());
+                    return Err("위젯 기록에만 항목을 연결할 수 있어요.".into());
                 }
                 if matches!(
                     kind,
@@ -488,7 +488,7 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
                 title: string(input, "title", 500, true)?,
             });
         }
-        _ => return Err("지원하지 않는 다이어리 동작입니다.".into()),
+        _ => return Err("지원하지 않는 다이어리 동작이에요.".into()),
     }
     Ok(())
 }
@@ -561,7 +561,7 @@ pub(crate) fn update_in_transaction(
                         .any(|note| note["id"].as_str() == Some(&item_id))
                 });
             if !exists {
-                return Err("연결할 메모를 찾을 수 없습니다.".into());
+                return Err("연결할 메모를 찾을 수 없어요.".into());
             }
         }
     }
@@ -580,7 +580,7 @@ pub(crate) fn update_in_transaction(
         state.revision = state
             .revision
             .checked_add(1)
-            .ok_or("다이어리 버전 범위를 벗어났습니다.")?;
+            .ok_or("다이어리 버전 범위를 벗어났어요.")?;
         tx.execute(
             "UPDATE diary_state SET data=?1 WHERE id=1",
             params![serde_json::to_string(&state).map_err(err)?],

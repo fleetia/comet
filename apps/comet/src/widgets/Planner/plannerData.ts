@@ -11,6 +11,12 @@ export const WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"];
 export function dayDate(day: string): Date {
   return new Date(`${day}T12:00:00`);
 }
+export function formatPlannerDate(day: string, precision: "day" | "month" | "year" = "day"): string {
+  const options: Intl.DateTimeFormatOptions = { year: "numeric" };
+  if (precision !== "year") options.month = "long";
+  if (precision === "day") options.day = "numeric";
+  return dayDate(day).toLocaleDateString("ko-KR", options);
+}
 export function moveDay(day: string, amount: number): string {
   const next = dayDate(day);
   next.setDate(next.getDate() + amount);
@@ -205,7 +211,7 @@ export function dueLabel(item: DataRecord, referenceDay = localDay()): string {
   const overdue =
     typeof item.completedAt !== "number" &&
     (typeof item.dueAt === "number" ? item.dueAt < Date.now() : day < localDay());
-  return `마감 ${day}${at}${relative ? ` · ${relative}` : ""}${overdue ? " · 기한 지남" : ""}`;
+  return `마감 ${formatPlannerDate(day)}${at}${relative ? ` · ${relative}` : ""}${overdue ? " · 기한 지남" : ""}`;
 }
 
 /**
@@ -223,7 +229,7 @@ export function deadlineChipLabel(item: DataRecord, referenceDay = localDay()): 
         ? "오늘"
         : day === moveDay(referenceDay, 1)
           ? "내일"
-          : day;
+          : formatPlannerDate(day);
   const when = [relative, timed ? clockLabel(item.dueAt as number) : ""].filter(Boolean).join(" ");
   return `마감 ${when}${isOverdue(item) ? " · 지남" : ""}`;
 }

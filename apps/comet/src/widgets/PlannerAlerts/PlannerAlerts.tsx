@@ -97,7 +97,7 @@ export function PlannerAlerts({
         if (request === permissionRequest.current) setPermission(result);
       } else {
         await command("preview_planner_notification");
-        setNotice("시스템 알림으로 미리보기를 보냈어요. 표시 방식은 시스템 알림 설정을 따릅니다.");
+        setNotice("시스템 알림으로 미리보기를 보냈어요. 표시 방식은 시스템 알림 설정을 따라요.");
       }
     } catch (cause: unknown) {
       setError(errorText(cause));
@@ -166,7 +166,7 @@ export function PlannerAlerts({
               onChange={(event) => change({ includeAllDay: event.target.checked })}
               label="종일 일정·날짜 기한도 알림"
             />
-            <p className={c.quiet}>날짜만 있으면 오전 9시를 기준으로 알립니다.</p>
+            <p className={c.quiet}>날짜만 있으면 오전 9시를 기준으로 알려요.</p>
           </div>
           <div className={a.group}>
             <p className={c.quiet}>
@@ -210,7 +210,7 @@ export function PlannerAlerts({
             시스템 알림 미리보기
           </Button>
         </div>
-        <h3 className={a.heading}>무드메이커</h3>
+        <h3 className={a.heading}>친구의 하루 인사</h3>
         <div className={a.columns}>
           <div className={a.group}>
             <Checkbox
@@ -257,7 +257,7 @@ export function PlannerAlerts({
         </div>
         <p className={c.quiet}>
           친구 말풍선으로 가끔 이야기해요. 하루 시작·마무리는 각각 한 번, 집중 인사는 10분 이상
-          간격을 둡니다. 놓친 알림을 몰아서 보내지 않아요.
+          간격을 둬요. 놓친 알림을 몰아서 보내지 않아요.
         </p>
         <div className={s.row}>
           <Button type="submit" variant="ghost" disabled={!dirty}>
@@ -367,7 +367,7 @@ export function PlannerAlertNotice({
           <Button variant="ghost" onClick={() => setDismissed(observed)}>
             이 알림 닫기
           </Button>
-          {canSnooze && snoozed && <span className={c.quiet}>기한은 그대로 유지됩니다.</span>}
+          {canSnooze && snoozed && <span className={c.quiet}>기한은 그대로 유지돼요.</span>}
         </div>
       </>}
     </aside>

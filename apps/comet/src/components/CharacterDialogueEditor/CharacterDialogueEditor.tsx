@@ -282,7 +282,7 @@ export function CharacterDialogueEditor({
         </div>
       )}
       {ids.length > 1 && mode !== "keyword" && (
-        <section className={s.ownerPanel} aria-label="조합의 자동 수다">
+        <section className={s.ownerPanel} aria-label="조합의 자동 잡담">
           <div className={s.sceneLayout}>
             <CharacterWorkPanel
               role="complementary"

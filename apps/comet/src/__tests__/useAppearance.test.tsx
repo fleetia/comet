@@ -65,13 +65,13 @@ it("saves one edit at a time, keeps only the latest queued edit, and ignores old
 it("shows a failed save and returns to the saved appearance", async () => {
   vi.mocked(invoke).mockImplementation((name) =>
     name === "save_appearance"
-      ? Promise.reject(new Error("투명도는 20~100% 사이로 정해 주세요."))
+      ? Promise.reject(new Error("불투명도는 20~100% 사이로 정해 주세요."))
       : Promise.resolve({ ...DEFAULT_APPEARANCE, skin: "paper", revision: 2 }),
   );
   const { useAppearance, updateAppearance } = await load();
   const { result } = renderHook(useAppearance);
   await waitFor(() => expect(result.current.appearance.skin).toBe("paper"));
   await act(async () => updateAppearance({ ...result.current.appearance, balloonOpacity: 5 }));
-  await waitFor(() => expect(result.current.error).toBe("투명도는 20~100% 사이로 정해 주세요."));
+  await waitFor(() => expect(result.current.error).toBe("불투명도는 20~100% 사이로 정해 주세요."));
   expect(result.current.appearance).toMatchObject({ skin: "paper", balloonOpacity: 100 });
 });

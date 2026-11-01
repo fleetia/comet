@@ -816,7 +816,7 @@ fn create_preparation_with_tasks(
 ) -> Result<WidgetEffect> {
     let tasks = request.input["tasks"]
         .as_array()
-        .ok_or("준비할 일 형식이 올바르지 않습니다.")?;
+        .ok_or("준비할 일 형식이 올바르지 않아요.")?;
     if tasks.is_empty() {
         return super::act(preparation, request, related, now, entropy);
     }
@@ -883,7 +883,7 @@ fn promote_preparation_check(
                 .iter()
                 .find(|check| check["id"] == request.input["checkId"])
         })
-        .ok_or("준비 항목을 찾을 수 없습니다.")?;
+        .ok_or("준비 항목을 찾을 수 없어요.")?;
     if check["done"] == true {
         return Err("완료한 준비 항목은 먼저 완료를 취소해 주세요.".into());
     }
@@ -907,7 +907,7 @@ fn promote_preparation_check(
         .as_array()
         .and_then(|items| items.last())
         .and_then(|item| item["id"].as_str())
-        .ok_or("할 일을 만들지 못했습니다.")?;
+        .ok_or("할 일을 만들지 못했어요.")?;
     let mut input = request.input.clone();
     input["todoId"] = json!(todo_id);
     related.insert("todo".into(), todo_effect.data.clone());
@@ -939,7 +939,7 @@ pub(crate) fn move_diary_todo(
     let item = todo.data["items"]
         .as_array()
         .and_then(|items| items.iter().find(|item| item["id"] == todo_id))
-        .ok_or("옮길 할 일을 찾을 수 없습니다.")?;
+        .ok_or("옮길 할 일을 찾을 수 없어요.")?;
     let planned = if item.get("plannedDate").is_some() {
         item["plannedDate"].as_str().map(str::to_owned)
     } else {

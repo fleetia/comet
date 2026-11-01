@@ -29,7 +29,7 @@ struct DeleteInput {
 fn date(value: Option<&str>) -> Result<NaiveDate, String> {
     let value = value.ok_or("종일 일정의 시작일과 종료일을 입력해 주세요.")?;
     let date = NaiveDate::parse_from_str(value, "%Y-%m-%d")
-        .map_err(|_| "일정 날짜가 올바르지 않습니다.")?;
+        .map_err(|_| "일정 날짜가 올바르지 않아요.")?;
     if !(1..=9999).contains(&date.year()) || date.format("%Y-%m-%d").to_string() != value {
         return Err("일정 날짜는 YYYY-MM-DD 형식으로 입력해 주세요.".into());
     }
@@ -50,7 +50,7 @@ fn event(input: EventInput, id: String) -> Result<CalendarEvent, String> {
             .as_ref()
             .is_some_and(|value| value.chars().count() > 20000)
     {
-        return Err("장소는 2000자, 메모는 20000자까지 입력할 수 있습니다.".into());
+        return Err("장소는 2000자, 메모는 20000자까지 입력할 수 있어요.".into());
     }
     let time_zone = input.time_zone.as_deref().unwrap_or("local");
     if input.note_ref.as_ref().is_some_and(|reference| {
@@ -64,10 +64,10 @@ fn event(input: EventInput, id: String) -> Result<CalendarEvent, String> {
                 .as_ref()
                 .is_some_and(|id| id.trim().is_empty() || id.chars().count() > 200)
     }) {
-        return Err("연결할 메모 정보가 올바르지 않습니다.".into());
+        return Err("연결할 메모 정보가 올바르지 않아요.".into());
     }
     if time_zone != "local" && time_zone.parse::<chrono_tz::Tz>().is_err() {
-        return Err("일정 시간대가 올바르지 않습니다.".into());
+        return Err("일정 시간대가 올바르지 않아요.".into());
     }
     if input.all_day {
         if input.start_at.is_some() || input.end_at.is_some() {
@@ -119,7 +119,7 @@ fn editable_index(events: &[Value], id: &str) -> Result<usize, String> {
     let index = events
         .iter()
         .position(|event| event["id"].as_str() == Some(id))
-        .ok_or("일정을 찾을 수 없습니다. 다시 불러와 주세요.")?;
+        .ok_or("일정을 찾을 수 없어요. 다시 불러와 주세요.")?;
     if events[index]["connectionId"] != "local" {
         return Err("외부 캘린더 일정은 원본 캘린더에서 수정해 주세요.".into());
     }
@@ -130,18 +130,18 @@ pub fn act(data: &Value, action: &str, input: &Value) -> Result<WidgetEffect, St
     let mut next = data.clone();
     let events = next["events"]
         .as_array_mut()
-        .ok_or("저장된 일정을 읽지 못했습니다.")?;
+        .ok_or("저장된 일정을 읽지 못했어요.")?;
     match action {
         "delete-event" => {
             let input: DeleteInput = serde_json::from_value(input.clone())
-                .map_err(|_| "삭제할 일정 입력이 올바르지 않습니다.")?;
+                .map_err(|_| "삭제할 일정 입력이 올바르지 않아요.")?;
             let index = editable_index(events, &input.id)?;
             events.remove(index);
         }
         "create-event" | "update-event" => {
             let preserve_note_ref = input.get("noteRef").is_none();
             let input: EventInput = serde_json::from_value(input.clone())
-                .map_err(|_| "일정 입력 형식이 올바르지 않습니다.")?;
+                .map_err(|_| "일정 입력 형식이 올바르지 않아요.")?;
             let index = match action {
                 "update-event" => Some(editable_index(
                     events,
@@ -157,7 +157,7 @@ pub fn act(data: &Value, action: &str, input: &Value) -> Result<WidgetEffect, St
                         .count()
                         >= MAX_EVENTS
                     {
-                        return Err("Comet 일정은 5000개까지 추가할 수 있습니다.".into());
+                        return Err("Comet 일정은 5000개까지 추가할 수 있어요.".into());
                     }
                     None
                 }
@@ -179,7 +179,7 @@ pub fn act(data: &Value, action: &str, input: &Value) -> Result<WidgetEffect, St
                 events.push(value);
             }
         }
-        _ => return Err("지원하지 않는 일정 작업입니다.".into()),
+        _ => return Err("지원하지 않는 일정 작업이에요.".into()),
     }
     Ok(WidgetEffect {
         data: next,

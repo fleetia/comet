@@ -112,7 +112,7 @@ export function ConversationSettings({
           }
         >
           {paused ? <ResumeIcon size={15} /> : <PauseIcon size={15} />}
-          {paused ? "자동 잡담 다시 시작" : "자동 잡담 쉬기"}
+          {paused ? "자동 잡담 다시 켜기" : "자동 잡담 쉬기"}
         </Button>
         <p className={styles.caption}>
           쉬는 동안에도 직접 말을 걸면 답해요. 앱을 다시 열면 쉬기가 풀려요.
@@ -125,11 +125,11 @@ export function ConversationSettings({
             <div className={styles.group}>
               <SettingControlRow
                 className={styles.row}
-                title="바탕화면에서 먼저 이야기하기"
+                title="자동 잡담 켜기"
                 description="꺼도 간격과 자리 비우기 설정은 그대로예요"
                 control={
                   <Switch
-                    aria-label="바탕화면에서 먼저 이야기하기"
+                    aria-label="자동 잡담 켜기"
                     checked={settings.autonomousEnabled}
                     onChange={(event) => draft.change("autonomousEnabled", event.target.checked)}
                   />

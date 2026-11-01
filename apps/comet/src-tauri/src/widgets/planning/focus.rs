@@ -225,10 +225,10 @@ fn focus_duration(state: &Timer) -> i64 {
 fn duration(input: &Value, fallback: i64) -> Result<i64, String> {
     let duration = match input.get("durationMs") {
         None => fallback,
-        Some(value) => value.as_i64().ok_or("타이머 길이가 올바르지 않습니다.")?,
+        Some(value) => value.as_i64().ok_or("타이머 길이가 올바르지 않아요.")?,
     };
     if !(1000..=86400000).contains(&duration) {
-        return Err("타이머는 1초부터 24시간까지 설정할 수 있습니다.".into());
+        return Err("타이머는 1초부터 24시간까지 설정할 수 있어요.".into());
     }
     Ok(duration)
 }
@@ -242,9 +242,9 @@ fn event_reference(
     related: &BTreeMap<String, Value>,
 ) -> Result<EventReference, String> {
     let mut reference: EventReference = serde_json::from_value(input.clone())
-        .map_err(|_| "연결할 일정 형식이 올바르지 않습니다.")?;
+        .map_err(|_| "연결할 일정 형식이 올바르지 않아요.")?;
     if !bounded(&reference.calendar_widget_id, 200) || !bounded(&reference.id, 8192) {
-        return Err("연결할 일정 식별자가 올바르지 않습니다.".into());
+        return Err("연결할 일정 식별자가 올바르지 않아요.".into());
     }
     let event = related
         .get("calendar")
@@ -269,7 +269,7 @@ fn note_reference(
     related: &BTreeMap<String, Value>,
 ) -> Result<NoteReference, String> {
     let mut reference: NoteReference = serde_json::from_value(input.clone())
-        .map_err(|_| "연결할 노트 형식이 올바르지 않습니다.")?;
+        .map_err(|_| "연결할 노트 형식이 올바르지 않아요.")?;
     if !matches!(reference.kind.as_str(), "diary" | "memo")
         || !bounded(&reference.id, 200)
         || reference.title.chars().count() > 500
@@ -278,7 +278,7 @@ fn note_reference(
             .as_deref()
             .is_some_and(|id| !bounded(id, 200))
     {
-        return Err("연결할 노트 정보가 올바르지 않습니다.".into());
+        return Err("연결할 노트 정보가 올바르지 않아요.".into());
     }
     if reference.kind == "memo" {
         let note = related
@@ -310,7 +310,7 @@ fn configure(
         .as_object()
         .is_some_and(|input| input.keys().any(|key| !keys.contains(&key.as_str())))
     {
-        return Err("지원하지 않는 집중 설정입니다.".into());
+        return Err("지원하지 않는 집중 설정이에요.".into());
     }
     if matches!(state.status.as_str(), "running" | "paused")
         && input
@@ -331,13 +331,13 @@ fn configure(
             None
         } else {
             let target: crate::widgets::AppUsageTarget = serde_json::from_value(value.clone())
-                .map_err(|_| "앱 선택 정보가 올바르지 않습니다.")?;
+                .map_err(|_| "앱 선택 정보가 올바르지 않아요.")?;
             if !bounded(&target.id, 1024)
                 || !bounded(&target.name, 200)
                 || target.id.chars().any(char::is_control)
                 || target.name.chars().any(char::is_control)
             {
-                return Err("앱 식별자가 올바르지 않습니다.".into());
+                return Err("앱 식별자가 올바르지 않아요.".into());
             }
             Some(target)
         };
@@ -362,13 +362,13 @@ fn configure(
             None
         } else {
             let key = text(input, "todoId", 200)?;
-            let todo: TodoState = decode(related.get("todo").ok_or("할 일 위젯을 찾을 수 없습니다.")?)?;
+            let todo: TodoState = decode(related.get("todo").ok_or("할 일 위젯을 찾을 수 없어요.")?)?;
             if !todo
                 .items
                 .iter()
                 .any(|todo| todo.id == key && todo.completed_at.is_none())
             {
-                return Err("항목을 찾을 수 없습니다.".into());
+                return Err("항목을 찾을 수 없어요.".into());
             }
             Some(key)
         };
@@ -505,7 +505,7 @@ fn start_queued(
     state.remaining_ms = item.focus_duration_ms;
     state.deadline = Some(
         now.checked_add(item.focus_duration_ms)
-            .ok_or("시각 범위를 벗어났습니다.")?,
+            .ok_or("시각 범위를 벗어났어요.")?,
     );
     state.status = "running".into();
     state.mode = "focus".into();
@@ -574,7 +574,7 @@ fn finish(
         state.remaining_ms = state.duration_ms;
         state.deadline = Some(
             now.checked_add(state.duration_ms)
-                .ok_or("시각 범위를 벗어났습니다.")?,
+                .ok_or("시각 범위를 벗어났어요.")?,
         );
         state.completed_focus_pending = true;
     } else if start_next {
@@ -640,13 +640,13 @@ pub(super) fn act(
                 serde_json::to_value(&state.settings).map_err(|error| error.to_string())?;
             let values = input
                 .as_object()
-                .ok_or("집중 타이머 설정이 올바르지 않습니다.")?;
+                .ok_or("집중 타이머 설정이 올바르지 않아요.")?;
             merged
                 .as_object_mut()
-                .ok_or("집중 타이머 설정이 올바르지 않습니다.")?
+                .ok_or("집중 타이머 설정이 올바르지 않아요.")?
                 .extend(values.clone());
             let settings: Settings = serde_json::from_value(merged)
-                .map_err(|_| "집중 타이머 설정이 올바르지 않습니다.")?;
+                .map_err(|_| "집중 타이머 설정이 올바르지 않아요.")?;
             duration(
                 &json!({"durationMs":settings.rest_duration_ms}),
                 rest_duration(),
@@ -656,7 +656,7 @@ pub(super) fn act(
                 long_rest_duration(),
             )?;
             if !(2..=8).contains(&settings.long_rest_every) {
-                return Err("긴 휴식 주기는 2회부터 8회까지 설정할 수 있습니다.".into());
+                return Err("긴 휴식 주기는 2회부터 8회까지 설정할 수 있어요.".into());
             }
             if !matches!(
                 settings.finish_notification.as_str(),
@@ -665,13 +665,13 @@ pub(super) fn act(
                 .linked_event_lead_minutes
                 .is_some_and(|minutes| !(0..=120).contains(&minutes))
             {
-                return Err("집중 타이머 알림 설정이 올바르지 않습니다.".into());
+                return Err("집중 타이머 알림 설정이 올바르지 않아요.".into());
             }
             state.settings = settings;
         }
         "queue-add" => {
             if state.queue.len() >= 8 {
-                return Err("다음 집중은 8개까지 추가할 수 있습니다.".into());
+                return Err("다음 집중은 8개까지 추가할 수 있어요.".into());
             }
             let title = text(input, "title", 500)?;
             let focus_duration_ms = duration(
@@ -689,7 +689,7 @@ pub(super) fn act(
                         .iter()
                         .any(|item| item.id == id && item.completed_at.is_none())
                     {
-                        return Err("항목을 찾을 수 없습니다.".into());
+                        return Err("항목을 찾을 수 없어요.".into());
                     }
                     Some(id)
                 }
@@ -717,7 +717,7 @@ pub(super) fn act(
                 .queue
                 .iter()
                 .position(|item| item.id == id)
-                .ok_or("항목을 찾을 수 없습니다.")?;
+                .ok_or("항목을 찾을 수 없어요.")?;
             state.queue.remove(index);
         }
         "queue-move" => {
@@ -726,14 +726,14 @@ pub(super) fn act(
                 .queue
                 .iter()
                 .position(|item| item.id == id)
-                .ok_or("항목을 찾을 수 없습니다.")?;
+                .ok_or("항목을 찾을 수 없어요.")?;
             let to = if input.get("targetId").is_some() {
                 let target = text(input, "targetId", 200)?;
                 state
                     .queue
                     .iter()
                     .position(|item| item.id == target)
-                    .ok_or("항목을 찾을 수 없습니다.")?
+                    .ok_or("항목을 찾을 수 없어요.")?
             } else {
                 match input["direction"].as_str() {
                     Some("up") => from.saturating_sub(1),
@@ -757,7 +757,7 @@ pub(super) fn act(
                 .sessions
                 .iter_mut()
                 .find(|session| session.id == id)
-                .ok_or("집중 기록을 찾을 수 없습니다.")?;
+                .ok_or("집중 기록을 찾을 수 없어요.")?;
             check_memo(input, &session.memo)?;
             session.memo = memo.clone();
             if (state.status == "finished" || state.mode == "rest")
@@ -768,7 +768,7 @@ pub(super) fn act(
         }
         "show-rest" => {
             if state.mode != "rest" || !state.completed_focus_pending {
-                return Err("진행 중인 자동 휴식이 없습니다.".into());
+                return Err("진행 중인 자동 휴식이 없어요.".into());
             }
             if input.get("memo").is_some() {
                 update_memo(&mut state, input)?;
@@ -783,7 +783,7 @@ pub(super) fn act(
             let continuing_rest = action == "continue" && state.mode == "rest";
             let starting_queued = action == "continue" && state.status == "idle" && !state.queue.is_empty();
             if !starting && state.status != "finished" && !continuing_rest && !starting_queued {
-                return Err("타이머 종료 후 선택할 수 있습니다.".into());
+                return Err("타이머 종료 후 선택할 수 있어요.".into());
             }
             if !starting && input.get("memo").is_some() {
                 update_memo(&mut state, input)?;
@@ -796,7 +796,7 @@ pub(super) fn act(
                 match input.get("kind").and_then(Value::as_str).unwrap_or("short") {
                     "short" => "short",
                     "long" => "long",
-                    _ => return Err("휴식 종류가 올바르지 않습니다.".into()),
+                    _ => return Err("휴식 종류가 올바르지 않아요.".into()),
                 }
             } else {
                 "short"
@@ -833,7 +833,7 @@ pub(super) fn act(
             state.completed_focus_pending = false;
             state.duration_ms = value;
             state.remaining_ms = value;
-            state.deadline = Some(now.checked_add(value).ok_or("시각 범위를 벗어났습니다.")?);
+            state.deadline = Some(now.checked_add(value).ok_or("시각 범위를 벗어났어요.")?);
             state.status = "running".into();
             state.mode = if action == "rest" { "rest" } else { "focus" }.into();
             state.rest_kind = (action == "rest").then(|| rest_kind.into());
@@ -859,7 +859,7 @@ pub(super) fn act(
         }
         "pause" => {
             if state.status != "running" {
-                return Err("실행 중인 타이머가 없습니다.".into());
+                return Err("실행 중인 타이머가 없어요.".into());
             }
             let remaining = state
                 .deadline
@@ -877,7 +877,7 @@ pub(super) fn act(
         }
         "resume" => {
             if state.status != "paused" {
-                return Err("일시정지된 타이머가 없습니다.".into());
+                return Err("일시정지된 타이머가 없어요.".into());
             }
             state.deadline = Some(
                 now.checked_add(state.remaining_ms)
@@ -916,7 +916,7 @@ pub(super) fn act(
             state.rest_kind = None;
             state.remaining_ms = state.duration_ms;
         }
-        _ => return Err("지원하지 않는 타이머 동작입니다.".into()),
+        _ => return Err("지원하지 않는 타이머 동작이에요.".into()),
     }
     encode(state, vec![])
 }

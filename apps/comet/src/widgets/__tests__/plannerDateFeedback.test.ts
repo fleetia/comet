@@ -6,9 +6,9 @@ it("keeps full due date separate from the planned day and qualifies relative lab
   vi.setSystemTime(new Date("2026-10-04T12:00:00"));
   expect(
     dueLabel({ plannedDate: "2026-10-03", dueAt: new Date("2026-10-05T07:30:00").getTime() }),
-  ).toBe("마감 2026-10-05 07:30 · 내일");
-  expect(dueLabel({ dueDate: "2026-10-04" })).toBe("마감 2026-10-04 · 오늘");
-  expect(dueLabel({ dueDate: "2026-10-03" })).toBe("마감 2026-10-03 · 기한 지남");
+  ).toBe("마감 2026년 10월 5일 07:30 · 내일");
+  expect(dueLabel({ dueDate: "2026-10-04" })).toBe("마감 2026년 10월 4일 · 오늘");
+  expect(dueLabel({ dueDate: "2026-10-03" })).toBe("마감 2026년 10월 3일 · 기한 지남");
   expect(dueLabel({ dueDate: "2026-10-03", completedAt: Date.now() })).not.toContain("기한 지남");
 });
 it("only reports actual overlapping fetched events, not adjacency or cancellation", () => {

@@ -202,7 +202,7 @@ export function ThemeSettings({ snapshot, onOpenBalloon }: Props): JSX.Element {
         )}
         <section className={settings.section} aria-labelledby="theme-opacity-title">
           <h3 id="theme-opacity-title" className={settings.sectionTitle}>
-            바탕화면 투명도
+            바탕화면 불투명도
           </h3>
           <div className={settings.group}>
             {(

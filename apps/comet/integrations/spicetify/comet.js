@@ -334,7 +334,7 @@
     }
     function retryResume() {
       if (!enabled || !credential || retry != null) { return; }
-      onState(credential.pendingRevoke ? "연결 해제 대기 중… Comet을 열면 완료합니다." : "Comet을 기다리는 중… 자동으로 다시 연결합니다.");
+      onState(credential.pendingRevoke ? "연결 끊기 대기 중… Comet을 열면 완료합니다." : "Comet을 기다리는 중… 자동으로 다시 연결합니다.");
       retry = setTimeout(() => { retry = null; if (enabled && credential) { start("resume"); } }, retryDelay);
       retryDelay = Math.min(retryDelay * 2, 30000);
     }
@@ -370,17 +370,17 @@
         let removed = false;
         try { save(null); removed = true; } catch { /* Never resume in this process after an authenticated revocation. */ }
         stopTransport();
-        onState(removed ? "연결 해제됨" : "연결은 해제됐지만 저장 정보 삭제에 실패했습니다.");
+        onState(removed ? "연결 끊김" : "연결은 끊겼지만 저장 정보 삭제에 실패했습니다.");
       }
       sendDisconnect = () => {
         if (!current() || !serverAuthenticated || phase !== "ready" || ws.readyState !== WebSocketApi.OPEN) { return false; }
         ready = false; pending.clear(); phase = "revoking";
         deadline();
         try { ws.send(JSON.stringify({ type: "disconnect" })); } catch { broken(); return true; }
-        onState("연결 해제 중…");
+        onState("연결 끊는 중…");
         return true;
       };
-      onState(saved?.pendingRevoke ? "연결 해제 대기 중…" : mode === "resume" ? "자동으로 다시 연결 중…" : "연결 중…");
+      onState(saved?.pendingRevoke ? "연결 끊기 대기 중…" : mode === "resume" ? "자동으로 다시 연결 중…" : "연결 중…");
       deadline();
       ws.onopen = () => {
         if (!current() || phase !== "opening") { return; }
@@ -486,7 +486,7 @@
     function disconnect() {
       if (!credential) { close(); return; }
       try { save({ ...credential, pendingRevoke: true }); } catch {
-        close(); onState("연결 해제를 저장하지 못했습니다. Spotify 저장 공간을 확인해 주세요."); return;
+        close(); onState("연결 끊기를 저장하지 못했습니다. Spotify 저장 공간을 확인해 주세요."); return;
       }
       if (sendDisconnect?.()) { return; }
       clearTimeout(retry); retry = null;
@@ -521,9 +521,9 @@
       input.style.cssText = "display:block;width:100%;margin:12px 0;padding:8px;color:var(--spice-text);background:var(--spice-main);border:1px solid var(--spice-subtext)";
       const connect = document.createElement("button"); connect.textContent = "연결";
       connect.onclick = () => { try { const code = input.value.trim(); input.value = ""; connection.connect(code); } catch { statusNode.textContent = "Comet에서 새 연결 코드를 확인해 주세요."; } };
-      const disconnect = document.createElement("button"); disconnect.textContent = "연결 해제"; disconnect.style.marginLeft = "12px"; disconnect.onclick = connection.disconnect;
+      const disconnect = document.createElement("button"); disconnect.textContent = "연결 끊기"; disconnect.style.marginLeft = "12px"; disconnect.onclick = connection.disconnect;
       statusNode = document.createElement("p"); statusNode.textContent = status; statusNode.setAttribute("role", "status");
-      const description = document.createElement("p"); description.textContent = "현재 곡·플레이리스트·대기열을 Comet에서 확인하고 재생을 제어합니다. 처음 한 번만 코드로 연결하면 Spotify나 Comet을 다시 열 때 이 컴퓨터에서 자동으로 연결합니다. 연결 해제를 누르면 저장한 연결을 지웁니다. Comet이 꺼져 있으면 다음 연결 때 해제를 마칩니다.";
+      const description = document.createElement("p"); description.textContent = "현재 곡·플레이리스트·대기열을 Comet에서 확인하고 재생을 제어합니다. 처음 한 번만 코드로 연결하면 Spotify나 Comet을 다시 열 때 이 컴퓨터에서 자동으로 연결합니다. 연결 끊기를 누르면 저장한 연결을 지웁니다. Comet이 꺼져 있으면 다음 연결 때 연결 끊기를 마칩니다.";
       content.append(label, input, connect, disconnect, statusNode, description);
       spicetify.PopupModal.display({ title: "Comet 음악 연결", content });
     }

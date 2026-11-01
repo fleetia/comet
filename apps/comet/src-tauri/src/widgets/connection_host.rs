@@ -87,11 +87,11 @@ fn semaphore() -> Arc<tokio::sync::Semaphore> {
 }
 fn decode_calendar(value: &Value) -> Result<CalendarState, String> {
     serde_json::from_value(value.clone())
-        .map_err(|_| "저장된 캘린더 상태를 읽지 못했습니다.".into())
+        .map_err(|_| "저장된 캘린더 상태를 읽지 못했어요.".into())
 }
 fn active(instance: &WidgetInstance, kind: Option<&str>) -> Result<(), String> {
     if kind.is_some_and(|kind| kind != instance.kind) {
-        return Err("위젯 종류가 일치하지 않습니다.".into());
+        return Err("위젯 종류가 일치하지 않아요.".into());
     }
     Ok(())
 }
@@ -104,7 +104,7 @@ fn begin(
 ) -> Result<Job, String> {
     let _action = lock(&state.action)?;
     if crate::unavailable(state) {
-        return Err("앱을 종료하고 있습니다.".into());
+        return Err("앱을 종료하고 있어요.".into());
     }
     let db = lock(&state.db)?;
     let mut instance = storage::get(&db, id)?;
@@ -147,7 +147,7 @@ fn finish(
     let result = if valid {
         commit(&db, &current)
     } else {
-        Err("설정이 바뀌어 이전 조회 결과를 적용하지 않았습니다.".into())
+        Err("설정이 바뀌어 이전 조회 결과를 적용하지 않았어요.".into())
     };
     let mut jobs = lock(&state.widget_jobs)?;
     if jobs
@@ -177,7 +177,7 @@ async fn execute<T>(
     job: &Job,
     work: impl std::future::Future<Output = Result<T, String>>,
 ) -> Result<T, String> {
-    tokio::select! {_ = models::cancelled(job.cancel.clone())=>Err("위젯 조회를 취소했습니다.".into()),result=async{let _permit=semaphore().acquire_owned().await.map_err(|_|"조회 대기열을 열 수 없습니다.")?;work.await}=>result}
+    tokio::select! {_ = models::cancelled(job.cancel.clone())=>Err("위젯 조회를 취소했어요.".into()),result=async{let _permit=semaphore().acquire_owned().await.map_err(|_|"조회 대기열을 열 수 없어요.")?;work.await}=>result}
 }
 fn store_calendar(
     db: &rusqlite::Connection,
@@ -239,13 +239,13 @@ fn remove_calendar(data: &mut CalendarState, connection_id: &str) {
         .max();
 }
 pub(crate) fn open_browser(url: &str) -> Result<(), String> {
-    let parsed = reqwest::Url::parse(url).map_err(|_| "링크 주소가 올바르지 않습니다.")?;
+    let parsed = reqwest::Url::parse(url).map_err(|_| "링크 주소가 올바르지 않아요.")?;
     if !["http", "https"].contains(&parsed.scheme())
         || parsed.host_str().is_none()
         || !parsed.username().is_empty()
         || parsed.password().is_some()
     {
-        return Err("HTTP/HTTPS 링크만 열 수 있습니다.".into());
+        return Err("HTTP/HTTPS 링크만 열 수 있어요.".into());
     }
     #[cfg(target_os = "macos")]
     let mut command = {
@@ -307,7 +307,7 @@ fn complete_calendar_connect(
     };
     if previous.is_none() && data.connections.len() >= 20 {
         return Err(
-            "캘린더 연결은 20개까지 추가할 수 있어요. 기존 연결을 해제하고 다시 시도해 주세요."
+            "캘린더 연결은 20개까지 추가할 수 있어요. 기존 연결을 끊고 다시 시도해 주세요."
                 .into(),
         );
     }
@@ -586,7 +586,7 @@ async fn refresh_calendar_inner(
     let time = timestamp();
     let job = begin(state, id, Some("calendar"), false, |instance| {
         if !manual && lock(&state.widget_jobs)?.contains_key(id) {
-            return Err("이미 조회 중입니다.".into());
+            return Err("이미 조회 중이에요.".into());
         }
         let mut data = decode_calendar(&instance.data)?;
         let connection = data
@@ -604,7 +604,7 @@ async fn refresh_calendar_inner(
             }
             connection.failure_count = 0;
         } else if !calendar_due(connection, time) {
-            return Err("아직 조회할 시간이 아닙니다.".into());
+            return Err("아직 조회할 시간이 아니에요.".into());
         }
         connection.status = "syncing".into();
         data.attempts.insert(connection_id.into(), time);
@@ -926,7 +926,7 @@ fn forget_music_credential(owner: String, pairing: String) {
         if crate::widgets::music_bridge::forget(&owner, &pairing).is_err() {
             crate::report_error!(
                 "music_credential_delete",
-                "해제한 음악 연결의 저장된 인증 정보를 삭제하지 못했습니다."
+                "끊은 음악 연결의 저장된 인증 정보를 삭제하지 못했어요."
             );
         }
     });
@@ -985,7 +985,7 @@ fn clear_music_pairing_with(
         data["nextRefreshAt"] = json!(0);
     } else {
         data["status"] = json!("offline");
-        data["error"] = json!("Spotify 확장 연결을 해제했어요.");
+        data["error"] = json!("Spotify 확장 연결을 끊었어요.");
         data["observation"] = Value::Null;
         data["nextRefreshAt"] = json!(i64::MAX);
     }
@@ -1173,7 +1173,7 @@ async fn resume_music_widget(
     let job = begin(state, id, Some("music"), false, |instance| {
         validate_story(state, story)?;
         if !spotify_widget(instance) {
-            return Err("Spotify를 사용하는 음악 위젯이 아닙니다.".into());
+            return Err("Spotify를 사용하는 음악 위젯이 아니에요.".into());
         }
         Ok(None)
     })?;
@@ -1361,7 +1361,7 @@ fn check_music_request(
     ]
     .contains(&action)
     {
-        return Err("지원하지 않는 음악 명령입니다.".into());
+        return Err("지원하지 않는 음악 명령이에요.".into());
     }
     let query = ["observe", "open", "playlists", "playlistTracks", "queue"].contains(&action);
     if !query {
@@ -1375,7 +1375,7 @@ fn check_music_request(
         }
         let capability = action;
         if observation["capabilities"][capability] != true {
-            return Err("선택한 앱에서 지원하지 않는 재생 기능입니다.".into());
+            return Err("선택한 앱에서 지원하지 않는 재생 기능이에요.".into());
         }
     }
     Ok(())
@@ -1385,7 +1385,7 @@ fn music_job_current(state: &AppState, job: &Job) -> Result<(), String> {
     let _action = lock(&state.action)?;
     let current = storage::get(&*lock(&state.db)?, &job.instance.id)?;
     if !is_current(state, job, &current)? {
-        return Err("설정이 바뀌어 음악 명령을 취소했습니다.".into());
+        return Err("설정이 바뀌어 음악 명령을 취소했어요.".into());
     }
     Ok(())
 }
@@ -1660,10 +1660,10 @@ fn begin_information_with_recovery(
     let mut throttled = false;
     let result = begin(state, id, None, false, |instance| {
         if (!manual || recovery) && lock(&state.widget_jobs)?.contains_key(id) {
-            return Err("이미 조회 중입니다.".into());
+            return Err("이미 조회 중이에요.".into());
         }
         if !["weather", "music", "device"].contains(&instance.kind.as_str()) {
-            return Err("정보 연결 위젯이 아닙니다.".into());
+            return Err("정보 연결 위젯이 아니에요.".into());
         }
         if instance.data["configured"] != true {
             return Err("조회할 정보 연결을 먼저 설정해 주세요.".into());
@@ -1695,7 +1695,7 @@ fn begin_information_with_recovery(
                 time,
             )?
         {
-            return Err("아직 조회할 시간이 아닙니다.".into());
+            return Err("아직 조회할 시간이 아니에요.".into());
         }
         if instance.kind == "music" {
             return Ok(None);
@@ -1726,7 +1726,7 @@ fn reserve_weather_archive(
     let db = lock(&state.db)?;
     let current = storage::get(&db, &job.instance.id)?;
     if !is_current(state, job, &current)? {
-        return Err("설정이 바뀌어 이전 조회 결과를 적용하지 않았습니다.".into());
+        return Err("설정이 바뀌어 이전 조회 결과를 적용하지 않았어요.".into());
     }
     connections::reserve_weather_archive(&db, data, time)
 }
@@ -1917,7 +1917,7 @@ async fn refresh_information_with_recovery(
                 {
                     crate::report_error!(
                         "battery_notification",
-                        "배터리 OS 알림을 표시하지 못했습니다."
+                        "배터리 시스템 알림을 표시하지 못했어요."
                     );
                 }
             }
@@ -1954,7 +1954,7 @@ pub(crate) async fn search_weather_regions(query: String) -> Result<Value, Strin
     let _permit = semaphore()
         .acquire_owned()
         .await
-        .map_err(|_| "조회 대기열을 열 수 없습니다.")?;
+        .map_err(|_| "조회 대기열을 열 수 없어요.")?;
     connections::search_regions(&query)
         .await
         .map_err(|x| x.message)
@@ -1989,7 +1989,7 @@ pub(crate) fn open_widget_link(
     let instance = storage::get(&db, &id)?;
     active(&instance, None)?;
     if !allowed_link(&instance.data, &instance.kind, &url) {
-        return Err("현재 위젯에 등록된 링크만 열 수 있습니다.".into());
+        return Err("현재 위젯에 등록된 링크만 열 수 있어요.".into());
     }
     open_browser(&url)
 }
@@ -2468,7 +2468,7 @@ mod tests {
         let id = installed_information(&state, "clock", true);
         assert_eq!(
             begin_information(&state, &id, true, 100_000).err().unwrap(),
-            "정보 연결 위젯이 아닙니다."
+            "정보 연결 위젯이 아니에요."
         );
         lock(&state.db)
             .unwrap()
@@ -2479,7 +2479,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             begin_information(&state, &id, true, 100_000).err().unwrap(),
-            "정보 연결 위젯이 아닙니다."
+            "정보 연결 위젯이 아니에요."
         );
         let state = crate::lifecycle_tests::state();
         let id = installed_information(&state, "device", false);
@@ -2589,7 +2589,7 @@ mod tests {
             .unwrap();
         crate::widgets::commands::cancel_widget_jobs(&state, Some(&id)).unwrap();
         let result: Result<(), String> = execute(&cancelled, std::future::pending()).await;
-        assert_eq!(result.unwrap_err(), "위젯 조회를 취소했습니다.");
+        assert_eq!(result.unwrap_err(), "위젯 조회를 취소했어요.");
         assert!(finish(&state, &cancelled, |_, _| panic!(
             "cancelled result committed"
         ))

@@ -29,7 +29,7 @@ pub fn connect(input: AppleConnectInput) -> Result<Connected, CalendarError> {
     if !cfg!(target_os = "macos") {
         return Err(error(
             "unsupported",
-            "Apple 캘린더 직접 연결은 macOS에서 사용할 수 있습니다.",
+            "Apple 캘린더 직접 연결은 macOS에서 사용할 수 있어요.",
         ));
     }
     let mut connection = connection(input.name, "apple");
@@ -80,7 +80,7 @@ async fn native_work<T: Send + 'static>(
         let permit = workers
             .acquire_owned()
             .await
-            .map_err(|_| invalid("Apple 캘린더 조회를 시작하지 못했습니다."))?;
+            .map_err(|_| invalid("Apple 캘린더 조회를 시작하지 못했어요."))?;
         let (sender, receiver) = tokio::sync::oneshot::channel();
         // EventKit objects remain on this thread. Only owned Rust values cross the channel.
         std::thread::Builder::new()
@@ -89,10 +89,10 @@ async fn native_work<T: Send + 'static>(
                 let _permit = permit;
                 let _ = sender.send(work());
             })
-            .map_err(|_| invalid("Apple 캘린더 조회를 시작하지 못했습니다."))?;
+            .map_err(|_| invalid("Apple 캘린더 조회를 시작하지 못했어요."))?;
         receiver
             .await
-            .map_err(|_| invalid("Apple 캘린더 조회가 중단되었습니다."))?
+            .map_err(|_| invalid("Apple 캘린더 조회가 중단됐어요."))?
     })
     .await
     .map_err(|_| {
@@ -150,7 +150,7 @@ mod native {
                     .map_err(|_| {
                         error(
                             "permission-needed",
-                            "macOS 캘린더 권한 요청이 완료되지 않았습니다.",
+                            "macOS 캘린더 권한 요청이 완료되지 않았어요.",
                         )
                     })?;
             }
@@ -183,7 +183,7 @@ mod native {
     fn millis(date: &NSDate) -> Result<i64, CalendarError> {
         let value = date.timeIntervalSince1970() * 1000.0;
         if !value.is_finite() || value < i64::MIN as f64 || value > i64::MAX as f64 {
-            return Err(invalid("Apple 일정 시각이 올바르지 않습니다."));
+            return Err(invalid("Apple 일정 시각이 올바르지 않아요."));
         }
         Ok(value.round() as i64)
     }
@@ -268,7 +268,7 @@ mod native {
             let occurrences = unsafe { store.eventsMatchingPredicate(&predicate) };
             if occurrences.len() > MAX_EVENTS {
                 return Err(invalid(
-                    "조회 일정이 5000개를 넘었습니다. 연결할 캘린더를 줄여 주세요.",
+                    "조회 일정이 5000개를 넘었어요. 연결할 캘린더를 줄여 주세요.",
                 ));
             }
             let zone = NSTimeZone::defaultTimeZone();
@@ -279,9 +279,9 @@ mod native {
                         .calendar()
                         .map(|calendar| calendar.calendarIdentifier().to_string())
                 }
-                .ok_or_else(|| invalid("Apple 일정의 캘린더를 확인하지 못했습니다."))?;
+                .ok_or_else(|| invalid("Apple 일정의 캘린더를 확인하지 못했어요."))?;
                 let identifier = unsafe { event.eventIdentifier() }
-                    .ok_or_else(|| invalid("Apple 일정 식별 정보가 없습니다."))?
+                    .ok_or_else(|| invalid("Apple 일정 식별 정보가 없어요."))?
                     .to_string();
                 let start = unsafe { event.startDate() };
                 let end = unsafe { event.endDate() };
@@ -422,7 +422,7 @@ mod native {
     pub fn events(_: &str, _: &[String], _: i64) -> Result<Refreshed, CalendarError> {
         Err(error(
             "unsupported",
-            "Apple 캘린더 직접 연결은 macOS에서 사용할 수 있습니다.",
+            "Apple 캘린더 직접 연결은 macOS에서 사용할 수 있어요.",
         ))
     }
 }

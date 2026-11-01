@@ -532,11 +532,11 @@ it("opens a folded widget as a bubble beside the capsule bar and closes it from 
     widget("disabled", "weather", false),
   ]);
   render(<WidgetStack />);
-  const capsule = within(await screen.findByRole("group", { name: "접어 둔 위젯" }));
+  const capsule = within(await screen.findByRole("group", { name: "접어 둔 모아두기" }));
   expect(capsule.getAllByRole("button")).toHaveLength(3);
   fireEvent.click(capsule.getByRole("button", { name: /집중/ }));
   // The capsule bar stays; only the chosen widget opens below it.
-  expect(screen.getByRole("group", { name: "접어 둔 위젯" })).toBeTruthy();
+  expect(screen.getByRole("group", { name: "접어 둔 모아두기" })).toBeTruthy();
   const bubble = screen.getByRole("dialog");
   expect(bubble.getAttribute("data-placement")).toBe("below");
   expect(bubble.compareDocumentPosition(capsule.getAllByRole("button")[0])).toBe(
@@ -575,7 +575,7 @@ async function openFocusBubble(): Promise<HTMLSelectElement> {
     },
   ]);
   render(<WidgetStack />);
-  const capsule = within(await screen.findByRole("group", { name: "접어 둔 위젯" }));
+  const capsule = within(await screen.findByRole("group", { name: "접어 둔 모아두기" }));
   fireEvent.click(capsule.getByRole("button", { name: /집중/ }));
   fireEvent.click(screen.getByText("이번 집중 연결"));
   return screen.getByLabelText("연결할 할 일") as HTMLSelectElement;
@@ -751,7 +751,7 @@ it("opens window widgets straight from the capsule bar and bubbles above bottom 
   state.overlapped = true;
   state.anchor = "bottom-left";
   render(<WidgetStack />);
-  const capsule = within(await screen.findByRole("group", { name: "접어 둔 위젯" }));
+  const capsule = within(await screen.findByRole("group", { name: "접어 둔 모아두기" }));
   fireEvent.click(capsule.getByRole("button", { name: /장보기/ }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("open_memo_note", { id: "memo", noteId: "note-1" }),

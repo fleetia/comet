@@ -3,7 +3,7 @@ import type { ReactElement } from "react";
 import { Icon } from "@comet/icon";
 import { localDay, text, type DataRecord } from "../toolData";
 import { useCompositionGuard } from "../useCompositionGuard";
-import { dayDate } from "./plannerData";
+import { dayDate, formatPlannerDate } from "./plannerData";
 import * as s from "./planner.css";
 
 export function PlannerQuickInput({
@@ -49,7 +49,7 @@ export function PlannerQuickInput({
         id={`planner-add-scope-${isToday ? "day" : "period"}`}
       >
         {isToday
-          ? `새 할 일 계획일 · 선택일 ${day}`
+          ? `새 할 일 계획일 · 선택일 ${formatPlannerDate(day)}`
           : `새 할 일 · ${planScope}${period === "inbox" ? "" : " · 계획일 없음"}`}
       </p>
       <form

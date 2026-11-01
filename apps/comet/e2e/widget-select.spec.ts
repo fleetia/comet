@@ -55,7 +55,7 @@ async function openFocusBubble(page: Page, tauri: FakeTauri) {
   tauri.handle("get_widget_runtime", () => ({ widgets: [] }));
   await tauri.open("widget-stack");
   await page
-    .getByRole("group", { name: "접어 둔 위젯" })
+    .getByRole("group", { name: "접어 둔 모아두기" })
     .getByRole("button", { name: /집중/ })
     .click();
   const bubble = page.getByRole("dialog");

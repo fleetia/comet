@@ -2,7 +2,7 @@ import { Button, ChartBarItem, FocusRecordRow, FormField, IconButton, Textarea }
 import { FocusPanel } from "./FocusPanel";
 import { useEffect, useRef, useState, type ReactElement, type RefObject } from "react";
 import { localDay, text, type DataRecord, type ToolAction } from "../toolData";
-import { clockLabel, moveDay, movePeriod, periodAnchor } from "../Planner/plannerData";
+import { clockLabel, formatPlannerDate, moveDay, movePeriod, periodAnchor } from "../Planner/plannerData";
 import {
   appUsageTime,
   elapsedWithin,
@@ -19,12 +19,12 @@ function bucketRangeLabel(bucket: FocusBucket, period: FocusPeriod): string {
   const date = localDay(start);
   if (period === "day") {
     const end = localDay(new Date(bucket.endAt)) === date ? clockLabel(bucket.endAt) : "24:00";
-    return `${date} ${clockLabel(bucket.startAt)}–${end}`;
+    return `${formatPlannerDate(date)} ${clockLabel(bucket.startAt)}–${end}`;
   }
   if (period === "year") {
-    return `${start.getFullYear()}년 ${start.getMonth() + 1}월`;
+    return formatPlannerDate(date, "month");
   }
-  return date;
+  return formatPlannerDate(date);
 }
 
 export function FocusTimerStats({
@@ -75,12 +75,10 @@ export function FocusTimerStats({
     last = buckets[buckets.length - 1];
   const label =
     period === "day"
-      ? anchor
+      ? formatPlannerDate(anchor)
       : period === "week"
-        ? `${periodAnchor("week", anchor)} – ${moveDay(periodAnchor("week", anchor), 6)}`
-        : period === "month"
-          ? `${anchor.slice(0, 4)}년 ${Number(anchor.slice(5, 7))}월`
-          : `${anchor.slice(0, 4)}년`;
+        ? `${formatPlannerDate(periodAnchor("week", anchor))} – ${formatPlannerDate(moveDay(periodAnchor("week", anchor), 6))}`
+        : formatPlannerDate(anchor, period);
   const scopeStart = chosen?.startAt ?? first?.startAt ?? 0;
   const scopeEnd = chosen?.endAt ?? last?.endAt ?? 0;
   const scopeLabel = chosen ? bucketRangeLabel(chosen, period) : label;
@@ -329,7 +327,7 @@ function FocusSessionDetail({
       <span className={s.caption}>이번 집중 전체</span>
       <strong className={s.detailTime}>{focusDuration(session.elapsedMs)}</strong>
       <p className={s.quiet}>
-        {new Date(session.startedAt).toLocaleDateString()} · {clockLabel(session.startedAt)}–
+        {formatPlannerDate(localDay(new Date(session.startedAt)))} · {clockLabel(session.startedAt)}–
         {clockLabel(session.endedAt)}
       </p>
       <h2 className={s.headingText}>{session.title}</h2>

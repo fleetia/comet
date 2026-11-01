@@ -20,6 +20,7 @@ import {
   dayDate,
   deviceTimeZone,
   eventsOn,
+  formatPlannerDate,
   inPeriod,
   moveDay,
   movePeriod,
@@ -84,7 +85,7 @@ function planScopeLabel(period: string, day: string): string {
   }
   const names: Record<string, string> = { week: "주간", month: "월간", year: "연간" };
   const name = names[period] ?? "기간";
-  return `${name} 계획 · ${periodAnchor(period, day)}–${moveDay(movePeriod(day, period, 1), -1)}`;
+  return `${name} 계획 · ${formatPlannerDate(periodAnchor(period, day))} – ${formatPlannerDate(moveDay(movePeriod(day, period, 1), -1))}`;
 }
 
 export type PlannerToolTab = "today" | "plans" | "templates";
@@ -668,8 +669,8 @@ export function Planner({
                   <span className={s.caption}>기기 시간대 · {deviceTimeZone()}</span>
                   <div className={s.spacer} />
                   <span className={s.caption}>
-                    선택일 {day} · 할 일 {chosen.length}개 · 완료 {chosen.length - remaining.length}
-                    개
+                    선택일 {formatPlannerDate(day)} · 할 일 {chosen.length}개 · 완료{" "}
+                    {chosen.length - remaining.length}개
                   </span>
                 </div>
                 <div className={embedded ? s.embeddedContent : s.split}>
@@ -795,13 +796,13 @@ export function Planner({
       <footer className={embedded && tab === "today" ? s.visuallyHidden : s.footer}>
         {tab === "today"
           ? embedded || allTasks
-            ? `모든 날짜와 날짜 없는 할 일을 함께 봅니다. 새 할 일의 계획일은 선택일 ${day}입니다.`
-            : `선택일 ${day}에 계획한 일을 모아 봅니다.`
+            ? `모든 날짜와 날짜 없는 할 일을 함께 봐요. 새 할 일의 계획일은 선택일 ${formatPlannerDate(day)}이에요.`
+            : `선택일 ${formatPlannerDate(day)}에 계획한 일을 모아 봐요.`
           : tab === "plans"
-            ? "계획 기간은 목표를 묶는 기준입니다. 오늘에 넣어도 기한이나 반복 규칙은 바뀌지 않습니다."
+            ? "계획 기간은 목표를 묶는 기준이에요. 오늘에 넣어도 기한이나 반복 규칙은 바뀌지 않아요."
             : tab === "calendar"
-              ? "읽기 연결 · 외부 일정은 원본 캘린더에서 관리합니다."
-              : "템플릿은 새 할 일을 만듭니다. 기존 항목의 제목과 반복은 바꾸지 않습니다."}
+              ? "읽기 연결 · 외부 일정은 원본 캘린더에서 관리해요."
+              : "템플릿은 새 할 일을 만들어요. 기존 항목의 제목과 반복은 바꾸지 않아요."}
       </footer>
       {editing && (
         <TodoEditor
@@ -829,7 +830,7 @@ export function Planner({
             if (!todo || JSON.stringify(latest) !== JSON.stringify(editing.item)) {
               setFailure({
                 message:
-                  "이 항목이 다른 곳에서 변경되었습니다. 최신 내용을 다시 불러와 확인해 주세요.",
+                  "이 항목이 다른 곳에서 변경됐어요. 최신 내용을 다시 불러와 확인해 주세요.",
                 saving: false,
               });
               return Promise.resolve(false);

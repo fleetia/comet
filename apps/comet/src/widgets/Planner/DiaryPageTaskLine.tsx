@@ -90,9 +90,9 @@ export function DiaryPageTaskLine({
               disabled={busy || saving}
               onClick={onRemove}
               aria-label={`${text(item.title)} 페이지에서 빼기`}
-              title="할 일은 남고 이 페이지의 연결만 지웁니다."
+              title="할 일은 남고 이 페이지의 연결만 지워요."
             >
-              연결 빼기
+              페이지에서 빼기
             </Button>
           )}
         </div>

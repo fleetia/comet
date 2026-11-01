@@ -62,7 +62,7 @@ export function CharacterDialoguePanel({ editor }: { editor: CharacterEditorStat
             />
             <div className={e.sectionBoundary}>
               <Lines
-                title="자동 수다"
+                title="자동 잡담"
                 lines={definition.idleLines}
                 limit={64}
                 expressions={expressionKeys}
@@ -94,7 +94,7 @@ export function CharacterDialoguePanel({ editor }: { editor: CharacterEditorStat
               />
             </div>
             <p className={s.small}>
-              말하는 간격·가끔 자리 비우기·AI 생성 허용은 자동 대화에서 정해요. 원문과 줄바꿈은
+              말하는 간격·가끔 자리 비우기·AI 생성 허용은 자동 잡담에서 정해요. 원문과 줄바꿈은
               그대로 저장해요.
             </p>
           </fieldset>
