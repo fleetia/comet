@@ -59,7 +59,7 @@ export const BadgeList: Story = {
         <Icon name="memory" size={20} />
       </RecordSampleTile>
     ),
-    badges: ["인사 5줄", "자동 수다 13줄", "떠날 때 3줄", "돌아올 때 3줄"],
+    badges: ["인사 5줄", "자동 잡담 13줄", "떠날 때 3줄", "돌아올 때 3줄"],
   },
 };
 export const AvatarAndCount: Story = {

@@ -72,7 +72,7 @@ export const Disabled: Story = {
   args: {
     actions: [
       { id: "open", label: "원문 열기", disabled: true },
-      { id: "remove", label: "연결 해제", destructive: true },
+      { id: "remove", label: "연결 끊기", destructive: true },
     ],
   },
 };
