@@ -244,7 +244,11 @@ pub(crate) struct DesktopState {
     layout: Layout,
 }
 
-type WorkAreas = Vec<(Option<String>, Rect)>;
+#[derive(Clone, Debug, Default, PartialEq)]
+struct WorkAreas {
+    monitors: Vec<(Option<String>, Rect)>,
+    primary: Option<(Option<String>, Point)>,
+}
 
 /// Native window bookkeeping that never enters the database.
 #[derive(Default)]
@@ -825,7 +829,13 @@ fn selected_monitor_area(
     primary: Rect,
 ) -> Rect {
     let Some(name) = name else {
-        return primary;
+        return origin
+            .and_then(|origin| {
+                monitors
+                    .iter()
+                    .find(|(id, point, _)| id.is_none() && point == origin)
+            })
+            .map_or(primary, |(_, _, area)| *area);
     };
     monitors
         .iter()
@@ -1392,12 +1402,17 @@ pub(crate) fn drag_epoch(app: &tauri::AppHandle) -> u64 {
 }
 
 fn screen_layout(app: &tauri::AppHandle) -> Result<WorkAreas, String> {
-    Ok(app
+    let monitors = app
         .available_monitors()
         .map_err(|error| error.to_string())?
         .into_iter()
         .map(|monitor| (monitor.name().cloned(), area_of(&monitor)))
-        .collect())
+        .collect();
+    let primary = app
+        .primary_monitor()
+        .map_err(|error| error.to_string())?
+        .map(|monitor| (monitor.name().cloned(), monitor_origin(&monitor)));
+    Ok(WorkAreas { monitors, primary })
 }
 
 pub(crate) fn screen_unchanged(app: &tauri::AppHandle) -> bool {
@@ -1999,6 +2014,23 @@ mod tests {
         width: 1440.0,
         height: 875.0,
     };
+
+    #[test]
+    fn screen_layout_changes_when_only_primary_monitor_changes() {
+        let first = WorkAreas {
+            monitors: vec![
+                (Some("display".into()), AREA),
+                (Some("other".into()), Rect { x: 1440.0, ..AREA }),
+                (Some("display".into()), Rect { x: 2880.0, ..AREA }),
+            ],
+            primary: Some((Some("display".into()), Point { x: 0.0, y: 0.0 })),
+        };
+        let mut changed = first.clone();
+        changed.primary = Some((Some("other".into()), Point { x: 1440.0, y: 0.0 }));
+        assert_ne!(first, changed);
+        changed.primary = Some((Some("display".into()), Point { x: 2880.0, y: 0.0 }));
+        assert_ne!(first, changed);
+    }
 
     #[test]
     fn desktop_layout_has_an_independent_revision_and_preserves_other_preferences() {
@@ -2834,6 +2866,32 @@ mod tests {
             selected_monitor_area(&monitors, Some("missing"), Some(&saved), AREA),
             AREA
         );
+    }
+
+    #[test]
+    fn unnamed_monitor_uses_its_exact_saved_origin() {
+        let external = Rect {
+            x: 1440.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let origin = Point { x: 1440.0, y: 0.0 };
+        let monitors = vec![
+            (Some("primary".into()), Point { x: 0.0, y: 0.0 }, AREA),
+            (None, origin.clone(), external),
+            (Some("named".into()), Point { x: 1441.0, y: 0.0 }, external),
+        ];
+        assert_eq!(
+            selected_monitor_area(&monitors, None, Some(&origin), AREA),
+            external
+        );
+        let missing = Point { x: 1441.0, y: 0.0 };
+        assert_eq!(
+            selected_monitor_area(&monitors, None, Some(&missing), AREA),
+            AREA
+        );
+        assert_eq!(selected_monitor_area(&monitors, None, None, AREA), AREA);
     }
 
     #[test]

@@ -25,6 +25,7 @@ pub(crate) struct Edge {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Geometry {
     pub monitors: Vec<Rect>,
+    pub monitor_boundaries: Option<Vec<Rect>>,
     pub edges: Vec<Edge>,
     pub characters: Vec<crate::characters::collision::Collider>,
     pub external_windows_available: bool,
@@ -148,47 +149,65 @@ fn quartz_visible_frame(frame: Rect, primary_top: f64) -> Rect {
 }
 
 #[cfg(any(target_os = "macos", test))]
-fn preserve_monitor_seams(screens: &[(Rect, Rect)]) -> Vec<Rect> {
-    screens
-        .iter()
-        .enumerate()
-        .map(|(index, &(frame, visible))| {
-            let (mut left, mut top) = (visible.x, visible.y);
-            let (mut right, mut bottom) = (visible.x + visible.width, visible.y + visible.height);
-            for (other_index, &(other, _)) in screens.iter().enumerate() {
-                if index == other_index {
-                    continue;
+fn monitor_boundary_areas(screens: &[(Rect, Rect)]) -> Vec<Rect> {
+    let mut areas: Vec<_> = screens.iter().map(|&(_, visible)| visible).collect();
+    for (index, &(frame, visible)) in screens.iter().enumerate() {
+        for (other_index, &(other, _)) in screens.iter().enumerate() {
+            if index == other_index {
+                continue;
+            }
+            let left = frame.x.max(other.x).max(visible.x);
+            let right = (frame.x + frame.width)
+                .min(other.x + other.width)
+                .min(visible.x + visible.width);
+            let top = frame.y.max(other.y).max(visible.y);
+            let bottom = (frame.y + frame.height)
+                .min(other.y + other.height)
+                .min(visible.y + visible.height);
+            if left < right {
+                if frame.y == other.y + other.height && frame.y < visible.y {
+                    areas.push(Rect {
+                        x: left,
+                        y: frame.y,
+                        width: right - left,
+                        height: visible.y - frame.y,
+                    });
                 }
-                if frame.x < other.x + other.width && other.x < frame.x + frame.width {
-                    if frame.y == other.y + other.height {
-                        top = frame.y;
-                    }
-                    if frame.y + frame.height == other.y {
-                        bottom = frame.y + frame.height;
-                    }
-                }
-                if frame.y < other.y + other.height && other.y < frame.y + frame.height {
-                    if frame.x == other.x + other.width {
-                        left = frame.x;
-                    }
-                    if frame.x + frame.width == other.x {
-                        right = frame.x + frame.width;
-                    }
+                if frame.y + frame.height == other.y && visible.y + visible.height < other.y {
+                    areas.push(Rect {
+                        x: left,
+                        y: visible.y + visible.height,
+                        width: right - left,
+                        height: other.y - visible.y - visible.height,
+                    });
                 }
             }
-            Rect {
-                x: left,
-                y: top,
-                width: right - left,
-                height: bottom - top,
+            if top < bottom {
+                if frame.x == other.x + other.width && frame.x < visible.x {
+                    areas.push(Rect {
+                        x: frame.x,
+                        y: top,
+                        width: visible.x - frame.x,
+                        height: bottom - top,
+                    });
+                }
+                if frame.x + frame.width == other.x && visible.x + visible.width < other.x {
+                    areas.push(Rect {
+                        x: visible.x + visible.width,
+                        y: top,
+                        width: other.x - visible.x - visible.width,
+                        height: bottom - top,
+                    });
+                }
             }
-        })
-        .collect()
+        }
+    }
+    areas
 }
 
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn capture() -> Result<Geometry, String> {
-    let (monitors, windows, fullscreen_monitors) = platform::capture()?;
+    let (monitors, windows, fullscreen_monitors, monitor_boundaries) = platform::capture()?;
     let fullscreen = fullscreen_monitors.iter().any(|area| {
         windows
             .iter()
@@ -205,14 +224,25 @@ pub(crate) fn capture() -> Result<Geometry, String> {
                     && w.y + w.height >= area.y + area.height
             })
     });
-    Ok(from_snapshot(monitors, windows, fullscreen))
+    Ok(from_snapshot(
+        monitors,
+        windows,
+        fullscreen,
+        monitor_boundaries,
+    ))
 }
 
-fn from_snapshot(monitors: Vec<Rect>, windows: Vec<Rect>, fullscreen: bool) -> Geometry {
-    let mut edge_list = monitor_edges(&monitors);
+fn from_snapshot(
+    monitors: Vec<Rect>,
+    windows: Vec<Rect>,
+    fullscreen: bool,
+    monitor_boundaries: Option<Vec<Rect>>,
+) -> Geometry {
+    let mut edge_list = monitor_edges(monitor_boundaries.as_deref().unwrap_or(&monitors));
     edge_list.extend(visible_edges(&windows));
     Geometry {
         monitors,
+        monitor_boundaries,
         edges: edge_list,
         characters: Vec::new(),
         external_windows_available: true,
@@ -235,7 +265,7 @@ pub(crate) fn primary_button_pressed() -> Option<bool> {
 }
 
 #[cfg(not(target_os = "linux"))]
-type GeometrySnapshot = (Vec<Rect>, Vec<Rect>, Vec<Rect>);
+type GeometrySnapshot = (Vec<Rect>, Vec<Rect>, Vec<Rect>, Option<Vec<Rect>>);
 
 // macOS coordinates remain Quartz points; Windows/X11 coordinates remain physical pixels.
 // Conversion to a Tauri window position is intentionally kept in the actor adapter.
@@ -334,7 +364,7 @@ mod platform {
                 .collect();
             let screens: *mut AnyObject = msg_send![class!(NSScreen), screens];
             let screen_count: usize = msg_send![screens, count];
-            let monitors = if screen_count > 0 {
+            let (monitors, monitor_boundaries) = if screen_count > 0 {
                 let primary: *mut AnyObject = msg_send![screens, objectAtIndex: 0_usize];
                 let primary_frame: NSRect = msg_send![primary, frame];
                 let primary_top = primary_frame.origin.y + primary_frame.size.height;
@@ -357,9 +387,12 @@ mod platform {
                         (convert(frame), convert(visible))
                     })
                     .collect();
-                super::preserve_monitor_seams(&frames)
+                (
+                    frames.iter().map(|&(_, visible)| visible).collect(),
+                    Some(super::monitor_boundary_areas(&frames)),
+                )
             } else {
-                fullscreen_monitors.clone()
+                (fullscreen_monitors.clone(), None)
             };
             let list = CGWindowListCopyWindowInfo(1 | 16, 0);
             if list.is_null() {
@@ -386,7 +419,7 @@ mod platform {
                 }
             }
             CFRelease(list);
-            Ok((monitors, windows, fullscreen_monitors))
+            Ok((monitors, windows, fullscreen_monitors, monitor_boundaries))
         }
     }
 }
@@ -508,7 +541,7 @@ mod platform {
                 }
                 window = GetWindow(window, GW_HWNDNEXT);
             }
-            Ok((monitors.clone(), windows, monitors))
+            Ok((monitors.clone(), windows, monitors, None))
         }
     }
 }
@@ -533,7 +566,7 @@ mod tests {
     use super::*;
     #[test]
     fn vertical_monitor_seam_stays_open_and_outer_dock_is_excluded() {
-        let monitors = preserve_monitor_seams(&[
+        let screens = [
             (
                 Rect {
                     x: 0.0,
@@ -562,35 +595,21 @@ mod tests {
                     height: 725.0,
                 },
             ),
-        ]);
-        assert_eq!(
-            monitors[0],
-            Rect {
-                x: 0.0,
-                y: 25.0,
-                width: 1000.0,
-                height: 875.0
-            }
-        );
-        assert_eq!(
-            monitors[1],
-            Rect {
-                x: 200.0,
-                y: 900.0,
-                width: 600.0,
-                height: 750.0
-            }
-        );
-        let edges = monitor_edges(&monitors);
+        ];
+        let edges = monitor_edges(&monitor_boundary_areas(&screens));
         assert!(!edges
             .iter()
             .any(|e| e.horizontal && e.axis == 900.0 && e.from < 800.0 && e.to > 200.0));
+        assert!(!edges.iter().any(|e| e.horizontal
+            && (e.axis == 875.0 || e.axis == 925.0)
+            && e.from < 800.0
+            && e.to > 200.0));
         assert!(edges
             .iter()
-            .any(|e| e.horizontal && e.axis == 900.0 && e.from == 0.0 && e.to == 200.0));
+            .any(|e| e.horizontal && e.axis == 875.0 && e.from == 0.0 && e.to == 200.0));
         assert!(edges
             .iter()
-            .any(|e| e.horizontal && e.axis == 900.0 && e.from == 800.0 && e.to == 1000.0));
+            .any(|e| e.horizontal && e.axis == 875.0 && e.from == 800.0 && e.to == 1000.0));
         assert!(edges
             .iter()
             .any(|e| e.horizontal && e.axis == 1650.0 && e.from == 200.0 && e.to == 800.0));
@@ -598,7 +617,7 @@ mod tests {
 
     #[test]
     fn horizontal_monitor_seam_stays_open_and_outer_dock_is_excluded() {
-        let monitors = preserve_monitor_seams(&[
+        let screens = [
             (
                 Rect {
                     x: 0.0,
@@ -627,38 +646,148 @@ mod tests {
                     height: 600.0,
                 },
             ),
-        ]);
-        assert_eq!(
-            monitors[0],
-            Rect {
-                x: 0.0,
-                y: 25.0,
-                width: 900.0,
-                height: 975.0
-            }
-        );
-        assert_eq!(
-            monitors[1],
-            Rect {
-                x: 900.0,
-                y: 200.0,
-                width: 750.0,
-                height: 600.0
-            }
-        );
-        let edges = monitor_edges(&monitors);
+        ];
+        let edges = monitor_edges(&monitor_boundary_areas(&screens));
         assert!(!edges
             .iter()
             .any(|e| !e.horizontal && e.axis == 900.0 && e.from < 800.0 && e.to > 200.0));
+        assert!(!edges.iter().any(|e| !e.horizontal
+            && (e.axis == 875.0 || e.axis == 925.0)
+            && e.from < 800.0
+            && e.to > 200.0));
         assert!(edges
             .iter()
-            .any(|e| !e.horizontal && e.axis == 900.0 && e.from == 25.0 && e.to == 200.0));
+            .any(|e| !e.horizontal && e.axis == 875.0 && e.from == 25.0 && e.to == 200.0));
         assert!(edges
             .iter()
-            .any(|e| !e.horizontal && e.axis == 900.0 && e.from == 800.0 && e.to == 1000.0));
+            .any(|e| !e.horizontal && e.axis == 875.0 && e.from == 800.0 && e.to == 1000.0));
         assert!(edges
             .iter()
             .any(|e| !e.horizontal && e.axis == 1650.0 && e.from == 200.0 && e.to == 800.0));
+    }
+
+    #[test]
+    fn horizontal_seam_does_not_extend_into_menu_bar() {
+        let screens = [
+            (
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 900.0,
+                    height: 1000.0,
+                },
+                Rect {
+                    x: 0.0,
+                    y: 25.0,
+                    width: 875.0,
+                    height: 975.0,
+                },
+            ),
+            (
+                Rect {
+                    x: 900.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 1000.0,
+                },
+                Rect {
+                    x: 900.0,
+                    y: 25.0,
+                    width: 800.0,
+                    height: 975.0,
+                },
+            ),
+        ];
+        let areas = monitor_boundary_areas(&screens);
+        assert!(!areas.iter().any(|area| area.contains(887.0, 10.0)));
+        assert!(areas.iter().any(|area| area.contains(887.0, 100.0)));
+        let edges = monitor_edges(&areas);
+        assert!(edges.iter().any(|edge| edge.horizontal
+            && edge.axis == 25.0
+            && edge.from <= 875.0
+            && edge.to >= 900.0));
+        assert!(!edges.iter().any(|edge| !edge.horizontal
+            && (edge.axis == 875.0 || edge.axis == 900.0)
+            && edge.from < 1000.0
+            && edge.to > 25.0));
+    }
+
+    #[test]
+    fn seam_outside_visible_range_does_not_add_an_area() {
+        let screens = [
+            (
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 900.0,
+                    height: 1000.0,
+                },
+                Rect {
+                    x: 0.0,
+                    y: 25.0,
+                    width: 875.0,
+                    height: 975.0,
+                },
+            ),
+            (
+                Rect {
+                    x: 900.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 20.0,
+                },
+                Rect {
+                    x: 900.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 20.0,
+                },
+            ),
+        ];
+        assert_eq!(monitor_boundary_areas(&screens).len(), 2);
+    }
+
+    #[test]
+    fn partial_seam_above_screen_opens_only_the_shared_range() {
+        let screens = [
+            (
+                Rect {
+                    x: -200.0,
+                    y: -300.0,
+                    width: 400.0,
+                    height: 300.0,
+                },
+                Rect {
+                    x: -200.0,
+                    y: -300.0,
+                    width: 400.0,
+                    height: 300.0,
+                },
+            ),
+            (
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 600.0,
+                },
+                Rect {
+                    x: 0.0,
+                    y: 25.0,
+                    width: 800.0,
+                    height: 575.0,
+                },
+            ),
+        ];
+        let edges = monitor_edges(&monitor_boundary_areas(&screens));
+        assert!(!edges.iter().any(|edge| edge.horizontal
+            && (edge.axis == 0.0 || edge.axis == 25.0)
+            && edge.from < 200.0
+            && edge.to > 0.0));
+        assert!(edges.iter().any(|edge| edge.horizontal
+            && edge.axis == 25.0
+            && edge.from == 200.0
+            && edge.to == 800.0));
     }
 
     #[test]

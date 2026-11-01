@@ -488,6 +488,7 @@ impl Session {
             monitors,
             windows.into_iter().map(|(rect, _)| rect).collect(),
             fullscreen,
+            None,
         ))
     }
 }
@@ -626,10 +627,10 @@ mod tests {
             width: 1920.0,
             height: 1080.0,
         };
-        let maximized = from_snapshot(vec![area], vec![area], false);
+        let maximized = from_snapshot(vec![area], vec![area], false, None);
         assert!(!maximized.fullscreen);
         assert!(maximized.external_windows_available);
-        assert!(from_snapshot(vec![area], vec![area], true).fullscreen);
+        assert!(from_snapshot(vec![area], vec![area], true, None).fullscreen);
         assert!(foreground_fullscreen(&[area], &[(area, true)]));
         assert!(!foreground_fullscreen(
             &[area],
