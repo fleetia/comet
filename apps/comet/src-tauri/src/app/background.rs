@@ -47,6 +47,9 @@ pub(crate) async fn background_loop(
             crate::desktop::menu::refresh(&app);
         }
         let quiet_changed = super::quiet_hours::reconcile(&state).unwrap_or(false);
+        if quiet_changed {
+            crate::desktop::menu::refresh(&app);
+        }
         let animation_changed =
             crate::characters::animation_states::refresh(&app, &state).unwrap_or(false);
         let _ = crate::characters::life::tick(&app, &state);

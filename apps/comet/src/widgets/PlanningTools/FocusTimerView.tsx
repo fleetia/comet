@@ -99,6 +99,7 @@ type Props = FocusTimerWidgetProps & {
   pickerOpen?: boolean;
   onCloseWidget?: () => void;
   busy?: boolean;
+  lockButtonsOnly?: boolean;
   onLongRest?: () => void;
   longRestLabel?: string;
   nextTitle?: string;
@@ -146,6 +147,7 @@ export function FocusTimerView({
   className,
   onCloseWidget,
   busy,
+  lockButtonsOnly = false,
   onLongRest,
   longRestLabel,
   nextTitle,
@@ -164,7 +166,9 @@ export function FocusTimerView({
     const descriptions = {
       ready: task ? `${task} · 시작 전` : "시작할 준비가 됐어요",
       running: task,
-      complete: hasLinkedTodo ? "할 일을 완료로 표시할 수 있어요" : "메모를 남기거나 쉬어 갈 수 있어요",
+      complete: hasLinkedTodo
+        ? "할 일을 완료로 표시할 수 있어요"
+        : "메모를 남기거나 쉬어 갈 수 있어요",
       rest: timeDescription,
       "rest-complete": "다시 시작할까요?",
     };
@@ -179,7 +183,15 @@ export function FocusTimerView({
           layout="flow"
           className={s.compactTimer}
           disabled={resizing || busy}
-          aria-label={[titles[phase], phase === "ready" ? null : task, descriptions[phase] !== task ? descriptions[phase] : null, time, "펼쳐 보기"].filter(Boolean).join(" · ")}
+          aria-label={[
+            titles[phase],
+            phase === "ready" ? null : task,
+            descriptions[phase] !== task ? descriptions[phase] : null,
+            time,
+            "펼쳐 보기",
+          ]
+            .filter(Boolean)
+            .join(" · ")}
           aria-expanded={false}
           onClick={onExpand}
         />
@@ -220,7 +232,7 @@ export function FocusTimerView({
           )}
         </header>
       )}
-      <fieldset className={s.controlFields} disabled={busy}>
+      <fieldset className={s.controlFields} disabled={busy && !lockButtonsOnly}>
         {!pickerOpen && (
           <>
             {phase === "ready" && (
@@ -259,11 +271,21 @@ export function FocusTimerView({
                   }
                 />
                 {setup}
-                <Button className={s.primaryAction} disabled={startDisabled} onClick={onStart}>
+                <Button
+                  className={s.primaryAction}
+                  disabled={startDisabled || busy}
+                  onClick={onStart}
+                >
                   집중 시작
                 </Button>
-                {onStartNext && <Button variant="ghost" onClick={onStartNext}>{nextTitle} 집중 시작</Button>}
-                {hasLinkedTodo && <p className={s.setupCaption}>끝나면 할 일을 완료할지 물어봐요</p>}
+                {onStartNext && (
+                  <Button variant="ghost" disabled={busy} onClick={onStartNext}>
+                    {nextTitle} 집중 시작
+                  </Button>
+                )}
+                {hasLinkedTodo && (
+                  <p className={s.setupCaption}>끝나면 할 일을 완료할지 물어봐요</p>
+                )}
               </>
             )}
             {(phase === "running" || phase === "rest") && (
@@ -284,13 +306,18 @@ export function FocusTimerView({
                 />
                 <div className={s.timerActions}>
                   {phase === "running" ? (
-                    <Button className={s.primaryAction} onClick={onPause}>
+                    <Button className={s.primaryAction} disabled={busy} onClick={onPause}>
                       {paused ? "다시 시작" : "일시정지"}
                     </Button>
                   ) : (
                     <>
                       {paused && (
-                        <Button className={s.linkAction} variant="ghost" onClick={onPause}>
+                        <Button
+                          className={s.linkAction}
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={onPause}
+                        >
                           다시 시작
                         </Button>
                       )}
@@ -299,6 +326,7 @@ export function FocusTimerView({
                         variant="ghost"
                         trailingIcon={<Icon name="arrowright" size={14} />}
                         onClick={onSkipRest}
+                        disabled={busy}
                       >
                         휴식 건너뛰기
                       </Button>
@@ -308,6 +336,7 @@ export function FocusTimerView({
                     className={phase === "rest" ? s.linkAction : s.stopAction}
                     variant="ghost"
                     onClick={onStop}
+                    disabled={busy}
                     trailingIcon={
                       phase === "rest" ? <Icon name="arrowright" size={14} /> : undefined
                     }
@@ -343,6 +372,7 @@ export function FocusTimerView({
                         className={s.restSummary}
                         variant="ghost"
                         onClick={onRest}
+                        disabled={busy}
                         leadingIcon={<Icon name="moon" size={15} />}
                       >
                         {restLabel}
@@ -353,6 +383,7 @@ export function FocusTimerView({
                         className={s.restSummary}
                         variant="ghost"
                         onClick={onLongRest}
+                        disabled={busy}
                         leadingIcon={<Icon name="moon" size={15} />}
                       >
                         {longRestLabel}
@@ -363,6 +394,7 @@ export function FocusTimerView({
                         className={s.linkAction}
                         variant="ghost"
                         onClick={onContinue}
+                        disabled={busy}
                         trailingIcon={<Icon name="arrowright" size={14} />}
                       >
                         계속 집중
@@ -371,6 +403,7 @@ export function FocusTimerView({
                         className={s.linkAction}
                         variant="ghost"
                         onClick={onStop}
+                        disabled={busy}
                         trailingIcon={<Icon name="arrowright" size={14} />}
                       >
                         오늘은 여기까지
@@ -380,10 +413,19 @@ export function FocusTimerView({
                 ) : (
                   <>
                     {summary}
-                    <Button className={s.primaryAction} disabled={startDisabled} onClick={onStart}>
+                    <Button
+                      className={s.primaryAction}
+                      disabled={startDisabled || busy}
+                      onClick={onStart}
+                    >
                       {nextTitle ? `${nextTitle} 집중 시작` : `${duration}분 다시 시작`}
                     </Button>
-                    <Button className={s.stopAction} variant="ghost" onClick={onStop}>
+                    <Button
+                      className={s.stopAction}
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={onStop}
+                    >
                       오늘은 여기까지
                     </Button>
                   </>

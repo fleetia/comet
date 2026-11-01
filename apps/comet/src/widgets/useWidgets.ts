@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { command, errorText, isDesktop } from "../hooks/useSnapshot";
 import catalog from "../../widgets/catalog.json";
-import type { WidgetSnapshot } from "./types";
+import type { WidgetSnapshot, WidgetView } from "./types";
 import { getWidgetPreview } from "./previewWidgets";
 import { getPlannerPreview } from "./Planner/previewPlanner";
 
@@ -34,24 +34,42 @@ export function useWidgets(): {
     }
     let active = true;
     let receivedEvent = false;
-    let unlisten: (() => void) | undefined;
+    let subscribed = false;
+    let unlisteners: (() => void)[] = [];
+    const pending = new Map<string, WidgetView>();
+    const merge = (current: WidgetSnapshot, widget: WidgetView): WidgetSnapshot => ({
+      ...current,
+      widgets: current.widgets.map((entry) =>
+        entry.id === widget.id && entry.revision <= widget.revision ? widget : entry,
+      ),
+    });
     setError(null);
-    void listen<WidgetSnapshot>("widgets-state", (event) => {
-      receivedEvent = true;
+    void Promise.all([listen<WidgetSnapshot>("widgets-state", (event) => {
+      if (subscribed) receivedEvent = true;
+      pending.clear();
       if (active) {
         setSnapshot(event.payload);
         setError(null);
       }
-    })
-      .then(async (cleanup) => {
-        if (!active) {
-          cleanup();
-          return;
-        }
-        unlisten = cleanup;
+    }).then((cleanup) => {
+      if (active) unlisteners.push(cleanup);
+      else cleanup();
+    }), listen<WidgetView>("widget-state", (event) => {
+      if (!active) return;
+      const previous = pending.get(event.payload.id);
+      if (!previous || previous.revision <= event.payload.revision) pending.set(event.payload.id, event.payload);
+      setSnapshot((current) => current ? merge(current, event.payload) : current);
+      setError(null);
+    }).then((cleanup) => {
+      if (active) unlisteners.push(cleanup);
+      else cleanup();
+    })])
+      .then(async () => {
+        if (!active) return;
+        subscribed = true;
         const initial = await command<WidgetSnapshot>("get_widgets");
         if (active && !receivedEvent) {
-          setSnapshot(initial);
+          setSnapshot([...pending.values()].reduce(merge, initial));
         }
       })
       .catch((cause: unknown) => {
@@ -61,7 +79,7 @@ export function useWidgets(): {
       });
     return () => {
       active = false;
-      unlisten?.();
+      unlisteners.forEach((stop) => stop());
     };
   }, [revision]);
   return { snapshot, error, reload: () => setRevision((value) => value + 1) };

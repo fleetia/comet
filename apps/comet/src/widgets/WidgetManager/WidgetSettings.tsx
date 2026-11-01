@@ -41,6 +41,7 @@ export function WidgetSettings({
   onBusyChange,
   related,
   disabled,
+  alertsTarget,
 }: {
   widget: WidgetView;
   widgets?: WidgetView[];
@@ -53,6 +54,7 @@ export function WidgetSettings({
   onBusyChange?: (id: string, busy: boolean) => void;
   related?: ReactNode;
   disabled?: boolean;
+  alertsTarget?: number;
 }): ReactElement {
   const [connectionBusy, setConnectionBusy] = useState(false);
   useEffect(() => {
@@ -81,6 +83,7 @@ export function WidgetSettings({
                 active={active}
                 onDirtyChange={setConnectionDirty}
                 onBusyChange={setConnectionBusy}
+                alertsTarget={alertsTarget}
               />
             )}
             {["weather", "music"].includes(widget.kind) && (

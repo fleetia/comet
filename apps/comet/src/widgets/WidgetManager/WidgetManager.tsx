@@ -82,6 +82,7 @@ export function WidgetManager({
   const [inspectorSlot, setInspectorSlot] = useState<HTMLDivElement | null>(null);
   const [connectingCalendarId, setConnectingCalendarId] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
+  const [alertsTarget, setAlertsTarget] = useState(0);
   const targetRevision = useRef(0);
   const officialView = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -93,7 +94,8 @@ export function WidgetManager({
       if (!active || !kind) return;
       targetRevision.current += 1;
       setDetailOpen(true);
-      setFocused(kind);
+      if (kind === "calendar-alerts") setAlertsTarget((value) => value + 1);
+      setFocused(kind === "calendar-alerts" ? "calendar" : kind);
     }
     void listen<string>("planner-settings-target", (event) => choose(event.payload))
       .then(async (cleanup) => {
@@ -701,6 +703,7 @@ export function WidgetManager({
                           <div className={styles.settings}>
                             <WidgetSettings
                               widget={item}
+                              alertsTarget={alertsTarget}
                               widgets={widgets}
                               onOpenRelated={focusWidget}
                               sideContainer={

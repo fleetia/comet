@@ -101,3 +101,36 @@ it("adopts remote changes only when there is no local draft", () => {
   rerender({ ...initial, body: "다른 창에서 저장됨", fontSize: 12 });
   expect(result.current.draft).toEqual({ body: "다른 창에서 저장됨", fontSize: 12 });
 });
+
+it("holds a draft during inspection and resumes the autosave after release", async () => {
+  const { result } = renderHook(() => useMemoDraft(initial));
+  act(() => result.current.edit({ body: "보존할 초안" }));
+  let first: ReturnType<typeof result.current.inspect> = null;
+  act(() => { first = result.current.inspect(); });
+  expect(first).toMatchObject({ dirty: true });
+  const firstToken = (first as { token: string } | null)?.token;
+  act(() => result.current.edit({ body: "잠긴 동안 입력" }));
+  await act(async () => {
+    expect(await result.current.flush()).toBe(false);
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  expect(command).not.toHaveBeenCalled();
+  expect(result.current.draft.body).toBe("보존할 초안");
+  act(() => result.current.release());
+  await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+  expect(command).toHaveBeenCalledWith("save_memo_note", expect.objectContaining({ body: "보존할 초안" }));
+  const second = result.current.inspect();
+  expect(second).toMatchObject({ dirty: false });
+  expect(second?.token).not.toBe(firstToken);
+});
+
+it("does not inspect while a save is in flight", async () => {
+  let finish: (() => void) | undefined;
+  vi.mocked(command).mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+  const { result } = renderHook(() => useMemoDraft(initial));
+  act(() => result.current.edit({ body: "저장 중" }));
+  let saving: Promise<boolean> | undefined;
+  act(() => { saving = result.current.flush(); });
+  expect(result.current.inspect()).toBeNull();
+  await act(async () => { finish?.(); await saving; });
+});

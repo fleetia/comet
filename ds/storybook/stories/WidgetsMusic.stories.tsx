@@ -1,5 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { MusicWidget } from "@comet/ui";
+import { fn } from "storybook/test";
+import { MusicTool } from "../../../apps/comet/src/widgets/MusicTool/MusicTool";
+import { getWidgetPreview } from "../../../apps/comet/src/widgets/previewWidgets";
+
+const music = getWidgetPreview().widgets.find((widget) => widget.kind === "music");
+if (!music) {
+  throw new Error("Music widget preview is missing");
+}
 
 const meta = {
   title: "UI/widgets/MusicWidget",
@@ -61,6 +69,7 @@ const meta = {
     onCollapse: {
       control: false,
     },
+    collapseLabel: { control: "text" },
     onDiscuss: {
       control: false,
       action: "곡 대화 초안 열기",
@@ -97,3 +106,17 @@ export const SharingOff: Story = { name: "대화 연결 꺼짐", args: { shareEn
 export const MissingAlbum: Story = { name: "앨범 정보 없음", args: { album: undefined } };
 export const ArtworkHidden: Story = { name: "앨범 아트 숨김", args: { showArtwork: false } };
 export const Busy: Story = { name: "요청 처리 중", args: { busy: true } };
+export const ToolWindow: Story = {
+  name: "음악 도구 창 · 닫기",
+  args: { collapseLabel: "닫기", onCollapse: fn() },
+};
+export const UnconfiguredToolWindow: Story = {
+  name: "음악 미설정 도구 창 · 닫기",
+  render: () => (
+    <MusicTool
+      widget={{ ...music, data: { configured: false } }}
+      collapseLabel="닫기"
+      onCollapse={fn()}
+    />
+  ),
+};

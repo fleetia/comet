@@ -198,6 +198,7 @@ fn reconcile(app: &tauri::AppHandle, target: Option<(&str, &str)>) -> Result<()>
             .transparent(true)
             .shadow(false)
             .always_on_top(true)
+            .accept_first_mouse(true)
             .skip_taskbar(true)
             .disable_drag_drop_handler()
             .maximizable(false)
@@ -333,7 +334,7 @@ fn reconcile(app: &tauri::AppHandle, target: Option<(&str, &str)>) -> Result<()>
                     let _ = window.destroy();
                     continue;
                 }
-                window.show().map_err(err)?;
+                crate::desktop::show_passive(app, &window)?;
             }
             if position(image).is_none() {
                 let _ = mutate(&state, &instance.id, false, |current| {

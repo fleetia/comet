@@ -11,6 +11,20 @@ fn database() -> Connection {
 }
 
 #[test]
+fn refresh_candidates_only_returns_due_information_and_calendar_rows() {
+    let db = database();
+    let music = instance(&db, "music");
+    let calendar = instance(&db, "calendar");
+    let music_data = json!({"configured":true,"status":"ready","nextRefreshAt":200,"observation":{"observedAt":123}});
+    let calendar_data = json!({"connections":[{"status":"ready","nextRefreshAt":300}],"events":[]});
+    db.execute("UPDATE widget_instances SET data=?1 WHERE id=?2", rusqlite::params![music_data.to_string(), music.id]).unwrap();
+    db.execute("UPDATE widget_instances SET data=?1 WHERE id=?2", rusqlite::params![calendar_data.to_string(), calendar.id]).unwrap();
+    assert!(storage::refresh_candidates(&db, 100).unwrap().is_empty());
+    assert_eq!(storage::refresh_candidates(&db, 200).unwrap(), vec![(music.id, music.revision, Some(123))]);
+    assert_eq!(storage::refresh_candidates(&db, 300).unwrap().len(), 2);
+}
+
+#[test]
 fn quiet_preserves_urgent_notice_and_focus_break_but_discards_ordinary_notice() {
     let db = database();
     for (id, kind, urgent) in [

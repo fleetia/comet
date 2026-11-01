@@ -26,6 +26,7 @@ export type LauncherAction =
   | { type: "guide" }
   | { type: "tutorial" }
   | { type: "openWidgetStack" }
+  | { type: "focusDesktopWidget"; label: string }
   | { type: "diary" }
   | { type: "editWidgetDesktop" }
   | { type: "generatedWidget"; id: string };
@@ -174,7 +175,7 @@ function widgetResult(
     };
   }
   const needsSetup = instance?.status === "setup";
-  const available = Boolean(instance) && !needsSetup;
+  const available = Boolean(instance) && (!needsSetup || entry.id === "clock" || entry.id === "weather");
   const toy = isDesktopToy(entry.id);
   return {
     id: `widget:${entry.id}`,
@@ -323,6 +324,31 @@ export function launcherResults(
     return todo ? [chat, todo] : [chat];
   }
   const candidates: { result: LauncherResult; rank: number }[] = [];
+  const focusRank = score(normalized, ["바탕화면 위젯으로 이동", "바탕화면 위젯", "위젯 포커스"]);
+  if (normalized && desktop && widgets) {
+    const targets: { label: string; name: string; aliases?: string[] }[] = [];
+    if (desktop.mode === "stack" && !desktop.stackHidden && desktop.order.length) {
+      targets.push({ label: "widget-stack", name: "모아두기" });
+    } else if (desktop.mode === "freeform") {
+      for (const id of desktop.order) {
+        const widget = widgets.widgets.find((item) => item.id === id);
+        if (widget) targets.push({ label: `widget-display-${id}`, name: widgets.catalog.find((entry) => entry.id === widget.kind)?.name ?? widget.kind, aliases: WIDGET_ALIASES[widget.kind] });
+      }
+    }
+    for (const widget of widgets.widgets.filter((item) => item.kind === "image")) {
+      for (const image of rows(record(widget.data).images).filter((item) => item.isOpen === true && typeof item.id === "string")) {
+        targets.push({ label: `widget-${widget.id}-image-${image.id}`, name: typeof image.name === "string" && image.name ? image.name : "이미지" });
+      }
+    }
+    for (const target of targets) {
+      const title = `이동: ${target.name}`;
+      const names = [target.name, ...(target.aliases ?? [])];
+      const rank = score(normalized, ["바탕화면 위젯으로 이동", title, ...names.flatMap((name) => [`${name}로 이동`, `${name}으로 이동`, `${name} 바탕화면 위젯으로 이동`])]);
+      if (rank >= 0) candidates.push({ rank, result: {
+        id: `focus-desktop:${target.label}`, title, detail: "바탕화면 위젯에 키보드 초점 맞추기", preview: "키보드로 위젯을 조작해요.", kind: "widget", action: { type: "focusDesktopWidget", label: target.label },
+      } });
+    }
+  }
   if (desktop?.mode === "stack" && desktop.stackHidden && desktop.order.length > 0) {
     const rank = score(normalized, ["모아두기", "모아두기 다시 표시"]);
     if (!normalized || rank >= 0) {
@@ -426,7 +452,7 @@ export function launcherResults(
   candidates.push(...travelResults(normalized, travels));
   const results = candidates
     .sort((a, b) => a.rank - b.rank)
-    .slice(0, 5)
+    .slice(0, focusRank === 0 ? undefined : 5)
     .map(({ result }) => result);
   if (normalized) {
     results.push(chatResult(normalized, snapshot));

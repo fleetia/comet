@@ -254,7 +254,7 @@ export function WidgetTool({
         break;
       case "music":
         content = (
-          <ConnectionTool widget={widget} onCollapse={() => void closeGuard.requestClose()} />
+          <ConnectionTool widget={widget} collapseLabel="닫기" onCollapse={() => void closeGuard.requestClose()} />
         );
         break;
       case "weather":

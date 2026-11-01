@@ -260,6 +260,27 @@ pub(crate) struct Runtime {
     /// Where the stack's anchor content (the capsule bar) sits inside the window while a
     /// bubble opens above or before it. The saved stack position always describes that content.
     stack_lead: Mutex<(f64, f64)>,
+    stack_reveal: Mutex<(u64, Option<String>)>,
+}
+
+pub(crate) fn request_stack_reveal(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
+    let runtime = app.state::<Runtime>();
+    let mut pending = lock(&runtime.stack_reveal)?;
+    pending.0 = pending.0.saturating_add(1);
+    pending.1 = Some(id.to_owned());
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn take_widget_stack_reveal(
+    window: tauri::WebviewWindow,
+    runtime: tauri::State<'_, Runtime>,
+) -> Result<Option<(u64, String)>, String> {
+    if window.label() != STACK {
+        return Err("모아두기 창에서만 열 수 있어요.".into());
+    }
+    let mut pending = lock(&runtime.stack_reveal)?;
+    Ok(pending.1.take().map(|id| (pending.0, id)))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1191,6 +1212,11 @@ fn remember_position(app: &tauri::AppHandle, window: &tauri::WebviewWindow) -> R
 }
 
 fn close(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
+    if label == STACK {
+        if let Some(runtime) = app.try_state::<Runtime>() {
+            lock(&runtime.stack_reveal)?.1 = None;
+        }
+    }
     if let Some(window) = app.get_webview_window(label) {
         window.destroy().map_err(|e| e.to_string())?;
     }
@@ -1397,12 +1423,14 @@ fn open_display(
         .shadow(false)
         .maximizable(false)
         .always_on_top(true)
+        .accept_first_mouse(true)
         .skip_taskbar(true)
         .focused(false)
         .visible(false)
         .build()
         .map_err(|e| e.to_string())?,
     };
+    crate::desktop::set_join_all_spaces(&window, true)?;
     #[cfg(target_os = "linux")]
     request_display_size(&window, size)?;
     window
@@ -1445,7 +1473,7 @@ fn open_display(
         }
     }
     place(app, &window, &point)?;
-    window.show().map_err(|e| e.to_string())?;
+    crate::desktop::show_passive(app, &window)?;
     if !was_open {
         track_display_cursor(app, &window, id);
     }
@@ -1501,6 +1529,7 @@ fn open_stack(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
         .transparent(true)
         .shadow(false)
         .always_on_top(true)
+        .accept_first_mouse(true)
         .skip_taskbar(true)
         .disable_drag_drop_handler()
         .maximizable(false)
@@ -1509,9 +1538,10 @@ fn open_stack(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?,
     };
+    crate::desktop::set_join_all_spaces(&window, true)?;
     let rect = window_rect(&window)?;
     position_stack(app, &window, &layout, (rect.width, rect.height))?;
-    window.show().map_err(|e| e.to_string())
+    crate::desktop::show_passive(app, &window)
 }
 
 /// Matches native windows to the layout. `reveal_stack` opens the stack window when it is closed.
@@ -1716,6 +1746,18 @@ pub(crate) fn editor_destroyed(app: &tauri::AppHandle) {
     });
 }
 
+fn is_tool_window(label: &str) -> bool {
+    label.strip_prefix("widget-").is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
+}
+
+fn accepts_tracked_move(label: &str, dragging: bool, marked: bool) -> bool {
+    (label == STACK
+        || label.starts_with(DISPLAY)
+        || (label.starts_with("widget-") && label.contains("-note-"))
+        || is_tool_window(label))
+        && accepts_drag_move(dragging, marked)
+}
+
 #[tauri::command]
 pub(crate) fn mark_widget_desktop_drag(window: tauri::WebviewWindow) {
     let label = window.label();
@@ -1723,6 +1765,7 @@ pub(crate) fn mark_widget_desktop_drag(window: tauri::WebviewWindow) {
         && !label.starts_with(DISPLAY)
         && !(label.starts_with("widget-") && label.contains("-image-"))
         && !(label.starts_with("widget-") && label.contains("-note-"))
+        && !is_tool_window(label)
     {
         return;
     }
@@ -1902,6 +1945,7 @@ pub(crate) fn moved(window: &tauri::Window) {
     if label != STACK
         && !label.starts_with(DISPLAY)
         && !(label.starts_with("widget-") && label.contains("-note-"))
+        && !is_tool_window(label)
     {
         return;
     }
@@ -1915,7 +1959,7 @@ pub(crate) fn moved(window: &tauri::Window) {
         .ok()
         .is_some_and(|dragging| dragging.contains(label));
     let marked = !accepted && take_drag(&app, label);
-    if !accepts_drag_move(accepted, marked) {
+    if !accepts_tracked_move(label, accepted, marked) {
         return;
     }
     if let Ok(mut positions) = runtime.keyboard_positions.lock() {
@@ -1958,6 +2002,9 @@ pub(crate) fn moved(window: &tauri::Window) {
             let _ = tauri::async_runtime::spawn_blocking(move || {
                 let result = if label.starts_with("widget-") && label.contains("-note-") {
                     crate::widgets::memo_notes::settle_move(&app, &label, epoch, expected)
+                } else if is_tool_window(&label) {
+                    crate::app::lifecycle::settle_tool_move(&app, &label, epoch, expected);
+                    Ok(())
                 } else {
                     settle(&app, &label, epoch)
                 };
@@ -3306,6 +3353,11 @@ mod tests {
 
     #[test]
     fn moved_events_require_a_drag_mark_or_an_active_drag() {
+        let tool = "widget-00000000-0000-0000-0000-000000000001";
+        assert!(!accepts_tracked_move(tool, false, false));
+        assert!(accepts_tracked_move(tool, false, true));
+        assert!(accepts_tracked_move(tool, true, false));
+        assert!(!accepts_tracked_move("widget-other", false, true));
         assert!(!accepts_drag_move(false, false));
         assert!(accepts_drag_move(false, true));
         assert!(accepts_drag_move(true, false));
@@ -3578,6 +3630,37 @@ mod tests {
         assert!(layout.order.is_empty());
         assert_eq!(layout.expanded, vec![id]);
         assert!(layout.stack_hidden);
+    }
+
+    #[test]
+    fn clock_and_weather_open_targets_follow_desktop_layout() {
+        let db = database();
+        let ids = widget_ids(&db, &["clock", "weather"]);
+        for id in &ids {
+            assert_eq!(playback_window_label(&db, id).unwrap(), None);
+        }
+        update(&db, |layout| {
+            layout.mode = Mode::Freeform;
+            layout.order = ids.clone();
+            Ok(())
+        }).unwrap();
+        for id in &ids {
+            assert_eq!(playback_window_label(&db, id).unwrap(), Some(format!("{DISPLAY}{id}")));
+        }
+        update(&db, |layout| {
+            layout.mode = Mode::Stack;
+            Ok(())
+        }).unwrap();
+        for id in &ids {
+            assert_eq!(playback_window_label(&db, id).unwrap().as_deref(), Some(STACK));
+        }
+        update(&db, |layout| {
+            layout.stack_hidden = true;
+            Ok(())
+        }).unwrap();
+        for id in &ids {
+            assert_eq!(playback_window_label(&db, id).unwrap(), None);
+        }
     }
 
     #[test]

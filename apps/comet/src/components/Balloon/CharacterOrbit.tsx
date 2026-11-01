@@ -16,6 +16,7 @@ type Props = {
   closeRequest?: number;
   paused: boolean;
   pausedUntil?: number | null;
+  quietHoursUntil?: string | null;
   sleeping: boolean;
   busy: boolean;
   canResume: boolean;
@@ -64,6 +65,7 @@ export function CharacterOrbit({
   closeRequest,
   paused,
   pausedUntil,
+  quietHoursUntil,
   sleeping,
   busy,
   canResume,
@@ -387,11 +389,17 @@ export function CharacterOrbit({
         origin: { x: 463.7, y: 197.9 },
         center: { x: 674, y: 170 },
       })}
-      {paused && (
+      {(quietHoursUntil || paused) && (
         <p className={styles.orbitPauseStatus}>
-          {pausedUntil
-            ? `${new Date(pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}까지 자동 잡담 쉬는 중`
-            : "다시 시작할 때까지 자동 잡담 쉬는 중"}
+          {quietHoursUntil && <span>조용한 시간 · {quietHoursUntil}까지</span>}
+          {quietHoursUntil && paused && <br />}
+          {paused && (
+            <span>
+              {pausedUntil
+                ? `${new Date(pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}까지 자동 잡담 쉬는 중`
+                : "다시 시작할 때까지 자동 잡담 쉬는 중"}
+            </span>
+          )}
         </p>
       )}
       {error && (

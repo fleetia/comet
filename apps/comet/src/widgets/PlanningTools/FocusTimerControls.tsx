@@ -77,6 +77,7 @@ export function FocusTimerControls({
       <FocusTimerView
         wide={expanded || embedded}
         busy={busy}
+        lockButtonsOnly={embedded}
         collapsed={collapsed}
         resizing={resizeWidth !== null}
         recordsOpen={expanded}
@@ -115,7 +116,8 @@ export function FocusTimerControls({
         }}
         onPause={() => void act(status === "paused" ? "resume" : "pause")}
         onStop={() => {
-          if (phase === "running" && remaining > 0 && timer.duration - remaining >= 60000) setConfirmStop(true);
+          if (phase === "running" && remaining > 0 && timer.duration - remaining >= 60000)
+            setConfirmStop(true);
           else void transition("cancel");
         }}
         onContinue={() => void transition("continue")}
@@ -308,8 +310,25 @@ export function FocusTimerControls({
         isOpen={confirmStop && phase === "running" && remaining > 0}
         title="기록 없이 끝낼까요?"
         variant="confirm"
-        onOpenChange={(open) => { if (!open) setConfirmStop(false); }}
-        footer={<><Button variant="ghost" onClick={() => setConfirmStop(false)}>계속 집중</Button><Button variant="danger" onClick={() => { setConfirmStop(false); void transition("cancel"); }}>기록 없이 끝내기</Button></>}
+        onOpenChange={(open) => {
+          if (!open) setConfirmStop(false);
+        }}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmStop(false)}>
+              계속 집중
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                setConfirmStop(false);
+                void transition("cancel");
+              }}
+            >
+              기록 없이 끝내기
+            </Button>
+          </>
+        }
       >
         <p>지금 끝내면 진행한 집중은 기록되지 않아요.</p>
       </Dialog>

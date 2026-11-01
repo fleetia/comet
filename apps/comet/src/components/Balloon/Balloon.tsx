@@ -696,6 +696,7 @@ export function Balloon({
               character={character}
               paused={snapshot.runtime.paused}
               pausedUntil={snapshot.runtime.pausedUntil}
+              quietHoursUntil={snapshot.runtime.quietHoursUntil}
               sleeping={sleeping}
               busy={navigating || sessionsLoading}
               canResume={Boolean(paused) && !sessionsError}

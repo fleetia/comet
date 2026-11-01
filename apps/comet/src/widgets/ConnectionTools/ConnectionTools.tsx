@@ -13,13 +13,14 @@ type Props = {
   onBusyChange?: (busy: boolean) => void;
   onDirtyChange?: (dirty: boolean) => void;
   onCollapse?: () => void;
+  collapseLabel?: string;
 };
-export function ConnectionTool({ onCollapse, ...props }: Props): ReactElement {
+export function ConnectionTool({ onCollapse, collapseLabel, ...props }: Props): ReactElement {
   if (props.widget.kind === "music")
     return props.mode === "settings" ? (
       <MusicSettings {...props} />
     ) : (
-      <MusicTool widget={props.widget} onCollapse={onCollapse} />
+      <MusicTool widget={props.widget} onCollapse={onCollapse} collapseLabel={collapseLabel} />
     );
   return props.mode === "settings" ? (
     <WeatherSettings {...props} />

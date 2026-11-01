@@ -727,6 +727,7 @@ export type MusicWidgetProps = Omit<HTMLAttributes<HTMLElement>, "title"> & {
   artwork?: ReactNode;
   showArtwork?: boolean;
   onCollapse?: () => void;
+  collapseLabel?: string;
   onDiscuss?: () => void;
   onOpenPlayer?: () => void;
   onSettings?: () => void;
@@ -746,6 +747,7 @@ export function MusicWidget({
   artwork,
   showArtwork = true,
   onCollapse,
+  collapseLabel,
   onDiscuss,
   onOpenPlayer,
   onSettings,
@@ -761,6 +763,7 @@ export function MusicWidget({
       title={labels.heading}
       icon="music"
       onCollapse={onCollapse}
+      collapseLabel={collapseLabel}
       style={{ width: 370, ...props.style }}
     >
       <div className={[styles.song, styles.musicSong].join(" ")}>
@@ -837,7 +840,7 @@ export function MusicWidget({
   );
 }
 
-export type EnvelopeTask = { id: string; title: string; completed?: boolean; description?: string };
+export type EnvelopeTask = { id: string; title: string; completed?: boolean; description?: string; disabled?: boolean };
 /** Copy the app supplies for the envelope card. */
 export type EnvelopeWidgetLabels = {
   heading: string;
@@ -903,6 +906,7 @@ export function EnvelopeWidget({
             <Checkbox
               label={task.title}
               checked={task.completed ?? false}
+              disabled={task.disabled}
               onChange={(event) => onTaskChange?.(task.id, event.currentTarget.checked)}
             />
             {task.description && <span className={styles.small}>{task.description}</span>}

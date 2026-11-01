@@ -32,6 +32,20 @@ pub(crate) fn publish_widgets(app: &tauri::AppHandle, state: &AppState) {
     crate::widgets::runtime::refresh(app);
 }
 
+pub(crate) fn publish_widget(app: &tauri::AppHandle, state: &AppState, id: &str) {
+    if let Ok(db) = lock(&state.db) {
+        if let Ok(instance) = storage::get(&db, id) {
+            let background = crate::widgets::backgrounds::info(&db, id).ok().flatten().map(|value| value.updated_at);
+            if let Ok(mut widget) = widgets::project_with_background(instance, &[], background) {
+                if let Ok(reaction) = storage::reaction_enabled(&db, id) {
+                    widget.reaction = reaction;
+                    let _ = app.emit("widget-state", widget);
+                }
+            }
+        }
+    }
+}
+
 /// Keeps idle chatter deferred for the whole focus run, so it never fires right after the timer ends.
 pub(crate) fn hold_for_focus(state: &AppState, db: &rusqlite::Connection) -> Result<bool, String> {
     let quiet = lock(&state.runtime)?.paused
@@ -580,6 +594,24 @@ pub(crate) fn focus_transition(event: &WidgetEvent) -> bool {
         && event.event.payload["nextTitle"].is_string())
 }
 
+fn memo_delete_decision(
+    inspection: Option<&(String, bool)>,
+    revision: i64,
+    discard: Option<&str>,
+) -> Result<Option<String>, String> {
+    let token = inspection.map(|(token, _)| format!("{revision}:{token}"));
+    if let Some(discard) = discard {
+        if token.as_deref() != Some(discard) || !inspection.is_some_and(|(_, dirty)| *dirty) {
+            return Err("메모 초안이나 열린 창이 바뀌었어요. 다시 확인해 주세요.".into());
+        }
+        return Ok(None);
+    }
+    if inspection.is_some_and(|(_, dirty)| *dirty) {
+        return Ok(token.map(|token| format!("memo-draft:{token}")));
+    }
+    Ok(None)
+}
+
 #[tauri::command]
 pub(crate) async fn execute_widget(
     app: tauri::AppHandle,
@@ -619,9 +651,38 @@ pub(crate) async fn execute_widget(
             Ok(None)
         });
     }
+    let memo_note_id = if request.action == "delete" {
+        let _action = lock(&state.action)?;
+        let db = lock(&state.db)?;
+        let instance = storage::get(&db, &request.instance_id)?;
+        if instance.kind == "memo" {
+            request.input["id"].as_str().map(str::to_owned)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let inspected = if let Some(note_id) = &memo_note_id {
+        let (guard, inspection) = crate::widgets::memo_notes::inspect_note(
+            &app, &state, &request.instance_id, note_id,
+        ).await?;
+        let revision = storage::get(&*lock(&state.db)?, &request.instance_id)?.revision;
+        if let Some(result) = memo_delete_decision(
+            inspection.as_ref(), revision, request.input["discardDraft"].as_str(),
+        )? {
+            return Ok(Some(result));
+        }
+        Some(guard)
+    } else {
+        None
+    };
     let from_widget_window = window.label() == format!("widget-{}", request.instance_id);
     let (created_id, interaction_accepted, focus_start, action_epoch) = change_with_epoch(&state, from_widget_window, |db| {
         let timestamp = chrono::Utc::now().timestamp_millis();
+        if let Some(guard) = &inspected {
+            guard.ensure_current(&app, db)?;
+        }
         let start_before = if matches!(request.action.as_str(), "start" | "start-once" | "continue") {
             storage::get(db, &request.instance_id).ok().filter(|item| item.kind == "focus-timer")
         } else { None };
@@ -704,6 +765,10 @@ pub(crate) async fn execute_widget(
             crate::report_error!("focus_start_greeting", "집중 시작 응원 표시 실패: {error}");
         }
     }
+    if inspected.is_some() {
+        crate::widgets::memo_notes::sync(&app, None).await?;
+    }
+    drop(inspected);
     Ok(created_id)
 }
 
@@ -1107,32 +1172,6 @@ pub(crate) async fn open_playback_link(
             crate::widgets::planning::windows::open_playback_travel(&app, target)?;
             finish_playback_link(&state, &db)?
         };
-        crate::app::phase(
-            &app,
-            &state,
-            epoch,
-            crate::types::RuntimePhase::Idle,
-            None,
-            None,
-        );
-        return Ok(true);
-    }
-    if matches!(link.kind.as_str(), "clock" | "weather") {
-        let placement = crate::app::windows::placement(&app, None, 1920.0, 1080.0);
-        let _action = lock(&state.action)?;
-        validate_playback_open(&state, Some(&playback_id))?;
-        let label =
-            crate::widgets::desktop::playback_window_label(&*lock(&state.db)?, &link.instance_id)?;
-        if let Some(window) = label.and_then(|label| app.get_webview_window(&label)) {
-            window.show().map_err(|error| error.to_string())?;
-            window.set_focus().map_err(|error| error.to_string())?;
-        } else {
-            crate::widgets::planning::windows::show_widget_settings(app.clone(), &link.kind, placement)?;
-        }
-        let db = lock(&state.db)?;
-        let epoch = finish_playback_link(&state, &db)?;
-        drop(db);
-        drop(_action);
         crate::app::phase(
             &app,
             &state,
@@ -1711,6 +1750,18 @@ async fn open_widget_inner(
     if let Some((_, session)) = launcher {
         crate::app::launcher::accept_execution(state, session)?;
     }
+    if matches!(current.kind.as_str(), "clock" | "weather") {
+        let label = crate::widgets::desktop::playback_window_label(&*lock(&state.db)?, id)?;
+        if let Some((label, window)) = label.and_then(|label| app.get_webview_window(&label).map(|window| (label, window))) {
+            window.show().map_err(|error| error.to_string())?;
+            window.set_focus().map_err(|error| error.to_string())?;
+            if label == "widget-stack" {
+                crate::widgets::desktop::request_stack_reveal(app, id)?;
+                window.emit("widget-stack-reveal", id).map_err(|error| error.to_string())?;
+            }
+            return Ok(());
+        }
+    }
     if let Some(run) = conversation.and_then(|guard| guard.story) {
         crate::app::scene_events::register_window_locked(state, run, &current.kind, current.id.clone())?;
     }
@@ -1765,9 +1816,6 @@ async fn open_widget_inner(
         area.map(|area| crate::app::windows::fit_placement(area, width, height))
             .map(|(x, y, _, _)| crate::widgets::desktop::Point { x, y })
     });
-    if let Some(point) = &position {
-        crate::app::lifecycle::mark_tool_creation(&label, point.x, point.y);
-    }
     let window = tauri::WebviewWindowBuilder::new(
         app,
         label,
@@ -1799,6 +1847,7 @@ async fn open_widget_inner(
     .transparent(true)
     .shadow(shadow)
     .always_on_top(floating)
+    .accept_first_mouse(floating || current.kind == "focus-timer")
     .skip_taskbar(skip_taskbar)
     .decorations(false)
     .disable_drag_drop_handler()
@@ -1812,6 +1861,9 @@ async fn open_widget_inner(
     };
     let window = window.build()
     .map_err(|error| error.to_string())?;
+    if current.kind == "focus-timer" && focus_collapsed {
+        crate::desktop::set_join_all_spaces(&window, true)?;
+    }
     if let Some(intent) = &open_intent {
         if let Err(error) = widget_open_current(state, id, intent) {
             let _ = window.destroy();
@@ -2236,6 +2288,21 @@ fn fallback_reaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deleting_a_detached_note_requires_matching_explicit_discard() {
+        let dirty = ("session:1".to_string(), true);
+        let clean = ("session:1".to_string(), false);
+        assert_eq!(memo_delete_decision(None, 3, None).unwrap(), None);
+        assert_eq!(memo_delete_decision(Some(&clean), 3, None).unwrap(), None);
+        assert_eq!(memo_delete_decision(Some(&dirty), 3, None).unwrap().as_deref(), Some("memo-draft:3:session:1"));
+        assert!(memo_delete_decision(Some(&dirty), 3, Some("3:session:1")).is_ok());
+        assert!(memo_delete_decision(Some(&dirty), 4, Some("3:session:1")).is_err());
+        assert!(memo_delete_decision(Some(&("new-session:1".into(), true)), 3, Some("3:session:1")).is_err());
+        assert!(memo_delete_decision(Some(&("session:2".into(), true)), 3, Some("3:session:1")).is_err());
+        assert!(memo_delete_decision(Some(&clean), 3, Some("3:session:1")).is_err());
+        assert!(memo_delete_decision(None, 3, Some("3:session:1")).is_err());
+    }
 
     #[test]
     fn story_open_reuses_latest_empty_memo_and_resumed_wait_accepts_its_save() {
@@ -2869,15 +2936,8 @@ async fn apply_focus_window_size(
                 return;
             }
             let result = (|| {
-                let before = resizing.outer_position()?;
-                if before != position {
-                    crate::app::lifecycle::mark_tool_move(resizing.label(), position.x, position.y);
-                }
                 resizing.set_size(size)?;
                 if resizing.outer_position()? != position {
-                    if before == position {
-                        crate::app::lifecycle::mark_tool_move(resizing.label(), position.x, position.y);
-                    }
                     resizing.set_position(position)?;
                 }
                 Ok::<(), tauri::Error>(())
@@ -2903,11 +2963,13 @@ async fn apply_focus_window_state(
         }
         let result = (|| {
             if let Some(collapsed) = collapsed {
-                target.set_always_on_top(collapsed)?;
-                target.set_skip_taskbar(collapsed)?;
+                target.set_always_on_top(collapsed).map_err(|error| error.to_string())?;
+                target.set_skip_taskbar(collapsed).map_err(|error| error.to_string())?;
+                crate::desktop::set_join_all_spaces(&target, collapsed)?;
             }
             target.set_min_size(Some(tauri::LogicalSize::new(min_size.0, min_size.1)))
-        })().map_err(|error| error.to_string());
+                .map_err(|error| error.to_string())
+        })();
         let _ = send.send(result);
     }).map_err(|error| error.to_string())?;
     receive.await.map_err(|error| error.to_string())?
@@ -3180,14 +3242,8 @@ pub(crate) fn set_music_expanded(
     let target_position = resize_position(position, target, scale, area);
     window.set_min_size(Some(tauri::LogicalSize::new(370.0, if expanded { 520.0 } else { 310.0 })))
         .map_err(|error| error.to_string())?;
-    if position != target_position {
-        crate::app::lifecycle::mark_tool_move(window.label(), target_position.x, target_position.y);
-    }
     window.set_size(tauri::LogicalSize::new(width, height)).map_err(|error| error.to_string())?;
     if window.outer_position().map_err(|error| error.to_string())? != target_position {
-        if position == target_position {
-            crate::app::lifecycle::mark_tool_move(window.label(), target_position.x, target_position.y);
-        }
         window.set_position(target_position).map_err(|error| error.to_string())?;
     }
     Ok(())

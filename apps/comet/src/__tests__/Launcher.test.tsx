@@ -128,6 +128,33 @@ function executed(): unknown[][] {
 }
 
 describe("local command and conversation routing", () => {
+  it.each(["clock", "weather"])("routes %s to the shared open action even before setup", (kind) => {
+    const instance = widgets.widgets.find((item) => item.kind === kind)!;
+    const state: WidgetSnapshot = { ...widgets, widgets: widgets.widgets.map((item) => item.id === instance.id ? { ...item, status: "setup" } : item) };
+    const entry = state.catalog.find((item) => item.id === kind)!;
+    expect(results(entry.name, state).find((item) => item.id === `widget:${kind}`)?.action).toEqual({
+      type: "widget", id: instance.id, expectedRevision: instance.revision,
+    });
+  });
+
+  it("offers keyboard navigation to desktop widgets", () => {
+    const clock = widgets.widgets.find((item) => item.kind === "clock")!;
+    const weather = widgets.widgets.find((item) => item.kind === "weather")!;
+    const desktop: WidgetDesktopState = { revision: 1, mode: "freeform", order: [clock.id, weather.id] };
+    const found = launcherResults("바탕화면 위젯으로 이동", PREVIEW_SNAPSHOT, widgets, null, [], desktop);
+    for (const widget of [clock, weather]) {
+      const result = found.find((item) => item.id === `focus-desktop:widget-display-${widget.id}`);
+      expect(result?.title).toBe(`이동: ${widgets.catalog.find((entry) => entry.id === widget.kind)?.name}`);
+      expect(result?.action)
+        .toEqual({ type: "focusDesktopWidget", label: `widget-display-${widget.id}` });
+    }
+    const clockResults = launcherResults("시계로 이동", PREVIEW_SNAPSHOT, widgets, null, [], desktop);
+    expect(clockResults.find((item) => item.id === `focus-desktop:widget-display-${clock.id}`)?.title)
+      .toBe(`이동: ${widgets.catalog.find((entry) => entry.id === "clock")?.name}`);
+    const simpleNameWidgets = { ...widgets, catalog: widgets.catalog.map((entry) => entry.id === "clock" ? { ...entry, name: "시계" } : entry) };
+    const simpleClock = launcherResults("시계로 이동", PREVIEW_SNAPSHOT, simpleNameWidgets, null, [], desktop);
+    expect(simpleClock.find((item) => item.id === `focus-desktop:widget-display-${clock.id}`)?.title).toBe("이동: 시계");
+  });
   it.each([
     [{ revision: 1, mode: "stack", stackHidden: true, order: ["clock"] }, true],
     [{ revision: 1, mode: "stack", stackHidden: false, order: ["clock"] }, false],
