@@ -22,7 +22,7 @@ const PLAY: Record<string, { kind: string; mode?: string }> = {
   "toy-pet": { kind: "pet" },
 };
 
-/** Routes a character menu action to its command. Resuming opens the paused chat, else past chats. */
+/** Routes a character menu action to its command. */
 export function runOrbitAction(
   action: string,
   { persona, character, sleeping, paused, perform }: Context,
@@ -33,7 +33,7 @@ export function runOrbitAction(
       return perform("open_panel", { persona, mode: "input" });
     case "resume":
       if (paused) return perform("resume_chat", { sessionId: paused.id });
-      return perform("open_panel", { persona, mode: "history" });
+      return false;
     case "together":
       return perform("talk_now");
     case "history":

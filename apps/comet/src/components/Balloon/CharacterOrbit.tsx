@@ -18,6 +18,8 @@ type Props = {
   pausedUntil?: number | null;
   sleeping: boolean;
   busy: boolean;
+  canResume: boolean;
+  resumeUnavailable: boolean;
   onAction: (id: string) => void | boolean | Promise<boolean | void>;
   onClose: () => void | boolean | Promise<boolean | void>;
 };
@@ -64,6 +66,8 @@ export function CharacterOrbit({
   pausedUntil,
   sleeping,
   busy,
+  canResume,
+  resumeUnavailable,
   onAction,
   onClose,
 }: Props): JSX.Element {
@@ -204,7 +208,12 @@ export function CharacterOrbit({
   const locked = busy || pending;
   const main: OrbitPrimaryItems = [
     { id: "chat", label: "말 걸기", icon: "chat", disabled: locked },
-    { id: "resume", label: "이어서 하기", icon: "resume", disabled: locked },
+    {
+      id: "resume",
+      label: resumeUnavailable ? "이어서 할 대화가 없어요" : "이어서 하기",
+      icon: "resume",
+      disabled: locked || !canResume,
+    },
     { id: "together", label: "함께 이야기해 봐", icon: "together", disabled: locked },
     { id: "history", label: "지난 대화", icon: "history", disabled: locked },
     { id: "settings", label: "설정", icon: "gear", disabled: locked },

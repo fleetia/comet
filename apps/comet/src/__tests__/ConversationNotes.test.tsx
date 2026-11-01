@@ -8,12 +8,7 @@ import {
 } from "../components/Balloon/ConversationSave";
 import { Balloon } from "../components/Balloon/Balloon";
 import { PREVIEW_SNAPSHOT, command, isDesktop } from "../hooks/useSnapshot";
-import type {
-  ConversationNote,
-  ConversationSession,
-  Message,
-  Snapshot,
-} from "../types";
+import type { ConversationNote, ConversationSession, Message, Snapshot } from "../types";
 
 vi.mock("../hooks/useSnapshot", async (load) => ({
   ...(await load<typeof import("../hooks/useSnapshot")>()),
@@ -264,14 +259,14 @@ it("resumes the paused chat from the menu", async () => {
   );
 });
 
-it("opens past chats instead of a memo picker when nothing is paused", async () => {
+it("disables resume when nothing is paused", () => {
   render(
     <Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "builtin-a", mode: "menu" } }} />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "이어서 하기" }));
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("open_panel", { persona: "builtin-a", mode: "history" }),
-  );
+  const resume = screen.getByRole("button", { name: "이어서 할 대화가 없어요" });
+  expect(resume).toHaveProperty("disabled", true);
+  fireEvent.click(resume);
+  expect(command).not.toHaveBeenCalledWith("open_panel", expect.anything());
   expect(screen.queryByRole("region", { name: "대화에서 참고할 메모" })).toBeNull();
   expect(command).not.toHaveBeenCalledWith("set_conversation_note_context", expect.anything());
 });

@@ -8,16 +8,55 @@ use crate::{
 };
 use serde_json::{json, Value};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
+        Arc, Mutex, OnceLock, Weak,
     },
 };
 use tauri::Manager;
-use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
 type Result<T> = std::result::Result<T, String>;
+#[derive(PartialEq, Eq)]
+enum AddState {
+    Pending,
+    Cancelled,
+    Saved,
+}
+
+struct ImageDrag {
+    moved: AtomicU64,
+    dragging: AtomicBool,
+    pending: AtomicBool,
+    epoch: AtomicU64,
+}
+
+static IMAGE_DRAGS: OnceLock<Mutex<BTreeMap<String, Weak<ImageDrag>>>> = OnceLock::new();
+
+fn stop_image_drag(label: &str) -> Option<u64> {
+    let drags = IMAGE_DRAGS.get()?;
+    let Ok(drags) = drags.lock() else {
+        return None;
+    };
+    if let Some(drag) = drags.get(label).and_then(Weak::upgrade) {
+        drag.dragging.store(false, Ordering::SeqCst);
+        let was_dragging = drag.pending.swap(false, Ordering::SeqCst);
+        drag.moved.fetch_add(1, Ordering::SeqCst);
+        return was_dragging.then(|| drag.epoch.load(Ordering::SeqCst));
+    }
+    None
+}
+
+impl AddState {
+    fn cancel(&mut self) -> bool {
+        if *self != Self::Pending {
+            return false;
+        }
+        *self = Self::Cancelled;
+        true
+    }
+}
 fn err(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
@@ -27,6 +66,28 @@ fn label(id: &str, image_id: &str) -> String {
 fn active(instance: &WidgetInstance) -> Result<()> {
     if instance.kind != "image" {
         return Err("이미지 위젯을 찾지 못했어요.".into());
+    }
+    Ok(())
+}
+fn can_add(db: &rusqlite::Connection, instance: &WidgetInstance) -> Result<()> {
+    active(instance)?;
+    let enabled: bool = db
+        .query_row(
+            "SELECT installed AND enabled FROM widget_instances WHERE id=?1",
+            [&instance.id],
+            |row| row.get(0),
+        )
+        .map_err(err)?;
+    if !enabled {
+        return Err("이미지 위젯을 사용할 수 없어요.".into());
+    }
+    if instance.data["images"]
+        .as_array()
+        .is_some_and(|items| items.len() >= 20)
+    {
+        return Err(
+            "이미지는 20장까지 저장할 수 있어요. 닫아 둔 이미지를 다시 열어 지워 주세요.".into(),
+        );
     }
     Ok(())
 }
@@ -75,7 +136,11 @@ fn position(image: &Value) -> Option<Point> {
     })
 }
 
-fn reconcile(app: &tauri::AppHandle) -> Result<()> {
+fn requested_image(target: Option<(&str, &str)>, id: &str, image_id: &str) -> bool {
+    target.is_none_or(|target| target == (id, image_id))
+}
+
+fn reconcile(app: &tauri::AppHandle, target: Option<(&str, &str)>) -> Result<()> {
     let state = app.state::<Arc<AppState>>();
     let instances = {
         let _action = lock(&state.action)?;
@@ -94,6 +159,9 @@ fn reconcile(app: &tauri::AppHandle) -> Result<()> {
             let Some(image_id) = image["id"].as_str() else {
                 continue;
             };
+            if !requested_image(target, &instance.id, image_id) {
+                continue;
+            }
             if uuid::Uuid::parse_str(image_id).is_err() {
                 continue;
             }
@@ -157,26 +225,37 @@ fn reconcile(app: &tauri::AppHandle) -> Result<()> {
             let id = instance.id.clone();
             let image_id = image_id.to_string();
             let moved_image_id = image_id.clone();
-            let moved = Arc::new(AtomicU64::new(0));
-            let dragging = Arc::new(AtomicBool::new(false));
-            let drag_epoch = Arc::new(AtomicU64::new(desktop::drag_epoch(app)));
+            let drag = Arc::new(ImageDrag {
+                moved: AtomicU64::new(0),
+                dragging: AtomicBool::new(false),
+                pending: AtomicBool::new(false),
+                epoch: AtomicU64::new(desktop::drag_epoch(app)),
+            });
+            if let Ok(mut drags) = IMAGE_DRAGS
+                .get_or_init(|| Mutex::new(BTreeMap::new()))
+                .lock()
+            {
+                drags.retain(|_, value| value.strong_count() > 0);
+                drags.insert(window_label.clone(), Arc::downgrade(&drag));
+            }
             let event_window = window.clone();
             window.on_window_event(move |event| match event {
                 tauri::WindowEvent::Moved(_) => {
                     let epoch = desktop::drag_epoch(&app_handle);
-                    if drag_epoch.load(Ordering::SeqCst) != epoch {
-                        dragging.store(false, Ordering::SeqCst);
+                    if drag.epoch.load(Ordering::SeqCst) != epoch {
+                        drag.dragging.store(false, Ordering::SeqCst);
+                        drag.pending.store(false, Ordering::SeqCst);
                     }
-                    let active = dragging.load(Ordering::SeqCst);
+                    let active = drag.dragging.load(Ordering::SeqCst);
                     let marked = !active && desktop::take_drag(&app_handle, event_window.label());
                     if !desktop::accepts_drag_move(active, marked) {
                         return;
                     }
-                    drag_epoch.store(epoch, Ordering::SeqCst);
-                    dragging.store(true, Ordering::SeqCst);
-                    let generation = moved.fetch_add(1, Ordering::SeqCst) + 1;
-                    let moved = moved.clone();
-                    let dragging = dragging.clone();
+                    drag.epoch.store(epoch, Ordering::SeqCst);
+                    drag.dragging.store(true, Ordering::SeqCst);
+                    drag.pending.store(true, Ordering::SeqCst);
+                    let generation = drag.moved.fetch_add(1, Ordering::SeqCst) + 1;
+                    let drag = drag.clone();
                     let app = app_handle.clone();
                     let window = event_window.clone();
                     let id = id.clone();
@@ -185,13 +264,14 @@ fn reconcile(app: &tauri::AppHandle) -> Result<()> {
                         let started = std::time::Instant::now();
                         loop {
                             tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-                            if moved.load(Ordering::SeqCst) != generation {
+                            if drag.moved.load(Ordering::SeqCst) != generation {
                                 return;
                             }
                             if desktop::drag_epoch(&app) != epoch
                                 || !desktop::screen_unchanged(&app)
                             {
-                                dragging.store(false, Ordering::SeqCst);
+                                drag.dragging.store(false, Ordering::SeqCst);
+                                drag.pending.store(false, Ordering::SeqCst);
                                 return;
                             }
                             if !desktop::wait_for_drag_release(
@@ -201,7 +281,7 @@ fn reconcile(app: &tauri::AppHandle) -> Result<()> {
                                 break;
                             }
                         }
-                        dragging.store(false, Ordering::SeqCst);
+                        drag.dragging.store(false, Ordering::SeqCst);
                         let Ok(scale) = window.scale_factor() else {
                             return;
                         };
@@ -213,7 +293,18 @@ fn reconcile(app: &tauri::AppHandle) -> Result<()> {
                             return;
                         }
                         let state = app.state::<Arc<AppState>>();
-                        let _ = move_image(&app, &state, &id, &image_id, point.x, point.y);
+                        let _ = move_image(
+                            &app,
+                            &state,
+                            &id,
+                            &image_id,
+                            point.x,
+                            point.y,
+                            Some((&drag, generation)),
+                        );
+                        if drag.moved.load(Ordering::SeqCst) == generation {
+                            drag.pending.store(false, Ordering::SeqCst);
+                        }
                     });
                 }
                 tauri::WindowEvent::CloseRequested { api, .. } => {
@@ -260,6 +351,7 @@ fn reconcile(app: &tauri::AppHandle) -> Result<()> {
     for (window_label, window) in app.webview_windows() {
         if window_label.starts_with("widget-")
             && window_label.contains("-image-")
+            && target.is_none()
             && !desired.contains(&window_label)
         {
             window.destroy().map_err(err)?;
@@ -271,7 +363,18 @@ async fn sync(app: &tauri::AppHandle) -> Result<()> {
     let (send, receive) = tokio::sync::oneshot::channel();
     let handle = app.clone();
     app.run_on_main_thread(move || {
-        let _ = send.send(reconcile(&handle));
+        let _ = send.send(reconcile(&handle, None));
+    })
+    .map_err(err)?;
+    receive.await.map_err(err)?
+}
+async fn sync_image(app: &tauri::AppHandle, id: &str, image_id: &str) -> Result<()> {
+    let (send, receive) = tokio::sync::oneshot::channel();
+    let handle = app.clone();
+    let id = id.to_string();
+    let image_id = image_id.to_string();
+    app.run_on_main_thread(move || {
+        let _ = send.send(reconcile(&handle, Some((&id, &image_id))));
     })
     .map_err(err)?;
     receive.await.map_err(err)?
@@ -339,6 +442,37 @@ pub(crate) async fn add_for_launcher(
 ) -> Result<WidgetSnapshot> {
     add_expected(app, state, None, Some(expected), None).await
 }
+
+fn save_image(
+    state: &AppState,
+    id: &str,
+    image_id: &str,
+    media: &image_media::Media,
+    status: &Mutex<AddState>,
+) -> Result<bool> {
+    change(state, |db| {
+        if *status.lock().map_err(err)? == AddState::Cancelled {
+            return Ok(false);
+        }
+        let tx = db.unchecked_transaction().map_err(err)?;
+        let mut instance = storage::get(&tx, id)?;
+        can_add(&tx, &instance)?;
+        let items = images(&mut instance)?;
+        let scale = 320.0 / media.width.max(media.height) as f64;
+        items.push(json!({"id":image_id,"addedAt":chrono::Utc::now().timestamp_millis(),"mime":media.mime,"naturalWidth":media.width,"naturalHeight":media.height,"x":null,"y":null,"width":(media.width as f64 * scale).max(48.0),"height":(media.height as f64 * scale).max(48.0),"isOpen":true}));
+        instance.revision += 1;
+        storage::put(&tx, &instance)?;
+        media.store(&tx, &format!("image:{image_id}"))?;
+        let mut status = status.lock().map_err(err)?;
+        if *status == AddState::Cancelled {
+            return Ok(false);
+        }
+        tx.commit().map_err(err)?;
+        *status = AddState::Saved;
+        Ok(true)
+    })
+}
+
 async fn add_expected(
     app: &tauri::AppHandle,
     state: &Arc<AppState>,
@@ -377,33 +511,106 @@ async fn add_expected(
         return storage::snapshot(&*lock(&state.db)?);
     };
     let path = path.into_path().map_err(err)?;
-    let media = tauri::async_runtime::spawn_blocking(move || image_media::read(&path))
-        .await
-        .map_err(err)??;
+    let progress = tauri::WebviewWindowBuilder::new(
+        app,
+        format!("widget-imageprogress-{}", uuid::Uuid::new_v4()),
+        tauri::WebviewUrl::App("index.html?view=image-processing".into()),
+    )
+    .title("이미지 준비")
+    .inner_size(320.0, 150.0)
+    .resizable(false)
+    .visible(false)
+    .build()
+    .map_err(err)?;
+    let status = Arc::new(Mutex::new(AddState::Pending));
+    let status_on_close = status.clone();
+    let (cancel_send, cancel_receive) = tokio::sync::oneshot::channel();
+    let cancel_send = Mutex::new(Some(cancel_send));
+    progress.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            match status_on_close.try_lock() {
+                Ok(mut status) => {
+                    if status.cancel() {
+                        if let Ok(mut send) = cancel_send.lock() {
+                            if let Some(send) = send.take() {
+                                let _ = send.send(());
+                            }
+                        }
+                    }
+                }
+                Err(std::sync::TryLockError::WouldBlock) => api.prevent_close(),
+                Err(std::sync::TryLockError::Poisoned(_)) => {}
+            }
+        }
+    });
+    if let Err(error) = progress.show() {
+        let _ = progress.destroy();
+        return Err(err(error));
+    }
+    let worker = tauri::async_runtime::spawn_blocking(move || image_media::read(&path));
+    let media = tokio::select! {
+        result = worker => match result {
+            Ok(Ok(media)) => media,
+            Ok(Err(error)) => { let _ = progress.destroy(); return Err(error); }
+            Err(error) => { let _ = progress.destroy(); return Err(err(error)); }
+        },
+        _ = cancel_receive => return storage::snapshot(&*lock(&state.db)?),
+    };
     let image_id = uuid::Uuid::new_v4().to_string();
-    let snapshot = change(state, |db| {
-        let tx = db.unchecked_transaction().map_err(err)?;
-        let mut instance = storage::get(&tx, &id)?;
-        active(&instance)?;
-        if instance.revision != expected {
-            return Err("위젯이 변경됐어요. 다시 시도해 주세요.".into());
+    let saved = save_image(state, &id, &image_id, &media, &status);
+    let _ = progress.destroy();
+    let saved = match saved {
+        Ok(saved) => saved,
+        Err(error) => {
+            if *status.lock().map_err(err)? != AddState::Saved {
+                return Err(error);
+            }
+            crate::report_error!("image_add_followup", "이미지 저장 후 갱신 실패: {error}");
+            true
         }
-        let items = images(&mut instance)?;
-        if items.len() >= 20 {
-            return Err("이미지는 20장까지 띄울 수 있어요.".into());
-        }
-        let scale = 320.0 / media.width.max(media.height) as f64;
-        items.push(json!({"id":image_id,"addedAt":chrono::Utc::now().timestamp_millis(),"mime":media.mime,"naturalWidth":media.width,"naturalHeight":media.height,"x":null,"y":null,"width":(media.width as f64 * scale).max(48.0),"height":(media.height as f64 * scale).max(48.0),"isOpen":true}));
-        instance.revision += 1;
-        storage::put(&tx, &instance)?;
-        media.store(&tx, &format!("image:{image_id}"))?;
-        tx.commit().map_err(err)?;
-        storage::snapshot(db)
-    })?;
-    cancel_widget_scene(app, state)?;
+    };
+    if !saved {
+        return storage::snapshot(&*lock(&state.db)?);
+    }
+    if let Err(error) = cancel_widget_scene(app, state) {
+        crate::report_error!(
+            "image_scene_cancel",
+            "이미지 추가 후 장면 중단 실패: {error}"
+        );
+    }
     publish_widgets(app, state);
-    sync(app).await?;
-    Ok(snapshot)
+    while let Err(error) = sync_image(app, &id, &image_id).await {
+        if let Some(window) = app.get_webview_window(&label(&id, &image_id)) {
+            if window.is_visible().unwrap_or(false) {
+                break;
+            }
+            let _ = window.destroy();
+        }
+        let (send, receive) = tokio::sync::oneshot::channel();
+        app.dialog()
+            .message(format!(
+                "이미지는 저장했지만 창을 열지 못했어요. 다시 열까요?\n{error}"
+            ))
+            .title("이미지 창 열기")
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "다시 열기".into(),
+                "나중에 열기".into(),
+            ))
+            .show(move |retry| {
+                let _ = send.send(retry);
+            });
+        if !receive.await.unwrap_or(false) {
+            if app.get_webview_window(&label(&id, &image_id)).is_none() {
+                mutate(state, &id, false, |instance| {
+                    image_mut(instance, &image_id)?["isOpen"] = json!(false);
+                    Ok(())
+                })?;
+                publish_widgets(app, state);
+            }
+            break;
+        }
+    }
+    storage::snapshot(&*lock(&state.db)?)
 }
 #[tauri::command]
 pub(crate) async fn add_widget_image(
@@ -505,6 +712,7 @@ fn move_image(
     image_id: &str,
     x: f64,
     y: f64,
+    drag: Option<(&ImageDrag, u64)>,
 ) -> Result<WidgetSnapshot> {
     if !x.is_finite() || !y.is_finite() || x.abs() > 32768.0 || y.abs() > 32768.0 {
         return Err("위치가 올바르지 않아요.".into());
@@ -512,6 +720,9 @@ fn move_image(
     let areas = desktop::work_areas(app)?;
     let mut target = None;
     let snapshot = mutate(state, id, false, |instance| {
+        if drag.is_some_and(|(drag, generation)| drag.moved.load(Ordering::SeqCst) != generation) {
+            return Err("이동이 중단됐어요.".into());
+        }
         active(instance)?;
         let item = image_mut(instance, image_id)?;
         if item["isOpen"] != true {
@@ -548,18 +759,35 @@ pub(crate) fn move_widget_image(
     x: f64,
     y: f64,
 ) -> Result<WidgetSnapshot> {
-    move_image(&app, &state, &id, &image_id, x, y)
+    move_image(&app, &state, &id, &image_id, x, y, None)
 }
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ImageResize {
+    width: f64,
+    height: f64,
+    restore: Option<bool>,
+    preview: Option<bool>,
+    origin_x: Option<f64>,
+    origin_y: Option<f64>,
+}
+
 #[tauri::command]
 pub(crate) fn resize_widget_image(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
     image_id: String,
-    width: f64,
-    height: f64,
-    restore: Option<bool>,
+    resize: ImageResize,
 ) -> Result<WidgetSnapshot> {
+    let ImageResize {
+        width,
+        height,
+        restore,
+        preview,
+        origin_x,
+        origin_y,
+    } = resize;
     if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
         return Err("크기가 올바르지 않아요.".into());
     }
@@ -579,26 +807,149 @@ pub(crate) fn resize_widget_image(
         .min(area.height / height);
     let width = (width * scale).max(48.0).min(area.width.max(48.0));
     let height = (height * scale).max(48.0).min(area.height.max(48.0));
-    let snapshot = mutate(&state, &id, false, |instance| {
+    let position = match (origin_x, origin_y) {
+        (Some(x), Some(y)) if x.is_finite() && y.is_finite() => Point { x, y },
+        (None, None) => {
+            let position = window
+                .outer_position()
+                .map_err(err)?
+                .to_logical::<f64>(window.scale_factor().map_err(err)?);
+            Point {
+                x: position.x,
+                y: position.y,
+            }
+        }
+        _ => return Err("위치가 올바르지 않아요.".into()),
+    };
+    let areas = desktop::work_areas(&app)?;
+    let update = |instance: &mut WidgetInstance| {
         active(instance)?;
         let item = image_mut(instance, &image_id)?;
         if item["isOpen"] != true {
             return Err("닫힌 이미지예요.".into());
         }
-        item["width"] = json!(width);
-        item["height"] = json!(height);
-        Ok(())
-    })?;
+        let dragged = stop_image_drag(window.label());
+        if dragged == Some(desktop::drag_epoch(&app)) && desktop::screen_unchanged(&app) {
+            let dragged_point = desktop::clamp_point(
+                &Point {
+                    x: (position.x / 8.0).round() * 8.0,
+                    y: (position.y / 8.0).round() * 8.0,
+                },
+                size(item),
+                &areas,
+            );
+            item["x"] = json!(dragged_point.x);
+            item["y"] = json!(dragged_point.y);
+        }
+        if !preview.unwrap_or(false) {
+            item["width"] = json!(width);
+            item["height"] = json!(height);
+        }
+        Ok(dragged.is_some())
+    };
+    let snapshot = if preview.unwrap_or(false) {
+        change(&state, |db| {
+            let mut instance = storage::get(db, &id)?;
+            if update(&mut instance)? {
+                storage::put(db, &instance)?;
+            }
+            storage::snapshot(db)
+        })?
+    } else {
+        mutate(&state, &id, false, |instance| update(instance).map(|_| ()))?
+    };
+    let point = desktop::restore_point(&position, (width, height), &[area]);
     window
         .set_size(tauri::LogicalSize::new(width, height))
         .map_err(err)?;
-    publish_widgets(&app, &state);
+    window
+        .set_position(tauri::LogicalPosition::new(point.x, point.y))
+        .map_err(err)?;
+    if !preview.unwrap_or(false) {
+        publish_widgets(&app, &state);
+    }
     Ok(snapshot)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retry_targets_only_the_saved_image() {
+        let target = Some(("widget-one", "image-one"));
+        assert!(requested_image(target, "widget-one", "image-one"));
+        assert!(!requested_image(target, "widget-one", "image-two"));
+        assert!(!requested_image(target, "widget-two", "image-one"));
+        assert!(requested_image(None, "widget-two", "image-two"));
+    }
+
+    #[test]
+    fn add_limit_counts_closed_images_and_ignores_revision_changes() {
+        let state = crate::app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let mut instance = storage::instances(&db)
+            .unwrap()
+            .into_iter()
+            .find(|item| item.kind == "image")
+            .unwrap();
+        instance.data["images"] = json!((0..19)
+            .map(|i| json!({"id": i, "isOpen": false}))
+            .collect::<Vec<_>>());
+        instance.revision += 1;
+        assert!(can_add(&db, &instance).is_ok());
+        instance.data["images"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"id": 19, "isOpen": false}));
+        assert!(can_add(&db, &instance)
+            .unwrap_err()
+            .contains("20장까지 저장"));
+        instance.data["images"].as_array_mut().unwrap().pop();
+        db.execute(
+            "UPDATE widget_instances SET enabled=0 WHERE id=?1",
+            [&instance.id],
+        )
+        .unwrap();
+        assert!(can_add(&db, &instance).is_err());
+    }
+
+    #[test]
+    fn cancellation_only_wins_before_image_is_saved() {
+        let mut pending = AddState::Pending;
+        assert!(pending.cancel());
+        assert!(pending == AddState::Cancelled);
+        assert!(!pending.cancel());
+        let mut saved = AddState::Saved;
+        assert!(!saved.cancel());
+        assert!(saved == AddState::Saved);
+    }
+
+    #[test]
+    fn cancelled_add_keeps_the_image_list_and_media_unchanged() {
+        let state = crate::app::tests::state();
+        let id = {
+            let db = lock(&state.db).unwrap();
+            storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|item| item.kind == "image")
+                .unwrap()
+                .id
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("image.svg");
+        std::fs::write(&source, b"<svg width=\"20\" height=\"10\"></svg>").unwrap();
+        let media = image_media::read(&source).unwrap();
+        let status = Mutex::new(AddState::Cancelled);
+        assert!(!save_image(&state, &id, "cancelled", &media, &status).unwrap());
+        let db = lock(&state.db).unwrap();
+        let instance = storage::get(&db, &id).unwrap();
+        assert!(instance.data["images"].as_array().unwrap().is_empty());
+        assert!(super::super::backgrounds::get(&db, "image:cancelled")
+            .unwrap()
+            .is_none());
+    }
 
     #[test]
     fn reaction_setting_does_not_remove_or_block_existing_images() {

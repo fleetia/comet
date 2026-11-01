@@ -33,6 +33,20 @@ export const body = style({
   selectors: { "&:active": { cursor: "grabbing" } },
 });
 export const bodyPreview = style({ width: 112, height: 88 });
+export const bodyMoveArmed = style({ cursor: "grabbing" });
+export const bodyPressed = style({ transform: "scale(0.95)" });
+export const moveHint = style({
+  position: "absolute",
+  bottom: 2,
+  left: 0,
+  right: 0,
+  textAlign: "center",
+  fontSize: 10,
+  lineHeight: 1.3,
+  color: tokens["color/ink"],
+  background: tokens["color/glass-panel"],
+  pointerEvents: "none",
+});
 export const tone = styleVariants({
   a: { borderTop: `3px solid ${tokens["color/primary"]}` },
   b: { borderTop: `3px solid ${tokens["color/nadir-ink"]}` },

@@ -39,7 +39,7 @@ export function useGeneratedWidgets(): {
       try {
         const value = await command<Workshop>("get_generated_widgets");
         if (active && current === request.current) {
-          setWorkshop({ ...value, widgets: value.widgets.filter((widget) => widget.installed) });
+          setWorkshop(value);
           setError(null);
         }
       } catch (cause: unknown) {

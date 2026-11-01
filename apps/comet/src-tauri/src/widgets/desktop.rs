@@ -315,6 +315,246 @@ fn display_size(shape: Option<&Shape>, kind: &str) -> (f64, f64) {
     )
 }
 
+// The paths are shared with the renderer; unknown or malformed artwork accepts input.
+fn path_points(path: &str) -> Option<Vec<Vec<Point>>> {
+    let bytes = path.as_bytes();
+    let mut index = 0;
+    let mut command = b' ';
+    let mut current = Point { x: 0.0, y: 0.0 };
+    let mut paths: Vec<Vec<Point>> = Vec::new();
+    while index < bytes.len() {
+        while index < bytes.len() && (bytes[index].is_ascii_whitespace() || bytes[index] == b',') {
+            index += 1;
+        }
+        if index == bytes.len() {
+            break;
+        }
+        if bytes[index].is_ascii_alphabetic() {
+            command = bytes[index];
+            index += 1;
+            if command == b'Z' {
+                command = b' ';
+                continue;
+            }
+        }
+        let count = match command {
+            b'M' | b'L' => 2,
+            b'H' | b'V' => 1,
+            b'C' => 6,
+            _ => return None,
+        };
+        let mut values = Vec::with_capacity(count);
+        for _ in 0..count {
+            while index < bytes.len()
+                && (bytes[index].is_ascii_whitespace() || bytes[index] == b',')
+            {
+                index += 1;
+            }
+            let start = index;
+            if index < bytes.len() && (bytes[index] == b'-' || bytes[index] == b'+') {
+                index += 1;
+            }
+            while index < bytes.len() && (bytes[index].is_ascii_digit() || bytes[index] == b'.') {
+                index += 1;
+            }
+            if start == index {
+                return None;
+            }
+            values.push(path[start..index].parse::<f64>().ok()?);
+        }
+        match command {
+            b'M' => {
+                current = Point {
+                    x: values[0],
+                    y: values[1],
+                };
+                paths.push(vec![current.clone()]);
+                command = b'L';
+            }
+            b'L' | b'H' | b'V' => {
+                current = match command {
+                    b'L' => Point {
+                        x: values[0],
+                        y: values[1],
+                    },
+                    b'H' => Point {
+                        x: values[0],
+                        y: current.y,
+                    },
+                    _ => Point {
+                        x: current.x,
+                        y: values[0],
+                    },
+                };
+                paths.last_mut()?.push(current.clone());
+            }
+            b'C' => {
+                let start = current.clone();
+                for step in 1..=16 {
+                    let t = step as f64 / 16.0;
+                    let u = 1.0 - t;
+                    paths.last_mut()?.push(Point {
+                        x: u * u * u * start.x
+                            + 3.0 * u * u * t * values[0]
+                            + 3.0 * u * t * t * values[2]
+                            + t * t * t * values[4],
+                        y: u * u * u * start.y
+                            + 3.0 * u * u * t * values[1]
+                            + 3.0 * u * t * t * values[3]
+                            + t * t * t * values[5],
+                    });
+                }
+                current = Point {
+                    x: values[4],
+                    y: values[5],
+                };
+            }
+            _ => return None,
+        }
+    }
+    (!paths.is_empty() && paths.iter().all(|path| path.len() >= 3)).then_some(paths)
+}
+
+fn preset_paths() -> &'static HashMap<String, Vec<Vec<Point>>> {
+    static PATHS: std::sync::OnceLock<HashMap<String, Vec<Vec<Point>>>> =
+        std::sync::OnceLock::new();
+    PATHS.get_or_init(|| {
+        let source = include_str!("../../../../../ds/ui/src/widgets/shapePaths.ts");
+        (1..=22)
+            .map(|n| format!("{n:02}"))
+            .chain(["circle".into(), "cloud".into()])
+            .filter_map(|key| {
+                let marker = if key == "circle" || key == "cloud" {
+                    format!("{key}:")
+                } else {
+                    format!("\"{key}\":")
+                };
+                let tail = source.split_once(&marker)?.1;
+                let path = tail.split_once('"')?.1.split_once('"')?.0;
+                Some((key, path_points(path)?))
+            })
+            .collect()
+    })
+}
+
+fn skin_paths() -> &'static HashMap<String, Vec<Vec<Point>>> {
+    static PATHS: std::sync::OnceLock<HashMap<String, Vec<Vec<Point>>>> =
+        std::sync::OnceLock::new();
+    PATHS.get_or_init(|| {
+        let source = include_str!("../../../../../ds/ui/src/widgets/skinOutlines.ts");
+        ["clock", "weather", "focus", "music", "envelope", "memo"]
+            .into_iter()
+            .filter_map(|key| {
+                let tail = source
+                    .split_once(&format!("  {key}: {{"))?
+                    .1
+                    .split_once("d: \"")?
+                    .1;
+                let path = tail.split_once('"')?.0;
+                Some((key.to_string(), path_points(path)?))
+            })
+            .collect()
+    })
+}
+
+fn winding(paths: &[Vec<Point>], point: &Point) -> bool {
+    let mut winding = 0i32;
+    for path in paths {
+        for index in 0..path.len() {
+            let a = &path[index];
+            let b = &path[(index + 1) % path.len()];
+            let side = (b.x - a.x) * (point.y - a.y) - (point.x - a.x) * (b.y - a.y);
+            if a.y <= point.y && b.y > point.y && side > 0.0 {
+                winding += 1;
+            }
+            if a.y > point.y && b.y <= point.y && side < 0.0 {
+                winding -= 1;
+            }
+        }
+    }
+    winding != 0
+}
+
+// Cursor is relative to the center of the window in logical pixels.
+fn shape_contains(
+    shape: &Shape,
+    kind: &str,
+    custom_color: bool,
+    cursor: (f64, f64),
+) -> Option<bool> {
+    if !shape.valid() || !cursor.0.is_finite() || !cursor.1.is_finite() {
+        return None;
+    }
+    let angle = shape.rotation.to_radians();
+    let (sin, cos) = angle.sin_cos();
+    let mut x = cursor.0 * cos + cursor.1 * sin;
+    let mut y = -cursor.0 * sin + cursor.1 * cos;
+    if shape.flip_x {
+        x = -x;
+    }
+    if shape.flip_y {
+        y = -y;
+    }
+    let point = Point {
+        x: (x / shape.width + 0.5) * 24.0,
+        y: (y / shape.height + 0.5) * 24.0,
+    };
+    if shape.source == "drawing" && !shape.strokes.is_empty() {
+        return Some(winding(&shape.strokes, &point));
+    }
+    if shape.preset == "cloud" && (shape.cloud_count != 4 || shape.roundness != 70) {
+        let cloud: Vec<Point> = (0..=96)
+            .map(|index| {
+                let angle = std::f64::consts::PI + index as f64 / 96.0 * std::f64::consts::TAU;
+                let radius = 9.0
+                    + (1.0 - (angle * f64::from(shape.cloud_count)).cos())
+                        * (0.7 + f64::from(shape.roundness) / 100.0);
+                Point {
+                    x: 12.0 + angle.cos() * radius,
+                    y: 12.0 + angle.sin() * radius * 0.66,
+                }
+            })
+            .collect();
+        return Some(winding(&[cloud], &point));
+    }
+    if shape.preset != "default" {
+        return preset_paths()
+            .get(&shape.preset)
+            .map(|paths| winding(paths, &point));
+    }
+    let (skin, width, height, left, top) = match kind {
+        "clock" => ("clock", 184.0, 184.0, 0.0, 0.0),
+        "weather" => ("weather", 230.0, 150.0, 8.41, 16.38),
+        "focus-timer" => ("focus", 156.0, 168.0, 0.0, 0.0),
+        "music" => ("music", 336.0, 112.0, 0.0, 0.0),
+        "preparation" => ("envelope", 180.0, 200.0, -6.77, -6.46),
+        "memo" => ("memo", 214.0, 150.0, 0.0, 0.0),
+        "todo" | "calendar" | "travel" => {
+            return preset_paths().get("13").map(|paths| winding(paths, &point))
+        }
+        _ => return None,
+    };
+    if shape.source != "preset" || custom_color {
+        let preset = match kind {
+            "clock" => "circle",
+            "weather" => "cloud",
+            "focus-timer" => "07",
+            "music" => "10",
+            "preparation" => "22",
+            "memo" => "14",
+            _ => return None,
+        };
+        return preset_paths()
+            .get(preset)
+            .map(|paths| winding(paths, &point));
+    }
+    let point = Point {
+        x: (x / shape.width + 0.5) * width - left,
+        y: (y / shape.height + 0.5) * height - top,
+    };
+    skin_paths().get(skin).map(|paths| winding(paths, &point))
+}
+
 fn add_saved_widget_areas(
     occupied: &mut Vec<Rect>,
     layout: &Layout,
@@ -371,8 +611,7 @@ pub(crate) fn clamp_point(point: &Point, size: (f64, f64), areas: &[Rect]) -> Po
 pub(crate) fn restore_point(point: &Point, size: (f64, f64), areas: &[Rect]) -> Point {
     let center = (point.x + size.0 / 2.0, point.y + size.1 / 2.0);
     let overlap_area = |area: &Rect| {
-        overlap(point.x, size.0, area.x, area.width)
-            * overlap(point.y, size.1, area.y, area.height)
+        overlap(point.x, size.0, area.x, area.width) * overlap(point.y, size.1, area.y, area.height)
     };
     let distance = |area: &Rect| {
         let dx = (area.x - center.0)
@@ -907,8 +1146,7 @@ fn anchor_area(app: &tauri::AppHandle, layout: &Layout) -> Result<Rect, String> 
 pub(crate) fn is_widget_window(label: &str) -> bool {
     label == STACK
         || label.starts_with(DISPLAY)
-        || (label.starts_with("widget-")
-            && (label.contains("-image-") || label.contains("-note-")))
+        || (label.starts_with("widget-") && (label.contains("-image-") || label.contains("-note-")))
 }
 
 fn is_placement_obstacle(label: &str) -> bool {
@@ -1026,6 +1264,120 @@ fn display_placement(
     }
 }
 
+fn keep_display_input_for_pressed_button(ignored: bool, pressed: Option<bool>) -> Option<bool> {
+    if ignored {
+        Some(false)
+    } else {
+        pressed
+    }
+}
+
+fn cursor_in_display(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    id: &str,
+    ignored: bool,
+) -> Option<bool> {
+    let state = app.try_state::<Arc<AppState>>()?;
+    let runtime = app.try_state::<Runtime>()?;
+    if state.widget_editing.load(Ordering::SeqCst) {
+        return Some(true);
+    }
+    let dragging = runtime.dragging.lock().ok()?.contains(window.label());
+    let marked = runtime
+        .drag_marks
+        .lock()
+        .ok()?
+        .get(window.label())
+        .is_some_and(|mark| mark.elapsed() < Duration::from_secs(3));
+    if dragging || marked || keep_display_input_for_pressed_button(ignored, drag_button_pressed())?
+    {
+        return Some(true);
+    }
+    let (shape, kind, custom_color) = {
+        let db = lock(&state.db).ok()?;
+        let layout = read(&db).ok()?.layout;
+        if layout.mode != Mode::Freeform || !layout.order.iter().any(|item| item == id) {
+            return None;
+        }
+        let (kind, color): (String, Option<String>) = db
+            .query_row(
+                "SELECT kind, CASE WHEN kind IN ('clock', 'weather') THEN json_extract(data, '$.appearance.backgroundColor') END FROM widget_instances WHERE id = ?1",
+                params![id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .ok()?;
+        let spec = widgets::desktop_kind(&kind)?;
+        let has_shape = layout.shapes.contains_key(id);
+        let shape = layout.shapes.get(id).cloned().unwrap_or(Shape {
+            source: "preset".into(),
+            preset: "default".into(),
+            cloud_count: 4,
+            roundness: 70,
+            rotation: 0.0,
+            flip_x: false,
+            flip_y: false,
+            fit_content: true,
+            width: spec.width,
+            height: spec.height,
+            strokes: vec![],
+        });
+        let custom_color = color.as_deref().is_some_and(|color| {
+            (color.len() == 7 || color.len() == 9)
+                && color.starts_with('#')
+                && color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+                && color != "#24202d"
+        });
+        (shape, kind, has_shape && custom_color)
+    };
+    let position = window.outer_position().ok()?;
+    let size = window.outer_size().ok()?;
+    let scale = window.scale_factor().ok()?;
+    if !scale.is_finite() || scale <= 0.0 {
+        return None;
+    }
+    #[cfg(target_os = "macos")]
+    let point = {
+        let cursor = crate::desktop::geometry::cursor_position()?;
+        (
+            cursor.0 - (f64::from(position.x) + f64::from(size.width) / 2.0) / scale,
+            cursor.1 - (f64::from(position.y) + f64::from(size.height) / 2.0) / scale,
+        )
+    };
+    #[cfg(not(target_os = "macos"))]
+    let point = {
+        let cursor = app.cursor_position().ok()?;
+        (
+            (cursor.x - f64::from(position.x) - f64::from(size.width) / 2.0) / scale,
+            (cursor.y - f64::from(position.y) - f64::from(size.height) / 2.0) / scale,
+        )
+    };
+    shape_contains(&shape, &kind, custom_color, point)
+}
+
+fn track_display_cursor(app: &tauri::AppHandle, window: &tauri::WebviewWindow, id: &str) {
+    let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let closed = alive.clone();
+    window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            closed.store(false, Ordering::SeqCst);
+        }
+    });
+    let app = app.clone();
+    let window = window.clone();
+    let id = id.to_string();
+    let _ = std::thread::Builder::new().spawn(move || {
+        let mut ignored = false;
+        while alive.load(Ordering::SeqCst) && app.get_webview_window(window.label()).is_some() {
+            let ignore = !cursor_in_display(&app, &window, &id, ignored).unwrap_or(true);
+            if ignore != ignored && window.set_ignore_cursor_events(ignore).is_ok() {
+                ignored = ignore;
+            }
+            std::thread::sleep(Duration::from_millis(150));
+        }
+    });
+}
+
 // No lifecycle lock is held while native window calls wait for the main thread.
 fn open_display(
     app: &tauri::AppHandle,
@@ -1104,6 +1456,9 @@ fn open_display(
     }
     place(app, &window, &point)?;
     window.show().map_err(|e| e.to_string())?;
+    if !was_open {
+        track_display_cursor(app, &window, id);
+    }
     // A disable, removal or mode change may have finished while the window was being built.
     if displayable(state, id).is_err() {
         let _ = window.destroy();
@@ -1352,7 +1707,11 @@ fn should_close_empty_stack(layout: &Layout) -> bool {
 }
 
 fn is_latest_move(moves: &Mutex<HashMap<String, u64>>, label: &str, expected: u64) -> bool {
-    moves.lock().ok().and_then(|moves| moves.get(label).copied()) == Some(expected)
+    moves
+        .lock()
+        .ok()
+        .and_then(|moves| moves.get(label).copied())
+        == Some(expected)
 }
 
 /// Runs off the main thread: the action lock may be held by a command waiting on native calls.
@@ -1373,6 +1732,7 @@ pub(crate) fn mark_widget_desktop_drag(window: tauri::WebviewWindow) {
     if label != STACK
         && !label.starts_with(DISPLAY)
         && !(label.starts_with("widget-") && label.contains("-image-"))
+        && !(label.starts_with("widget-") && label.contains("-note-"))
     {
         return;
     }
@@ -1509,6 +1869,7 @@ pub(crate) fn watch_work_areas(app: &tauri::AppHandle, state: Arc<AppState>) {
                 if let Ok(stored) = stored {
                     let _ = sync(&app, &state, &stored.layout, false, true);
                     crate::widgets::images::reposition_on_screen_change(&app);
+                    crate::widgets::memo_notes::reposition_on_screen_change(&app);
                 }
             })
             .await;
@@ -1516,11 +1877,7 @@ pub(crate) fn watch_work_areas(app: &tauri::AppHandle, state: Arc<AppState>) {
     });
 }
 
-fn reset_anchor(
-    layout: &mut Layout,
-    anchor: Anchor,
-    monitor: Option<(Option<String>, Point)>,
-) {
+fn reset_anchor(layout: &mut Layout, anchor: Anchor, monitor: Option<(Option<String>, Point)>) {
     layout.anchor = anchor;
     layout.stack_position = None;
     let (name, origin) = monitor.map_or((None, None), |(name, origin)| (name, Some(origin)));
@@ -1557,7 +1914,10 @@ pub(crate) async fn reset_widget_desktop_position(
 /// Debounces native moves of desktop widget windows and saves where the user left them.
 pub(crate) fn moved(window: &tauri::Window) {
     let label = window.label();
-    if label != STACK && !label.starts_with(DISPLAY) {
+    if label != STACK
+        && !label.starts_with(DISPLAY)
+        && !(label.starts_with("widget-") && label.contains("-note-"))
+    {
         return;
     }
     let app = window.app_handle().clone();
@@ -1611,10 +1971,18 @@ pub(crate) fn moved(window: &tauri::Window) {
             && screen_unchanged(&app)
         {
             let _ = tauri::async_runtime::spawn_blocking(move || {
-                let result = settle(&app, &label, epoch);
+                let result = if label.starts_with("widget-") && label.contains("-note-") {
+                    crate::widgets::memo_notes::settle_move(&app, &label, epoch, expected)
+                } else {
+                    settle(&app, &label, epoch)
+                };
                 if let Some(runtime) = app.try_state::<Runtime>() {
-                    if let Ok(mut dragging) = runtime.dragging.lock() {
-                        dragging.remove(&label);
+                    if let Ok(moves) = runtime.moves.lock() {
+                        if moves.get(&label) == Some(&expected) {
+                            if let Ok(mut dragging) = runtime.dragging.lock() {
+                                dragging.remove(&label);
+                            }
+                        }
                     }
                 }
                 result
@@ -1622,6 +1990,57 @@ pub(crate) fn moved(window: &tauri::Window) {
             .await;
         }
     });
+}
+
+pub(crate) fn current_move(app: &tauri::AppHandle, label: &str, generation: u64) -> bool {
+    app.try_state::<Runtime>()
+        .is_some_and(|runtime| is_latest_move(&runtime.moves, label, generation))
+}
+
+pub(crate) fn move_generation(app: &tauri::AppHandle, label: &str) -> Option<u64> {
+    app.try_state::<Runtime>()
+        .and_then(|runtime| runtime.moves.lock().ok()?.get(label).copied())
+}
+
+pub(crate) fn active_drag_move(app: &tauri::AppHandle, label: &str) -> Option<u64> {
+    let runtime = app.try_state::<Runtime>()?;
+    if !runtime.dragging.lock().ok()?.contains(label) {
+        return None;
+    }
+    let generation = move_generation(app, label)?;
+    if !runtime.dragging.lock().ok()?.contains(label) {
+        return None;
+    }
+    Some(generation)
+}
+
+pub(crate) fn drag_pending(app: &tauri::AppHandle, label: &str) -> bool {
+    app.try_state::<Runtime>().is_some_and(|runtime| {
+        runtime
+            .dragging
+            .lock()
+            .ok()
+            .is_some_and(|dragging| dragging.contains(label))
+            || runtime.drag_marks.lock().ok().is_some_and(|marks| {
+                marks
+                    .get(label)
+                    .is_some_and(|marked| marked.elapsed() < Duration::from_secs(3))
+            })
+    })
+}
+
+pub(crate) fn invalidate_move(app: &tauri::AppHandle, label: &str) {
+    if let Some(runtime) = app.try_state::<Runtime>() {
+        if let Ok(mut moves) = runtime.moves.lock() {
+            *moves.entry(label.to_string()).or_default() += 1;
+        }
+        if let Ok(mut dragging) = runtime.dragging.lock() {
+            dragging.remove(label);
+        }
+        if let Ok(mut marks) = runtime.drag_marks.lock() {
+            marks.remove(label);
+        }
+    }
 }
 
 fn settle(app: &tauri::AppHandle, label: &str, epoch: u64) -> Result<(), String> {
@@ -2075,6 +2494,32 @@ pub(crate) async fn fit_widget_editor(app: tauri::AppHandle, height: f64) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn button_press_only_keeps_input_when_already_enabled() {
+        assert_eq!(
+            keep_display_input_for_pressed_button(false, Some(true)),
+            Some(true)
+        );
+        assert_eq!(
+            keep_display_input_for_pressed_button(false, Some(false)),
+            Some(false)
+        );
+        assert_eq!(keep_display_input_for_pressed_button(false, None), None);
+        assert_eq!(
+            keep_display_input_for_pressed_button(true, Some(true)),
+            Some(false)
+        );
+        assert_eq!(
+            keep_display_input_for_pressed_button(true, Some(false)),
+            Some(false)
+        );
+        assert_eq!(
+            keep_display_input_for_pressed_button(true, None),
+            Some(false)
+        );
+    }
+
     fn database() -> Connection {
         let db = Connection::open_in_memory().unwrap();
         storage::initialize(&db).unwrap();
@@ -2096,6 +2541,59 @@ mod tests {
     fn shape(width: f64, height: f64, rotation: f64) -> Shape {
         serde_json::from_value(serde_json::json!({"source":"drawing","preset":"default","cloudCount":4,"roundness":70,"rotation":rotation,"flipX":true,"flipY":false,"fitContent":true,"width":width,"height":height,"strokes":[[{"x":1,"y":1},{"x":23,"y":1},{"x":12,"y":23}]]})).unwrap()
     }
+    #[test]
+    fn shared_artwork_paths_are_available_for_input_testing() {
+        assert_eq!(preset_paths().len(), 24);
+        assert_eq!(skin_paths().len(), 6);
+        assert!(path_points("M0 0 Q1 2 3 4 Z").is_none());
+    }
+
+    #[test]
+    fn input_contains_uses_shape_rotation_flip_and_drawn_strokes() {
+        let mut item = shape(120.0, 120.0, 0.0);
+        item.flip_x = false;
+        assert_eq!(
+            shape_contains(&item, "clock", false, (0.0, 0.0)),
+            Some(true)
+        );
+        assert_eq!(
+            shape_contains(&item, "clock", false, (50.0, 50.0)),
+            Some(false)
+        );
+        item.rotation = 90.0;
+        assert_eq!(
+            shape_contains(&item, "clock", false, (40.0, -40.0)),
+            Some(true)
+        );
+        assert_eq!(
+            shape_contains(&item, "clock", false, (-40.0, 40.0)),
+            Some(false)
+        );
+        item.flip_x = true;
+        assert_eq!(
+            shape_contains(&item, "clock", false, (40.0, 40.0)),
+            Some(true)
+        );
+        item.strokes.clear();
+        item.source = "preset".into();
+        item.preset = "circle".into();
+        assert_eq!(
+            shape_contains(&item, "clock", false, (0.0, 0.0)),
+            Some(true)
+        );
+        assert_eq!(
+            shape_contains(&item, "clock", false, (55.0, 55.0)),
+            Some(false)
+        );
+        item.preset = "default".into();
+        assert_eq!(
+            shape_contains(&item, "clock", false, (55.0, 55.0)),
+            Some(false)
+        );
+        assert_eq!(shape_contains(&item, "unknown", false, (0.0, 0.0)), None);
+        assert_eq!(shape_contains(&item, "clock", false, (f64::NAN, 0.0)), None);
+    }
+
     fn style() -> StackStyle {
         StackStyle {
             follow_theme: false,
@@ -2595,12 +3093,32 @@ mod tests {
         };
         let areas = [AREA, second];
         assert_eq!(
-            restore_point(&Point { x: 1400.0, y: 850.0 }, (200.0, 100.0), &areas),
-            Point { x: 1440.0, y: 800.0 }
+            restore_point(
+                &Point {
+                    x: 1400.0,
+                    y: 850.0
+                },
+                (200.0, 100.0),
+                &areas
+            ),
+            Point {
+                x: 1440.0,
+                y: 800.0
+            }
         );
         assert_eq!(
-            restore_point(&Point { x: 4000.0, y: 100.0 }, (200.0, 100.0), &areas),
-            Point { x: 3160.0, y: 100.0 }
+            restore_point(
+                &Point {
+                    x: 4000.0,
+                    y: 100.0
+                },
+                (200.0, 100.0),
+                &areas
+            ),
+            Point {
+                x: 3160.0,
+                y: 100.0
+            }
         );
         let oversized = Point { x: 100.0, y: 100.0 };
         assert_eq!(
@@ -2636,10 +3154,7 @@ mod tests {
         };
         layout.positions.insert("b".into(), saved.clone());
         layout.shapes.insert("b".into(), shape(300.0, 100.0, 0.0));
-        let kinds = HashMap::from([
-            ("a".into(), "clock".into()),
-            ("b".into(), "clock".into()),
-        ]);
+        let kinds = HashMap::from([("a".into(), "clock".into()), ("b".into(), "clock".into())]);
         let mut occupied = Vec::new();
         add_saved_widget_areas(&mut occupied, &layout, &kinds, "a");
 
@@ -2867,14 +3382,19 @@ mod tests {
             occupied.push(rect);
         }
         let point = auto_place(AREA, size, &occupied);
-        assert!(occupied.iter().all(|other| !Rect::at(&point, size).intersects(other)));
+        assert!(occupied
+            .iter()
+            .all(|other| !Rect::at(&point, size).intersects(other)));
     }
 
     #[test]
     fn restoring_outside_a_monitor_does_not_replace_the_saved_position() {
         let db = database();
         let id = widget_ids(&db, &["clock"]).remove(0);
-        let saved = Point { x: 1390.0, y: 850.0 };
+        let saved = Point {
+            x: 1390.0,
+            y: 850.0,
+        };
         update(&db, |layout| {
             layout.order.push(id.clone());
             layout.positions.insert(id.clone(), saved.clone());
@@ -2890,7 +3410,13 @@ mod tests {
             None,
         );
         assert_eq!(clamp_point(&saved, (208.0, 208.0), &[AREA]), saved);
-        assert_eq!(shown, Point { x: 1232.0, y: 692.0 });
+        assert_eq!(
+            shown,
+            Point {
+                x: 1232.0,
+                y: 692.0
+            }
+        );
         assert!(!should_save);
         assert_eq!(load(&db).unwrap().layout.positions[&id], saved);
         let fallback = Point { x: 100.0, y: 100.0 };
@@ -3026,11 +3552,7 @@ mod tests {
         };
         let monitors = vec![
             (Some("same".into()), Point { x: 0.0, y: 0.0 }, AREA),
-            (
-                Some("same".into()),
-                Point { x: 2880.0, y: 0.0 },
-                external,
-            ),
+            (Some("same".into()), Point { x: 2880.0, y: 0.0 }, external),
         ];
         let legacy: Layout = serde_json::from_str(r#"{"stackMonitor":"same"}"#).unwrap();
         assert_eq!(

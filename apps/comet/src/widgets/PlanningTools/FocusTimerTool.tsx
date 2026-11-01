@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useLayoutEffect, useState, type ReactElement, type RefObject } from "react";
 import { useWindowDrag } from "../../hooks/useWindowDrag";
 import type { ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
@@ -24,6 +24,8 @@ type TimerToolProps = {
   embedded?: boolean;
   active?: boolean;
   onCollapse?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  closeLayoutRef?: RefObject<{ collapsed: boolean; resizing: RefObject<boolean>; expand: () => Promise<boolean> } | null>;
 };
 
 export type FocusTimerToolViewProps = TimerToolProps & {
@@ -51,6 +53,15 @@ export function TimerTool(props: TimerToolProps): ReactElement {
     session.timer.phase,
     setError,
   );
+  useLayoutEffect(() => {
+    if (!props.closeLayoutRef) return;
+    props.closeLayoutRef.current = {
+      collapsed: layout.collapsed,
+      resizing: layout.resizing,
+      expand: () => layout.resize(false),
+    };
+    return () => { if (props.closeLayoutRef) props.closeLayoutRef.current = null; };
+  });
   const tool = { ...props, busy, embedded, active };
   const { calendar } = session.timer;
   return (

@@ -35,6 +35,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 it("reels in on a bite and casts again from the collection with unknown slots", () => {
+  const now = vi.spyOn(Date, "now").mockReturnValue(1000);
   const { rerender } = render(
     <FishingTool widget={widget("fishing", { phase: "bite", catches: 0 })} act={act} />,
   );
@@ -56,8 +57,25 @@ it("reels in on a bite and casts again from the collection with unknown slots", 
   expect(screen.getByRole("status").textContent).toBe("조개껍데기를 낚았어요!");
   expect(screen.getByText("×3")).toBeTruthy();
   expect(screen.getAllByLabelText("아직 못 잡은 것")).toHaveLength(3);
+  now.mockReturnValue(1350);
   fireEvent.click(screen.getByRole("button", { name: "낚싯줄 던지기" }));
   expect(act).toHaveBeenLastCalledWith("cast");
+  now.mockRestore();
+});
+
+it("ignores the second click after casting until the phase transition settles", () => {
+  const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+  const { rerender } = render(
+    <FishingTool widget={widget("fishing", { phase: "idle", catches: 0 })} act={act} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "낚싯줄 던지기" }));
+  rerender(<FishingTool widget={widget("fishing", { phase: "waiting", catches: 0 })} act={act} />);
+  fireEvent.click(screen.getByRole("button", { name: "낚싯줄 거두기" }));
+  expect(act).toHaveBeenCalledTimes(1);
+  now.mockReturnValue(1350);
+  fireEvent.click(screen.getByRole("button", { name: "낚싯줄 거두기" }));
+  expect(act).toHaveBeenLastCalledWith("reel");
+  now.mockRestore();
 });
 
 it("stops watering once the plant has three drops or has bloomed", () => {

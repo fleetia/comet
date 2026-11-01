@@ -40,6 +40,7 @@ const TARGET_LABELS: Record<string, string> = {
   general: "일반",
   "ai.recommended": "추천 AI",
   "general.guide": "안내서",
+  "general.autostart": "로그인 자동 실행",
   "first-meeting": "첫 만남",
   talking: "대화하기",
   packs: "대화팩",
@@ -51,6 +52,7 @@ const TARGET_LABELS: Record<string, string> = {
 };
 const EVENT_NAMES = [
   "body.clicked",
+  "body.double-clicked",
   "body.moved",
   "widget.saved",
   "focus.started",
@@ -66,6 +68,7 @@ const ACTION_NAMES = [
 ] as const;
 export const EVENT_LABELS: Record<ScenarioEvent["event"], string> = {
   "body.clicked": "친구를 클릭함",
+  "body.double-clicked": "친구를 두 번 클릭함",
   "body.moved": "친구를 옮김",
   "widget.saved": "메모를 저장함",
   "focus.started": "집중 시작",
@@ -256,7 +259,7 @@ function ActionFields({
               })
             }
           >
-            {["", "ai.recommended", "general.guide"].map((name) => (
+            {["", "ai.recommended", "general.guide", "general.autostart"].map((name) => (
               <option key={name} value={name}>
                 {TARGET_LABELS[name] ?? "없음"}
               </option>

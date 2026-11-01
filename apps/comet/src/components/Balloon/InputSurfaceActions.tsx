@@ -6,6 +6,7 @@ import * as surfaceStyle from "./conversationSurface.css";
 /** Shortcuts above the separate desktop input: resume, talk together and past conversations. */
 export function InputSurfaceActions({
   resumeDisabled,
+  resumeUnavailable,
   togetherDisabled,
   historyDisabled,
   onResume,
@@ -13,6 +14,7 @@ export function InputSurfaceActions({
   onHistory,
 }: {
   resumeDisabled: boolean;
+  resumeUnavailable: boolean;
   togetherDisabled: boolean;
   historyDisabled: boolean;
   onResume: () => void;
@@ -26,6 +28,8 @@ export function InputSurfaceActions({
         className={`${surfaceStyle.inputAction} ${surfaceStyle.resumeAction}`}
         leadingIcon={<Icon name="resume" size={15} />}
         disabled={resumeDisabled}
+        aria-label={resumeUnavailable ? "이어서 하기 (멈춘 대화가 없어요)" : undefined}
+        title={resumeUnavailable ? "멈춘 대화가 없어요" : undefined}
         onClick={onResume}
       >
         이어서 하기

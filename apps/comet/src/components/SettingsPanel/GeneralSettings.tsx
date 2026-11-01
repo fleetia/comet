@@ -174,7 +174,7 @@ export function GeneralSettings({
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>시작과 종료</h2>
           <div className={styles.group}>
-            <div className={styles.nested}>
+            <div className={styles.nested} data-settings-highlight="general.autostart">
               <AutostartSettings active={active} compact />
             </div>
             <div className={styles.nested}>

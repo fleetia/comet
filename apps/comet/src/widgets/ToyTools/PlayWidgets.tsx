@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Icon, type IconName } from "@comet/icon";
 import { Balloon, Button, TextInput } from "@comet/ui";
 import type { WidgetView } from "../types";
@@ -56,6 +56,19 @@ export function FishingTool({ widget, act }: Props): ReactElement {
   const d = record(widget.data);
   const phase = text(d.phase);
   const collected = record(d.collected);
+  const transition = useRef({ phase, until: 0 });
+  useEffect(() => {
+    if (transition.current.phase !== phase) {
+      transition.current = { phase, until: Date.now() + 350 };
+    }
+  }, [phase]);
+  const play = (action: "cast" | "reel"): void => {
+    if (Date.now() < transition.current.until) {
+      return;
+    }
+    transition.current.until = Date.now() + 350;
+    void act(action);
+  };
   // After reeling in, the card shows what has been gathered so far.
   if (phase === "idle" && number(d.catches) > 0) {
     return (
@@ -85,7 +98,7 @@ export function FishingTool({ widget, act }: Props): ReactElement {
             ),
           )}
         </ul>
-        <Button variant="primary" className={s.wide} onClick={() => void act("cast")}>
+        <Button variant="primary" className={s.wide} onClick={() => play("cast")}>
           낚싯줄 던지기
         </Button>
       </Card>
@@ -105,7 +118,7 @@ export function FishingTool({ widget, act }: Props): ReactElement {
       <Button
         variant={bite || phase === "idle" ? "primary" : "ghost"}
         className={s.wide}
-        onClick={() => void act(phase === "idle" ? "cast" : "reel")}
+        onClick={() => play(phase === "idle" ? "cast" : "reel")}
       >
         {phase === "idle" ? "낚싯줄 던지기" : "낚싯줄 거두기"}
       </Button>

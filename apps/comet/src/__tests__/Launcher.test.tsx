@@ -19,6 +19,24 @@ let widgetState: WidgetSnapshot | null = widgets;
 vi.mock("../widgets/useWidgets", () => ({
   useWidgets: () => ({ snapshot: widgetState, error: null, reload: vi.fn() }),
 }));
+vi.mock("../widgets/GeneratedWidgets/useGeneratedWidgets", () => ({
+  useGeneratedWidgets: () => ({
+    workshop: {
+      widgets: [],
+      automatic: true,
+      runtime: "javascript",
+      generationEligibility: {
+        allowed: false,
+        reason: "위젯을 제작할 모델을 확인하고 있어요.",
+        model: "",
+        parameterBillions: null,
+        source: "unknown",
+      },
+    },
+    error: null,
+    reload: vi.fn(),
+  }),
+}));
 const initial: LauncherState = {
   sessionId: 1,
   shortcut: "CommandOrControl+Shift+Space",

@@ -21,6 +21,7 @@ export type FocusSession = {
   segments: FocusSegment[];
   appUsage?: FocusAppUsage;
   recordTimeline?: boolean;
+  includesAwayTime?: boolean;
   active?: boolean;
 };
 export type FocusPeriod = "day" | "week" | "month" | "year";
@@ -83,6 +84,7 @@ function readSession(session: DataRecord): FocusSession {
     elapsedMs: number(session.elapsedMs),
     outcome: text(session.outcome),
     recordTimeline: session.recordTimeline !== false,
+    includesAwayTime: session.includesAwayTime === true,
     memo: text(session.memo),
     eventRef: record(session.eventRef),
     noteRef: record(session.noteRef),

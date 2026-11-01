@@ -25,3 +25,17 @@ it("opens each play choice on its widget and game and touches the friend from th
     action: "stroke",
   });
 });
+
+it("does not open history when no conversation is paused", () => {
+  const perform = vi.fn();
+  expect(
+    runOrbitAction("resume", {
+      persona: "A",
+      character: undefined,
+      sleeping: false,
+      paused: undefined,
+      perform,
+    }),
+  ).toBe(false);
+  expect(perform).not.toHaveBeenCalled();
+});

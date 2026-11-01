@@ -5,7 +5,7 @@ import { useWidgets } from "../useWidgets";
 import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
 import { useWindowCloseGuard } from "../useWindowCloseGuard";
 import { useWindowDrag } from "../../hooks/useWindowDrag";
-import type { DataRecord } from "../toolData";
+import { record, type DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
 import type { CharacterCollection } from "../../types";
 import { CompanionTool, ToyTool } from "../ToyTools/ToyTools";
@@ -52,6 +52,8 @@ export function WidgetTool({
   const previousDisabled = useRef<string | null>(null);
   const [draftDirty, setDraftDirty] = useState(false);
   const [draftBusy, setDraftBusy] = useState(false);
+  const [focusCloseReady, setFocusCloseReady] = useState(false);
+  const focusCloseLayout = useRef<{ collapsed: boolean; resizing: { current: boolean }; expand: () => Promise<boolean> } | null>(null);
   const [showBusy, setShowBusy] = useState(false);
   useEffect(() => {
     if (!busy) {
@@ -73,11 +75,34 @@ export function WidgetTool({
     document.documentElement.classList.add(transparentDocument);
     return () => document.documentElement.classList.remove(transparentDocument);
   }, [transparent]);
+  const timerRunning = widget?.kind === "focus-timer" && record(widget.data).status === "running";
   const closeGuard = useWindowCloseGuard(
-    draftDirty,
+    draftDirty || timerRunning,
     draftBusy || (widget?.kind === "preparation" && busy),
     () => command("close_widget", { id }),
   );
+  useEffect(() => {
+    if (!closeGuard.confirmClose || widget?.kind !== "focus-timer") {
+      setFocusCloseReady(false);
+      return;
+    }
+    let active = true;
+    const layout = focusCloseLayout.current;
+    if (!layout || layout.resizing.current) {
+      closeGuard.keepEditing();
+      return;
+    }
+    if (!layout.collapsed) {
+      setFocusCloseReady(true);
+      return;
+    }
+    void layout.expand().then((success) => {
+      if (!active) return;
+      if (success) setFocusCloseReady(true);
+      else closeGuard.keepEditing();
+    });
+    return () => { active = false; };
+  }, [closeGuard.confirmClose, widget?.kind]);
   const musicDrag = useWindowDrag(widget?.kind === "music", setFailure);
   const requestClose = useRef(closeGuard.requestClose);
   requestClose.current = closeGuard.requestClose;
@@ -205,10 +230,10 @@ export function WidgetTool({
         footer = <p className={s.previewNote}>이 창을 닫아도 작성한 할 일은 유지됩니다.</p>;
         break;
       case "focus-timer":
-        content = <TimerTool {...props} onClose={closeGuard.requestClose} busy={busy} />;
+        content = <TimerTool {...props} onClose={closeGuard.requestClose} busy={busy} onDirtyChange={setDraftDirty} closeLayoutRef={focusCloseLayout} />;
         break;
       case "clock":
-        content = <ClockTool {...props} />;
+        content = <ClockTool {...props} onDirtyChange={setDraftDirty} />;
         break;
       case "preparation":
         content = (
@@ -377,8 +402,8 @@ export function WidgetTool({
         {content}
       </div>
       <Dialog
-        isOpen={closeGuard.confirmClose}
-        title="작성 중인 내용이 있어요"
+        isOpen={closeGuard.confirmClose && (widget?.kind !== "focus-timer" || focusCloseReady)}
+        title={draftDirty ? "작성 중인 내용이 있어요" : "집중 타이머가 실행 중이에요"}
         onOpenChange={(open) => {
           if (!open) closeGuard.keepEditing();
         }}
@@ -386,19 +411,20 @@ export function WidgetTool({
         footer={
           <>
             <Button variant="ghost" onClick={closeGuard.keepEditing}>
-              계속 편집
+              {draftDirty ? "계속 편집" : "계속 보기"}
             </Button>
             <Button
               variant="danger"
               disabled={busy || draftBusy}
               onClick={() => void closeGuard.discardAndClose()}
             >
-              저장하지 않고 닫기
+              {draftDirty ? "저장하지 않고 닫기" : "창 닫기"}
             </Button>
           </>
         }
       >
-        <p>저장하지 않은 내용을 버리고 닫을까요?</p>
+        {draftDirty && <p>저장하지 않은 내용을 버리고 닫을까요?</p>}
+        {timerRunning && <p>창을 닫아도 타이머는 계속 실행돼요.</p>}
         {closeGuard.closeError && <p role="alert">{closeGuard.closeError}</p>}
       </Dialog>
     </WidgetFrame>

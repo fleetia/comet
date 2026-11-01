@@ -62,6 +62,22 @@ afterEach(() => {
 });
 
 describe("frequency goals linked to a timer", () => {
+  it("distinguishes the current and next focus task selectors", () => {
+    const tasks = widget("todo", { items: [goal(), goal({ id: "next", title: "쓰기" })] });
+    render(<TimerTool widget={widget("focus-timer", { status: "idle" })} widgets={[tasks]} act={act} />);
+    fireEvent.click(screen.getByText("이번 집중 연결"));
+    fireEvent.click(screen.getByRole("radio", { name: "다음 집중" }));
+
+    const currentTask = screen.getByLabelText("연결할 할 일");
+    const nextTask = screen.getByLabelText("다음 집중에 연결할 할 일");
+    fireEvent.change(currentTask, { target: { value: "goal" } });
+    fireEvent.change(nextTask, { target: { value: "next" } });
+
+    expect(currentTask).toHaveProperty("value", "goal");
+    expect(nextTask).toHaveProperty("value", "next");
+    expect(screen.getByLabelText("다음 집중 제목")).toHaveProperty("value", "쓰기");
+  });
+
   it("keeps weekly goals selectable without recording when the timer starts", async () => {
     render(<TimerTool widget={timer("idle")} widgets={[todo()]} act={act} />);
     fireEvent.click(screen.getByText("이번 집중 연결"));

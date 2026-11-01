@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Icon, ChevIcon, type IconName } from "@comet/icon";
+import { Icon, type IconName } from "@comet/icon";
 import { Button, ContextMenu, SearchInput, Switch, type ContextMenuAction } from "@comet/ui";
 import type { WidgetView } from "../types";
 import * as styles from "./widgetCatalog.css";
@@ -13,6 +13,7 @@ export type WidgetListEntry = {
   reaction: boolean;
   status: WidgetView["status"] | "draft";
   attention: boolean;
+  desktopPlaced?: boolean | null;
 };
 export const WIDGET_ICONS: Record<string, IconName> = {
   todo: "todo",
@@ -90,10 +91,16 @@ export function WidgetCatalog({
     document.addEventListener("pointerdown", dismiss);
     return () => document.removeEventListener("pointerdown", dismiss);
   }, [menu]);
-  function showMenu(id: string, x: number, y: number, trigger: HTMLButtonElement | null): void {
+  function showMenu(
+    id: string,
+    x: number,
+    y: number,
+    trigger: HTMLButtonElement | null,
+    submenu?: string,
+  ): void {
     if (menuActions?.(id).length) {
       menuTrigger.current = trigger;
-      setMenu({ id, x, y });
+      setMenu({ id, x, y, submenu });
     }
   }
   function closeMenu(): void {
@@ -129,56 +136,112 @@ export function WidgetCatalog({
         <h2 className={styles.groupHeading}>
           {label}
           <span>{items.length}</span>
+          <span className={styles.reactionHeading}>친구 반응</span>
         </h2>
         <div className={styles.rows}>
-          {items.map((item) => (
-            <div
-              className={styles.entry}
-              key={item.id}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                showMenu(
-                  item.id,
-                  event.clientX,
-                  event.clientY,
-                  event.currentTarget.querySelector("button"),
-                );
-              }}
-            >
-              <button
-                type="button"
-                className={styles.entryButton}
-                aria-label={`${item.name} ${STATUS[item.status]}`}
-                aria-pressed={selectedId === item.id}
-                onClick={() => onSelect(item.id)}
-                aria-haspopup={menuActions?.(item.id).length ? "menu" : undefined}
-                onKeyDown={(event) => {
-                  if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
-                    event.preventDefault();
-                    const bounds = event.currentTarget.getBoundingClientRect();
-                    showMenu(item.id, bounds.left, bounds.bottom, event.currentTarget);
-                  }
+          {items.map((item) => {
+            const actions = menuActions?.(item.id) ?? [];
+            const actionLabel =
+              actions.find((action) => action.id === "settings")?.label ??
+              actions.find((action) => action.id === "open")?.label ??
+              "설정 열기";
+            const closedImages = actions.find((action) => action.id === "closed-images");
+            return (
+              <div
+                className={styles.entry}
+                key={item.id}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  showMenu(
+                    item.id,
+                    event.clientX,
+                    event.clientY,
+                    event.currentTarget.querySelector("button"),
+                  );
                 }}
               >
-                <span className={styles.iconTile}>
-                  <Icon name={WIDGET_ICONS[item.id] || "hash"} size={18} />
-                </span>
-                <span className={styles.entryCopy}>
-                  <strong className={styles.entryName}>{item.name}</strong>
-                  <span className={styles.description}>
-                    {item.attention ? STATUS[item.status] : item.description}
+                <button
+                  type="button"
+                  className={styles.entryButton}
+                  aria-label={`${item.name} ${STATUS[item.status]}`}
+                  aria-describedby={`widget-action-${item.id}${item.desktopPlaced !== undefined ? ` widget-desktop-${item.id}` : ""}`}
+                  aria-pressed={selectedId === item.id}
+                  onClick={() => onSelect(item.id)}
+                  aria-haspopup={menuActions?.(item.id).length ? "menu" : undefined}
+                  onKeyDown={(event) => {
+                    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+                      event.preventDefault();
+                      const bounds = event.currentTarget.getBoundingClientRect();
+                      showMenu(item.id, bounds.left, bounds.bottom, event.currentTarget);
+                    }
+                  }}
+                >
+                  <span className={styles.iconTile}>
+                    <Icon name={WIDGET_ICONS[item.id] || "hash"} size={18} />
                   </span>
-                </span>
-                <ChevIcon size={14} />
-              </button>
-              {item.id !== "image" && <Switch
-                aria-label={`${item.name} 캐릭터 반응`}
-                checked={item.reaction}
-                disabled={disabled || !onToggle}
-                onChange={(event) => onToggle?.(item.id, event.target.checked)}
-              />}
-            </div>
-          ))}
+                  <span className={styles.entryCopy}>
+                    <strong className={styles.entryName}>{item.name}</strong>
+                    <span className={styles.description}>
+                      {item.attention ? STATUS[item.status] : item.description}
+                    </span>
+                    {item.desktopPlaced !== undefined && (
+                      <span id={`widget-desktop-${item.id}`} className={styles.description}>
+                        {item.desktopPlaced === null
+                          ? "바탕화면 상태 확인 중"
+                          : item.desktopPlaced
+                            ? "바탕화면에 놓여 있어요"
+                            : "바탕화면에 놓을 수 있어요"}
+                      </span>
+                    )}
+                    <span id={`widget-action-${item.id}`} className={styles.actionLabel}>
+                      {actionLabel}
+                    </span>
+                  </span>
+                </button>
+                {closedImages && (
+                  <button
+                    type="button"
+                    className={styles.menuButton}
+                    disabled={closedImages.disabled}
+                    onClick={(event) => {
+                      const bounds = event.currentTarget.getBoundingClientRect();
+                      showMenu(
+                        item.id,
+                        bounds.left,
+                        bounds.bottom,
+                        event.currentTarget,
+                        "closed-images",
+                      );
+                    }}
+                  >
+                    {closedImages.label.replace(/\s*›$/, "")}
+                  </button>
+                )}
+                {actions.length > 0 && (
+                  <button
+                    type="button"
+                    className={styles.menuButton}
+                    aria-label={`${item.name} 더보기`}
+                    aria-haspopup="menu"
+                    onClick={(event) => {
+                      const bounds = event.currentTarget.getBoundingClientRect();
+                      showMenu(item.id, bounds.left, bounds.bottom, event.currentTarget);
+                    }}
+                  >
+                    <Icon name="more" size={16} />
+                  </button>
+                )}
+                {item.id !== "image" && (
+                  <Switch
+                    aria-label={`${item.name} 캐릭터 반응`}
+                    checked={item.reaction}
+                    disabled={disabled || !onToggle}
+                    onChange={(event) => onToggle?.(item.id, event.target.checked)}
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
       </section>
     );

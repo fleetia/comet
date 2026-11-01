@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { GeneratedWidget, GenerationEligibility } from "../GeneratedWidgets/types";
-import { GeneratedWidgetSettings } from "./GeneratedWidgetSettings";
+import { ArchivedGeneratedWidgets, GeneratedWidgetSettings } from "./GeneratedWidgetSettings";
 
 vi.mock("../../hooks/useSnapshot", async (load) => ({
   ...(await load<typeof import("../../hooks/useSnapshot")>()),
@@ -67,4 +67,15 @@ it("asks before going back to the code kept from before the latest AI fix", asyn
     }),
   );
   expect(await screen.findByText(/이전 모습으로 되돌렸어요/)).toBeTruthy();
+});
+
+it("restores an archived widget using its current revision", () => {
+  const run = vi.fn(async () => true);
+  render(<ArchivedGeneratedWidgets widgets={[{ ...widget, installed: false }]} canAct run={run} />);
+  fireEvent.click(screen.getByText("보관한 AI 위젯 (1)"));
+  fireEvent.click(screen.getByRole("button", { name: "단수 복원" }));
+  expect(run).toHaveBeenCalledWith("restore_generated_widget", {
+    id: "counter",
+    expectedRevision: 3,
+  });
 });

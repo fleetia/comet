@@ -942,7 +942,50 @@ pub(crate) async fn open_widget_with_result(
     if let Some(epoch) = interrupted {
         crate::app::phase(&app, &state, epoch, crate::types::RuntimePhase::Idle, None, None);
     }
-    open_widget_inner(&app, &state, &id, None, None, None).await
+    open_widget_inner(&app, &state, &id, None, None, None, None).await
+}
+
+fn restore_running_focus(instance: &widgets::WidgetInstance, now: i64) -> bool {
+    instance.kind == "focus-timer"
+        && instance.data["status"] == "running"
+        && instance.data["deadline"].as_i64().is_some_and(|deadline| deadline > now)
+}
+
+pub(crate) fn restore_focus_windows(app: tauri::AppHandle, state: Arc<AppState>) {
+    let pending = (|| -> Result<Vec<_>, String> {
+        let _action = lock(&state.action)?;
+        let db = lock(&state.db)?;
+        let mut pending = Vec::new();
+        for instance in storage::instances(&db)? {
+            if restore_running_focus(&instance, chrono::Utc::now().timestamp_millis())
+                && storage::installed_and_enabled(&db, &instance.id)? {
+                let token = begin_widget_open(&state, &instance.id)?;
+                pending.push((instance.id, (token, instance.revision)));
+            }
+        }
+        Ok(pending)
+    })();
+    let pending = match pending {
+        Ok(pending) => pending,
+        Err(error) => {
+            crate::report_error!("restore_focus_windows", "집중 창 복원 실패: {error:?}");
+            return;
+        }
+    };
+    tauri::async_runtime::spawn(async move {
+        for (id, intent) in pending {
+            if let Err(error) = open_widget_inner(&app, &state, &id, None, None, None, Some(&intent)).await {
+                if error != WidgetOpenError::Cancelled {
+                    crate::report_error!("restore_focus_windows", "집중 창 복원 실패: {error:?}");
+                }
+            }
+            if let Ok(mut intents) = lock(&state.widget_open_intents) {
+                if intents.get(&id).is_some_and(|current| Arc::ptr_eq(&current.token, &intent.0)) {
+                    intents.remove(&id);
+                }
+            }
+        }
+    });
 }
 
 fn finish_playback_link(state: &AppState, db: &rusqlite::Connection) -> Result<u64, String> {
@@ -1066,6 +1109,7 @@ pub(crate) async fn open_playback_link(
             None,
             None,
             Some(&playback_id),
+            None,
         )
         .await?;
     } else {
@@ -1164,7 +1208,7 @@ pub(crate) async fn open_play_widget(
     })?;
     publish_widgets(&app, &state);
     match prepared {
-        Some(id) => open_widget_inner(&app, &state, &id, None, None, None)
+        Some(id) => open_widget_inner(&app, &state, &id, None, None, None, None)
             .await
             .map_err(String::from),
         None => crate::widgets::planning::windows::open_widget_settings(app.clone(), &kind),
@@ -1230,6 +1274,7 @@ pub(crate) async fn open_widget_for_launcher(
         state,
         &id,
         Some((expected_revision, session_id)),
+        None,
         None,
         None,
     )
@@ -1324,7 +1369,7 @@ pub(crate) async fn open_widget_for_conversation(
         cancel,
         story: None,
     };
-    open_widget_inner(app, managed.inner(), id, None, Some(&guard), None).await?;
+    open_widget_inner(app, managed.inner(), id, None, Some(&guard), None, None).await?;
     Ok(serde_json::json!({"opened":true,"widgetId":id,"revision":expected_revision}))
 }
 
@@ -1344,7 +1389,7 @@ pub(crate) async fn open_widget_for_story(
     };
     let guard = ConversationOpen { expected_revision: instance.revision, epoch: run.epoch, cancel, story: Some(run) };
     let managed = app.state::<Arc<AppState>>();
-    open_widget_inner(app, managed.inner(), &instance.id, None, Some(&guard), None)
+    open_widget_inner(app, managed.inner(), &instance.id, None, Some(&guard), None, None)
         .await
         .map_err(String::from)
 }
@@ -1474,6 +1519,7 @@ async fn open_widget_inner(
     launcher: Option<(i64, u64)>,
     conversation: Option<&ConversationOpen<'_>>,
     playback: Option<&str>,
+    restore_focus: Option<&(Arc<AtomicBool>, i64)>,
 ) -> Result<(), WidgetOpenError> {
     uuid::Uuid::parse_str(id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
     let caller = app.webview_windows().into_values()
@@ -1481,6 +1527,11 @@ async fn open_widget_inner(
     let (instance, open_intent) = change(state, |db| {
         validate_playback_open(state, playback)?;
         let instance = storage::get(db, id)?;
+        if let Some((token, _)) = restore_focus {
+            widget_open_current(state, id, token).map_err(String::from)?;
+        } else if instance.kind == "focus-timer" {
+            cancel_widget_opens(state, Some(id))?;
+        }
         validate_open_widget(state, &instance, launcher)?;
         validate_conversation_open(state, &instance, conversation)?;
         if let Some(run) = conversation.and_then(|guard| guard.story) {
@@ -1586,10 +1637,18 @@ async fn open_widget_inner(
     if let Some(intent) = &open_intent {
         widget_open_current(state, id, intent)?;
     }
+    if let Some((token, _)) = restore_focus {
+        widget_open_current(state, id, token)?;
+    }
     let current = {
         let db = lock(&state.db)?;
         current_events(state, &db)?;
         let current = storage::get(&db, id)?;
+        if restore_focus.is_some_and(|(_, revision)| current.revision != *revision)
+            || (restore_focus.is_some() && (!restore_running_focus(&current, chrono::Utc::now().timestamp_millis())
+            || !storage::installed_and_enabled(&db, id)?)) {
+            return Ok(());
+        }
         if crate::widgets::connection_host::spotify_widget(&instance) {
             validate_prepared_music(state, &instance, &current, launcher, conversation)?;
         } else {
@@ -1616,6 +1675,9 @@ async fn open_widget_inner(
     }
     let label = format!("widget-{id}");
     if let Some(window) = app.get_webview_window(&label) {
+        if restore_focus.is_some() {
+            return Ok(());
+        }
         window.unminimize().map_err(|error| error.to_string())?;
         window.show().map_err(|error| error.to_string())?;
         window.set_focus().map_err(|error| error.to_string())?;
@@ -1631,7 +1693,7 @@ async fn open_widget_inner(
     let (focus_expanded, focus_collapsed, saved_position) = {
         let db = lock(&state.db)?;
         let (expanded, collapsed) = storage::read_tool_focus(&db, id)?;
-        (expanded, collapsed, storage::read_tool_position(&db, id)?)
+        (expanded, collapsed || restore_focus.is_some(), storage::read_tool_position(&db, id)?)
     };
     let (width, height) = match current.kind.as_str() {
         "music" => (370.0, 310.0),
@@ -2779,9 +2841,47 @@ pub(crate) async fn set_focus_expanded(
 
 #[cfg(test)]
 mod focus_resize_tests {
-    use super::{begin_focus_resize, focus_resize_frame, focus_resize_target, limit_focus_height, resize_position, tool_window_style, widget_open_current, FOCUS_RESIZE_DURATION};
+    use super::{begin_focus_resize, begin_widget_open, cancel_widget_opens, focus_resize_frame, focus_resize_target, limit_focus_height, resize_position, restore_running_focus, tool_window_style, widget_open_current, FOCUS_RESIZE_DURATION};
     use crate::widgets::desktop::Rect;
     use tauri::{PhysicalPosition, PhysicalSize};
+
+    #[test]
+    fn startup_restores_only_a_running_unexpired_focus_or_rest() {
+        let mut instance = crate::widgets::WidgetInstance {
+            id: "focus".into(), kind: "focus-timer".into(), version: 1, revision: 0,
+            data: serde_json::json!({"status":"running", "mode":"focus", "deadline":2000}), error: None,
+        };
+        assert!(restore_running_focus(&instance, 1000));
+        instance.data["mode"] = serde_json::json!("rest");
+        assert!(restore_running_focus(&instance, 1000));
+        assert!(!restore_running_focus(&instance, 2000));
+        instance.data["status"] = serde_json::json!("paused");
+        assert!(!restore_running_focus(&instance, 1000));
+        instance.data["status"] = serde_json::json!("running");
+        instance.kind = "clock".into();
+        assert!(!restore_running_focus(&instance, 1000));
+    }
+
+    #[test]
+    fn startup_restore_excludes_uninstalled_or_disabled_widgets() {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        crate::widgets::storage::initialize(&db).unwrap();
+        let id = crate::widgets::storage::instances(&db).unwrap().into_iter()
+            .find(|instance| instance.kind == "focus-timer").unwrap().id;
+        assert!(crate::widgets::storage::installed_and_enabled(&db, &id).unwrap());
+        db.execute("UPDATE widget_instances SET enabled=0 WHERE id=?1", [&id]).unwrap();
+        assert!(!crate::widgets::storage::installed_and_enabled(&db, &id).unwrap());
+        db.execute("UPDATE widget_instances SET enabled=1, installed=0 WHERE id=?1", [&id]).unwrap();
+        assert!(!crate::widgets::storage::installed_and_enabled(&db, &id).unwrap());
+    }
+
+    #[test]
+    fn closing_a_widget_cancels_its_pending_startup_restore() {
+        let state = crate::app::tests::state();
+        let token = begin_widget_open(&state, "focus").unwrap();
+        cancel_widget_opens(&state, Some("focus")).unwrap();
+        assert!(widget_open_current(&state, "focus", &token).is_err());
+    }
 
     #[test]
     fn auto_fit_does_not_cancel_a_user_transition_and_new_transition_cancels_only_its_predecessor() {

@@ -61,7 +61,7 @@ async function openFocusBubble(page: Page, tauri: FakeTauri) {
   const bubble = page.getByRole("dialog");
   await expect(bubble).toBeVisible();
   await bubble.getByText("이번 집중 연결").click();
-  const select = bubble.getByLabel("연결할 할 일");
+  const select = bubble.getByLabel("연결할 할 일", { exact: true });
   await expect(select).toBeVisible();
   return { bubble, select };
 }

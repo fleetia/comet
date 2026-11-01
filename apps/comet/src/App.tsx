@@ -23,6 +23,7 @@ import { WidgetDisplay } from "./widgets/WidgetDisplay/WidgetDisplay";
 import { WidgetEditor } from "./widgets/WidgetDisplay/WidgetEditor";
 import { MemoNote } from "./widgets/MemoNote/MemoNote";
 import { ImageWindow } from "./widgets/ImageWidget/ImageWindow";
+import { ImageProcessing } from "./widgets/ImageWidget/ImageProcessing";
 import { WindowHeader } from "./components/WindowHeader/WindowHeader";
 import { command, isDesktop, useSnapshot } from "./hooks/useSnapshot";
 import { useAnalyticsConsent } from "./hooks/useAnalyticsConsent";
@@ -67,6 +68,7 @@ function standaloneRoute(query: URLSearchParams): JSX.Element | null {
   if (view === "image") {
     return <ImageWindow id={query.get("id") ?? ""} imageId={query.get("imageId") ?? ""} />;
   }
+  if (view === "image-processing") return <ImageProcessing />;
   return null;
 }
 

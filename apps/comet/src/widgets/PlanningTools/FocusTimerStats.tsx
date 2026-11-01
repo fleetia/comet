@@ -87,7 +87,7 @@ export function FocusTimerStats({
   const chosenScopeName = period === "week" || period === "month" ? "이 날짜" : "선택 구간";
   const scopeName = chosen ? chosenScopeName : "이 기간";
   const scopeDescription = (session: FocusSession): string =>
-    `${scopeName} ${focusDuration(elapsedWithin(session, scopeStart, scopeEnd))} · 세션 전체 ${focusDuration(session.elapsedMs)}${session.appUsage ? ` · 앱 전면 사용 · 세션 전체 · ${session.appUsage.target.name} ${appUsageTime(session.appUsage.elapsedMs)}` : ""}`;
+    `${scopeName} ${focusDuration(elapsedWithin(session, scopeStart, scopeEnd))} · 세션 전체 ${focusDuration(session.elapsedMs)}${session.includesAwayTime ? " · 자리 비움 포함" : ""}${session.appUsage ? ` · 앱 전면 사용 · 세션 전체 · ${session.appUsage.target.name} ${appUsageTime(session.appUsage.elapsedMs)}` : ""}`;
   function shift(amount: number): void {
     setAnchor(period === "day" ? moveDay(anchor, amount) : movePeriod(anchor, period, amount));
     setBucketKey(null);
@@ -217,6 +217,7 @@ export function FocusTimerStats({
                       ? "시간 종료"
                       : "직접 마침"}
                   {session.memo || text(session.noteRef.id) ? " · 메모 있음" : ""}
+                  {session.includesAwayTime && " · 자리 비움 포함"}
                   {elapsedWithin(session, scopeStart, scopeEnd) !== session.elapsedMs && (
                     <span className={s.recordScope}>
                       {scopeName} {focusDuration(elapsedWithin(session, scopeStart, scopeEnd))} ·
@@ -332,6 +333,7 @@ function FocusSessionDetail({
         {clockLabel(session.endedAt)}
       </p>
       <h2 className={s.headingText}>{session.title}</h2>
+      {session.includesAwayTime && <p className={s.quiet}>자리 비움 포함</p>}
       <dl className={s.meta}>
         <dt>일정</dt>
         <dd>{text(session.eventRef.title) || "연결한 일정 없음"}</dd>

@@ -17,7 +17,7 @@ it.each([false, true])(
       version: 1,
       reaction: true,
       revision: 1,
-      data: { events: [{ id: "long", title, startAt: now + 3600000 }] },
+      data: { events: [{ id: "long", title, startAt: now + 3600000, endAt: now + 7200000 }] },
       error: null,
       status: "enabled",
       missing: [],
@@ -28,6 +28,6 @@ it.each([false, true])(
     );
     expect(screen.getByTitle(title).textContent).toBe(title);
     expect(screen.getByRole("button", { expanded }).textContent).toContain(title);
-    expect(widget.data).toEqual({ events: [{ id: "long", title, startAt: now + 3600000 }] });
+    expect(widget.data).toEqual({ events: [{ id: "long", title, startAt: now + 3600000, endAt: now + 7200000 }] });
   },
 );

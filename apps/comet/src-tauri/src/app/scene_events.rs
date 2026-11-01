@@ -23,6 +23,7 @@ struct Wait {
     cancel_on: Vec<StoryEvent>,
     result: Option<WaitResult>,
     matched: bool,
+    delivered: bool,
     appearance: Option<WaitAppearance>,
 }
 
@@ -147,6 +148,7 @@ pub(crate) fn begin_wait(
         cancel_on: cancel_on.to_vec(),
         result,
         matched: result == Some(WaitResult::Matched),
+        delivered: result.is_some(),
         appearance: None,
     });
     Ok(true)
@@ -279,7 +281,7 @@ fn deliver_event(
         wait.run_id == run.run_id
             && wait.epoch == run.epoch
             && wait.generation == run.phase_generation
-            && wait.result.is_none()
+            && !wait.delivered
     }) {
         wait.result = if wait.event == *event {
             Some(WaitResult::Matched)
@@ -292,6 +294,7 @@ fn deliver_event(
             wait.matched = true;
         }
         if wait.result.is_some() {
+            wait.delivered = true;
             return true;
         }
     }
@@ -361,6 +364,66 @@ fn send_locked(
             StoryEvent::FocusStarted {} | StoryEvent::FocusStopped {}
         ) && runtime.focus.is_some());
     Ok(deliver_event(&mut runtime, run, &event, can_queue))
+}
+
+#[tauri::command]
+pub(crate) fn consume_body_double_click(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, std::sync::Arc<AppState>>,
+) -> Result<bool, String> {
+    let center = window.label().strip_prefix("body-").ok_or("본체에서 교감해 주세요.")?;
+    consume_double_click(&state, center)
+}
+
+pub(crate) fn consume_double_click(state: &AppState, center: &str) -> Result<bool, String> {
+    let _action = lock(&state.action)?;
+    let Some(run) = lock(&state.pack_stories)?.run.clone() else {
+        return Ok(false);
+    };
+    if center != run.scope.center_id
+        || !current(state, &run)?
+        || !available_locked(state, &*lock(&state.db)?, &run)?
+    {
+        return Ok(false);
+    }
+    let mut events = lock(&state.scene_events)?;
+    if events.run_id.as_deref() != Some(&run.run_id) {
+        *events = Runtime {
+            run_id: Some(run.run_id.clone()),
+            ..Default::default()
+        };
+    }
+    if let Some(wait) = events.wait.as_ref().filter(|wait| {
+        wait.run_id == run.run_id
+            && wait.epoch == run.epoch
+            && wait.generation == run.phase_generation
+    }) {
+        let event = match &wait.event {
+            StoryEvent::BodyClicked {} => StoryEvent::BodyClicked {},
+            StoryEvent::BodyDoubleClicked {} => StoryEvent::BodyDoubleClicked {},
+            _ if wait.cancel_on.contains(&StoryEvent::BodyClicked {}) => StoryEvent::BodyClicked {},
+            _ if wait.cancel_on.contains(&StoryEvent::BodyDoubleClicked {}) => {
+                StoryEvent::BodyDoubleClicked {}
+            }
+            _ => return Ok(false),
+        };
+        return Ok(deliver_event(&mut events, &run, &event, false));
+    }
+    let pending = [StoryEvent::BodyClicked {}, StoryEvent::BodyDoubleClicked {}]
+        .iter()
+        .filter_map(|event| upcoming_wait(&run, event, &events.pending_wait, events.wait.as_ref()))
+        .min_by_key(|pending| (pending.step, pending.result != WaitResult::Matched));
+    if let Some(pending) = pending {
+        if !events.pending_wait.iter().any(|item| {
+            item.chapter_id == pending.chapter_id
+                && item.step == pending.step
+                && item.generation == pending.generation
+        }) {
+            events.pending_wait.push(pending);
+        }
+        return Ok(true);
+    }
+    Ok(false)
 }
 
 pub(crate) fn body_event(state: &AppState, center: &str, moved: bool) -> Result<(), String> {

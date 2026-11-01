@@ -451,6 +451,7 @@ export function Balloon({
     (failedInputIndex < 0 || conversation!.messages.indexOf(latestReply) < failedInputIndex),
   );
   const paused = sessions.find((session) => session.status === "paused");
+  const resumeUnavailable = !sessionsLoading && !sessionsError && !paused;
   const historyArgs = {
     persona,
     mode: "history",
@@ -458,7 +459,6 @@ export function Balloon({
   };
   async function resumeFromInput(): Promise<void> {
     if (paused) await leave("resume_chat", { sessionId: paused.id });
-    else await leave("open_panel", historyArgs);
   }
   const recipientName = characterName(
     snapshot,
@@ -698,6 +698,8 @@ export function Balloon({
               pausedUntil={snapshot.runtime.pausedUntil}
               sleeping={sleeping}
               busy={navigating || sessionsLoading}
+              canResume={Boolean(paused) && !sessionsError}
+              resumeUnavailable={resumeUnavailable}
               onClose={() => leave(closeCommand)}
               onAction={(action) =>
                 runOrbitAction(action, {
@@ -756,8 +758,10 @@ export function Balloon({
                   responding ||
                   playing ||
                   sessionsLoading ||
-                  Boolean(sessionsError)
+                  Boolean(sessionsError) ||
+                  !paused
                 }
+                resumeUnavailable={resumeUnavailable}
                 togetherDisabled={navigating || pending || responding || playing}
                 historyDisabled={navigating}
                 onResume={() => void resumeFromInput()}

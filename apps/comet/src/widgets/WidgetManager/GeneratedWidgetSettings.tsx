@@ -17,6 +17,46 @@ function installedTime(timestamp: number | null): ReactElement | string {
   return <time dateTime={date.toISOString()}>{date.toLocaleString("ko-KR")}</time>;
 }
 
+export function ArchivedGeneratedWidgets({
+  widgets,
+  canAct,
+  run,
+}: {
+  widgets: GeneratedWidget[];
+  canAct: boolean;
+  run: (name: string, args?: Record<string, unknown>) => Promise<boolean>;
+}): ReactElement {
+  return (
+    <details>
+      <summary>보관한 AI 위젯 ({widgets.length})</summary>
+      {widgets.length === 0 ? (
+        <Text as="p" variant="caption" tone="muted">
+          보관한 위젯이 없어요.
+        </Text>
+      ) : (
+        widgets.map((widget) => (
+          <Inline key={widget.id} gap="sm">
+            <Text>{widget.definition.name}</Text>
+            <Button
+              variant="ghost"
+              disabled={!canAct}
+              aria-label={`${widget.definition.name} 복원`}
+              onClick={() =>
+                void run("restore_generated_widget", {
+                  id: widget.id,
+                  expectedRevision: widget.revision,
+                })
+              }
+            >
+              복원
+            </Button>
+          </Inline>
+        ))
+      )}
+    </details>
+  );
+}
+
 export function GeneratedWidgetSettings({
   widget,
   eligibility,

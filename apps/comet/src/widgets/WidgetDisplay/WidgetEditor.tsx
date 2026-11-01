@@ -100,9 +100,14 @@ export function WidgetEditor(): ReactElement {
   const drag = useWindowDrag(isDesktop(), desktop.setError);
   const [tab, setTab] = useState<"shape" | "appearance">("shape");
   const [draft, setDraft] = useState<{ id: string; shape: WidgetShape } | null>(null);
+  const [shapeSaveFailed, setShapeSaveFailed] = useState(false);
   const [moveStatus, setMoveStatus] = useState("");
   const timer = useRef<number | undefined>(undefined);
   const pendingShape = useRef<{ id: string; shape: WidgetShape } | null>(null);
+  const latestShape = useRef<WidgetShape | null>(null);
+  const shapeSave = useRef<Promise<boolean> | null>(null);
+  const finishing = useRef(false);
+  const drawing = useRef(false);
   const stackStyleControls = useRef<{ flush: () => void; cancel: () => void } | null>(null);
   const previewRevision = useRef(0);
   const previewEvents = useRef<Promise<void>>(Promise.resolve());
@@ -129,20 +134,37 @@ export function WidgetEditor(): ReactElement {
       .catch((cause: unknown) => desktop.setError(String(cause)));
   }
 
-  function saveShape(): void {
+  function saveShape(): Promise<boolean> {
     window.clearTimeout(timer.current);
+    if (drawing.current) return Promise.resolve(false);
     const next = pendingShape.current;
-    if (!next) return;
+    if (!next) return shapeSave.current ?? Promise.resolve(!shapeSaveFailed);
     pendingShape.current = null;
-    void desktop
+    const saving = desktop
       .run("set_widget_desktop_shape", next)
-      .then(() => setDraft((current) => (current?.shape === next.shape ? null : current)));
+      .then((result) => {
+        if (latestShape.current !== next.shape) return Boolean(result);
+        if (result) {
+          setDraft((current) => (current?.shape === next.shape ? null : current));
+          latestShape.current = null;
+          setShapeSaveFailed(false);
+        } else {
+          setShapeSaveFailed(true);
+        }
+        return Boolean(result);
+      })
+      .finally(() => {
+        if (shapeSave.current === saving) shapeSave.current = null;
+      });
+    shapeSave.current = saving;
+    return saving;
   }
   function changeShape(id: string, shape: WidgetShape): void {
+    latestShape.current = shape;
     setDraft({ id, shape });
     pendingShape.current = { id, shape };
     window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(saveShape, SHAPE_SAVE_DELAY);
+    if (!drawing.current) timer.current = window.setTimeout(saveShape, SHAPE_SAVE_DELAY);
   }
   const saveShapeRef = useRef(saveShape);
   saveShapeRef.current = saveShape;
@@ -159,10 +181,18 @@ export function WidgetEditor(): ReactElement {
     setTab("shape");
   }, [desktop.selected]);
 
-  function finish(): void {
-    saveShape();
-    stackStyleControls.current?.flush();
-    void desktop.run("set_widget_desktop_editing", { editing: false });
+  async function finish(): Promise<void> {
+    if (finishing.current) return;
+    finishing.current = true;
+    try {
+      do {
+        if (!(await saveShape()) || drawing.current) return;
+      } while (pendingShape.current || shapeSave.current);
+      stackStyleControls.current?.flush();
+      void desktop.run("set_widget_desktop_editing", { editing: false });
+    } finally {
+      finishing.current = false;
+    }
   }
 
   function moveWidget(widget: WidgetView, dx: number, dy: number): void {
@@ -264,7 +294,7 @@ export function WidgetEditor(): ReactElement {
           onPointerCancel={drag.reset}
         >
           <h1>바탕화면 위젯 편집</h1>
-          <IconButton icon="close" aria-label="편집 끝내기" onClick={finish} />
+          <IconButton icon="close" aria-label="편집 끝내기" onClick={() => void finish()} />
         </header>
         <div className={s.body}>
           <section className={s.section} aria-label="배치 방식">
@@ -357,6 +387,7 @@ export function WidgetEditor(): ReactElement {
               ) : (
                 <>
                 <p className={s.hint}>위치 이동 버튼에서 화살표 키를 누르면 8px씩 이동해요.</p>
+                <p className={s.hint}>되돌리기는 배치와 모양만 복원해요. 색상·글자와 배경 이미지는 복원하지 않아요.</p>
                 <div
                   role="group"
                   aria-label={`${name(active)} 위치 이동`}
@@ -396,12 +427,21 @@ export function WidgetEditor(): ReactElement {
                               ? draft.shape
                               : (layout.shapes[active.id] ?? defaultShape(active))
                           }
-                          disabled={!desktop.state}
+                          disabled={!desktop.state || Boolean(draft && draft.id !== active.id)}
                           onChange={(shape) => changeShape(active.id, shape)}
+                          onDrawingChange={(isDrawing) => {
+                            drawing.current = isDrawing;
+                            window.clearTimeout(timer.current);
+                            if (!isDrawing && pendingShape.current)
+                              timer.current = window.setTimeout(saveShape, SHAPE_SAVE_DELAY);
+                          }}
                           onReset={() => {
+                            if (drawing.current) return;
                             window.clearTimeout(timer.current);
                             pendingShape.current = null;
+                            latestShape.current = null;
                             setDraft(null);
+                            setShapeSaveFailed(false);
                             void desktop.run("set_widget_desktop_shape", {
                               id: active.id,
                               shape: null,
@@ -483,6 +523,12 @@ export function WidgetEditor(): ReactElement {
               {desktop.error || widgetError}
             </p>
           )}
+          {shapeSaveFailed && draft && (
+            <Button size="small" variant="ghost" onClick={() => {
+              pendingShape.current = draft;
+              void saveShape();
+            }}>모양 다시 저장</Button>
+          )}
         </div>
         <footer className={s.footer}>
           <Button
@@ -491,10 +537,12 @@ export function WidgetEditor(): ReactElement {
             disabled={!desktop.state}
             aria-disabled={desktop.busy || undefined}
             onClick={() => {
-              if (desktop.busy) return;
+              if (desktop.busy || drawing.current) return;
               window.clearTimeout(timer.current);
               pendingShape.current = null;
+              latestShape.current = null;
               setDraft(null);
+              setShapeSaveFailed(false);
               stackStyleControls.current?.cancel();
               sendPreview({ id: null, style: null });
               void desktop.restore();

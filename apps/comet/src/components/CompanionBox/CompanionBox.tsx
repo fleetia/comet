@@ -65,7 +65,7 @@ export function CompanionBox({
       setError(errorText(cause));
     }
   }
-  const gestures = useCharacterGestures({
+  const { isMoveArmed, isPressed, ...gestures } = useCharacterGestures({
     enabled: !preview && persona !== null && !snapshot.runtime.hidden,
     regions: character?.definition.bodyRegions,
     cheekRegionIds: character?.definition.gestureMotions?.flatMap((motion) =>
@@ -88,7 +88,14 @@ export function CompanionBox({
       }).catch((cause: unknown) => setError(errorText(cause)));
     },
     onDoubleClick: () => {
-      void open("input");
+      void (async () => {
+        try {
+          const consumed: unknown = await dispatch("consume_body_double_click");
+          if (consumed !== true) await open("input");
+        } catch (cause) {
+          setError(errorText(cause));
+        }
+      })();
     },
     onMenu: () => {
       void open("menu");
@@ -100,15 +107,16 @@ export function CompanionBox({
     <div className={`${s.bodyFrame} ${preview ? s.bodyPreview : ""}`}>
       <button
         ref={bodyRef}
-        className={
+        className={`${isMoveArmed ? s.bodyMoveArmed : ""} ${isPressed ? s.bodyPressed : ""} ${
           imageBody
             ? `${s.body} ${s.spriteBody}`
             : `${s.body} ${s.tone[snapshot.characters.active.indexOf(id) % 2 === 1 ? "b" : "a"]}`
-        }
+        }`}
         aria-label={persona ? `${name} 반응` : name}
         title={
           error ??
           animation.error ??
+          (isMoveArmed ? "끌어서 옮겨 주세요." : undefined) ??
           (persona
             ? "클릭: 찌르기 · 문지르기: 쓰다듬기 · 우클릭: 메뉴 · 두 번 클릭: 말 걸기 · Cmd/Ctrl+끌기: 이동"
             : "끌기: 이동 · 이 친구의 대화는 준비 중이에요")
@@ -143,6 +151,7 @@ export function CompanionBox({
           </span>
         )}
       </button>
+      {isMoveArmed && <span className={s.moveHint}>끌어서 이동</span>}
       {!imageBody && (
         <IconButton
           className={s.bodyClose}

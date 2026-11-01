@@ -29,7 +29,7 @@ import type { WidgetView } from "../types";
 import { record, rows, type ToolAction } from "../toolData";
 import * as common from "../../common.css";
 import { CONFIGURABLE_WIDGETS, WidgetSettings } from "./WidgetSettings";
-import { GeneratedWidgetSettings } from "./GeneratedWidgetSettings";
+import { ArchivedGeneratedWidgets, GeneratedWidgetSettings } from "./GeneratedWidgetSettings";
 import { WIDGET_ICONS, WidgetCatalog, type WidgetListEntry } from "./WidgetCatalog";
 import * as details from "./widgetDetails.css";
 import * as styles from "./widgetManager.css";
@@ -165,7 +165,11 @@ export function WidgetManager({
       return true;
     } catch (cause: unknown) {
       setFailure(errorText(cause));
-      if (name === "generate_widget" || name === "remove_generated_widget") {
+      if (
+        name === "generate_widget" ||
+        name === "remove_generated_widget" ||
+        name === "restore_generated_widget"
+      ) {
         reloadGenerated();
       }
       return false;
@@ -196,6 +200,11 @@ export function WidgetManager({
         reaction: view?.reaction ?? true,
         status: view?.status ?? "install-error",
         attention: Boolean(view && ["setup", "error", "install-error"].includes(view.status)),
+        desktopPlaced: canPlaceOnDesktop(item.id)
+          ? desktop.state
+            ? desktop.state.order.includes(view?.id ?? item.id)
+            : null
+          : undefined,
       };
     }),
     ...generatedWidgets.map(
@@ -269,7 +278,7 @@ export function WidgetManager({
     const confirmed = !!current && (!current.queryError || !!current.lastConfirmed);
     const actions: ContextMenuAction[] = [];
     if (CONFIGURABLE_WIDGETS.includes(target.kind))
-      actions.push({ id: "settings", label: "설정…", icon: "edit", disabled: !canAct });
+      actions.push({ id: "settings", label: "설정 열기", icon: "edit", disabled: !canAct });
     if (!["clock", "weather", "external-notice"].includes(target.kind))
       actions.push({
         id: "open",
@@ -387,6 +396,11 @@ export function WidgetManager({
   const catalogFooter = (
     <section className={styles.experiments} aria-label="실험 기능">
       <h2 className={styles.directorySectionTitle}>실험 기능</h2>
+      <ArchivedGeneratedWidgets
+        widgets={workshop.widgets.filter((item) => !item.installed)}
+        canAct={canAct}
+        run={run}
+      />
       <div className={styles.experimentRows}>
         <SettingsSummary
           title="AI 위젯 만들기"
@@ -549,6 +563,22 @@ export function WidgetManager({
                       />
                     )}
                     <div ref={setInspectorSlot} className={details.inspectorSlot} />
+                    {widget &&
+                      ["focus-timer", "music", "calendar", "clock", "weather"].includes(
+                        widget.kind,
+                      ) && (
+                        <div className={details.launch}>
+                          <Button
+                            variant="primary"
+                            className={details.launchButton}
+                            disabled={!canAct}
+                            onClick={() => openCanonical(widget)}
+                          >
+                            <Icon name="arrowright" size={15} />
+                            위젯 열기
+                          </Button>
+                        </div>
+                      )}
                     {widget && canPlaceOnDesktop(widget.kind) && (
                       <div className={details.launch}>
                         {placed(widget.id) ? (

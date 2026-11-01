@@ -50,7 +50,7 @@ export function WidgetDisplay({ id }: { id: string }): ReactElement {
     null,
   );
   const now = useNow();
-  const all = useTravelWidgets(snapshot?.widgets ?? EMPTY);
+  const { widgets: all } = useTravelWidgets(snapshot?.widgets ?? EMPTY);
   const widget = all.find((item) => item.id === id);
   const entry = snapshot?.catalog.find((item) => item.id === widget?.kind);
   const editing = desktop.state?.editing ?? false;

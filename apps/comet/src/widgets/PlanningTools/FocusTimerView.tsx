@@ -102,6 +102,8 @@ type Props = FocusTimerWidgetProps & {
   onLongRest?: () => void;
   longRestLabel?: string;
   nextTitle?: string;
+  hasLinkedTodo?: boolean;
+  onStartNext?: () => void;
 };
 
 export function FocusTimerView({
@@ -147,6 +149,8 @@ export function FocusTimerView({
   onLongRest,
   longRestLabel,
   nextTitle,
+  hasLinkedTodo,
+  onStartNext,
   ...props
 }: Props): ReactElement {
   if (collapsed) {
@@ -154,13 +158,13 @@ export function FocusTimerView({
       ready: "집중 타이머",
       running: paused ? "집중 일시정지" : "집중 중",
       complete: "집중 끝",
-      rest: "휴식 중",
+      rest: paused ? "휴식 일시정지" : "휴식 중",
       "rest-complete": "휴식 끝",
     };
     const descriptions = {
       ready: task ? `${task} · 시작 전` : "시작할 준비가 됐어요",
       running: task,
-      complete: "할 일 완료를 꼭 눌러 주세요",
+      complete: hasLinkedTodo ? "할 일을 완료로 표시할 수 있어요" : "메모를 남기거나 쉬어 갈 수 있어요",
       rest: timeDescription,
       "rest-complete": "다시 시작할까요?",
     };
@@ -175,7 +179,8 @@ export function FocusTimerView({
           layout="flow"
           className={s.compactTimer}
           disabled={resizing || busy}
-          aria-label="펼쳐 보기"
+          aria-label={[titles[phase], phase === "ready" ? null : task, descriptions[phase] !== task ? descriptions[phase] : null, time, "펼쳐 보기"].filter(Boolean).join(" · ")}
+          aria-expanded={false}
           onClick={onExpand}
         />
         {onCloseWidget && (
@@ -257,7 +262,8 @@ export function FocusTimerView({
                 <Button className={s.primaryAction} disabled={startDisabled} onClick={onStart}>
                   집중 시작
                 </Button>
-                <p className={s.setupCaption}>끝나면 할 일을 완료할지 물어봐요</p>
+                {onStartNext && <Button variant="ghost" onClick={onStartNext}>{nextTitle} 집중 시작</Button>}
+                {hasLinkedTodo && <p className={s.setupCaption}>끝나면 할 일을 완료할지 물어봐요</p>}
               </>
             )}
             {(phase === "running" || phase === "rest") && (

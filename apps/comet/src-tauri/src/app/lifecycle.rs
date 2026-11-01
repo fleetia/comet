@@ -227,6 +227,7 @@ pub fn run() {
             crate::widgets::generated::commands::update_generated_state,
             crate::widgets::generated::commands::report_generated_result,
             crate::widgets::generated::commands::restore_previous_generated_widget,
+            crate::widgets::generated::commands::restore_generated_widget,
             crate::widgets::generated::commands::remove_generated_widget,
             crate::widgets::generated::commands::open_generated_widget,
             crate::widgets::generated::commands::close_generated_widget,
@@ -242,6 +243,7 @@ pub fn run() {
             crate::characters::gestures::cancel_character_drag,
             crate::characters::gestures::trigger_character_interaction,
             crate::characters::gestures::arm_character_move,
+            super::scene_events::consume_body_double_click,
             crate::characters::gestures::give_character_snack,
             crate::characters::life::begin_character_contact,
             crate::characters::life::set_character_sleep,
@@ -606,6 +608,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     desktop::create_boxes(app.handle(), &state).map_err(std::io::Error::other)?;
     desktop::menu::create(app.handle()).map_err(std::io::Error::other)?;
     crate::widgets::desktop::restore_on_start(app.handle(), state.clone());
+    crate::widgets::commands::restore_focus_windows(app.handle().clone(), state.clone());
     crate::widgets::desktop::watch_work_areas(app.handle(), state.clone());
     crate::widgets::planning::notifications::install(app.handle())?;
     crate::external_notice::finish_startup(app.handle(), &state).map_err(std::io::Error::other)?;

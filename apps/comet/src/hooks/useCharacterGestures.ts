@@ -1,4 +1,4 @@
-import { useEffect, useRef, type DOMAttributes, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type DOMAttributes, type PointerEvent } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { command, errorText, isDesktop } from "./useSnapshot";
 import type { CharacterBodyRegion, Dispatch } from "../types";
@@ -82,7 +82,10 @@ type Handlers = Pick<
   | "onBlur"
 >;
 
-export function useCharacterGestures(options: Options): Handlers {
+export function useCharacterGestures(options: Options): Handlers & {
+  isMoveArmed: boolean;
+  isPressed: boolean;
+} {
   const { enabled, resetKey, dispatch = command } = options;
   const latest = useRef(options);
   latest.current = options;
@@ -91,6 +94,9 @@ export function useCharacterGestures(options: Options): Handlers {
   const dragSession = useRef<string | null>(null);
   const dragRequest = useRef<Promise<unknown> | null>(null);
   const moveArmed = useRef(false);
+  const moveTimer = useRef<number | null>(null);
+  const [isMoveArmed, setIsMoveArmed] = useState(false);
+  const [isPressed, setIsPressed] = useState(false);
   const suppressClick = useRef(false);
   const initialized = useRef(false);
   const keyboardSpace = useRef(false);
@@ -184,7 +190,15 @@ export function useCharacterGestures(options: Options): Handlers {
       .then(() => dispatch("trigger_character_interaction", args))
       .catch(report);
   }
-  function reset(): void {
+  function disarmMove(): void {
+    if (moveTimer.current !== null) {
+      window.clearTimeout(moveTimer.current);
+      moveTimer.current = null;
+    }
+    moveArmed.current = false;
+    setIsMoveArmed(false);
+  }
+  function reset(preserveMove = false): void {
     trace("reset");
     clearClick();
     releaseCapture();
@@ -202,7 +216,8 @@ export function useCharacterGestures(options: Options): Handlers {
         .catch(report);
     }
     pointer.current = null;
-    moveArmed.current = false;
+    if (!preserveMove) disarmMove();
+    setIsPressed(false);
     suppressClick.current = true;
     keyboardSpace.current = false;
   }
@@ -299,6 +314,8 @@ export function useCharacterGestures(options: Options): Handlers {
         if (active) {
           reset();
           moveArmed.current = true;
+          setIsMoveArmed(true);
+          moveTimer.current = window.setTimeout(disarmMove, 10000);
           trace("move-armed");
         }
       })
@@ -345,6 +362,8 @@ export function useCharacterGestures(options: Options): Handlers {
   }, [enabled, resetKey]);
 
   return {
+    isMoveArmed,
+    isPressed,
     onPointerDown(event) {
       if (!enabled || event.button !== 0) {
         trace("down-ignored", null, event);
@@ -356,7 +375,7 @@ export function useCharacterGestures(options: Options): Handlers {
       }
       const mode = moveArmed.current || event.metaKey || event.ctrlKey ? "move" : "touch";
       tracedUnownedMove.current = false;
-      moveArmed.current = false;
+      disarmMove();
       suppressClick.current = false;
       const current: Pointer = {
         id: event.pointerId,
@@ -389,6 +408,7 @@ export function useCharacterGestures(options: Options): Handlers {
         suppressClick.current = true;
         return;
       }
+      setIsPressed(mode === "touch");
       if (isDesktop()) {
         trace("contact-start", current);
         current.contactRequest = command("begin_character_contact");
@@ -513,6 +533,7 @@ export function useCharacterGestures(options: Options): Handlers {
       if (!current || current.id !== event.pointerId) {
         return;
       }
+      setIsPressed(false);
       clearHold(current);
       releaseCapture();
       if (current.mode === "touch" && !current.cheek) {
@@ -543,6 +564,7 @@ export function useCharacterGestures(options: Options): Handlers {
         releaseCapture();
         pointer.current = null;
         suppressClick.current = true;
+        setIsPressed(false);
       } else {
         reset();
       }
@@ -640,8 +662,7 @@ export function useCharacterGestures(options: Options): Handlers {
       // Closing the menu hands focus back across native windows. Its one-use
       // reservation survives that handoff until a real pointer or explicit reset.
       const armed = moveArmed.current && !pointer.current && !dragSession.current;
-      reset();
-      moveArmed.current = armed;
+      reset(armed);
     },
   };
 }

@@ -369,7 +369,7 @@ it("drags the folded focus bar without expanding it and keeps its close button s
   const timer = widget("focus-timer", { status: "idle" });
   render(<TimerTool widget={timer} widgets={[]} act={act} onClose={onClose} />);
   fireEvent.click(screen.getByRole("button", { name: "접기" }));
-  const bar = await screen.findByRole("button", { name: "펼쳐 보기" });
+  const bar = await screen.findByRole("button", { name: /펼쳐 보기$/ });
   await waitFor(() => expect(bar).toHaveProperty("disabled", false));
   const close = screen.getByRole("button", { name: "위젯 닫기" });
   fireEvent(close, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 0 }));
@@ -383,12 +383,12 @@ it("drags the folded focus bar without expanding it and keeps its close button s
   fireEvent(bar, new MouseEvent("pointerup", { bubbles: true }));
   fireEvent.click(bar, { detail: 1 });
   expect(native.startDragging).toHaveBeenCalledOnce();
-  expect(screen.getByRole("button", { name: "펼쳐 보기" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /펼쳐 보기$/ })).toBeTruthy();
   expect(onClose).toHaveBeenCalledOnce();
   fireEvent(bar, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 0 }));
   fireEvent(bar, new MouseEvent("pointerup", { bubbles: true }));
   fireEvent.click(bar, { detail: 1 });
-  await waitFor(() => expect(screen.queryByRole("button", { name: "펼쳐 보기" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("button", { name: /펼쳐 보기$/ })).toBeNull());
 });
 
 it("allows keyboard expansion if the native drag takes over the pointer", async () => {
@@ -396,12 +396,12 @@ it("allows keyboard expansion if the native drag takes over the pointer", async 
   const timer = widget("focus-timer", { status: "idle" });
   render(<TimerTool widget={timer} widgets={[]} act={act} />);
   fireEvent.click(screen.getByRole("button", { name: "접기" }));
-  const bar = await screen.findByRole("button", { name: "펼쳐 보기" });
+  const bar = await screen.findByRole("button", { name: /펼쳐 보기$/ });
   await waitFor(() => expect(bar).toHaveProperty("disabled", false));
   fireEvent(bar, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 0 }));
   fireEvent(bar, new MouseEvent("pointermove", { bubbles: true, buttons: 1, clientX: 20 }));
   fireEvent.click(bar, { detail: 0 });
-  await waitFor(() => expect(screen.queryByRole("button", { name: "펼쳐 보기" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("button", { name: /펼쳐 보기$/ })).toBeNull());
   expect(native.startDragging).toHaveBeenCalledOnce();
 });
 
@@ -410,7 +410,7 @@ it("does not drag an embedded folded focus bar", async () => {
   const timer = widget("focus-timer", { status: "idle" });
   render(<TimerTool widget={timer} widgets={[]} act={act} embedded />);
   fireEvent.click(screen.getByRole("button", { name: "접기" }));
-  const bar = await screen.findByRole("button", { name: "펼쳐 보기" });
+  const bar = await screen.findByRole("button", { name: /펼쳐 보기$/ });
   await waitFor(() => expect(bar).toHaveProperty("disabled", false));
   fireEvent(bar, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 0 }));
   fireEvent(bar, new MouseEvent("pointermove", { bubbles: true, buttons: 1, clientX: 20 }));
@@ -647,6 +647,138 @@ it("reports only changed anniversary values after opening existing and empty for
   fireEvent.click(screen.getByRole("switch", { name: "위젯에 보이기" }));
   expect(onDirtyChange).toHaveBeenLastCalledWith(false);
   expect(act).not.toHaveBeenCalled();
+});
+
+it("keeps the original anniversary in a conflicting save and preserves the draft", async () => {
+  const original = { id: "a", title: "처음", date: "2026-01-01", celebrate: true };
+  const view = render(<ClockTool widget={widget("clock", { anniversaries: [original] })} widgets={[]} act={act} />);
+  fireEvent.click(screen.getByRole("button", { name: "수정 처음" }));
+  fireEvent.change(screen.getByLabelText("기념일 이름"), { target: { value: "내 초안" } });
+  view.rerender(<ClockTool widget={widget("clock", { anniversaries: [{ ...original, title: "다른 창" }] })} widgets={[]} act={act} />);
+  act.mockResolvedValueOnce(false);
+  fireEvent.click(screen.getByRole("button", { name: "기념일 변경 저장" }));
+  await waitFor(() => expect(act).toHaveBeenCalledWith("update", expect.objectContaining({
+    id: "a", title: "내 초안", original: {
+      title: "처음", date: "2026-01-01", repeat: "none", countMode: "remaining", showOnWidget: true, celebrate: true,
+    },
+  })));
+  expect(screen.getByLabelText("기념일 이름")).toHaveProperty("value", "내 초안");
+});
+
+it("confirms switching a dirty anniversary and confirms deletion", async () => {
+  render(<ClockTool widget={widget("clock", { anniversaries: [
+    { id: "a", title: "첫째", date: "2026-01-01" },
+    { id: "b", title: "둘째", date: "2026-02-01" },
+  ] })} widgets={[]} act={act} />);
+  fireEvent.click(screen.getByRole("button", { name: "수정 첫째" }));
+  fireEvent.change(screen.getByLabelText("기념일 이름"), { target: { value: "초안" } });
+  fireEvent.click(screen.getByRole("button", { name: "수정 둘째" }));
+  expect(screen.getByRole("dialog", { name: "작성 중인 내용을 버릴까요?" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "계속 편집" }));
+  expect(screen.getByLabelText("기념일 이름")).toHaveProperty("value", "초안");
+  fireEvent.click(screen.getByRole("button", { name: "수정 둘째" }));
+  fireEvent.click(screen.getByRole("button", { name: "버리고 이동" }));
+  expect(screen.getByLabelText("기념일 이름")).toHaveProperty("value", "둘째");
+  fireEvent.click(screen.getByRole("button", { name: "지우기…" }));
+  expect(act).not.toHaveBeenCalled();
+  expect(screen.getByRole("dialog", { name: "기념일을 지울까요?" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "지우기" }));
+  await waitFor(() => expect(act).toHaveBeenCalledWith("delete", { id: "b" }));
+});
+
+it("uses the latest target if an anniversary changes while switching", () => {
+  const first = { id: "a", title: "첫째", date: "2026-01-01" };
+  const second = { id: "b", title: "둘째", date: "2026-02-01" };
+  const view = render(<ClockTool widget={widget("clock", { anniversaries: [first, second] })} widgets={[]} act={act} />);
+  fireEvent.click(screen.getByRole("button", { name: "수정 첫째" }));
+  fireEvent.change(screen.getByLabelText("기념일 이름"), { target: { value: "초안" } });
+  fireEvent.click(screen.getByRole("button", { name: "수정 둘째" }));
+  view.rerender(<ClockTool widget={widget("clock", { anniversaries: [first, { ...second, title: "변경된 둘째" }] })} widgets={[]} act={act} />);
+  fireEvent.click(screen.getByRole("button", { name: "버리고 이동" }));
+  expect(screen.getByLabelText("기념일 이름")).toHaveProperty("value", "변경된 둘째");
+});
+
+it("guards a clock draft before closing its tool window", async () => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [widget("clock", { anniversaries: [] })] }, error: null, reload: vi.fn(),
+  });
+  render(<WidgetTool id="clock" />);
+  fireEvent.click(screen.getByRole("button", { name: "기념일 추가…" }));
+  fireEvent.change(screen.getByLabelText("기념일 이름"), { target: { value: "초안" } });
+  fireEvent.click(screen.getByRole("button", { name: "위젯 닫기" }));
+  expect(screen.getByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeTruthy();
+  expect(command).not.toHaveBeenCalledWith("close_widget", expect.anything());
+});
+
+it("explains that a running timer continues when its window closes", async () => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [widget("focus-timer", { status: "running" })] }, error: null, reload: vi.fn(),
+  });
+  render(<WidgetTool id="focus-timer" />);
+  fireEvent.click(screen.getByRole("button", { name: "위젯 닫기" }));
+  expect(await screen.findByText("창을 닫아도 타이머는 계속 실행돼요.")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "창 닫기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("close_widget", { id: "focus-timer" }));
+});
+
+it.each(["button", "native"])("expands a collapsed running timer before confirming %s close and keeps it expanded on cancel", async (source) => {
+  window.history.replaceState({}, "", "/?view=widget&kind=focus-timer&focus_expanded=false&focus_collapsed=true");
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [widget("focus-timer", { status: "running" })] }, error: null, reload: vi.fn(),
+  });
+  let finish: (() => void) | undefined;
+  vi.mocked(command).mockImplementation((name) => name === "set_focus_expanded"
+    ? new Promise<void>((resolve) => { finish = resolve; })
+    : Promise.resolve(undefined));
+  const { container } = render(<WidgetTool id="focus-timer" />);
+  if (source === "button") {
+    fireEvent.click(screen.getByRole("button", { name: "위젯 닫기" }));
+  } else {
+    await waitFor(() => expect(native.onCloseRequested).toHaveBeenCalled());
+    const event = { preventDefault: vi.fn() };
+    reactAct(() => native.onCloseRequested.mock.calls[0][0](event));
+    expect(event.preventDefault).toHaveBeenCalled();
+  }
+  await waitFor(() => expect(command).toHaveBeenCalledWith("set_focus_expanded", expect.objectContaining({ collapsed: false, expanded: false })));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await reactAct(async () => finish?.());
+  expect(await screen.findByText("창을 닫아도 타이머는 계속 실행돼요.")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "계속 보기" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(container.querySelector('[data-collapsed="false"]')).toBeTruthy();
+  expect(command).not.toHaveBeenCalledWith("close_widget", expect.anything());
+});
+
+it("does not show the close confirmation if expanding a collapsed timer fails", async () => {
+  window.history.replaceState({}, "", "/?view=widget&kind=focus-timer&focus_expanded=false&focus_collapsed=true");
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [widget("focus-timer", { status: "running" })] }, error: null, reload: vi.fn(),
+  });
+  vi.mocked(command).mockImplementation((name) => name === "set_focus_expanded"
+    ? Promise.reject(new Error("펼치기 실패")) : Promise.resolve(undefined));
+  const { container } = render(<WidgetTool id="focus-timer" />);
+  fireEvent.click(screen.getByRole("button", { name: "위젯 닫기" }));
+  await screen.findByText("펼치기 실패");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(container.querySelector('[data-collapsed="true"]')).toBeTruthy();
+  expect(command).not.toHaveBeenCalledWith("close_widget", expect.anything());
+});
+
+it("protects a queue draft when closing the collapsed timer", async () => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [widget("focus-timer", { status: "idle" })] }, error: null, reload: vi.fn(),
+  });
+  const { container } = render(<WidgetTool id="focus-timer" />);
+  fireEvent.click(screen.getByRole("radio", { name: "다음 집중" }));
+  fireEvent.change(screen.getByLabelText("다음 집중 제목"), { target: { value: "보관할 초안" } });
+  fireEvent.click(screen.getByRole("button", { name: "접기" }));
+  await waitFor(() => expect(container.querySelector('[data-collapsed="true"]')).toBeTruthy());
+  fireEvent.click(screen.getByRole("button", { name: "위젯 닫기" }));
+  expect(await screen.findByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeTruthy();
+  expect(container.querySelector('[data-collapsed="false"]')).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "계속 편집" }));
+  expect(screen.getByLabelText("다음 집중 제목")).toHaveProperty("value", "보관할 초안");
+  expect(command).not.toHaveBeenCalledWith("close_widget", expect.anything());
 });
 
 it("cancels anniversary edits without reusing the old record for a new anniversary", async () => {

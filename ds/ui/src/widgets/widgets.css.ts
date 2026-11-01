@@ -533,6 +533,7 @@ export const compactFreeformCopy = style({
   alignItems: "center",
   justifyContent: "center",
   gap: tokens["spacing/space-8"],
+  whiteSpace: "nowrap",
 });
 export const clockTime = style({
   fontFamily: tokens["typography/display/clock/fontFamily"],

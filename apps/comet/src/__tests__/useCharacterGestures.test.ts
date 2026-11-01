@@ -352,6 +352,44 @@ it("consumes menu movement once, fixes the initial mode and suppresses simple ar
   expect(click).not.toHaveBeenCalled();
 });
 
+it("shows a press immediately and clears it on release and cancellation", async () => {
+  const { result } = setup();
+  await act(async () => {});
+  act(() => result.current.onPointerDown?.(pointer(0)));
+  expect(result.current.isPressed).toBe(true);
+  expect(click).not.toHaveBeenCalled();
+  act(() => result.current.onPointerUp?.(pointer(0, { buttons: 0 })));
+  expect(result.current.isPressed).toBe(false);
+  act(() => result.current.onPointerDown?.(pointer(0)));
+  act(() => result.current.onPointerCancel?.(pointer(0)));
+  expect(result.current.isPressed).toBe(false);
+});
+
+it("expires the move reservation and restores normal touch after ten seconds", async () => {
+  const { result } = setup();
+  await act(async () => {});
+  act(() => listeners.get("character-move-armed")?.({ payload: { sessionId: "", phase: "" } }));
+  expect(result.current.isMoveArmed).toBe(true);
+  act(() => {
+    result.current.onBlur?.({} as never);
+    vi.advanceTimersByTime(9999);
+  });
+  expect(result.current.isMoveArmed).toBe(true);
+  act(() => vi.advanceTimersByTime(1));
+  expect(result.current.isMoveArmed).toBe(false);
+  act(() => {
+    result.current.onPointerDown?.(pointer(0));
+    result.current.onPointerMove?.(pointer(10));
+    result.current.onPointerUp?.(pointer(10));
+  });
+  await act(async () => {});
+  expect(dispatch).toHaveBeenCalledWith(
+    "trigger_character_interaction",
+    expect.objectContaining({ action: "stroke" }),
+  );
+  expect(dispatch.mock.calls.filter(([name]) => name === "begin_character_drag")).toHaveLength(0);
+});
+
 it("confirms cheek at 450ms, never turns it into movement and cancels without an effect", async () => {
   pointerTarget.getBoundingClientRect = () =>
     ({ left: 0, top: 0, width: 100, height: 100 }) as DOMRect;
