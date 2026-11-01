@@ -1531,15 +1531,48 @@ mod tests {
         assert!(mutate(&mut state, "travel-plan-create", &plain).is_err());
         act(&mut state, "travel-booking-create", stay(&travel_id));
         assert_eq!(state.ledger_entries.len(), 1);
+        act(
+            &mut state,
+            "travel-person-create",
+            json!({"travelId": travel_id, "name": "동행", "color": "blue"}),
+        );
+        let person_id = state.travel_people[0].id.clone();
+        act(
+            &mut state,
+            "travel-transfer-create",
+            json!({"travelId": travel_id, "from": person_id, "to": "me", "amount": 1000, "date": "2026-10-25"}),
+        );
+        act(
+            &mut state,
+            "travel-photo-add",
+            json!({"travelId": travel_id, "photos": [{"path": "/p/a.jpg"}, {"path": "/p/b.jpg"}]}),
+        );
+        act(&mut state, "travel-create", jeju());
+        let other_id = state.travels[1].id.clone();
+        let mut other_plan = flight;
+        other_plan["travelId"] = json!(other_id);
+        act(&mut state, "travel-plan-create", other_plan);
+        let remaining_plan = state.travel_plans.last().unwrap().clone();
+        let ledger = state.ledger_entries.clone();
+        assert_eq!(state.travel_plans.len(), 4);
+        assert_eq!(state.travel_bookings.len(), 1);
+        assert_eq!(state.travel_expenses.len(), 1);
+        assert_eq!(state.travel_people.len(), 1);
+        assert_eq!(state.travel_transfers.len(), 1);
+        assert_eq!(state.travel_photos.len(), 2);
         let current = state.travels[0].clone();
         act(
             &mut state,
             "travel-delete",
             json!({"id": travel_id, "expected": current}),
         );
-        assert!(state.travels.is_empty() && state.travel_plans.is_empty());
+        assert_eq!(state.travels.len(), 1);
+        assert_eq!(state.travels[0].id, other_id);
+        assert_eq!(state.travel_plans, vec![remaining_plan]);
         assert!(state.travel_bookings.is_empty() && state.travel_expenses.is_empty());
-        assert_eq!(state.ledger_entries.len(), 1);
+        assert!(state.travel_people.is_empty() && state.travel_transfers.is_empty());
+        assert!(state.travel_photos.is_empty());
+        assert_eq!(state.ledger_entries, ledger);
     }
 
     #[test]
