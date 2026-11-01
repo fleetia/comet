@@ -27,7 +27,7 @@ export function FocusTimerControls({
   panel: FocusTimerContextState;
   completion: FocusTimerTodoCompletion;
 }): ReactElement {
-  const { widget, act, onClose, onCollapse, embedded, busy, companionRows } = tool;
+  const { widget, act, onClose, onCollapse, embedded, busy } = tool;
   const {
     data,
     now,
@@ -85,7 +85,7 @@ export function FocusTimerControls({
         onExpand={() => void resize(false)}
         onRecords={() => void expand()}
         onSettings={openSettings}
-        onCloseWidget={onClose ? () => void onClose() : undefined}
+        onCloseWidget={!embedded && onClose ? () => void onClose() : undefined}
         aria-label="타이머 조작"
         phase={phase}
         presentation={presentation}
@@ -294,11 +294,6 @@ export function FocusTimerControls({
           </>
         }
       />
-      {expanded && !collapsed && !embedded && companionRows && (
-        <fieldset className={s.companionRows} disabled={busy} aria-label="다른 바탕화면 위젯">
-          {companionRows(now)}
-        </fieldset>
-      )}
     </div>
   );
 }

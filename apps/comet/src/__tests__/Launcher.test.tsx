@@ -6,6 +6,7 @@ import { bindTarget, launcherResults, type LauncherState } from "../components/L
 import { PREVIEW_SNAPSHOT, command, isDesktop } from "../hooks/useSnapshot";
 import { getWidgetPreview } from "../widgets/previewWidgets";
 import type { WidgetSnapshot } from "../widgets/types";
+import type { WidgetDesktopState } from "../widgets/WidgetManager/useWidgetDesktop";
 
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 vi.mock("../hooks/useSnapshot", async (load) => ({
@@ -31,8 +32,8 @@ beforeEach(() => {
   vi.mocked(command)
     .mockReset()
     .mockImplementation(async (name) => (name === "get_launcher_state" ? initial : undefined));
-  vi.mocked(listen).mockImplementation(async (_name, callback) => {
-    receive = callback as EventCallback<LauncherState>;
+  vi.mocked(listen).mockImplementation(async (name, callback) => {
+    if (name === "launcher-opened") receive = callback as EventCallback<LauncherState>;
     return vi.fn<() => void>();
   });
 });
@@ -40,11 +41,12 @@ afterEach(cleanup);
 
 it("hydrates the first lazy open when its event preceded listener registration", async () => {
   let ready: (() => void) | undefined;
-  vi.mocked(listen).mockImplementation(
-    () =>
-      new Promise((resolve) => {
-        ready = () => resolve(vi.fn<() => void>());
-      }),
+  vi.mocked(listen).mockImplementation((name) =>
+    name === "launcher-opened"
+      ? new Promise((resolve) => {
+          ready = () => resolve(vi.fn<() => void>());
+        })
+      : Promise.resolve(vi.fn<() => void>()),
   );
   const opened = { ...initial, sessionId: 4 };
   vi.mocked(command).mockImplementation(async (name) =>
@@ -108,6 +110,59 @@ function executed(): unknown[][] {
 }
 
 describe("local command and conversation routing", () => {
+  it.each([
+    [{ revision: 1, mode: "stack", stackHidden: true, order: ["clock"] }, true],
+    [{ revision: 1, mode: "stack", stackHidden: false, order: ["clock"] }, false],
+    [{ revision: 1, mode: "stack", stackHidden: true, order: [] }, false],
+    [{ revision: 1, mode: "freeform", stackHidden: true, order: ["clock"] }, false],
+  ] as [WidgetDesktopState, boolean][])(
+    "shows stack recovery only when available",
+    (desktop, visible) => {
+      for (const query of ["", "모아두기"]) {
+        const found = launcherResults(query, PREVIEW_SNAPSHOT, widgets, null, [], desktop);
+        expect(found.some((item) => item.id === "widget-stack")).toBe(visible);
+        if (visible) {
+          expect(found.find((item) => item.id === "widget-stack")?.action).toEqual({
+            type: "openWidgetStack",
+          });
+        }
+      }
+    },
+  );
+
+  it("executes stack recovery through the current launcher session", async () => {
+    let receiveDesktop: EventCallback<WidgetDesktopState> | undefined;
+    vi.mocked(listen).mockImplementation(async (name, callback) => {
+      if (name === "launcher-opened") receive = callback as EventCallback<LauncherState>;
+      if (name === "widget-desktop-state")
+        receiveDesktop = callback as EventCallback<WidgetDesktopState>;
+      return vi.fn<() => void>();
+    });
+    vi.mocked(command).mockImplementation(async (name) => {
+      if (name === "get_launcher_state") return initial;
+      if (name === "get_widget_desktop") {
+        return { revision: 1, mode: "stack", stackHidden: false, order: ["clock"] };
+      }
+      return undefined;
+    });
+    const input = await compose("모아두기");
+    await waitFor(() => expect(receiveDesktop).toBeDefined());
+    expect(screen.queryByRole("option", { name: /모아두기 다시 표시/ })).toBeNull();
+    act(() =>
+      receiveDesktop?.({
+        event: "widget-desktop-state",
+        id: 1,
+        payload: { revision: 2, mode: "stack", stackHidden: true, order: ["clock"] },
+      }),
+    );
+    await screen.findByRole("option", { name: /모아두기 다시 표시/ });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("execute_launcher", {
+        request: { sessionId: 1, action: { type: "openWidgetStack" } },
+      }),
+    );
+  });
   it.each([
     ["안내서", "guide", "안내서 열기"],
     ["튜토리얼", "tutorial", "튜토리얼 다시 보기"],

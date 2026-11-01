@@ -1,4 +1,5 @@
-import { useState, type ReactElement, type ReactNode } from "react";
+import { useState, type ReactElement } from "react";
+import { useWindowDrag } from "../../hooks/useWindowDrag";
 import type { ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import { PlannerAlertNotice } from "../PlannerAlerts/PlannerAlerts";
@@ -23,7 +24,6 @@ type TimerToolProps = {
   embedded?: boolean;
   active?: boolean;
   onCollapse?: () => void;
-  companionRows?: (now: number) => ReactNode;
 };
 
 export type FocusTimerToolViewProps = TimerToolProps & {
@@ -36,6 +36,7 @@ export function TimerTool(props: TimerToolProps): ReactElement {
   const { widget, widgets, act, busy: hostBusy = false, embedded = false, active = true } = props;
   const busy = hostBusy || !active;
   const [error, setError] = useState("");
+  const drag = useWindowDrag(!embedded, setError);
   const layoutState = useFocusTimerLayoutState(embedded);
   const panel = useFocusTimerContext(widget, active, hostBusy, layoutState, setError);
   const now = useFocusTimerClock();
@@ -58,6 +59,32 @@ export function TimerTool(props: TimerToolProps): ReactElement {
       className={s.root}
       aria-label="집중 타이머"
       data-window-resizing={layout.resizeWidth !== null}
+      onPointerDown={(event) => {
+        drag.reset();
+        const target = event.target as Element;
+        const excluded = target.closest(
+          `button, input, textarea, select, [contenteditable], [role="button"], [role="slider"], [draggable='true'], .${s.dial}, .${s.recordsPanel}, .${s.noteSection}`,
+        );
+        if (
+          embedded ||
+          (excluded && !excluded.matches(`button.${s.compactTimer}`))
+        )
+          return;
+        drag.onPointerDown(event);
+      }}
+      onPointerMove={drag.onPointerMove}
+      onPointerUp={(event) => {
+        if (!(event.target as Element).closest(`button.${s.compactTimer}`)) drag.reset();
+      }}
+      onPointerCancel={drag.reset}
+      onClickCapture={(event) => {
+        if (!(event.target as Element).closest(`button.${s.compactTimer}`)) return;
+        if (event.detail !== 0 && drag.dragged()) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        drag.reset();
+      }}
     >
       {error && (
         <p role="alert" className={s.error}>

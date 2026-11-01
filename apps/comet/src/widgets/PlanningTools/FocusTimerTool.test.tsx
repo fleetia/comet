@@ -265,20 +265,31 @@ describe("focus workspace", () => {
     expect(layout?.getAttribute("data-expanded")).toBe("true");
   });
 
-  it("leaves companion rows to the surrounding desktop stack when embedded", async () => {
-    const companions = vi.fn(() => <button type="button">다른 시계</button>);
-    render(
+  it("distinguishes closing the window from folding its records panel", async () => {
+    const onClose = vi.fn().mockResolvedValue(undefined);
+    const view = render(
       <TimerTool
         widget={widget("focus-timer", { status: "idle" })}
         widgets={[]}
         act={action}
-        embedded
-        companionRows={companions}
+        onClose={onClose}
       />,
     );
-    await click("기록과 노트");
-    expect(screen.queryByRole("group", { name: "다른 바탕화면 위젯" })).toBeNull();
-    expect(companions).not.toHaveBeenCalled();
+    await click("기록", "radio");
+    await click("집중 기록 접기");
+    expect(onClose).not.toHaveBeenCalled();
+    await click("위젯 닫기");
+    expect(onClose).toHaveBeenCalledOnce();
+    view.rerender(
+      <TimerTool
+        widget={widget("focus-timer", { status: "idle" })}
+        widgets={[]}
+        act={action}
+        onClose={onClose}
+        embedded
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "위젯 닫기" })).toBeNull();
   });
 
   it("keeps the running timer and note draft when folded into a summary card", async () => {

@@ -8,7 +8,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from "@testing-library/react";
 import { WidgetTool } from "../WidgetTool/WidgetTool";
 import { TodoTool } from "../TodoTool/TodoTool";
@@ -59,7 +58,122 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("keeps focus companion rows usable when character reactions are off", async () => {
+it.each(["music", "clock", "weather", "small-match"])(
+  "closes the %s tool with Escape after input, dialog and IME handling",
+  async (kind) => {
+    vi.mocked(useWidgets).mockReturnValue({
+      snapshot: { ...PREVIEW_WIDGETS, widgets: [widget(kind, { configured: false })] },
+      error: null,
+      reload: vi.fn(),
+    });
+    render(<WidgetTool id={kind} />);
+    const input = document.createElement("input");
+    document.body.append(input);
+    fireEvent.keyDown(input, { key: "Escape" });
+    input.remove();
+    fireEvent.keyDown(document, { key: "Escape", isComposing: true });
+    const dialog = document.createElement("dialog");
+    dialog.setAttribute("open", "");
+    document.body.append(dialog);
+    fireEvent.keyDown(document, { key: "Escape" });
+    dialog.remove();
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    document.body.append(menu);
+    fireEvent.keyDown(menu, { key: "Escape" });
+    menu.remove();
+    expect(command).not.toHaveBeenCalledWith("close_widget", expect.anything());
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(command).toHaveBeenCalledWith("close_widget", { id: kind }));
+  },
+);
+
+it("does not close the focus timer with Escape", () => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [widget("focus-timer", {})] },
+    error: null,
+    reload: vi.fn(),
+  });
+  render(<WidgetTool id="focus-timer" />);
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(command).not.toHaveBeenCalledWith("close_widget", expect.anything());
+});
+
+it("drags the music tool from empty space but not from its buttons", () => {
+  vi.stubGlobal("PointerEvent", MouseEvent);
+  native.startDragging.mockReset().mockResolvedValue(undefined);
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [widget("music", { configured: false })] },
+    error: null,
+    reload: vi.fn(),
+  });
+  render(<WidgetTool id="music" />);
+  const button = screen.getByRole("button", { name: "음악 설정 열기" });
+  fireEvent.pointerDown(button, { button: 0, clientX: 0, clientY: 0 });
+  fireEvent.pointerMove(button, { buttons: 1, clientX: 20, clientY: 0 });
+  expect(native.startDragging).not.toHaveBeenCalled();
+  const empty = screen.getByText("음악과 함께");
+  fireEvent.pointerDown(empty, { button: 0, clientX: 0, clientY: 0 });
+  fireEvent.pointerMove(empty, { buttons: 1, clientX: 20, clientY: 0 });
+  expect(native.startDragging).toHaveBeenCalledOnce();
+});
+
+it("does not drag the music window when selecting detail text", async () => {
+  vi.stubGlobal("PointerEvent", MouseEvent);
+  native.startDragging.mockReset().mockResolvedValue(undefined);
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: {
+      ...PREVIEW_WIDGETS,
+      widgets: [widget("music", { configured: true, observation: { lyrics: "가사 내용" } })],
+    },
+    error: null,
+    reload: vi.fn(),
+  });
+  render(<WidgetTool id="music" />);
+  fireEvent.click(screen.getByRole("button", { name: "음악 상세 메뉴" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "가사" }));
+  const lyrics = await screen.findByText("가사 내용");
+  fireEvent.pointerDown(lyrics, { button: 0, clientX: 0, clientY: 0 });
+  fireEvent.pointerMove(lyrics, { buttons: 1, clientX: 20, clientY: 0 });
+  expect(native.startDragging).not.toHaveBeenCalled();
+});
+
+it("does not drag the focus window when selecting record or note text", () => {
+  vi.stubGlobal("PointerEvent", MouseEvent);
+  native.startDragging.mockReset().mockResolvedValue(undefined);
+  const now = Date.now();
+  const timer = widget("focus-timer", {
+    status: "idle",
+    noteRef: { kind: "memo", widgetId: "memo", id: "note", title: "연결 메모" },
+    sessions: [{
+      id: "session",
+      title: "기록 제목",
+      startedAt: now - 60000,
+      endedAt: now,
+      elapsedMs: 60000,
+      segments: [{ startAt: now - 60000, endAt: now }],
+    }],
+  });
+  const memo = widget("memo", { notes: [{ id: "note", title: "연결 메모", body: "선택할 메모 본문" }] });
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [timer, memo] },
+    error: null,
+    reload: vi.fn(),
+  });
+  render(<WidgetTool id="focus-timer" />);
+  fireEvent.click(screen.getByRole("button", { name: "기록 제목 집중 기록 상세" }));
+  const move = (target: Element): void => {
+    fireEvent.pointerDown(target, { button: 0, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(target, { buttons: 1, clientX: 20, clientY: 0 });
+    fireEvent.pointerUp(target);
+  };
+  move(screen.getByRole("heading", { name: "기록 제목" }));
+  fireEvent.click(screen.getByRole("radio", { name: "노트" }));
+  move(screen.getByText("선택할 메모 본문"));
+  expect(native.startDragging).not.toHaveBeenCalled();
+});
+
+it("does not show other widget rows in the focus window", () => {
   const timer = widget("focus-timer", {
     status: "running",
     mode: "focus",
@@ -91,27 +205,116 @@ it("keeps focus companion rows usable when character reactions are off", async (
   vi.mocked(useWidgets).mockReturnValue(current);
   const view = render(<WidgetTool id="focus-timer" />);
   expect(document.documentElement.classList.contains(transparentDocument)).toBe(true);
-  expect(screen.queryByRole("button", { name: "위젯 닫기" })).toBeNull();
-  const companions = within(screen.getByRole("group", { name: "다른 바탕화면 위젯" }));
-  expect(companions.getByText("함께 지내기 시작한 날")).toBeTruthy();
-  expect(companions.getByRole("button", { name: /밤의 산책/ })).toBeTruthy();
-  expect(companions.getByRole("button", { name: /가족 여행/ })).toBeTruthy();
-  expect(companions.getAllByRole("button")).toHaveLength(4);
+  expect(screen.getByRole("button", { name: "위젯 닫기" })).toBeTruthy();
+  expect(screen.queryByRole("group", { name: "다른 바탕화면 위젯" })).toBeNull();
+  expect(screen.queryByText("함께 지내기 시작한 날")).toBeNull();
+  expect(screen.queryByText("밤의 산책")).toBeNull();
+  expect(screen.queryByText("가족 여행")).toBeNull();
+  expect(screen.queryByText(/23°C/)).toBeNull();
   expect(screen.queryByRole("button", { name: /위젯 편집/ })).toBeNull();
-  fireEvent.click(companions.getByRole("button", { name: /23°C/ }));
-  await waitFor(() => expect(command).toHaveBeenCalledWith("open_widget", { id: "weather" }));
-  vi.mocked(useWidgets).mockReturnValue({
-    ...current,
-    snapshot: {
-      ...current.snapshot,
-      widgets: values.map((item) => (item.id === "weather" ? { ...item, reaction: false } : item)),
-    },
-  });
-  view.rerender(<WidgetTool id="focus-timer" />);
-  expect(companions.getByRole("button", { name: /23°C/ })).toBeTruthy();
-  expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
   view.unmount();
   expect(document.documentElement.classList.contains(transparentDocument)).toBe(false);
+});
+
+it("drags the focus window from empty space but not controls or the dial", () => {
+  native.startDragging.mockReset().mockResolvedValue(undefined);
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [widget("focus-timer", { status: "idle" })] },
+    error: null,
+    reload: vi.fn(),
+  });
+  render(<WidgetTool id="focus-timer" />);
+  const host = screen.getByRole("region", { name: "집중 타이머" });
+  const move = (target: Element): void => {
+    fireEvent(target, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 0 }));
+    fireEvent(target, new MouseEvent("pointermove", { bubbles: true, buttons: 1, clientX: 20 }));
+    fireEvent(target, new MouseEvent("pointerup", { bubbles: true }));
+  };
+  move(screen.getByLabelText("집중할 일"));
+  move(screen.getByRole("button", { name: "집중 시작" }));
+  move(screen.getByRole("progressbar", { name: "남은 집중 시간 비율" }));
+  expect(native.startDragging).not.toHaveBeenCalled();
+  move(host);
+  expect(native.startDragging).toHaveBeenCalledOnce();
+});
+
+it("reorders a queued focus without dragging the window", async () => {
+  native.startDragging.mockReset().mockResolvedValue(undefined);
+  const timer = widget("focus-timer", {
+    status: "idle",
+    queue: [
+      { id: "first", title: "첫 번째 집중", focusDurationMs: 1500000 },
+      { id: "second", title: "두 번째 집중", focusDurationMs: 1500000 },
+    ],
+  });
+  render(<TimerTool widget={timer} widgets={[]} act={act} />);
+  fireEvent.click(screen.getByRole("radio", { name: "다음 집중" }));
+  const first = screen.getByText(/1\. 첫 번째 집중/);
+  const second = screen.getByText(/2\. 두 번째 집중/);
+  fireEvent(first, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 0 }));
+  fireEvent(first, new MouseEvent("pointermove", { bubbles: true, buttons: 1, clientX: 20 }));
+  const dataTransfer = { effectAllowed: "", setData: vi.fn() };
+  fireEvent.dragStart(first, { dataTransfer });
+  fireEvent.drop(second, { dataTransfer });
+  await waitFor(() =>
+    expect(act).toHaveBeenCalledWith("queue-move", { id: "first", targetId: "second" }),
+  );
+  expect(native.startDragging).not.toHaveBeenCalled();
+});
+
+it("drags the folded focus bar without expanding it and keeps its close button separate", async () => {
+  native.startDragging.mockReset().mockResolvedValue(undefined);
+  const onClose = vi.fn().mockResolvedValue(undefined);
+  const timer = widget("focus-timer", { status: "idle" });
+  render(<TimerTool widget={timer} widgets={[]} act={act} onClose={onClose} />);
+  fireEvent.click(screen.getByRole("button", { name: "접기" }));
+  const bar = await screen.findByRole("button", { name: "펼쳐 보기" });
+  await waitFor(() => expect(bar).toHaveProperty("disabled", false));
+  const close = screen.getByRole("button", { name: "위젯 닫기" });
+  fireEvent(close, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 0 }));
+  fireEvent(close, new MouseEvent("pointermove", { bubbles: true, buttons: 1, clientX: 20 }));
+  fireEvent(close, new MouseEvent("pointerup", { bubbles: true }));
+  expect(native.startDragging).not.toHaveBeenCalled();
+  fireEvent.click(close);
+  expect(onClose).toHaveBeenCalledOnce();
+  fireEvent(bar, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 0 }));
+  fireEvent(bar, new MouseEvent("pointermove", { bubbles: true, buttons: 1, clientX: 20 }));
+  fireEvent(bar, new MouseEvent("pointerup", { bubbles: true }));
+  fireEvent.click(bar, { detail: 1 });
+  expect(native.startDragging).toHaveBeenCalledOnce();
+  expect(screen.getByRole("button", { name: "펼쳐 보기" })).toBeTruthy();
+  expect(onClose).toHaveBeenCalledOnce();
+  fireEvent(bar, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 0 }));
+  fireEvent(bar, new MouseEvent("pointerup", { bubbles: true }));
+  fireEvent.click(bar, { detail: 1 });
+  await waitFor(() => expect(screen.queryByRole("button", { name: "펼쳐 보기" })).toBeNull());
+});
+
+it("allows keyboard expansion if the native drag takes over the pointer", async () => {
+  native.startDragging.mockReset().mockResolvedValue(undefined);
+  const timer = widget("focus-timer", { status: "idle" });
+  render(<TimerTool widget={timer} widgets={[]} act={act} />);
+  fireEvent.click(screen.getByRole("button", { name: "접기" }));
+  const bar = await screen.findByRole("button", { name: "펼쳐 보기" });
+  await waitFor(() => expect(bar).toHaveProperty("disabled", false));
+  fireEvent(bar, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 0 }));
+  fireEvent(bar, new MouseEvent("pointermove", { bubbles: true, buttons: 1, clientX: 20 }));
+  fireEvent.click(bar, { detail: 0 });
+  await waitFor(() => expect(screen.queryByRole("button", { name: "펼쳐 보기" })).toBeNull());
+  expect(native.startDragging).toHaveBeenCalledOnce();
+});
+
+it("does not drag an embedded folded focus bar", async () => {
+  native.startDragging.mockReset().mockResolvedValue(undefined);
+  const timer = widget("focus-timer", { status: "idle" });
+  render(<TimerTool widget={timer} widgets={[]} act={act} embedded />);
+  fireEvent.click(screen.getByRole("button", { name: "접기" }));
+  const bar = await screen.findByRole("button", { name: "펼쳐 보기" });
+  await waitFor(() => expect(bar).toHaveProperty("disabled", false));
+  fireEvent(bar, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 0 }));
+  fireEvent(bar, new MouseEvent("pointermove", { bubbles: true, buttons: 1, clientX: 20 }));
+  fireEvent(bar, new MouseEvent("pointerup", { bubbles: true }));
+  expect(native.startDragging).not.toHaveBeenCalled();
 });
 
 it("protects an edited envelope connection from header and native close until explicit discard", async () => {
@@ -458,34 +661,31 @@ it("keeps a saved anniversary year selectable outside the default year range", (
   expect(act).not.toHaveBeenCalled();
 });
 
-it.each([false, true])(
-  "keeps native timer closing available without a full-card close control while loading=%s",
-  async (loading) => {
-    vi.mocked(useWidgets).mockReturnValue({
-      snapshot: loading
-        ? null
-        : {
-            ...PREVIEW_WIDGETS,
-            widgets: [widget("focus-timer", { running: true, duration: 1500, remaining: 1500 })],
-          },
-      error: null,
-      reload: vi.fn(),
-    });
-    render(<WidgetTool id="focus-timer" />);
-    if (loading) {
-      fireEvent.click(screen.getByRole("button", { name: "위젯 닫기" }));
-      await waitFor(() =>
-        expect(command).toHaveBeenCalledExactlyOnceWith("close_widget", { id: "focus-timer" }),
-      );
-    } else {
-      expect(screen.queryByRole("button", { name: "위젯 닫기" })).toBeNull();
-      const event = { preventDefault: vi.fn() };
-      await reactAct(async () => native.onCloseRequested.mock.calls[0][0](event));
-      expect(event.preventDefault).not.toHaveBeenCalled();
-      expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
-    }
-  },
-);
+it.each([false, true])("keeps timer closing available while loading=%s", async (loading) => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: loading
+      ? null
+      : {
+          ...PREVIEW_WIDGETS,
+          widgets: [widget("focus-timer", { running: true, duration: 1500, remaining: 1500 })],
+        },
+    error: null,
+    reload: vi.fn(),
+  });
+  render(<WidgetTool id="focus-timer" />);
+  if (loading) {
+    fireEvent.click(screen.getByRole("button", { name: "위젯 닫기" }));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledExactlyOnceWith("close_widget", { id: "focus-timer" }),
+    );
+  } else {
+    expect(screen.getByRole("button", { name: "위젯 닫기" })).toBeTruthy();
+    const event = { preventDefault: vi.fn() };
+    await reactAct(async () => native.onCloseRequested.mock.calls[0][0](event));
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
+  }
+});
 
 it("keeps a running countdown and memo through a pending focus resize", async () => {
   localStorage.clear();
@@ -560,7 +760,7 @@ it("keeps focus actions in its own card and locks actions while leaving native c
     reload: vi.fn(),
   });
   render(<WidgetTool id="focus-timer" />);
-  expect(screen.queryByRole("button", { name: "위젯 닫기" })).toBeNull();
+  expect(screen.getByRole("button", { name: "위젯 닫기" })).toBeTruthy();
   expect(screen.getAllByRole("button", { name: "집중 설정" })).toHaveLength(1);
   expect(screen.getAllByRole("button", { name: "접기" })).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "집중 설정" }));
@@ -599,6 +799,7 @@ it("keeps focus actions in its own card and locks actions while leaving native c
     screen.getByRole("button", { name: "접기" }),
   ];
   for (const button of controls) expect(button.matches(":disabled")).toBe(true);
+  expect(screen.getByRole("button", { name: "위젯 닫기" }).matches(":disabled")).toBe(false);
   const event = { preventDefault: vi.fn() };
   await reactAct(async () => native.onCloseRequested.mock.calls[0][0](event));
   expect(event.preventDefault).not.toHaveBeenCalled();

@@ -523,6 +523,7 @@ pub(crate) struct ExecuteRequest {
 pub(crate) enum LauncherAction {
     Guide,
     Tutorial,
+    OpenWidgetStack,
     Settings {
         section: Option<windows::SettingsSection>,
         widget_kind: Option<String>,
@@ -600,9 +601,10 @@ pub(crate) async fn execute_launcher(
     let _gate = state.launcher_gate.lock().await;
     claim_execution(&state, request.session_id)?;
     let restore = match &request.action {
-        LauncherAction::Chat { .. } | LauncherAction::AddTodo { .. } | LauncherAction::Tutorial => {
-            true
-        }
+        LauncherAction::Chat { .. }
+        | LauncherAction::AddTodo { .. }
+        | LauncherAction::Tutorial
+        | LauncherAction::OpenWidgetStack => true,
         LauncherAction::Widget { id, .. } => lock(&state.db)
             .and_then(|db| widgets::storage::get(&db, id))
             .map(|widget| crate::behavior::DESKTOP_TOYS.contains(&widget.kind.as_str()))
@@ -614,6 +616,20 @@ pub(crate) async fn execute_launcher(
     };
     let result = async {
         match request.action {
+            LauncherAction::OpenWidgetStack => {
+                let desktop =
+                    widgets::desktop::get_widget_desktop(app.state::<Arc<AppState>>()).await?;
+                let desktop = serde_json::to_value(desktop).map_err(|error| error.to_string())?;
+                if desktop["mode"] != "stack"
+                    || desktop["stackHidden"] != true
+                    || desktop["order"].as_array().is_none_or(Vec::is_empty)
+                {
+                    return Err("다시 표시할 모아두기가 없어요.".into());
+                }
+                accept_direct_execution(&state, request.session_id)?;
+                widgets::desktop::open_widget_stack(app.clone(), app.state::<Arc<AppState>>())
+                    .await
+            }
             LauncherAction::Guide | LauncherAction::Tutorial => {
                 accept_direct_execution(&state, request.session_id)?;
                 match request.action {
