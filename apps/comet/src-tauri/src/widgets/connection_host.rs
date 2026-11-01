@@ -87,7 +87,7 @@ fn semaphore() -> Arc<tokio::sync::Semaphore> {
 }
 fn decode_calendar(value: &Value) -> Result<CalendarState, String> {
     serde_json::from_value(value.clone())
-        .map_err(|_| "저장된 캘린더 상태를 읽지 못했어요.".into())
+        .map_err(|_| "저장된 캘린더 상태를 읽지 못했어요. 잠시 후 다시 시도해 주세요.".into())
 }
 fn active(instance: &WidgetInstance, kind: Option<&str>) -> Result<(), String> {
     if kind.is_some_and(|kind| kind != instance.kind) {
@@ -188,7 +188,7 @@ fn store_calendar(
         db,
         &instance.id,
         instance.revision,
-        serde_json::to_value(data).map_err(|_| "캘린더 저장 형식 오류")?,
+        serde_json::to_value(data).map_err(|_| "캘린더를 저장하지 못했어요. 다시 시도해 주세요.")?,
         vec![],
         timestamp(),
     )
@@ -609,7 +609,8 @@ async fn refresh_calendar_inner(
         connection.status = "syncing".into();
         data.attempts.insert(connection_id.into(), time);
         Ok(Some(
-            serde_json::to_value(data).map_err(|_| "캘린더 상태 오류")?,
+            serde_json::to_value(data)
+                .map_err(|_| "캘린더 상태를 저장하지 못했어요. 다시 시도해 주세요.")?,
         ))
     })?;
     publish_widgets(app, state);
@@ -1993,19 +1994,34 @@ pub(crate) fn open_widget_link(
     }
     open_browser(&url)
 }
+fn refresh_candidate_is_eligible(reconnect_only: bool, connected: impl FnOnce() -> bool) -> bool {
+    !reconnect_only || connected()
+}
+
 pub(crate) fn start_due_widget_refreshes(app: &AppHandle, state: &Arc<AppState>) {
     if crate::unavailable(state) {
         return;
     }
     let now = timestamp();
     let instances = match lock(&state.db).and_then(|db| {
-        let mut instances = Vec::new();
-        for (id, revision, observed_at) in storage::refresh_candidates(&db, now)? {
+        let mut ids = std::collections::HashSet::new();
+        for (id, revision, observed_at, reconnect_only) in storage::refresh_candidates(&db, now)? {
+            if !refresh_candidate_is_eligible(reconnect_only, || {
+                crate::widgets::music_bridge::pairing_status(&id)["connected"] == true
+            }) {
+                continue;
+            }
             if !music_refresh_waiting(state, &id, revision, observed_at, now)? {
-                instances.push(storage::get(&db, &id)?);
+                ids.insert(id);
             }
         }
-        Ok(instances)
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(storage::instances(&db)?
+            .into_iter()
+            .filter(|instance| ids.contains(&instance.id))
+            .collect())
     }) {
         Ok(value) => value,
         Err(_) => return,
@@ -2737,6 +2753,12 @@ mod tests {
         assert!(!information_due_with_connection(&instance, 15_100, false));
         assert!(!information_due_with_connection(&instance, 15_099, true));
         assert!(information_due_with_connection(&instance, 15_100, true));
+    }
+    #[test]
+    fn disconnected_reconnect_only_candidates_do_not_require_instance_reads() {
+        assert!(!refresh_candidate_is_eligible(true, || false));
+        assert!(refresh_candidate_is_eligible(true, || true));
+        assert!(refresh_candidate_is_eligible(false, || panic!("ordinary candidates do not need pairing")));
     }
     #[test]
     fn story_music_guard_rejects_an_interrupted_execution() {

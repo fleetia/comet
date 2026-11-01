@@ -148,6 +148,7 @@ export function Planner({
   onStateChange,
   selectedDay,
   onSelectedDayChange,
+  onRestoreDay,
   headerActionsTarget,
   habitSummary,
 }: {
@@ -159,6 +160,7 @@ export function Planner({
   onStateChange?: (state: PlannerToolState) => void;
   selectedDay?: string;
   onSelectedDayChange?: (day: string) => void;
+  onRestoreDay?: (day: string) => void;
   headerActionsTarget?: HTMLElement | null;
   /** Scheduled and filled habits of the selected day, known only inside the diary. */
   habitSummary?: { done: number; total: number };
@@ -226,6 +228,7 @@ export function Planner({
     item: DataRecord;
     widget: WidgetView;
     field?: TodoEditorField;
+    reloadCount?: number;
   } | null>(null);
   const attemptedEditorRestore = useRef(false);
   useEffect(() => {
@@ -244,7 +247,8 @@ export function Planner({
     attemptedWrapRestore.current = true;
     const saved = readPlannerWrapDraft();
     if (saved?.widgetId === todo.id) {
-      setDay(saved.day);
+      if (onRestoreDay) onRestoreDay(saved.day);
+      else setInternalDay(saved.day);
       setRollIds(saved.rollIds);
       setRollDate(saved.rollDate);
       setWrap(true);
@@ -262,7 +266,10 @@ export function Planner({
   const [preparationBusy, setPreparationBusy] = useState(false);
   const previousDismissVersion = useRef(dismissVersion);
   useEffect(() => {
-    if (embedded && inputDraft?.title && inputDraft.day) onSelectedDayChange?.(inputDraft.day);
+    if (embedded && inputDraft?.title && inputDraft.day) {
+      if (onRestoreDay) onRestoreDay(inputDraft.day);
+      else setInternalDay(inputDraft.day);
+    }
   }, []);
   useEffect(() => {
     if (!embedded) return;
@@ -807,7 +814,7 @@ export function Planner({
       {editing && (
         <TodoEditor
           draftKey={embedded ? PLANNER_TODO_EDITOR_DRAFT_KEY : undefined}
-          key={`${text(editing.item.id)}:${editing.widget.revision}`}
+          key={`${text(editing.item.id)}:${editing.widget.revision}:${editing.reloadCount ?? 0}`}
           widgetId={editing.widget.id}
           item={editing.item}
           calendar={calendar}
@@ -839,7 +846,13 @@ export function Planner({
           }}
           onReload={() => {
             const latest = items.find((item) => item.id === editing.item.id);
-            if (latest && todo) setEditing({ item: latest, widget: todo, field: editing.field });
+            if (latest && todo)
+              setEditing({
+                item: latest,
+                widget: todo,
+                field: editing.field,
+                reloadCount: (editing.reloadCount ?? 0) + 1,
+              });
           }}
           onClose={() => setEditing(null)}
         />

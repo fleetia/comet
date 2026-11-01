@@ -519,6 +519,8 @@ fn recovery_counts_completion_and_resets_the_long_rest_cycle() {
     assert_eq!(recovered["sessions"][0]["endedAt"], 61_000);
     assert_eq!(recovered["status"], "finished");
     assert_eq!(recovered["mode"], "focus");
+    let rest = run(&recovered, "rest", json!({"kind":"long"}), 101_000);
+    assert_eq!(rest.events[0].text, "길게 쉬어요.");
 }
 
 #[test]

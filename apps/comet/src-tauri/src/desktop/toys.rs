@@ -20,6 +20,8 @@ mod native;
 mod linux;
 
 const STEP: f64 = 1.0 / 120.0;
+const RESTING_TICK_MS: u64 = 250;
+const RESTING_GEOMETRY_INTERVAL_MS: u64 = 250;
 const SIZE: f64 = 56.0;
 const MAX_ACTORS: usize = 8;
 const BUBBLE_COUNT_MIN: usize = 3;
@@ -1472,6 +1474,10 @@ fn resting_tick(actors: &BTreeMap<String, Actor>, cursor: Option<(f64, f64)>) ->
     })
 }
 
+fn should_request_geometry(refresh: bool, pending: bool, captured: bool, resting: bool) -> bool {
+    refresh && !pending && (resting || !captured)
+}
+
 pub(crate) fn start(app: AppHandle) {
     if app.state::<Runtime>().started.swap(true, Ordering::SeqCst) {
         return;
@@ -1490,7 +1496,12 @@ pub(crate) fn start(app: AppHandle) {
                     .unwrap_or(false);
                 resting
             };
-            tokio::time::sleep(Duration::from_millis(if resting { 250 } else { 16 })).await;
+            tokio::time::sleep(Duration::from_millis(if resting {
+                RESTING_TICK_MS
+            } else {
+                16
+            }))
+            .await;
             let now = Instant::now();
             let elapsed = now.duration_since(previous).as_secs_f64();
             let interrupted_after = previous;
@@ -1503,7 +1514,11 @@ pub(crate) fn start(app: AppHandle) {
                     !world.actors.is_empty()
                         && world.geometry_at.is_none_or(|at| {
                             now.duration_since(at)
-                                >= Duration::from_millis(if resting { 500 } else { 150 })
+                                >= Duration::from_millis(if resting {
+                                    RESTING_GEOMETRY_INTERVAL_MS
+                                } else {
+                                    150
+                                })
                         })
                 })
                 .unwrap_or(false);
@@ -1516,7 +1531,12 @@ pub(crate) fn start(app: AppHandle) {
             if !active {
                 continue;
             }
-            if refresh && pending_geometry.is_none() && captured.is_none() {
+            if should_request_geometry(
+                refresh,
+                pending_geometry.is_some(),
+                captured.is_some(),
+                resting,
+            ) {
                 pending_geometry = Some(request_geometry(&app));
             }
             let characters = crate::characters::collision_host::colliders(&app);
@@ -2144,6 +2164,22 @@ mod tests {
     }
 
     #[test]
+    fn geometry_requests_continue_on_resting_ticks_that_capture_a_sample() {
+        assert!(should_request_geometry(true, false, false, true));
+        assert!(should_request_geometry(true, false, true, true));
+        assert!(!should_request_geometry(true, true, false, true));
+        assert!(!should_request_geometry(false, false, true, true));
+    }
+
+    #[test]
+    fn moving_geometry_requests_wait_until_the_tick_after_a_capture() {
+        assert!(!should_request_geometry(true, false, true, false));
+        assert!(should_request_geometry(true, false, false, false));
+        assert!(!should_request_geometry(true, true, false, false));
+        assert!(!should_request_geometry(false, false, false, false));
+    }
+
+    #[test]
     fn late_geometry_cannot_replace_a_newer_launch_snapshot() {
         let now = Instant::now();
         let mut world = World {
@@ -2207,6 +2243,14 @@ mod tests {
         );
         assert!(!world.geometry.external_windows_available);
         assert_eq!(world.geometry.edges.len(), 1);
+        // Allow one resting tick of scheduling delay plus a slow query.
+        apply_geometry(
+            &mut world,
+            None,
+            now + Duration::from_millis(RESTING_TICK_MS + RESTING_GEOMETRY_INTERVAL_MS + 400),
+        );
+        assert_eq!(world.geometry.edges.len(), 1);
+        assert_eq!(world.geometry.edges[0].axis, 123.0);
         // The next query is still pending; expiry cannot depend on it returning.
         apply_geometry(&mut world, None, now + Duration::from_millis(1100));
         assert_eq!(world.geometry.edges.len(), 4);

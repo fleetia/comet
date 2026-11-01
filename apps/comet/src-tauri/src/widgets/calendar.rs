@@ -176,6 +176,9 @@ fn error(status: &str, message: &str) -> CalendarError {
 fn invalid(message: &str) -> CalendarError {
     error("stale", message)
 }
+fn content_error() -> CalendarError {
+    invalid("캘린더 내용을 읽지 못했어요. 연결 설정을 확인하고 다시 시도해 주세요.")
+}
 #[derive(Serialize, Deserialize)]
 struct Credential {
     connection_id: String,
@@ -494,7 +497,7 @@ pub fn disconnect(connection: &Connection) -> Result<(), CalendarError> {
 }
 fn subscription_url(value: &str) -> Result<reqwest::Url, CalendarError> {
     if value.len() > 4000 {
-        return Err(invalid("구독 주소가 너무 깁니다."));
+        return Err(invalid("구독 주소가 너무 길어요. 주소를 확인해 주세요."));
     }
     let normalized = if let Some(tail) = value.strip_prefix("webcal://") {
         format!("https://{tail}")
@@ -666,9 +669,10 @@ pub async fn refresh_connected(
     connected: &Connected,
     now: i64,
 ) -> Result<Refreshed, CalendarError> {
-    let serialized =
-        serde_json::to_value(&connected.credential).map_err(|_| invalid("연결 정보 오류"))?;
-    let credential = serde_json::from_value(serialized).map_err(|_| invalid("연결 정보 오류"))?;
+    let serialized = serde_json::to_value(&connected.credential)
+        .map_err(|_| invalid("연결 정보를 읽지 못했어요. 다시 연결해 주세요."))?;
+    let credential = serde_json::from_value(serialized)
+        .map_err(|_| invalid("연결 정보를 읽지 못했어요. 다시 연결해 주세요."))?;
     bounded_refresh(&connected.connection, credential, now).await
 }
 async fn bounded_refresh(
@@ -738,10 +742,9 @@ async fn refresh_credential(
         }
         let bytes = result
             .ok_or_else(|| invalid("구독 응답이 없어요. 주소를 확인하고 다시 시도해 주세요."))?;
-        let text = String::from_utf8(bytes)
-            .map_err(|_| invalid("UTF-8 형식의 캘린더만 지원해요. 구독 주소를 확인해 주세요."))?;
+        let text = String::from_utf8(bytes).map_err(|_| content_error())?;
         Refreshed {
-            events: parse_ics(&text, &connection.id, now)?,
+            events: parse_ics(&text, &connection.id, now).map_err(|_| content_error())?,
             calendar_names: BTreeMap::new(),
             credential: None,
         }
@@ -853,10 +856,10 @@ fn google_event(
 async fn google_events(credential: &Credential, now: i64) -> Result<Refreshed, CalendarError> {
     let client = client()?;
     let start = DateTime::<Utc>::from_timestamp_millis(now.saturating_sub(30 * DAY_MS))
-        .ok_or_else(|| invalid("조회 시각 오류"))?
+        .ok_or_else(content_error)?
         .to_rfc3339();
     let end = DateTime::<Utc>::from_timestamp_millis(now.saturating_add(365 * DAY_MS))
-        .ok_or_else(|| invalid("조회 시각 오류"))?
+        .ok_or_else(content_error)?
         .to_rfc3339();
     let token = credential
         .access_token
@@ -866,9 +869,9 @@ async fn google_events(credential: &Credential, now: i64) -> Result<Refreshed, C
     let mut calendar_names = BTreeMap::new();
     for calendar in &credential.calendar_ids {
         let mut url = reqwest::Url::parse("https://www.googleapis.com/calendar/v3/calendars/")
-            .map_err(|_| invalid("API 주소 오류"))?;
+            .map_err(|_| content_error())?;
         url.path_segments_mut()
-            .map_err(|_| invalid("API 주소 오류"))?
+            .map_err(|_| content_error())?
             .pop_if_empty()
             .push(calendar)
             .push("events");
@@ -896,9 +899,12 @@ async fn google_events(credential: &Credential, now: i64) -> Result<Refreshed, C
             }
             let items = result["items"]
                 .as_array()
-                .ok_or_else(|| invalid("Google 일정 응답 오류"))?;
+                .ok_or_else(content_error)?;
             for item in items {
-                events.push(google_event(item, &credential.connection_id, calendar)?);
+                events.push(
+                    google_event(item, &credential.connection_id, calendar)
+                        .map_err(|_| content_error())?,
+                );
                 if events.len() > MAX_EVENTS {
                     return Err(invalid(
                         "조회 일정이 5000개를 넘었어요. 연결할 캘린더를 줄여 주세요.",
@@ -1221,6 +1227,32 @@ mod tests {
         assert!(!serde_json::to_string(&result.events)
             .unwrap()
             .contains("hidden"));
+        server.await.unwrap();
+    }
+    #[tokio::test]
+    async fn invalid_subscription_content_reports_common_message() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 2048];
+            assert!(socket.read(&mut request).await.unwrap() > 0);
+            let text = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:x\r\nDTSTART:invalid\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+            socket
+                .write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}", text.len()).as_bytes())
+                .await
+                .unwrap();
+        });
+        let connected = connect_ics(IcsConnectInput {
+            name: "구독".into(),
+            url: format!("http://{address}/"),
+        })
+        .unwrap();
+        let failure = refresh_connected(&connected, 0).await.err().unwrap();
+        assert_eq!(
+            failure.message,
+            "캘린더 내용을 읽지 못했어요. 연결 설정을 확인하고 다시 시도해 주세요."
+        );
         server.await.unwrap();
     }
     #[tokio::test]

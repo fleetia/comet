@@ -846,7 +846,11 @@ pub(super) fn act(
                     state,
                     vec![EventDraft {
                         kind: "focus-long-rest-started".into(),
-                        text: format!("{}번 집중했어요. 길게 쉬어요.", cycle),
+                        text: if cycle == 0 {
+                            "길게 쉬어요.".into()
+                        } else {
+                            format!("{}번 집중했어요. 길게 쉬어요.", cycle)
+                        },
                         payload: json!({"cycle":cycle, "bubbleEnabled":bubble_enabled}),
                     }],
                 );

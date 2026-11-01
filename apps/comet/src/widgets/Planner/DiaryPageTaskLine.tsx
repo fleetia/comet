@@ -1,7 +1,7 @@
 import { Button, Checkbox, DeadlineChip, TextInput } from "@comet/ui";
 import type { ReactElement } from "react";
 import { text, type DataRecord } from "../toolData";
-import { deadlineChipLabel, isOverdue, frequencyRecords, plannedDay, ruleOf } from "./plannerData";
+import { deadlineChipLabel, isOverdue, frequencyRecords, formatPlannerDate, plannedDay, ruleOf } from "./plannerData";
 import { TaskReadOnlyDetails } from "./TodoEditor";
 import { useDiaryPageTaskLine } from "./useDiaryPageTaskLine";
 import * as s from "./diaryPage.css";
@@ -98,7 +98,7 @@ export function DiaryPageTaskLine({
         </div>
       </div>
       <p className={s.taskMeta}>
-        계획 · {plannedDay(item) || "미지정"}
+        계획 · {plannedDay(item) ? formatPlannerDate(plannedDay(item)) : "미지정"}
         {deadlineChipLabel(item) && (
           <DeadlineChip overdue={isOverdue(item)}>{deadlineChipLabel(item)}</DeadlineChip>
         )}

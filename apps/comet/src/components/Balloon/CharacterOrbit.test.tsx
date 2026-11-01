@@ -100,6 +100,8 @@ it("disables and explains resume when no conversation is paused", () => {
   );
   const button = screen.getByRole("button", { name: "이어서 할 대화가 없어요" });
   expect(button).toHaveProperty("disabled", true);
+  expect(button.getAttribute("title")).toBe("이어서 할 대화가 없어요");
+  expect(screen.getByText("대화 없음")).toBeTruthy();
   fireEvent.click(button);
   expect(action).not.toHaveBeenCalled();
   view.rerender(<CharacterOrbit {...base} onAction={action} onClose={vi.fn()} />);

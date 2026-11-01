@@ -22,7 +22,7 @@ export function FocusTimerQueue({
 }): ReactElement {
   const queue = rows(data.queue);
   const [title, setTitle] = useState("");
-  const [minutes, setMinutes] = useState(defaultMinutes);
+  const [minutes, setMinutes] = useState<string | null>(null);
   const [todoId, setTodoId] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -36,7 +36,7 @@ export function FocusTimerQueue({
   queueRef.current = queue;
   const lock = useRef(false);
   const dragged = useRef("");
-  const duration = Number(minutes) * 60000;
+  const duration = Number(minutes ?? defaultMinutes) * 60000;
   const valid =
     title.trim() && Number.isFinite(duration) && duration >= 1000 && duration <= 86400000;
 
@@ -204,7 +204,7 @@ export function FocusTimerQueue({
             min="0.02"
             max="1440"
             step="0.01"
-            value={minutes}
+            value={minutes ?? defaultMinutes}
             disabled={busy}
             onChange={(event) => setMinutes(event.target.value)}
           />

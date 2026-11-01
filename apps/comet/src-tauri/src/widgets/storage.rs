@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path};
 
 type Result<T> = std::result::Result<T, String>;
+type RefreshCandidate = (String, i64, Option<i64>, bool);
 fn err(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
@@ -262,23 +263,35 @@ pub fn instances(db: &Connection) -> Result<Vec<WidgetInstance>> {
     })
 }
 
-pub(crate) fn refresh_candidates(db: &Connection, now: i64) -> Result<Vec<(String, i64, Option<i64>)>> {
+pub(crate) fn refresh_candidates(db: &Connection, now: i64) -> Result<Vec<RefreshCandidate>> {
     let mut statement = db.prepare(
-        "SELECT id, revision, CASE WHEN json_type(data,'$.observation.observedAt') = 'integer'
-          THEN json_extract(data,'$.observation.observedAt') END FROM widget_instances WHERE
-        (kind IN ('weather','music','device') AND json_extract(data,'$.configured') = 1
+        "WITH candidates AS (SELECT rowid, id, revision, data,
+        ((kind IN ('weather','music','device') AND json_extract(data,'$.configured') = 1
+          AND COALESCE(json_extract(data,'$.status'),'') != 'auth-error'
+          AND (kind='weather' OR (COALESCE(json_extract(data,'$.status'),'') NOT IN ('permission-needed','unsupported')
+            AND COALESCE(json_extract(data,'$.failureCount'),0) < 5))
           AND (COALESCE(json_extract(data,'$.nextRefreshAt'),0) <= ?1
-            OR json_extract(data,'$.status') IN ('syncing','offline')
+            OR json_extract(data,'$.status') = 'syncing'
             OR (kind='weather' AND json_extract(data,'$.nextRefreshAt') = 9223372036854775807)))
         OR (kind='calendar' AND EXISTS (
           SELECT 1 FROM json_each(data,'$.connections') AS c
           WHERE COALESCE(json_extract(c.value,'$.status'),'') != 'auth-error'
             AND (json_extract(c.value,'$.status') = 'syncing'
               OR COALESCE(json_extract(c.value,'$.nextRefreshAt'),0) <= ?1
-              OR json_extract(c.value,'$.nextRefreshAt') = 9223372036854775807)))
+              OR json_extract(c.value,'$.nextRefreshAt') = 9223372036854775807)))) AS due,
+        (kind='music' AND json_extract(data,'$.configured') = 1
+          AND json_extract(data,'$.status')='offline'
+          AND (json_extract(data,'$.config.provider')='spicetify'
+            OR (json_extract(data,'$.config.provider')='auto'
+              AND json_type(data,'$.config.allowedProviders')='array'
+              AND EXISTS (SELECT 1 FROM json_each(data,'$.config.allowedProviders') AS p WHERE p.value='spotify')))) AS reconnect
+        FROM widget_instances)
+        SELECT id, revision, CASE WHEN json_type(data,'$.observation.observedAt') = 'integer'
+          THEN json_extract(data,'$.observation.observedAt') END, NOT COALESCE(due, 0)
+        FROM candidates WHERE due OR reconnect
         ORDER BY rowid"
     ).map_err(err)?;
-    let rows = statement.query_map([now], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).map_err(err)?;
+    let rows = statement.query_map([now], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))).map_err(err)?;
     rows.map(|row| row.map_err(err)).collect()
 }
 

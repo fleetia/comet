@@ -77,10 +77,9 @@ async fn native_work<T: Send + 'static>(
         .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(2)))
         .clone();
     tokio::time::timeout(Duration::from_secs(seconds), async move {
-        let permit = workers
-            .acquire_owned()
-            .await
-            .map_err(|_| invalid("Apple 캘린더 조회를 시작하지 못했어요."))?;
+        let permit = workers.acquire_owned().await.map_err(|_| {
+            invalid("Apple 캘린더 조회를 시작하지 못했어요. 잠시 후 다시 시도해 주세요.")
+        })?;
         let (sender, receiver) = tokio::sync::oneshot::channel();
         // EventKit objects remain on this thread. Only owned Rust values cross the channel.
         std::thread::Builder::new()
@@ -89,10 +88,12 @@ async fn native_work<T: Send + 'static>(
                 let _permit = permit;
                 let _ = sender.send(work());
             })
-            .map_err(|_| invalid("Apple 캘린더 조회를 시작하지 못했어요."))?;
+            .map_err(|_| {
+                invalid("Apple 캘린더 조회를 시작하지 못했어요. 잠시 후 다시 시도해 주세요.")
+            })?;
         receiver
             .await
-            .map_err(|_| invalid("Apple 캘린더 조회가 중단됐어요."))?
+            .map_err(|_| invalid("Apple 캘린더 조회가 중단됐어요. 잠시 후 다시 시도해 주세요."))?
     })
     .await
     .map_err(|_| {
@@ -150,7 +151,7 @@ mod native {
                     .map_err(|_| {
                         error(
                             "permission-needed",
-                            "macOS 캘린더 권한 요청이 완료되지 않았어요.",
+                            "macOS 캘린더 권한 요청이 완료되지 않았어요. 권한을 확인하고 다시 시도해 주세요.",
                         )
                     })?;
             }
@@ -279,14 +280,16 @@ mod native {
                         .calendar()
                         .map(|calendar| calendar.calendarIdentifier().to_string())
                 }
-                .ok_or_else(|| invalid("Apple 일정의 캘린더를 확인하지 못했어요."))?;
+                .ok_or_else(content_error)?;
                 let identifier = unsafe { event.eventIdentifier() }
-                    .ok_or_else(|| invalid("Apple 일정 식별 정보가 없어요."))?
+                    .ok_or_else(content_error)?
                     .to_string();
                 let start = unsafe { event.startDate() };
                 let end = unsafe { event.endDate() };
                 let occurrence = unsafe { event.occurrenceDate() }.unwrap_or_else(|| start.clone());
-                let occurrence_id = millis(&occurrence)?.to_string();
+                let occurrence_id = millis(&occurrence)
+                    .map_err(|_| content_error())?
+                    .to_string();
                 let all_day = unsafe { event.isAllDay() };
                 let mut item = CalendarEvent {
                     id: format!("{connection_id}:{source_id}:{identifier}:{occurrence_id}"),
@@ -317,14 +320,15 @@ mod native {
                     note_ref: None,
                 };
                 if all_day {
-                    let (start_date, end_date) = all_day_dates(&start, &end, &zone)?;
+                    let (start_date, end_date) =
+                        all_day_dates(&start, &end, &zone).map_err(|_| content_error())?;
                     item.start_date = Some(start_date);
                     item.end_date = Some(end_date);
                 } else {
-                    item.start_at = Some(millis(&start)?);
-                    item.end_at = Some(millis(&end)?);
+                    item.start_at = Some(millis(&start).map_err(|_| content_error())?);
+                    item.end_at = Some(millis(&end).map_err(|_| content_error())?);
                     if item.end_at < item.start_at {
-                        return Err(invalid("Apple 일정 종료 시각 오류"));
+                        return Err(content_error());
                     }
                 }
                 result.push(item);
