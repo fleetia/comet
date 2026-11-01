@@ -674,11 +674,12 @@ pub(crate) async fn execute_action(
                 SettingsTab::Ai => super::windows::SettingsSection::Model,
                 SettingsTab::General => super::windows::SettingsSection::General,
             };
+            let placement = super::windows::placement(app, None, 1920.0, 1080.0);
             let _action = lock(&state.action)?;
             if !queue_settings_highlight_locked(state, run, cancel, highlight.clone())? {
                 return Ok(false);
             }
-            super::windows::show_settings_section(app.clone(), section)?;
+            super::windows::show_settings_section_with_placement(app.clone(), section, placement)?;
             lock(&state.scene_events)?
                 .windows
                 .insert("settings".into(), "settings".into());

@@ -10,6 +10,52 @@ use std::sync::{
 use tauri::Emitter;
 use tauri::Manager;
 
+fn select_area<T>(cursor: Option<T>, caller: Option<T>, primary: Option<T>) -> Option<T> {
+    cursor.or(caller).or(primary)
+}
+
+pub(crate) fn placement(
+    app: &tauri::AppHandle,
+    caller: Option<&tauri::WebviewWindow>,
+    width: f64,
+    height: f64,
+) -> Option<(f64, f64, f64, f64)> {
+    target_area(app, caller).map(|area| fit_placement(area, width, height))
+}
+
+pub(crate) fn target_area(
+    app: &tauri::AppHandle,
+    caller: Option<&tauri::WebviewWindow>,
+) -> Option<crate::widgets::desktop::Rect> {
+    let cursor = app.cursor_position().ok()
+        .and_then(|point| app.monitor_from_point(point.x, point.y).ok().flatten())
+        .map(|monitor| {
+            let area = monitor.work_area();
+            let scale = monitor.scale_factor();
+            crate::widgets::desktop::Rect {
+                x: area.position.x as f64 / scale,
+                y: area.position.y as f64 / scale,
+                width: area.size.width as f64 / scale,
+                height: area.size.height as f64 / scale,
+            }
+        });
+    let focused = app.webview_windows().into_values()
+        .find(|window| window.is_focused().unwrap_or(false));
+    let caller_area = caller.or(focused.as_ref())
+        .and_then(|window| crate::widgets::desktop::window_area(app, window).ok());
+    select_area(cursor, caller_area, crate::widgets::desktop::primary_area(app).ok())
+}
+
+pub(crate) fn fit_placement(area: crate::widgets::desktop::Rect, width: f64, height: f64) -> (f64, f64, f64, f64) {
+    let width = width.min(area.width);
+    let height = height.min(area.height);
+    (area.x + (area.width - width) / 2.0, area.y + (area.height - height) / 2.0, width, height)
+}
+
+fn settings_minimum(size: f64, minimum: f64) -> f64 {
+    if size <= minimum { size * 0.8 } else { minimum }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum SettingsSection {
@@ -44,6 +90,7 @@ pub(crate) fn get_story_editor_target(
 #[tauri::command]
 pub(crate) fn open_story_editor(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     pack_id: String,
     scenario_id: String,
     create_new: Option<bool>,
@@ -70,13 +117,16 @@ pub(crate) fn open_story_editor(
         .append_pair("packId", &target.pack_id)
         .append_pair("scenarioId", &target.scenario_id);
     let path = format!("index.html?{}", url.query().unwrap_or_default());
-    tauri::WebviewWindowBuilder::new(&app, "story-editor", tauri::WebviewUrl::App(path.into()))
+    let placement = placement(&app, Some(&window), 1280.0, 800.0);
+    let (_, _, width, height) = placement.unwrap_or((0.0, 0.0, 1280.0, 800.0));
+    let builder = tauri::WebviewWindowBuilder::new(&app, "story-editor", tauri::WebviewUrl::App(path.into()))
         .title("comet · 장면 편집기")
-        .inner_size(1280.0, 800.0)
-        .min_inner_size(1120.0, 720.0)
+        .inner_size(width, height)
+        .min_inner_size(1120.0_f64.min(width), 720.0_f64.min(height))
         .decorations(false)
-        .transparent(true)
-        .build()
+        .transparent(true);
+    let builder = if let Some((x, y, _, _)) = placement { builder.position(x, y) } else { builder };
+    builder.build()
         .map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -793,6 +843,15 @@ pub(crate) fn show_settings_section(
     app: tauri::AppHandle,
     section: SettingsSection,
 ) -> Result<(), String> {
+    let placement = placement(&app, None, 1920.0, 1080.0);
+    show_settings_section_with_placement(app, section, placement)
+}
+
+pub(crate) fn show_settings_section_with_placement(
+    app: tauri::AppHandle,
+    section: SettingsSection,
+    placement: Option<(f64, f64, f64, f64)>,
+) -> Result<(), String> {
     let state = app.state::<Arc<AppState>>();
     // Keep the latest destination until the WebView has registered its listener,
     // and serialize simultaneous menu requests while the singleton is created.
@@ -806,22 +865,8 @@ pub(crate) fn show_settings_section(
         window.show().map_err(|e| e.to_string())?;
         return window.set_focus().map_err(|e| e.to_string());
     }
-    let preferred_size = app
-        .primary_monitor()
-        .ok()
-        .flatten()
-        .map(|monitor| {
-            let area = monitor
-                .work_area()
-                .size
-                .to_logical::<f64>(monitor.scale_factor());
-            (
-                area.width.clamp(960.0, 1920.0),
-                area.height.clamp(640.0, 1080.0),
-            )
-        })
-        .unwrap_or((1120.0, 720.0));
-    tauri::WebviewWindowBuilder::new(
+    let (_, _, width, height) = placement.unwrap_or((0.0, 0.0, 1120.0, 720.0));
+    let builder = tauri::WebviewWindowBuilder::new(
         &app,
         "settings",
         tauri::WebviewUrl::App(
@@ -829,12 +874,13 @@ pub(crate) fn show_settings_section(
         ),
     )
     .title("comet · 설정")
-    .inner_size(preferred_size.0, preferred_size.1)
-    .min_inner_size(960.0, 640.0)
+    .inner_size(width, height)
+    .min_inner_size(settings_minimum(width, 720.0), settings_minimum(height, 520.0))
     .decorations(false)
     .transparent(true)
-    .maximizable(false)
-    .build()
+    .maximizable(false);
+    let builder = if let Some((x, y, _, _)) = placement { builder.position(x, y) } else { builder };
+    builder.build()
     .map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -843,6 +889,23 @@ pub(crate) fn show_settings_section(
 mod tests {
     use super::*;
     use crate::types::{Message, RuntimePhase};
+
+    #[test]
+    fn initial_windows_fit_and_center_on_the_selected_work_area() {
+        let area = crate::widgets::desktop::Rect { x: -1280.0, y: 20.0, width: 1280.0, height: 740.0 };
+        assert_eq!(fit_placement(area, 1328.0, 820.0), (-1280.0, 20.0, 1280.0, 740.0));
+        assert_eq!(fit_placement(area, 800.0, 500.0), (-1040.0, 140.0, 800.0, 500.0));
+        assert_eq!(settings_minimum(700.0, 720.0), 560.0);
+        assert_eq!(settings_minimum(1000.0, 720.0), 720.0);
+    }
+
+    #[test]
+    fn placement_prefers_cursor_then_caller_then_primary() {
+        assert_eq!(select_area(Some(1), Some(2), Some(3)), Some(1));
+        assert_eq!(select_area(None, Some(2), Some(3)), Some(2));
+        assert_eq!(select_area(None, None, Some(3)), Some(3));
+        assert_eq!(select_area::<u8>(None, None, None), None);
+    }
 
     fn pending_request(state: &AppState) -> (store::ConversationSession, (u64, Arc<AtomicBool>)) {
         let _action = lock(&state.action).unwrap();

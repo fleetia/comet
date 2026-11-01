@@ -243,23 +243,42 @@ pub(crate) fn cancel_widget_jobs(state: &AppState, id: Option<&str>) -> Result<(
     Ok(())
 }
 
+pub(crate) struct WidgetOpenIntent {
+    token: Arc<AtomicBool>,
+    auto_fit: bool,
+}
+
 fn begin_widget_open(state: &AppState, id: &str) -> Result<Arc<AtomicBool>, String> {
     let token = Arc::new(AtomicBool::new(false));
-    if let Some(previous) = lock(&state.widget_open_intents)?.insert(id.into(), token.clone()) {
-        previous.store(true, Ordering::SeqCst);
+    let intent = WidgetOpenIntent { token: token.clone(), auto_fit: false };
+    if let Some(previous) = lock(&state.widget_open_intents)?.insert(id.into(), intent) {
+        previous.token.store(true, Ordering::SeqCst);
     }
     Ok(token)
+}
+
+fn begin_focus_resize(state: &AppState, id: &str, auto_fit: bool) -> Result<Option<Arc<AtomicBool>>, String> {
+    let mut intents = lock(&state.widget_open_intents)?;
+    if auto_fit && intents.get(id).is_some_and(|intent| !intent.auto_fit) {
+        return Ok(None);
+    }
+    let token = Arc::new(AtomicBool::new(false));
+    let intent = WidgetOpenIntent { token: token.clone(), auto_fit };
+    if let Some(previous) = intents.insert(id.into(), intent) {
+        previous.token.store(true, Ordering::SeqCst);
+    }
+    Ok(Some(token))
 }
 
 pub(crate) fn cancel_widget_opens(state: &AppState, id: Option<&str>) -> Result<(), String> {
     let mut intents = lock(&state.widget_open_intents)?;
     if let Some(id) = id {
-        if let Some(token) = intents.remove(id) {
-            token.store(true, Ordering::SeqCst);
+        if let Some(intent) = intents.remove(id) {
+            intent.token.store(true, Ordering::SeqCst);
         }
     } else {
-        for (_, token) in intents.drain() {
-            token.store(true, Ordering::SeqCst);
+        for (_, intent) in intents.drain() {
+            intent.token.store(true, Ordering::SeqCst);
         }
     }
     Ok(())
@@ -300,7 +319,7 @@ fn widget_open_current(
     if token.load(Ordering::SeqCst)
         || !lock(&state.widget_open_intents)?
             .get(id)
-            .is_some_and(|current| Arc::ptr_eq(current, token))
+            .is_some_and(|current| Arc::ptr_eq(&current.token, token))
     {
         return Err(WidgetOpenError::Cancelled);
     }
@@ -1008,6 +1027,7 @@ pub(crate) async fn open_playback_link(
         return Ok(true);
     }
     if matches!(link.kind.as_str(), "clock" | "weather") {
+        let placement = crate::app::windows::placement(&app, None, 1920.0, 1080.0);
         let _action = lock(&state.action)?;
         validate_playback_open(&state, Some(&playback_id))?;
         let label =
@@ -1016,7 +1036,7 @@ pub(crate) async fn open_playback_link(
             window.show().map_err(|error| error.to_string())?;
             window.set_focus().map_err(|error| error.to_string())?;
         } else {
-            crate::widgets::planning::windows::show_widget_settings(app.clone(), &link.kind)?;
+            crate::widgets::planning::windows::show_widget_settings(app.clone(), &link.kind, placement)?;
         }
         let db = lock(&state.db)?;
         let epoch = finish_playback_link(&state, &db)?;
@@ -1456,6 +1476,8 @@ async fn open_widget_inner(
     playback: Option<&str>,
 ) -> Result<(), WidgetOpenError> {
     uuid::Uuid::parse_str(id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
+    let caller = app.webview_windows().into_values()
+        .find(|window| window.is_focused().unwrap_or(false));
     let (instance, open_intent) = change(state, |db| {
         validate_playback_open(state, playback)?;
         let instance = storage::get(db, id)?;
@@ -1553,6 +1575,8 @@ async fn open_widget_inner(
             let _ = crate::widgets::connection_host::prepare_music_widget(app, state, id, launch).await;
         }
     }
+    let area = crate::app::windows::target_area(app, caller.as_ref());
+    let areas = crate::widgets::desktop::work_areas(app).unwrap_or_default();
     // The widget may have been disabled or removed while the OS was launching Spotify.
     let _action = lock(&state.action)?;
     validate_playback_open(state, playback)?;
@@ -1598,53 +1622,52 @@ async fn open_widget_inner(
         crate::widgets::runtime::refresh(app);
         return Ok(());
     }
-    let floating = matches!(
+    let card = matches!(
         current.kind.as_str(),
-        "music"
-            | "focus-timer"
-            | "interaction"
-            | "small-match"
-            | "fortune"
-            | "guessing"
-            | "fishing"
-            | "plant"
-            | "completion-jar"
-            | "device"
-            | "ball"
-            | "paper-plane"
-            | "bubbles"
+        "music" | "focus-timer" | "interaction" | "small-match" | "fortune"
+            | "guessing" | "fishing" | "plant" | "completion-jar" | "device"
+            | "ball" | "paper-plane" | "bubbles"
     );
+    let (focus_expanded, focus_collapsed, saved_position) = {
+        let db = lock(&state.db)?;
+        let (expanded, collapsed) = storage::read_tool_focus(&db, id)?;
+        (expanded, collapsed, storage::read_tool_position(&db, id)?)
+    };
+    let (width, height) = match current.kind.as_str() {
+        "music" => (370.0, 310.0),
+        "focus-timer" if focus_collapsed => (310.0, 56.0),
+        "focus-timer" if !focus_expanded => (310.0, 580.0),
+        "focus-timer" => (946.0, 580.0),
+        "interaction" => (330.0, 250.0),
+        "small-match" | "guessing" => (330.0, 430.0),
+        "fishing" => (330.0, 380.0),
+        "plant" => (330.0, 360.0),
+        "completion-jar" => (330.0, 240.0),
+        "device" => (330.0, 500.0),
+        "fortune" => (330.0, 340.0),
+        "ball" | "paper-plane" | "bubbles" => (330.0, 400.0),
+        _ => (360.0, 480.0),
+    };
+    let (floating, skip_taskbar, shadow) = tool_window_style(&current.kind, focus_collapsed, card);
+    let position = saved_position.map(|point| {
+        crate::widgets::desktop::clamp_point(&point, (width, height), &areas)
+    }).or_else(|| {
+        area.map(|area| crate::app::windows::fit_placement(area, width, height))
+            .map(|(x, y, _, _)| crate::widgets::desktop::Point { x, y })
+    });
+    if let Some(point) = &position {
+        crate::app::lifecycle::mark_tool_creation(&label, point.x, point.y);
+    }
     let window = tauri::WebviewWindowBuilder::new(
         app,
         label,
-        tauri::WebviewUrl::App(format!("index.html?view=widget&id={id}").into()),
+        tauri::WebviewUrl::App(format!("index.html?view=widget&id={id}&kind={}&focus_expanded={focus_expanded}&focus_collapsed={focus_collapsed}", current.kind).into()),
     )
     .title(format!(
         "comet · {}",
         widgets::manifest(&current.kind)?.name
     ))
-    .inner_size(
-        match current.kind.as_str() {
-            "music" => 370.0,
-            "focus-timer" => 946.0,
-            "interaction" | "small-match" | "fortune" | "guessing" | "fishing" | "plant"
-            | "completion-jar" | "device" | "ball" | "paper-plane" | "bubbles" => 330.0,
-            _ => 360.0,
-        },
-        match current.kind.as_str() {
-            "music" => 310.0,
-            "focus-timer" => 580.0,
-            "interaction" => 250.0,
-            "small-match" | "guessing" => 430.0,
-            "fishing" => 380.0,
-            "plant" => 360.0,
-            "completion-jar" => 240.0,
-            "device" => 500.0,
-            "fortune" => 340.0,
-            "ball" | "paper-plane" | "bubbles" => 400.0,
-            _ => 480.0,
-        },
-    )
+    .inner_size(width, height)
     .min_inner_size(
         if current.kind == "music" {
             370.0
@@ -1664,15 +1687,20 @@ async fn open_widget_inner(
         },
     )
     .transparent(true)
-    .shadow(!floating)
+    .shadow(shadow)
     .always_on_top(floating)
-    .skip_taskbar(floating)
+    .skip_taskbar(skip_taskbar)
     .decorations(false)
     .disable_drag_drop_handler()
     .maximizable(false)
     .visible(open_intent.is_none())
-    .focused(open_intent.is_none())
-    .build()
+    .focused(open_intent.is_none());
+    let window = if let Some(point) = position {
+        window.position(point.x, point.y)
+    } else {
+        window
+    };
+    let window = window.build()
     .map_err(|error| error.to_string())?;
     if let Some(intent) = &open_intent {
         if let Err(error) = widget_open_current(state, id, intent) {
@@ -2540,6 +2568,28 @@ mod tests {
 
 const FOCUS_RESIZE_DURATION: std::time::Duration = std::time::Duration::from_millis(280);
 
+fn tool_window_style(kind: &str, collapsed: bool, card: bool) -> (bool, bool, bool) {
+    let floating = kind == "focus-timer" && collapsed;
+    (floating, floating, !card)
+}
+
+fn limit_focus_height(height: u32, scale: f64, area_height: f64) -> u32 {
+    height.min((area_height * scale).floor().max(1.0) as u32)
+}
+
+fn resize_position(
+    position: tauri::PhysicalPosition<i32>,
+    size: tauri::PhysicalSize<u32>,
+    scale: f64,
+    area: crate::widgets::desktop::Rect,
+) -> tauri::PhysicalPosition<i32> {
+    let x = (f64::from(position.x) / scale)
+        .clamp(area.x, (area.x + area.width - f64::from(size.width) / scale).max(area.x));
+    let y = (f64::from(position.y) / scale)
+        .clamp(area.y, (area.y + area.height - f64::from(size.height) / scale).max(area.y));
+    tauri::PhysicalPosition::new((x * scale).round() as i32, (y * scale).round() as i32)
+}
+
 fn focus_resize_target(
     current: tauri::PhysicalSize<u32>,
     scale: f64,
@@ -2589,18 +2639,58 @@ async fn apply_focus_window_size(
     window: &tauri::WebviewWindow,
     size: tauri::PhysicalSize<u32>,
     position: tauri::PhysicalPosition<i32>,
+    token: Arc<AtomicBool>,
 ) -> Result<(), String> {
     let (send, receive) = tokio::sync::oneshot::channel();
     let resizing = window.clone();
     window
         .run_on_main_thread(move || {
-            let result = resizing
-                .set_size(size)
-                .and_then(|()| resizing.set_position(position))
-                .map_err(|error| error.to_string());
+            if token.load(Ordering::SeqCst) {
+                let _ = send.send(Err("집중 타이머 창 변경이 취소됐어요.".into()));
+                return;
+            }
+            let result = (|| {
+                let before = resizing.outer_position()?;
+                if before != position {
+                    crate::app::lifecycle::mark_tool_move(resizing.label(), position.x, position.y);
+                }
+                resizing.set_size(size)?;
+                if resizing.outer_position()? != position {
+                    if before == position {
+                        crate::app::lifecycle::mark_tool_move(resizing.label(), position.x, position.y);
+                    }
+                    resizing.set_position(position)?;
+                }
+                Ok::<(), tauri::Error>(())
+            })().map_err(|error| error.to_string());
             let _ = send.send(result);
         })
         .map_err(|error| error.to_string())?;
+    receive.await.map_err(|error| error.to_string())?
+}
+
+async fn apply_focus_window_state(
+    window: &tauri::WebviewWindow,
+    token: Arc<AtomicBool>,
+    collapsed: Option<bool>,
+    min_size: (f64, f64),
+) -> Result<(), String> {
+    let (send, receive) = tokio::sync::oneshot::channel();
+    let target = window.clone();
+    window.run_on_main_thread(move || {
+        if token.load(Ordering::SeqCst) {
+            let _ = send.send(Err("집중 타이머 창 변경이 취소됐어요.".into()));
+            return;
+        }
+        let result = (|| {
+            if let Some(collapsed) = collapsed {
+                target.set_always_on_top(collapsed)?;
+                target.set_skip_taskbar(collapsed)?;
+            }
+            target.set_min_size(Some(tauri::LogicalSize::new(min_size.0, min_size.1)))
+        })().map_err(|error| error.to_string());
+        let _ = send.send(result);
+    }).map_err(|error| error.to_string())?;
     receive.await.map_err(|error| error.to_string())?
 }
 
@@ -2616,13 +2706,15 @@ pub(crate) async fn set_focus_expanded(
     height: Option<f64>,
     auto_fit: Option<bool>,
 ) -> Result<(), String> {
-    change(&state, |db| {
+    let token = change(&state, |db| {
         let instance = storage::get(db, &id)?;
         if instance.kind != "focus-timer" {
             return Err("집중 타이머를 찾지 못했어요.".into());
         }
-        Ok(())
+        begin_focus_resize(&state, &id, auto_fit.unwrap_or(false))
     })?;
+    let Some(token) = token else { return Ok(()); };
+    let result = async {
     // Native geometry queries wait for the main thread, which can be waiting for this DB.
     let window = app
         .get_webview_window(&format!("widget-{id}"))
@@ -2630,15 +2722,16 @@ pub(crate) async fn set_focus_expanded(
     let start = window.inner_size().map_err(|error| error.to_string())?;
     let position = window.outer_position().map_err(|error| error.to_string())?;
     let scale = window.scale_factor().map_err(|error| error.to_string())?;
+    let area = crate::widgets::desktop::window_area(&app, &window)?;
     let collapsed = collapsed.unwrap_or(false);
     let mut target = focus_resize_target(start, scale, expanded, collapsed, height);
     if auto_fit.unwrap_or(false) && !collapsed {
         target.width = target.width.max(start.width);
+        target.height = limit_focus_height(target.height, scale, area.height);
     }
+    let target_position = resize_position(position, target, scale, area);
     // Intermediate widths must remain below the expanded minimum until the final frame.
-    window
-        .set_min_size(Some(tauri::LogicalSize::new(310.0, 56.0)))
-        .map_err(|error| error.to_string())?;
+    apply_focus_window_state(&window, token.clone(), Some(collapsed), (310.0, 56.0)).await?;
     if animate.unwrap_or(true) && start != target {
         let started = std::time::Instant::now();
         loop {
@@ -2649,25 +2742,94 @@ pub(crate) async fn set_focus_expanded(
             apply_focus_window_size(
                 &window,
                 focus_resize_frame(start, target, elapsed),
-                position,
+                resize_position(position, focus_resize_frame(start, target, elapsed), scale, area),
+                token.clone(),
             )
             .await?;
             tokio::time::sleep(std::time::Duration::from_millis(16)).await;
         }
     }
-    apply_focus_window_size(&window, target, position).await?;
+    apply_focus_window_size(&window, target, target_position, token.clone()).await?;
+    widget_open_current(&state, &id, &token).map_err(String::from)?;
     if expanded && !collapsed {
-        window
-            .set_min_size(Some(tauri::LogicalSize::new(946.0, 547.0)))
-            .map_err(|error| error.to_string())?;
+        apply_focus_window_state(&window, token.clone(), None, (946.0, 547.0_f64.min(area.height))).await?;
+    }
+    if !auto_fit.unwrap_or(false) {
+        change(&state, |db| {
+            widget_open_current(&state, &id, &token).map_err(String::from)?;
+            let instance = storage::get(db, &id)?;
+            if instance.kind != "focus-timer" {
+                return Err("집중 타이머를 찾지 못했어요.".into());
+            }
+            storage::save_tool_focus(db, &id, expanded, collapsed)
+        })?;
     }
     Ok(())
+    }.await;
+    if let Ok(mut intents) = lock(&state.widget_open_intents) {
+        if intents.get(&id).is_some_and(|current| Arc::ptr_eq(&current.token, &token)) {
+            intents.remove(&id);
+        }
+    }
+    if auto_fit.unwrap_or(false) && token.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    result
 }
 
 #[cfg(test)]
 mod focus_resize_tests {
-    use super::{focus_resize_frame, focus_resize_target, FOCUS_RESIZE_DURATION};
-    use tauri::PhysicalSize;
+    use super::{begin_focus_resize, focus_resize_frame, focus_resize_target, limit_focus_height, resize_position, tool_window_style, widget_open_current, FOCUS_RESIZE_DURATION};
+    use crate::widgets::desktop::Rect;
+    use tauri::{PhysicalPosition, PhysicalSize};
+
+    #[test]
+    fn auto_fit_does_not_cancel_a_user_transition_and_new_transition_cancels_only_its_predecessor() {
+        let state = crate::app::tests::state();
+        let first = begin_focus_resize(&state, "focus", false).unwrap().unwrap();
+        let other = begin_focus_resize(&state, "other", false).unwrap().unwrap();
+        assert!(begin_focus_resize(&state, "focus", true).unwrap().is_none());
+        assert!(widget_open_current(&state, "focus", &first).is_ok());
+        let next = begin_focus_resize(&state, "focus", false).unwrap().unwrap();
+        assert!(widget_open_current(&state, "focus", &first).is_err());
+        assert!(widget_open_current(&state, "focus", &next).is_ok());
+        assert!(widget_open_current(&state, "other", &other).is_ok());
+        let fitting = begin_focus_resize(&state, "idle", true).unwrap().unwrap();
+        let chosen = begin_focus_resize(&state, "idle", false).unwrap().unwrap();
+        assert!(widget_open_current(&state, "idle", &fitting).is_err());
+        assert!(widget_open_current(&state, "idle", &chosen).is_ok());
+    }
+
+    #[test]
+    fn newer_auto_fit_supersedes_older_auto_fit() {
+        let state = crate::app::tests::state();
+        let first = begin_focus_resize(&state, "focus", true).unwrap().unwrap();
+        let next = begin_focus_resize(&state, "focus", true).unwrap().unwrap();
+        assert!(widget_open_current(&state, "focus", &first).is_err());
+        assert!(widget_open_current(&state, "focus", &next).is_ok());
+    }
+
+    #[test]
+    fn tool_levels_follow_focus_collapse_and_keep_card_shadow_off() {
+        assert_eq!(tool_window_style("focus-timer", true, true), (true, true, false));
+        assert_eq!(tool_window_style("focus-timer", false, true), (false, false, false));
+        assert_eq!(tool_window_style("music", false, true), (false, false, false));
+        assert_eq!(tool_window_style("clock", false, false), (false, false, true));
+    }
+
+    #[test]
+    fn resizing_keeps_position_until_window_crosses_work_area() {
+        let area = Rect { x: 0.0, y: 20.0, width: 1000.0, height: 800.0 };
+        let point = PhysicalPosition::new(100, 100);
+        assert_eq!(resize_position(point, PhysicalSize::new(720, 700), 1.0, area), point);
+        assert_eq!(resize_position(point, PhysicalSize::new(946, 730), 1.0, area), PhysicalPosition::new(54, 90));
+    }
+
+    #[test]
+    fn automatic_focus_height_is_limited_to_work_area() {
+        assert_eq!(limit_focus_height(1800, 2.0, 700.0), 1400);
+        assert_eq!(limit_focus_height(1200, 2.0, 700.0), 1200);
+    }
 
     #[test]
     fn resize_targets_preserve_height_and_apply_expanded_minimum_at_display_scale() {
@@ -2749,22 +2911,29 @@ pub(crate) fn set_music_expanded(
         if instance.kind != "music" {
             return Err("음악 위젯을 찾지 못했어요.".into());
         }
-        let window = app
-            .get_webview_window(&format!("widget-{id}"))
-            .ok_or("음악 창을 찾을 수 없어요.")?;
-        window
-            .set_min_size(Some(tauri::LogicalSize::new(
-                370.0,
-                if expanded { 520.0 } else { 310.0 },
-            )))
-            .map_err(|error| error.to_string())?;
-        window
-            .set_size(tauri::LogicalSize::new(
-                if expanded { 720.0 } else { 370.0 },
-                if expanded { 730.0 } else { 310.0 },
-            ))
-            .map_err(|error| error.to_string())
-    })
+        Ok(())
+    })?;
+    let window = app.get_webview_window(&format!("widget-{id}"))
+        .ok_or("음악 창을 찾을 수 없어요.")?;
+    let scale = window.scale_factor().map_err(|error| error.to_string())?;
+    let position = window.outer_position().map_err(|error| error.to_string())?;
+    let area = crate::widgets::desktop::window_area(&app, &window)?;
+    let (width, height) = if expanded { (720.0, 730.0) } else { (370.0, 310.0) };
+    let target = tauri::PhysicalSize::new((width * scale).round() as u32, (height * scale).round() as u32);
+    let target_position = resize_position(position, target, scale, area);
+    window.set_min_size(Some(tauri::LogicalSize::new(370.0, if expanded { 520.0 } else { 310.0 })))
+        .map_err(|error| error.to_string())?;
+    if position != target_position {
+        crate::app::lifecycle::mark_tool_move(window.label(), target_position.x, target_position.y);
+    }
+    window.set_size(tauri::LogicalSize::new(width, height)).map_err(|error| error.to_string())?;
+    if window.outer_position().map_err(|error| error.to_string())? != target_position {
+        if position == target_position {
+            crate::app::lifecycle::mark_tool_move(window.label(), target_position.x, target_position.y);
+        }
+        window.set_position(target_position).map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 // Called with action + db locked: no sample can be applied after a newer timer action.

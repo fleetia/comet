@@ -31,8 +31,9 @@ export type FocusTimerLayout = FocusTimerLayoutState & {
 };
 
 export function useFocusTimerLayoutState(embedded: boolean): FocusTimerLayoutState {
-  const [expanded, setExpanded] = useState(!embedded);
-  const [collapsed, setCollapsed] = useState(false);
+  const query = new URLSearchParams(window.location.search);
+  const [expanded, setExpanded] = useState(!embedded && query.get("focus_expanded") !== "false");
+  const [collapsed, setCollapsed] = useState(!embedded && query.get("focus_collapsed") === "true");
   const [resizeWidth, setResizeWidth] = useState<number | null>(null);
   const resizing = useRef(false);
   const context = useRef<HTMLElement>(null);

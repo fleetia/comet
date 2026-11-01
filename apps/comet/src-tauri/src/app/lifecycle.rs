@@ -23,7 +23,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
     time::{Duration, Instant},
 };
@@ -672,6 +672,74 @@ fn reopen_should_open_settings(actions: &[ReopenPanelAction]) -> bool {
         .all(|action| *action == ReopenPanelAction::Ignore)
 }
 
+type ToolMoveMarkers = HashMap<String, Vec<(f64, f64, bool, Instant)>>;
+static TOOL_MOVE_MARKERS: OnceLock<Mutex<ToolMoveMarkers>> = OnceLock::new();
+static TOOL_MOVE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+static TOOL_LATEST_MOVE: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
+
+fn mark_tool_position(label: &str, x: f64, y: f64, logical: bool) {
+    if let Ok(mut markers) = TOOL_MOVE_MARKERS.get_or_init(Default::default).lock() {
+        let values = markers.entry(label.to_owned()).or_default();
+        values.retain(|(_, _, _, time)| time.elapsed() < Duration::from_secs(5));
+        values.retain(|(old_x, old_y, old_logical, _)| {
+            *old_x != x || *old_y != y || *old_logical != logical
+        });
+        values.push((x, y, logical, Instant::now()));
+    }
+}
+
+pub(crate) fn mark_tool_move(label: &str, x: i32, y: i32) {
+    mark_tool_position(label, f64::from(x), f64::from(y), false);
+}
+
+pub(crate) fn mark_tool_creation(label: &str, x: f64, y: f64) {
+    mark_tool_position(label, x, y, true);
+}
+
+fn tool_move_should_save(focused: bool, programmatic: bool) -> bool {
+    focused && !programmatic
+}
+
+fn matches_tool_move(values: &mut Vec<(f64, f64, bool, Instant)>, x: f64, y: f64, scale: f64) -> bool {
+    values.retain(|(_, _, _, time)| time.elapsed() < Duration::from_secs(5));
+    let found = values.iter().any(|(expected_x, expected_y, is_logical, _)| {
+        let actual = if *is_logical { (x / scale, y / scale) } else { (x, y) };
+        (actual.0 - expected_x).abs() <= 1.0 && (actual.1 - expected_y).abs() <= 1.0
+    });
+    if !found { values.clear(); }
+    found
+}
+
+fn tool_window_moved(window: &tauri::Window, position: &tauri::PhysicalPosition<i32>) {
+    let Some(id) = window.label().strip_prefix("widget-") else { return; };
+    if uuid::Uuid::parse_str(id).is_err() { return; }
+    let Ok(scale) = window.scale_factor() else { return; };
+    let logical = (f64::from(position.x) / scale, f64::from(position.y) / scale);
+    let programmatic = TOOL_MOVE_MARKERS.get_or_init(Default::default).lock().ok().is_some_and(|mut markers| {
+        markers.get_mut(window.label()).is_some_and(|values| {
+            matches_tool_move(values, f64::from(position.x), f64::from(position.y), scale)
+        })
+    });
+    if !tool_move_should_save(window.is_focused().unwrap_or(false), programmatic) { return; }
+    let sequence = TOOL_MOVE_SEQUENCE.fetch_add(1, Ordering::SeqCst);
+    let label = window.label().to_owned();
+    if let Ok(mut latest) = TOOL_LATEST_MOVE.get_or_init(Default::default).lock() {
+        latest.insert(label.clone(), sequence);
+    } else { return; }
+    let app = window.app_handle().clone();
+    let id = id.to_owned();
+    std::thread::spawn(move || {
+        let state = app.state::<Arc<AppState>>();
+        let Ok(_action) = lock(&state.action) else { return; };
+        let Ok(db) = lock(&state.db) else { return; };
+        let Ok(latest) = TOOL_LATEST_MOVE.get_or_init(Default::default).lock() else { return; };
+        if latest.get(&label) != Some(&sequence) { return; }
+        if widgets::storage::get(&db, &id).is_ok() {
+            let _ = widgets::storage::save_tool_position(&db, &id, logical.0, logical.1);
+        }
+    });
+}
+
 fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
     #[cfg(target_os = "macos")]
     if let WindowEvent::Focused(focused) = event {
@@ -694,10 +762,14 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
             }
         }
     }
-    if matches!(event, WindowEvent::Moved(_)) {
+    if let WindowEvent::Moved(position) = event {
+        tool_window_moved(window, position);
         crate::widgets::desktop::moved(window);
     }
     if matches!(event, WindowEvent::Destroyed) {
+        if let Ok(mut markers) = TOOL_MOVE_MARKERS.get_or_init(Default::default).lock() {
+            markers.remove(window.label());
+        }
         let state = window.state::<Arc<AppState>>();
         let _ = super::scene_events::closed_label(&state, window.label());
         let label = window.label();
@@ -1462,5 +1534,30 @@ mod migration_tests {
         assert_eq!(fs::read(app_data.join("keep.txt")).unwrap(), b"new");
         assert_eq!(fs::read(app_data.join(DATABASE_FILE)).unwrap(), b"database");
         assert!(legacy.exists());
+    }
+}
+
+#[cfg(test)]
+mod tool_move_tests {
+    use super::{matches_tool_move, tool_move_should_save};
+    use std::time::Instant;
+
+    #[test]
+    fn programmatic_positions_and_duplicate_notifications_are_not_saved() {
+        let mut markers = vec![(80.0, 100.0, true, Instant::now())];
+        assert!(matches_tool_move(&mut markers, 160.0, 200.0, 2.0));
+        assert!(matches_tool_move(&mut markers, 160.0, 200.0, 2.0));
+        assert!(!matches_tool_move(&mut markers, 180.0, 200.0, 2.0));
+        assert!(!matches_tool_move(&mut markers, 160.0, 200.0, 2.0));
+        markers.push((300.0, 320.0, false, Instant::now()));
+        assert!(matches_tool_move(&mut markers, 300.0, 320.0, 2.0));
+    }
+
+    #[test]
+    fn only_focused_user_moves_are_saved() {
+        assert!(tool_move_should_save(true, false));
+        assert!(!tool_move_should_save(false, false));
+        assert!(!tool_move_should_save(true, true));
+        assert!(!tool_move_should_save(false, true));
     }
 }

@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-// happy-dom does not disable controls inside a disabled fieldset.
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   act as reactAct,
@@ -17,6 +16,7 @@ import { PREVIEW_WIDGETS, useWidgets } from "../useWidgets";
 import { PREVIEW_SNAPSHOT, command } from "../../hooks/useSnapshot";
 import type { WidgetValue, WidgetView } from "../types";
 import { transparentDocument } from "../../components/companion.css";
+import * as toolStyles from "../tools.css";
 const native = vi.hoisted(() => ({
   onCloseRequested: vi.fn().mockResolvedValue(() => undefined),
   startDragging: vi.fn(),
@@ -56,6 +56,107 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  window.history.replaceState({}, "", "/");
+});
+
+it.each(["music", "focus-timer", "interaction", "small-match", "fortune", "guessing", "fishing", "plant", "completion-jar", "device", "ball", "paper-plane", "bubbles", "pet"])(
+  "renders the %s loading frame without a tool header",
+  (kind) => {
+    window.history.replaceState({}, "", `/?view=widget&kind=${kind}`);
+    vi.mocked(useWidgets).mockReturnValue({ snapshot: null, error: null, reload: vi.fn() });
+    render(<WidgetTool id="loading" />);
+    expect(screen.queryByText("위젯")).toBeNull();
+    expect(screen.queryByRole("button", { name: "위젯 닫기" })).toBeNull();
+    expect(document.documentElement.classList.contains(transparentDocument)).toBe(true);
+  },
+);
+
+it("keeps the normal loading frame for an unknown URL kind", () => {
+  window.history.replaceState({}, "", "/?view=widget&kind=unknown");
+  vi.mocked(useWidgets).mockReturnValue({ snapshot: null, error: null, reload: vi.fn() });
+  render(<WidgetTool id="loading" />);
+  expect(screen.getByText("위젯")).toBeTruthy();
+});
+
+it("restores the tool frame when loading a frameless kind fails", async () => {
+  window.history.replaceState({}, "", "/?view=widget&kind=music");
+  vi.mocked(useWidgets).mockReturnValue({ snapshot: null, error: "조회 실패", reload: vi.fn() });
+  render(<WidgetTool id="music" />);
+  expect(screen.getByText("도구를 불러오지 못했어요.")).toBeTruthy();
+  expect(document.documentElement.classList.contains(transparentDocument)).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "위젯 닫기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("close_widget", { id: "music" }));
+});
+
+it.each(["widget", "catalog entry"])("restores the tool frame when the %s is missing", async (missing) => {
+  window.history.replaceState({}, "", "/?view=widget&kind=music");
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: {
+      ...PREVIEW_WIDGETS,
+      widgets: missing === "widget" ? [] : [widget("music", {})],
+      catalog: missing === "catalog entry" ? [] : PREVIEW_WIDGETS.catalog,
+    },
+    error: null,
+    reload: vi.fn(),
+  });
+  const { container } = render(<WidgetTool id="music" />);
+  expect(screen.getByText("도구를 찾을 수 없어요.")).toBeTruthy();
+  expect(document.documentElement.classList.contains(transparentDocument)).toBe(false);
+  expect(container.querySelector(`.${toolStyles.musicContent}, .${toolStyles.musicBody}`)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "위젯 닫기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("close_widget", { id: "music" }));
+});
+
+it("uses the loaded widget kind in preference to the URL", () => {
+  window.history.replaceState({}, "", "/?view=widget&kind=music");
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [widget("clock", {})] }, error: null, reload: vi.fn(),
+  });
+  render(<WidgetTool id="clock" />);
+  expect(screen.getByRole("button", { name: "위젯 닫기" })).toBeTruthy();
+});
+
+it("restores the collapsed focus timer on its first render", () => {
+  window.history.replaceState({}, "", "/?view=widget&kind=focus-timer&focus_expanded=false&focus_collapsed=true");
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [widget("focus-timer", { status: "idle" })] },
+    error: null,
+    reload: vi.fn(),
+  });
+  const { container } = render(<WidgetTool id="focus-timer" />);
+  expect(container.querySelector('[data-expanded="false"][data-collapsed="true"]')).toBeTruthy();
+});
+
+it.each(["weather", "music"])("shows the %s widget error once", (kind) => {
+  const value = widget(kind, { configured: true, error: "연결 오류" });
+  value.error = "연결 오류";
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [value] }, error: null, reload: vi.fn(),
+  });
+  render(<WidgetTool id={kind} />);
+  expect(screen.getAllByText("연결 오류")).toHaveLength(1);
+});
+
+it("locks only the weather settings button while opening settings", async () => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [widget("weather", { configured: true })] },
+    error: null,
+    reload: vi.fn(),
+  });
+  let finish: (() => void) | undefined;
+  vi.mocked(command).mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+  render(<WidgetTool id="weather" />);
+  const settings = screen.getByRole("button", { name: "날씨 설정 열기" });
+  const refresh = screen.getByRole("button", { name: "다시 확인" });
+  settings.focus();
+  fireEvent.click(settings);
+  expect(document.activeElement).toBe(settings);
+  expect(settings.getAttribute("aria-disabled")).toBe("true");
+  expect(refresh.matches(":disabled")).toBe(false);
+  fireEvent.click(settings);
+  expect(command).toHaveBeenCalledTimes(1);
+  await reactAct(async () => finish?.());
+  expect(settings.hasAttribute("aria-disabled")).toBe(false);
 });
 
 it.each(["music", "clock", "weather", "small-match"])(
@@ -481,7 +582,9 @@ it.each(["ball", "paper-plane", "bubbles"])(
     const open = screen.getByRole("button", { name: "바탕화면에 꺼내기" });
     const clear = screen.getByRole("button", { name: "정리하기" });
     expect(screen.getByRole("region", { name: "장난감" })).toBeTruthy();
+    open.focus();
     fireEvent.click(open);
+    expect(document.activeElement).toBe(open);
     expect(command).toHaveBeenCalledWith("execute_widget", {
       request: expect.objectContaining({
         instanceId: kind,
@@ -489,11 +592,14 @@ it.each(["ball", "paper-plane", "bubbles"])(
         action: "desktop-open",
       }),
     });
-    expect(open.matches(":disabled")).toBe(true);
-    expect(clear.matches(":disabled")).toBe(true);
+    expect(open.getAttribute("aria-disabled")).toBe("true");
+    expect(clear.matches(":disabled")).toBe(false);
+    expect(await screen.findByText("처리 중…")).toBeTruthy();
     fireEvent.click(clear);
     expect(command).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("이전 작업을 마친 뒤 다시 시도해 주세요.")).toBeTruthy();
     await reactAct(async () => finish?.());
+    expect(open.hasAttribute("aria-disabled")).toBe(false);
     fireEvent.click(clear);
     await waitFor(() =>
       expect(command).toHaveBeenLastCalledWith("execute_widget", {

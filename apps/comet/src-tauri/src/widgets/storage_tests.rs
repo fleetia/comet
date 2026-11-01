@@ -1748,3 +1748,30 @@ fn disabled_official_widget_migrates_reaction_preference_once() {
     assert!(storage::reaction_enabled(&db, &id).unwrap());
 
 }
+
+#[test]
+fn tool_preferences_survive_display_clamping_and_are_removed_on_existing_databases() {
+    let db = database();
+    let widget = instance(&db, "focus-timer");
+    storage::save_tool_position(&db, &widget.id, 5000.0, 5000.0).unwrap();
+    storage::save_tool_focus(&db, &widget.id, false, true).unwrap();
+    let saved = storage::read_tool_position(&db, &widget.id).unwrap().unwrap();
+    let visible = super::desktop::clamp_point(
+        &saved,
+        (310.0, 56.0),
+        &[super::desktop::Rect { x: 0.0, y: 0.0, width: 1000.0, height: 800.0 }],
+    );
+    assert_ne!(visible, saved);
+    assert_eq!(storage::read_tool_position(&db, &widget.id).unwrap(), Some(saved));
+    assert_eq!(storage::read_tool_focus(&db, &widget.id).unwrap(), (false, true));
+
+    db.execute_batch("DROP TRIGGER widget_tool_preference_delete").unwrap();
+    storage::initialize(&db).unwrap();
+    db.execute("DELETE FROM widget_instances WHERE id=?1", [&widget.id]).unwrap();
+    let count: i64 = db.query_row(
+        "SELECT count(*) FROM widget_preferences WHERE key IN (?1, ?2)",
+        rusqlite::params![format!("tool-position:{}", widget.id), format!("tool-focus:{}", widget.id)],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(count, 0);
+}
