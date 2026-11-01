@@ -23,8 +23,8 @@ it("keeps character, OS and mood choices separate and requests OS access when en
   expect(screen.queryByRole("button", { name: "생활 알림 1시간 쉬기" })).toBeNull();
   expect(screen.getByText(/조용한 시간은 설정 → 대화에서 함께 정해요/)).toBeTruthy();
   await waitFor(() => expect(command).toHaveBeenCalledWith("get_planner_notification_permission"));
-  fireEvent.click(screen.getByLabelText("캐릭터 말풍선"));
-  fireEvent.click(screen.getByLabelText("OS 알림"));
+  fireEvent.click(screen.getByLabelText("친구 말풍선"));
+  fireEvent.click(screen.getByLabelText("시스템 알림"));
   fireEvent.click(screen.getByLabelText("하루 시작 인사"));
   expect(act).not.toHaveBeenCalled();
   await waitFor(() => expect(command).toHaveBeenCalledWith("request_planner_notification_permission"));
@@ -47,10 +47,10 @@ it("warns when saving OS alerts without permission", async () => {
   vi.mocked(command).mockImplementation(async (name) => name === "request_planner_notification_permission" ? "denied" : "prompt");
   render(<PlannerAlerts data={{ enabled: true }} act={act} />);
   await waitFor(() => expect(command).toHaveBeenCalledWith("get_planner_notification_permission"));
-  fireEvent.click(screen.getByLabelText("OS 알림"));
-  await screen.findByText(/OS 알림:.*꺼짐/);
+  fireEvent.click(screen.getByLabelText("시스템 알림"));
+  await screen.findByText(/시스템 알림:.*꺼짐/);
   fireEvent.click(screen.getByRole("button", { name: "알림 설정 저장" }));
-  expect((await screen.findByRole("alert")).textContent).toContain("OS 알림 권한이 꺼져 있어");
+  expect((await screen.findByRole("alert")).textContent).toContain("시스템 알림 권한이 꺼져 있어");
 });
 it("snoozes the notification without editing the source task and hides only the current notice", async () => {
   const calendar: WidgetView = {

@@ -445,7 +445,7 @@ export function FreeformWidget({
       );
     }
     default:
-      return <p role="status">바탕화면에 놓을 수 없는 위젯이에요.</p>;
+      return <p role="status">바탕화면에 꺼낼 수 없는 위젯이에요.</p>;
   }
 }
 

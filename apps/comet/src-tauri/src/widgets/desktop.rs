@@ -872,7 +872,7 @@ fn commit(db: &Connection, previous: &Stored, layout: Layout) -> Result<Stored, 
     validate(&layout)?;
     let placeable = placeable(db)?;
     if layout.order.iter().any(|id| !placeable.contains_key(id)) {
-        return Err("바탕화면에 놓을 수 있는 위젯만 배치할 수 있어요.".into());
+        return Err("바탕화면에 꺼낼 수 있는 위젯만 배치할 수 있어요.".into());
     }
     let next = Stored {
         revision: previous
@@ -2221,7 +2221,7 @@ pub(crate) async fn add_widget_desktop_item(
     widget_id(&id)?;
     let (stored, _) = widgets::commands::change(&state, |db| {
         if !placeable(db)?.contains_key(&id) {
-            return Err("바탕화면에 놓을 수 있는 위젯만 놓을 수 있어요.".into());
+            return Err("바탕화면에 꺼낼 수 있는 위젯만 꺼낼 수 있어요.".into());
         }
         update(db, |layout| {
             if !layout.order.contains(&id) {

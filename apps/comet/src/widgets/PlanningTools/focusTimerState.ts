@@ -113,7 +113,7 @@ export function focusTimerState(
       : phase === "rest-complete"
         ? `쉬는 시간 ${focusDuration(number(data.durationMs))}이 끝났어요`
         : status === "paused"
-          ? "준비되면 다시 시작해요"
+          ? "준비되면 계속해요"
           : idle
             ? `${clockLabel(now)} → ${clockLabel(now + remaining)}`
             : `${clockLabel(number(data.deadline) || now + remaining)}에 끝나요`;

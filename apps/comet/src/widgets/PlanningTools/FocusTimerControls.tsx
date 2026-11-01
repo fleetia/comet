@@ -98,7 +98,7 @@ export function FocusTimerControls({
         time={countdown(remaining)}
         timeDescription={timeDescription}
         progress={progress}
-        duration={Number(draft.minutes)}
+        duration={phase === "rest-complete" && queue.length > 0 ? number(queue[0].focusDurationMs) / 60000 : Number(draft.minutes)}
         startDisabled={!validDuration && !(phase === "rest-complete" && queue.length > 0)}
         paused={status === "paused"}
         onTaskChange={(title) => setDraft({ ...draft, title })}
@@ -178,7 +178,7 @@ export function FocusTimerControls({
                     disabled={busy}
                     onClick={() => setUsagePickerOpen(true)}
                   >
-                    프로그램 사용 시간
+                    앱 사용 시간
                   </Button>
                 </div>
               </div>

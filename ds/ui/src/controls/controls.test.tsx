@@ -56,6 +56,21 @@ describe("buttons", () => {
     await user.click(button);
     expect(action).not.toHaveBeenCalled();
   });
+
+  it("uses the accessible label as the title unless a title is provided", () => {
+    render(
+      <>
+        <IconButton icon="send" aria-label="보내기" />
+        <IconButton icon="send" aria-label="전송" title="직접 지정한 설명" />
+        <span id="icon-label">이름표로 지정</span>
+        <IconButton icon="send" aria-labelledby="icon-label" />
+      </>,
+    );
+
+    expect(screen.getByRole("button", { name: "보내기" }).getAttribute("title")).toBe("보내기");
+    expect(screen.getByRole("button", { name: "전송" }).getAttribute("title")).toBe("직접 지정한 설명");
+    expect(screen.getByRole("button", { name: "이름표로 지정" }).hasAttribute("title")).toBe(false);
+  });
 });
 
 describe("native fields", () => {

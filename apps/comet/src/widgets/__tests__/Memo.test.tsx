@@ -54,11 +54,11 @@ it("keeps a detached draft open when saving fails and closes only after successf
   fireEvent.change(screen.getByRole("textbox", { name: "메모 본문" }), {
     target: { value: "  수정\n " },
   });
-  fireEvent.click(screen.getByRole("button", { name: "메모 넣기" }));
+  fireEvent.click(screen.getByRole("button", { name: "넣어두기" }));
   await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("저장 실패"));
   expect(command).not.toHaveBeenCalledWith("close_memo_note", expect.anything());
   expect(screen.getByRole("textbox")).toHaveProperty("value", "  수정\n ");
-  fireEvent.click(screen.getByRole("button", { name: "메모 넣기" }));
+  fireEvent.click(screen.getByRole("button", { name: "넣어두기" }));
   await waitFor(() =>
     expect(command).toHaveBeenLastCalledWith("close_memo_note", { id: "memo", noteId: "one" }),
   );
@@ -67,6 +67,7 @@ it("keeps a detached draft open when saving fails and closes only after successf
 it("reduces note text and creates another detached memo using +", async () => {
   render(<MemoNote id="memo" noteId="one" />);
   expect(screen.getByRole("button", { name: "새 메모 꺼내기" }).closest("footer")).not.toBeNull();
+  expect(screen.getByRole("button", { name: "새 메모 꺼내기" }).getAttribute("title")).toBe("새 메모 꺼내기");
   fireEvent.click(screen.getByRole("button", { name: "글자 크기 줄이기" }));
   expect(screen.getByRole("textbox").style.fontSize).toBe("14px");
   fireEvent.click(screen.getByRole("button", { name: "새 메모 꺼내기" }));
@@ -161,7 +162,7 @@ it("keeps a conflicting draft until it is saved as another memo", async () => {
   vi.mocked(command).mockResolvedValueOnce("copy");
   render(<MemoNote id="memo" noteId="one" />);
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "내 초안" } });
-  fireEvent.click(screen.getByRole("button", { name: "메모 넣기" }));
+  fireEvent.click(screen.getByRole("button", { name: "넣어두기" }));
   const copy = await screen.findByRole("button", { name: "내 글을 새 메모로 저장" });
   expect(screen.getByRole("textbox")).toHaveProperty("value", "내 초안");
   fireEvent.click(copy);
@@ -175,7 +176,7 @@ it("requires confirmation before discarding a conflicting draft", async () => {
   vi.mocked(command).mockRejectedValueOnce(new Error("다른 화면에서 이 메모가 변경됐어요. 내용을 확인한 뒤 다시 저장해 주세요."));
   render(<MemoNote id="memo" noteId="one" />);
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "보존할 초안" } });
-  fireEvent.click(screen.getByRole("button", { name: "메모 넣기" }));
+  fireEvent.click(screen.getByRole("button", { name: "넣어두기" }));
   fireEvent.click(await screen.findByRole("button", { name: "내 글 버리고 최신 내용으로 바꾸기" }));
   expect(screen.getByText("내 글을 버리고 최신 내용으로 바꿀까요?")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "취소" }));
@@ -190,7 +191,7 @@ it("adopts the newer original received while the conflict copy is saving", async
   vi.mocked(command).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
   const view = render(<MemoNote id="memo" noteId="one" />);
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "내 초안" } });
-  fireEvent.click(screen.getByRole("button", { name: "메모 넣기" }));
+  fireEvent.click(screen.getByRole("button", { name: "넣어두기" }));
   fireEvent.click(await screen.findByRole("button", { name: "내 글을 새 메모로 저장" }));
   await waitFor(() => expect(finish).toBeDefined());
   const newer: WidgetView = { ...widget, revision: 4, data: { notes: [
@@ -204,7 +205,7 @@ it("adopts the newer original received while the conflict copy is saving", async
   await act(async () => finish?.("copy"));
   expect(screen.getByRole("textbox")).toHaveProperty("value", "더 최신 원문");
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "다시 작성" } });
-  fireEvent.click(screen.getByRole("button", { name: "메모 넣기" }));
+  fireEvent.click(screen.getByRole("button", { name: "넣어두기" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("save_memo_note", expect.objectContaining({ expectedBody: "더 최신 원문" })));
 });
 

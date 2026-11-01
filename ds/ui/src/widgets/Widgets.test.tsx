@@ -118,6 +118,23 @@ describe("controlled widgets", () => {
     expect(screen.getByText("쉬는 시간 10분이 끝났어요")).toBeTruthy();
     expect(screen.queryByText("쉬는 시간 5분이 끝났어요")).toBeNull();
   });
+  it("distinguishes resuming a paused timer from starting focus after a rest", async () => {
+    const user = userEvent.setup();
+    const pause = vi.fn();
+    const start = vi.fn();
+    const { rerender } = render(
+      <FocusTimerWidget task="책 읽기" time="12:00" phase="running" paused onPause={pause} />,
+    );
+    await user.click(screen.getByRole("button", { name: "계속" }));
+    rerender(<FocusTimerWidget task="책 읽기" time="03:00" phase="rest" paused onPause={pause} />);
+    await user.click(screen.getByRole("button", { name: "계속" }));
+    expect(pause).toHaveBeenCalledTimes(2);
+    rerender(
+      <FocusTimerWidget task="책 읽기" time="00:00" phase="rest-complete" duration={50} onStart={start} />,
+    );
+    await user.click(screen.getByRole("button", { name: "50분 집중 시작" }));
+    expect(start).toHaveBeenCalledOnce();
+  });
   it("isolates native radio groups across pickers and delegates selected values", async () => {
     const user = userEvent.setup();
     const select = vi.fn();

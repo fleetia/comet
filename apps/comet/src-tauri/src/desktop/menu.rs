@@ -60,7 +60,7 @@ fn widget_label(kind: &str, name: &str, available: bool) -> String {
     if !available {
         format!("{name} 설정 열기")
     } else if kind == "image" {
-        "이미지 띄우기".into()
+        "이미지 바탕화면에 꺼내기".into()
     } else if kind == "memo" {
         "새 메모 꺼내기".into()
     } else {
@@ -279,9 +279,9 @@ fn menu(app: &tauri::AppHandle, show_stack_recovery: bool) -> Result<Menu<tauri:
     .map_err(|error| error.to_string())?;
     menu.append(&launcher).map_err(|error| error.to_string())?;
     let (id, text) = if runtime.hidden {
-        ("show", "캐릭터 표시")
+        ("show", "친구 표시")
     } else {
-        ("hide", "캐릭터 숨기기")
+        ("hide", "친구 숨기기")
     };
     let item =
         MenuItem::with_id(app, id, text, true, None::<&str>).map_err(|error| error.to_string())?;
@@ -382,7 +382,7 @@ fn menu(app: &tauri::AppHandle, show_stack_recovery: bool) -> Result<Menu<tauri:
         menu.append(&status).map_err(|error| error.to_string())?;
     }
     if runtime.paused {
-        let resume = MenuItem::with_id(app, "resume", "다시 시작", true, None::<&str>)
+        let resume = MenuItem::with_id(app, "resume", "자동 잡담 다시 켜기", true, None::<&str>)
             .map_err(|error| error.to_string())?;
         menu.append(&resume).map_err(|error| error.to_string())?;
     } else {
@@ -601,7 +601,7 @@ mod tests {
     fn tray_labels_reflect_setup_and_memo_creation() {
         assert_eq!(widget_label("memo", "메모", true), "새 메모 꺼내기");
         assert_eq!(widget_label("memo", "메모", false), "메모 설정 열기");
-        assert_eq!(widget_label("image", "이미지", true), "이미지 띄우기");
+        assert_eq!(widget_label("image", "이미지", true), "이미지 바탕화면에 꺼내기");
         assert_eq!(widget_label("weather", "날씨", false), "날씨 설정 열기");
     }
 

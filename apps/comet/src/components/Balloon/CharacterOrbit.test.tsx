@@ -184,7 +184,7 @@ it("applies pause choices after the child folds, keeping both parent groups", as
   fireEvent.click(screen.getByRole("button", { name: "다시 시작할 때까지" }));
   await waitFor(() => expect(action).toHaveBeenLastCalledWith("pause-restart"));
   view.rerender(<CharacterOrbit {...props} paused />);
-  fireEvent.click(screen.getByRole("button", { name: "다시 시작" }));
+  fireEvent.click(screen.getByRole("button", { name: "자동 잡담 다시 켜기" }));
   expect(action).toHaveBeenLastCalledWith("pause");
 });
 

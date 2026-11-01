@@ -2,6 +2,7 @@ import { useEffect, useState, type JSX, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Balloon, Button, CharacterArtwork, SettingsSummary, Switch } from "@comet/ui";
 import { ChatIcon, ChevLeftIcon, Icon, ShareIcon, RemoveIcon, type IconName } from "@comet/icon";
+import { particle } from "../../particle";
 import type { CharacterDefinition, InstalledCharacter } from "../../types";
 import { command, isDesktop } from "../../hooks/useSnapshot";
 import { FriendArtwork } from "../CharacterManager/FriendsLibrary";
@@ -28,11 +29,6 @@ type Props = {
   onOpenReaction?: (residentId: string) => void;
 };
 
-/** Picks 을/를 from whether the last Hangul syllable has a final consonant. */
-function objectParticle(word: string): string {
-  const code = word.charCodeAt(word.length - 1) - 0xac00;
-  return code >= 0 && code < 11172 && code % 28 === 0 ? "를" : "을";
-}
 
 function NameReactions({
   character,
@@ -64,7 +60,7 @@ function NameReactions({
                 </span>
                 <span className={styles.reactionText}>
                   <strong>
-                    {resident.definition.name}에게 ‘{name}’{objectParticle(name)} 말하면
+                    {resident.definition.name}에게 ‘{name}’{particle(name, "object")} 말하면
                   </strong>
                   <span className={styles.caption}>{line ? `“${line}”` : "정하지 않음"}</span>
                 </span>
@@ -84,7 +80,7 @@ function NameReactions({
       )}
       <p className={styles.caption}>
         친구마다 따로 정해요. 이 반응은 이름을 들었을 때만 하고, {name}
-        {objectParticle(name)} 부르지는 않아요.
+        {particle(name, "object")} 부르지는 않아요.
       </p>
     </section>
   );
@@ -346,8 +342,8 @@ export function FriendOverview({
         )}
       </aside>
       <div className={styles.overviewBody}>
-        <section className={styles.section} aria-label="캐릭터">
-          <h2 className={styles.sectionTitle}>캐릭터</h2>
+        <section className={styles.section} aria-label="친구">
+          <h2 className={styles.sectionTitle}>친구</h2>
           <div className={styles.categoryGrid}>
             {categories.map(({ page, title, description, icon }) => (
               <SettingsSummary

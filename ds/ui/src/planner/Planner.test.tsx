@@ -321,7 +321,7 @@ describe("planner composition", () => {
     const change = vi.fn();
     render(
       <FocusProgramPicker
-        label="측정할 프로그램"
+        label="측정할 앱"
         defaultValue="code"
         onValueChange={change}
         options={[
@@ -331,7 +331,7 @@ describe("planner composition", () => {
         ]}
       />,
     );
-    expect(screen.getByRole("group", { name: "측정할 프로그램" })).toBeDefined();
+    expect(screen.getByRole("group", { name: "측정할 앱" })).toBeDefined();
     await user.click(screen.getByRole("radio", { name: "Word" }));
     expect(change).toHaveBeenCalledExactlyOnceWith("word");
     expect((screen.getByRole("radio", { name: "Code" }) as HTMLInputElement).checked).toBe(false);

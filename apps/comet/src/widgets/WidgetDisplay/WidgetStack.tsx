@@ -816,7 +816,7 @@ export function WidgetStack(): ReactElement {
             )}
             {desktop.state && snapshot && ordered.length === 0 && (
               <p role="status" className={s.notice}>
-                바탕화면 위젯 편집에서 위젯을 놓아 주세요.
+                바탕화면 위젯 편집에서 위젯을 꺼내 주세요.
               </p>
             )}
           </div>

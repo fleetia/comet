@@ -95,14 +95,14 @@ function InteractionTool({ widget, act, characters }: Props): ReactElement {
   const data = record(widget.data);
   const character = characters?.installed.find((item) => item.id === selected?.id);
   return (
-    <section className={toy.card} aria-label="캐릭터 교감">
+    <section className={toy.card} aria-label="친구 교감">
       <header className={toy.header}>
         <Icon name="heart" size={16} className={toy.icon} />
-        <h2 className={toy.heading}>캐릭터 교감</h2>
+        <h2 className={toy.heading}>친구 교감</h2>
         <span className={toy.characterField}>
           <Select
             className={toy.characterSelect}
-            aria-label="함께할 캐릭터"
+            aria-label="함께할 친구"
             value={selected?.token ?? ""}
             disabled={!selected}
             onChange={(event) =>
@@ -111,7 +111,7 @@ function InteractionTool({ widget, act, characters }: Props): ReactElement {
           >
             {targets.length === 0 && (
               <option value="">
-                {characters ? "함께 지내는 캐릭터가 없어요" : "캐릭터를 불러오는 중…"}
+                {characters ? "함께 지내는 친구가 없어요" : "친구를 불러오는 중…"}
               </option>
             )}
             {targets.map((character) => (
@@ -252,14 +252,14 @@ function SmallMatchTool({ widget, act, characters, userName }: Props): ReactElem
       <div className={toy.playHeader}>
         <span className={toy.playTarget}>
           <Select
-            aria-label="함께할 캐릭터"
+            aria-label="함께할 친구"
             value={selected?.id ?? ""}
             disabled={!selected}
             onChange={(event) => setOwner(event.currentTarget.value)}
           >
             {!selected && (
               <option value="">
-                {characters ? "함께 지내는 캐릭터가 없어요" : "친구를 불러오는 중…"}
+                {characters ? "함께 지내는 친구가 없어요" : "친구를 불러오는 중…"}
               </option>
             )}
             {targets.map((target) => (
@@ -465,14 +465,14 @@ export function ToyTool({ widget, act, characters, widgets, userName }: Props): 
             <div className={toy.playHeader}>
               <span className={toy.playTarget}>
                 <Select
-                  aria-label="함께할 캐릭터"
+                  aria-label="함께할 친구"
                   value={selected?.id ?? ""}
                   disabled={!selected}
                   onChange={(event) => setFortuneOwner(event.currentTarget.value)}
                 >
                   {targets.length === 0 && (
                     <option value="">
-                      {characters ? "함께 지내는 캐릭터가 없어요" : "친구를 불러오는 중…"}
+                      {characters ? "함께 지내는 친구가 없어요" : "친구를 불러오는 중…"}
                     </option>
                   )}
                   {targets.map((target) => (

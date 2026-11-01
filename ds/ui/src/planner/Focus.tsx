@@ -34,13 +34,13 @@ export function FocusAppUsage({
   ...props
 }: FocusAppUsageProps): JSX.Element {
   const labels = {
-    unselected: "선택한 프로그램 없음",
+    unselected: "선택한 앱 없음",
     measuring: <>{program} 사용 중</>,
     idle: "1분 넘게 입력 없음 · 멈춤",
     finished: "이번 집중 측정 완료",
   };
   const descriptions = {
-    unselected: "한 프로그램의 사용 시간을 따로 세요",
+    unselected: "한 앱의 사용 시간을 따로 세요",
     measuring: <>이번 집중 {duration} · 확인된 시간만 세요</>,
     idle: <>이번 집중 {duration}에서 멈춰 있어요</>,
     finished: program,
@@ -48,7 +48,7 @@ export function FocusAppUsage({
   return (
     <div {...props} className={classes(styles.focusUsage, className)}>
       <div className={styles.focusUsageHeader}>
-        <span className={styles.muted}>앱 전면 사용</span>
+        <span className={styles.muted}>이 앱을 쓴 시간</span>
         {onChoose && (state === "unselected" || state === "finished") && (
           <button type="button" className={styles.focusUsageChoose} onClick={onChoose}>
             {chooseLabel ?? (state === "finished" ? "바꾸기…" : "고르기…")}

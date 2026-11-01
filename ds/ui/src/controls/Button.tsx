@@ -88,6 +88,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
       {...props}
       ref={ref}
       type={type}
+      title={props.title ?? props["aria-label"]}
       aria-pressed={ariaPressed ?? (selected ? true : undefined)}
       className={[
         styles.button,

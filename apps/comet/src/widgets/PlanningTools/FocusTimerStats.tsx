@@ -87,7 +87,7 @@ export function FocusTimerStats({
   const chosenScopeName = period === "week" || period === "month" ? "이 날짜" : "선택 구간";
   const scopeName = chosen ? chosenScopeName : "이 기간";
   const scopeDescription = (session: FocusSession): string =>
-    `${scopeName} ${focusDuration(elapsedWithin(session, scopeStart, scopeEnd))} · 세션 전체 ${focusDuration(session.elapsedMs)}${session.includesAwayTime ? " · 자리 비움 포함" : ""}${session.appUsage ? ` · 앱 전면 사용 · 세션 전체 · ${session.appUsage.target.name} ${appUsageTime(session.appUsage.elapsedMs)}` : ""}`;
+    `${scopeName} ${focusDuration(elapsedWithin(session, scopeStart, scopeEnd))} · 이번 집중 전체 ${focusDuration(session.elapsedMs)}${session.includesAwayTime ? " · 자리 비움 포함" : ""}${session.appUsage ? ` · 이 앱을 쓴 시간 · 이번 집중 전체 · ${session.appUsage.target.name} ${appUsageTime(session.appUsage.elapsedMs)}` : ""}`;
   function shift(amount: number): void {
     setAnchor(period === "day" ? moveDay(anchor, amount) : movePeriod(anchor, period, amount));
     setBucketKey(null);
@@ -221,7 +221,7 @@ export function FocusTimerStats({
                   {elapsedWithin(session, scopeStart, scopeEnd) !== session.elapsedMs && (
                     <span className={s.recordScope}>
                       {scopeName} {focusDuration(elapsedWithin(session, scopeStart, scopeEnd))} ·
-                      세션 전체 {focusDuration(session.elapsedMs)}
+                      이번 집중 전체 {focusDuration(session.elapsedMs)}
                     </span>
                   )}
                 </>
@@ -326,7 +326,7 @@ function FocusSessionDetail({
       <Button variant="ghost" disabled={busy} onClick={onBack}>
         ‹ 집중 기록
       </Button>
-      <span className={s.caption}>세션 전체 집중</span>
+      <span className={s.caption}>이번 집중 전체</span>
       <strong className={s.detailTime}>{focusDuration(session.elapsedMs)}</strong>
       <p className={s.quiet}>
         {new Date(session.startedAt).toLocaleDateString()} · {clockLabel(session.startedAt)}–
@@ -349,9 +349,9 @@ function FocusSessionDetail({
         <dd>{text(session.noteRef.title) || "연결한 노트 없음"}</dd>
         {session.appUsage && (
           <>
-            <dt>앱 전면 사용</dt>
+            <dt>이 앱을 쓴 시간</dt>
             <dd>
-              세션 전체 · {session.appUsage.target.name} ·{" "}
+              이번 집중 전체 · {session.appUsage.target.name} ·{" "}
               {appUsageTime(session.appUsage.elapsedMs)}
             </dd>
           </>

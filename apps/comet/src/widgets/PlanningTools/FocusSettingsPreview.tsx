@@ -88,7 +88,7 @@ export function FocusSettingsPreview({
           onValueChange={(value) => void changePresentation(value)}
         />
       </div>
-      <p className={s.previewCaption}>바탕화면 위젯으로 놓으면 그 자리에서 남은 시간을 보여 줘요.</p>
+      <p className={s.previewCaption}>바탕화면에 위젯을 꺼내면 그 자리에서 남은 시간을 보여 줘요.</p>
       {error && (
         <p role="alert" className={s.error}>
           {error}

@@ -864,7 +864,7 @@ it("places and removes desktop widgets through the shared desktop commands", asy
   manageWidget("날씨 켜짐");
   expect(screen.queryByRole("menuitem", { name: "바탕화면에서 편집" })).toBeNull();
   expect(screen.queryByRole("menuitem", { name: "기존 표시 닫기" })).toBeNull();
-  fireEvent.click(screen.getByRole("menuitem", { name: "바탕화면에 놓기" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "바탕화면에 꺼내기" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("add_widget_desktop_item", { id: "weather" }),
   );
@@ -889,7 +889,7 @@ it("places and removes desktop widgets through the shared desktop commands", asy
     ),
   );
   manageWidget("공 켜짐");
-  expect(screen.queryByRole("menuitem", { name: "바탕화면에 놓기" })).toBeNull();
+  expect(screen.getAllByRole("menuitem", { name: "바탕화면에 꺼내기" })).toHaveLength(1);
   expect(
     vi
       .mocked(command)
@@ -995,7 +995,7 @@ it("enters desktop widget editing only from the catalog and places from the deta
   expect(screen.queryByRole("button", { name: /바탕화면에서 (위젯 )?편집/ })).toBeNull();
   expect(screen.getByRole("figure", { name: "바탕화면 위젯 미리보기" })).toBeTruthy();
   expect(screen.getAllByRole("radiogroup", { name: "시계 형식" })).toHaveLength(1);
-  fireEvent.click(screen.getByRole("button", { name: "바탕화면에 놓기" }));
+  fireEvent.click(screen.getByRole("button", { name: "바탕화면에 꺼내기" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("add_widget_desktop_item", { id: "clock" }),
   );

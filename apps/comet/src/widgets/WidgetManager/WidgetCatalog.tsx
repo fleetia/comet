@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "@comet/icon";
 import { Button, ContextMenu, SearchInput, Switch, type ContextMenuAction } from "@comet/ui";
+import { WIDGET_ALIASES } from "../../components/Launcher/widgetAliases";
 import type { WidgetView } from "../types";
 import * as styles from "./widgetCatalog.css";
 
@@ -119,7 +120,7 @@ export function WidgetCatalog({
   const groupOf = (item: WidgetListEntry): string =>
     item.id === "clock" ? "daily" : item.category;
   const matching = entries.filter((item) =>
-    `${item.name} ${item.description} ${GROUPS.find(([id]) => id === groupOf(item))?.[1] || ""}`
+    `${item.name} ${item.description} ${(WIDGET_ALIASES[item.id] ?? []).join(" ")} ${GROUPS.find(([id]) => id === groupOf(item))?.[1] || ""}`
       .toLocaleLowerCase()
       .includes(query),
   );
@@ -190,7 +191,7 @@ export function WidgetCatalog({
                           ? "바탕화면 상태 확인 중"
                           : item.desktopPlaced
                             ? "바탕화면에 놓여 있어요"
-                            : "바탕화면에 놓을 수 있어요"}
+                            : "바탕화면에 꺼낼 수 있어요"}
                       </span>
                     )}
                     <span id={`widget-action-${item.id}`} className={styles.actionLabel}>

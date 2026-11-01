@@ -125,7 +125,7 @@ export function FocusTimerQueue({
             disabled={busy || queue.length === 0}
             onClick={() => queue.length >= 2 ? setConfirmation("clear") : void action("queue-clear")}
           >
-            큐 비우기
+            모두 비우기
           </Button>
         </div>
         {error && (
@@ -236,17 +236,17 @@ export function FocusTimerQueue({
       <div className={s.pane}>
         <p className={s.quiet}>완료한 집중 {number(data.cycle)}회</p>
         <Button variant="ghost" size="small" disabled={busy || number(data.cycle) === 0} onClick={() => setConfirmation("cycle")}>
-          회차 초기화
+          긴 휴식까지 세기 처음부터
         </Button>
       </div>
       <Dialog
         isOpen={confirmation !== null}
-        title={confirmation === "clear" ? "다음 집중을 모두 비울까요?" : "회차를 초기화할까요?"}
+        title={confirmation === "clear" ? "다음 집중을 모두 비울까요?" : "긴 휴식까지 세기를 처음부터 시작할까요?"}
         variant="confirm"
         onOpenChange={(open) => { if (!open) setConfirmation(null); }}
-        footer={<><Button variant="ghost" onClick={() => setConfirmation(null)}>취소</Button><Button variant="danger" onClick={() => { const current = confirmation; setConfirmation(null); if (current) void action(current === "clear" ? "queue-clear" : "reset-cycle"); }}>{confirmation === "clear" ? "큐 비우기" : "회차 초기화"}</Button></>}
+        footer={<><Button variant="ghost" onClick={() => setConfirmation(null)}>취소</Button><Button variant="danger" onClick={() => { const current = confirmation; setConfirmation(null); if (current) void action(current === "clear" ? "queue-clear" : "reset-cycle"); }}>{confirmation === "clear" ? "모두 비우기" : "긴 휴식까지 세기 처음부터"}</Button></>}
       >
-        <p>{confirmation === "clear" ? "기다리는 다음 집중이 모두 삭제돼요." : "완료한 집중 회차가 0으로 돌아가요."}</p>
+        <p>{confirmation === "clear" ? "기다리는 다음 집중이 모두 삭제돼요." : "긴 휴식까지 센 횟수가 0으로 돌아가요. 집중 기록은 그대로 남아요."}</p>
       </Dialog>
     </section>
   );

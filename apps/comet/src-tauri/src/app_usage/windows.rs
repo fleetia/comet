@@ -160,7 +160,7 @@ pub(super) fn applications() -> Result<Vec<Application>, String> {
     let result = unsafe { EnumWindows(Some(collect), (&mut state as *mut Enumeration) as LPARAM) };
     if result == 0 || state.overflow {
         return Err(
-            "실행 중인 프로그램 목록을 확인하지 못했어요. 잠시 후 새로고침해 주세요.".into(),
+            "실행 중인 앱 목록을 확인하지 못했어요. 잠시 후 새로고침해 주세요.".into(),
         );
     }
     Ok(state.pids.into_iter().filter_map(application).collect())

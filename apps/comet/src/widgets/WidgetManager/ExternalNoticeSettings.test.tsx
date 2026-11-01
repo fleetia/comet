@@ -26,11 +26,11 @@ it("requests permission explicitly before enabling OS delivery", async () => {
   const act = vi.fn<ToolAction>().mockResolvedValue(true);
   render(<ExternalNoticeSettings widget={widget} act={act} onDirtyChange={vi.fn()} onBusyChange={vi.fn()} />);
   await screen.findByText(/권한 요청 전/);
-  expect((screen.getByLabelText("OS 알림 병행") as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByLabelText("시스템 알림 병행") as HTMLInputElement).disabled).toBe(true);
   expect(command).not.toHaveBeenCalledWith("request_planner_notification_permission");
-  fireEvent.click(screen.getByRole("button", { name: "OS 알림 권한 요청" }));
+  fireEvent.click(screen.getByRole("button", { name: "시스템 알림 권한 요청" }));
   await screen.findByText(/허용됨/);
-  fireEvent.click(screen.getByLabelText("OS 알림 병행"));
+  fireEvent.click(screen.getByLabelText("시스템 알림 병행"));
   await waitFor(() => expect(act).toHaveBeenCalledWith("configure", { osNotifications: true }));
 });
 
@@ -41,9 +41,9 @@ it("leaves delivery disabled when permission is denied", async () => {
   const act = vi.fn<ToolAction>().mockResolvedValue(true);
   render(<ExternalNoticeSettings widget={widget} act={act} onDirtyChange={vi.fn()} onBusyChange={vi.fn()} />);
   await screen.findByText(/권한 요청 전/);
-  fireEvent.click(screen.getByRole("button", { name: "OS 알림 권한 요청" }));
-  await screen.findByText(/OS 알림 권한: 꺼짐 · (?:Windows 설정 → 시스템 → 알림|시스템 설정(?: → 알림)?)에서 켜요/);
-  expect((screen.getByLabelText("OS 알림 병행") as HTMLInputElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "시스템 알림 권한 요청" }));
+  await screen.findByText(/시스템 알림 권한: 꺼짐 · (?:Windows 설정 → 시스템 → 알림|시스템 설정(?: → 알림)?)에서 켜요/);
+  expect((screen.getByLabelText("시스템 알림 병행") as HTMLInputElement).disabled).toBe(true);
   expect(act).not.toHaveBeenCalled();
 });
 

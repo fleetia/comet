@@ -137,6 +137,22 @@ describe("local command and conversation routing", () => {
     });
   });
 
+  it("chooses particles in friend and toy previews", () => {
+    const snapshot = {
+      ...PREVIEW_SNAPSHOT,
+      characters: {
+        ...PREVIEW_SNAPSHOT.characters,
+        installed: PREVIEW_SNAPSHOT.characters.installed.map((item, index) =>
+          index === 0 ? { ...item, definition: { ...item.definition, name: "별꼬리" } } : item,
+        ),
+      },
+    };
+    const friend = launcherResults(">", snapshot, widgets, null).find((item) => item.recipient?.name === "별꼬리");
+    expect(friend?.preview).toContain("별꼬리를 선택");
+    const plane = results("종이비행기").find((item) => item.id === "widget:paper-plane");
+    expect(plane?.preview).toContain("종이비행기를 바탕화면에 꺼내요");
+  });
+
   it("offers keyboard navigation to desktop widgets", () => {
     const clock = widgets.widgets.find((item) => item.kind === "clock")!;
     const weather = widgets.widgets.find((item) => item.kind === "weather")!;
@@ -479,7 +495,7 @@ it("refreshes character presence labels and selects a hidden recipient without s
   fireEvent.keyDown(input, { key: "Enter" });
   expect(input.value).toBe("");
   expect(screen.getByRole("button", { name: /수신자 해제/ })).toBeTruthy();
-  expect(selected().textContent).toContain("캐릭터 표시 후 말 걸기");
+  expect(selected().textContent).toContain("친구 표시 후 말 걸기");
   fireEvent.keyDown(input, { key: "Enter" });
   expect(executed()).toHaveLength(0);
 });

@@ -14,18 +14,18 @@ function usageStatus(status: string): string {
   switch (status) {
     case "tracking":
     case "active":
-      return "선택한 프로그램 사용 중";
+      return "선택한 앱 사용 중";
     case "idle":
       return "1분 이상 입력 없음 · 측정 멈춤";
     case "locked":
       return "화면 잠김 · 측정 멈춤";
     case "waiting":
-      return "프로그램 사용 상태를 확인하고 있어요.";
+      return "앱 사용 상태를 확인하고 있어요.";
     case "background":
     case "other-app":
-      return "선택한 프로그램으로 전환하면 측정해요.";
+      return "선택한 앱으로 전환하면 측정해요.";
     case "unsupported":
-      return "이 환경에서는 프로그램 사용 시간을 측정할 수 없어요.";
+      return "이 환경에서는 앱 사용 시간을 측정할 수 없어요.";
     case "unavailable":
     case "error":
       return "사용 상태를 확인할 수 없어 측정을 멈췄어요.";
@@ -66,7 +66,7 @@ export function FocusTimerAppUsage({
   const label = !isDesktop()
     ? "데스크톱 앱에서 사용할 수 있어요."
     : !target
-      ? "선택한 프로그램의 사용 시간을 따로 기록해요."
+      ? "선택한 앱의 사용 시간을 따로 기록해요."
       : unavailable
         ? usageStatus(reportedStatus)
         : data.mode === "rest"
@@ -86,11 +86,11 @@ export function FocusTimerAppUsage({
     status === "running" && data.mode !== "rest" && ["tracking", "active"].includes(reportedStatus);
   if (hideUnconfigured && !target && !open) return <></>;
   return (
-    <section aria-label="프로그램 사용 시간" className={s.usageHost}>
+    <section aria-label="앱 사용 시간" className={s.usageHost}>
       {!open && (
         <div className={s.usageCard}>
           <div className={s.usageHeading}>
-            <span>앱 전면 사용</span>
+            <span>이 앱을 쓴 시간</span>
             <div className={s.panelTools}>
               <button
                 type="button"
@@ -105,7 +105,7 @@ export function FocusTimerAppUsage({
                   variant="ghost"
                   size="small"
                   className={s.usageChoose}
-                  aria-label={target ? "프로그램 변경" : "프로그램 선택"}
+                  aria-label={target ? "앱 변경" : "앱 선택"}
                   onClick={() => choose(true)}
                 >
                   {target ? "바꾸기…" : "고르기…"}
@@ -122,12 +122,12 @@ export function FocusTimerAppUsage({
                   ? "이번 집중 측정 완료"
                   : measuring
                     ? `${target?.name} 사용 중`
-                    : target?.name || "선택한 프로그램 없음"}
+                    : target?.name || "선택한 앱 없음"}
             </strong>
           </div>
           <div className={s.usageDescription}>
             {status === "finished" && target && <span>{target.name}</span>}
-            <span role="timer" aria-label="프로그램 누적 사용 시간">
+            <span role="timer" aria-label="앱 누적 사용 시간">
               {appUsageTime(usage?.elapsedMs || 0)}
             </span>
             <span> · {label}</span>
@@ -177,7 +177,7 @@ function UsagePicker({
   async function refresh(): Promise<void> {
     if (fetching.current) return;
     if (!isDesktop()) {
-      setMessage("프로그램 선택과 사용 시간 측정은 데스크톱 앱에서 사용할 수 있어요.");
+      setMessage("앱 선택과 사용 시간 측정은 데스크톱 앱에서 사용할 수 있어요.");
       return;
     }
     fetching.current = true;
@@ -200,12 +200,12 @@ function UsagePicker({
         text(result.message) ||
           (result.supported === true
             ? ""
-            : "이 환경에서는 프로그램 사용 시간 측정을 지원하지 않아요."),
+            : "이 환경에서는 앱 사용 시간 측정을 지원하지 않아요."),
       );
     } catch (cause: unknown) {
       if (!mounted.current) return;
       setSupported(false);
-      setError(`프로그램 목록을 불러오지 못했어요. ${errorText(cause)}`);
+      setError(`앱 목록을 불러오지 못했어요. ${errorText(cause)}`);
     } finally {
       fetching.current = false;
       if (mounted.current) setLoading(false);
@@ -225,7 +225,7 @@ function UsagePicker({
       const ok = await act("configure", { appUsageTarget: next });
       if (!mounted.current) return;
       if (ok) onClose();
-      else setError("프로그램 선택을 저장하지 못했어요. 현재 선택을 확인한 뒤 다시 시도해 주세요.");
+      else setError("앱 선택을 저장하지 못했어요. 현재 선택을 확인한 뒤 다시 시도해 주세요.");
     } catch (cause: unknown) {
       if (mounted.current) setError(errorText(cause));
     } finally {
@@ -236,7 +236,7 @@ function UsagePicker({
   return (
     <section
       role="dialog"
-      aria-label="사용 시간 측정 프로그램"
+      aria-label="사용 시간 측정 앱"
       data-focus-picker
       className={s.usagePicker}
     >
@@ -244,11 +244,11 @@ function UsagePicker({
         <IconButton
           icon="chevleft"
           variant="surface"
-          aria-label="프로그램 선택 닫기"
+          aria-label="앱 선택 닫기"
           disabled={saving}
           onClick={onClose}
         />
-        <h2 className={s.cardTitle}>측정할 프로그램</h2>
+        <h2 className={s.cardTitle}>측정할 앱</h2>
       </header>
       <div className={s.usagePickerBody}>
         {message && <p className={s.notice}>{message}</p>}
@@ -257,10 +257,10 @@ function UsagePicker({
             {error}
           </p>
         )}
-        {!canEdit && <p className={s.notice}>집중이나 휴식을 마친 뒤 프로그램을 바꿀 수 있어요.</p>}
+        {!canEdit && <p className={s.notice}>집중이나 휴식을 마친 뒤 앱을 바꿀 수 있어요.</p>}
         <FocusProgramPicker
           className={s.programChoices}
-          label="측정할 프로그램"
+          label="측정할 앱"
           value={selectedId}
           disabled={!canEdit || loading || saving || !supported}
           options={[
@@ -277,7 +277,7 @@ function UsagePicker({
           <summary>무엇을 세나요</summary>
           <div className={s.usageRulesBody}>
             <strong className={s.countedLabel}>세는 것</strong>
-            <p>집중하는 동안 고른 프로그램이 맨 앞에 있고, 1분 안에 입력이 있었던 시간</p>
+            <p>집중하는 동안 고른 앱이 맨 앞에 있고, 1분 안에 입력이 있었던 시간</p>
             <strong className={s.excludedLabel}>세지 않는 것</strong>
             <p>백그라운드 실행 시간, 휴식과 일시정지, 화면 잠금, 1분 넘게 입력이 없던 시간</p>
             <strong className={s.privateLabel}>저장하지 않는 것</strong>
@@ -289,7 +289,7 @@ function UsagePicker({
         </details>
         {supported && !loading && applications.length === 0 && (
           <p className={s.quiet}>
-            실행 중인 프로그램을 찾지 못했어요. 원하는 프로그램을 열고 새로고침해 주세요.
+            실행 중인 앱을 찾지 못했어요. 원하는 앱을 열고 새로고침해 주세요.
           </p>
         )}
         <div className={s.timerActions}>
@@ -300,7 +300,7 @@ function UsagePicker({
             disabled={loading || saving || !canEdit || !isDesktop()}
             onClick={() => void refresh()}
           >
-            {loading ? "프로그램 확인 중…" : "프로그램 목록 새로고침"}
+            {loading ? "앱 확인 중…" : "앱 목록 새로고침"}
           </Button>
           {target && (
             <Button
@@ -320,7 +320,7 @@ function UsagePicker({
             disabled={saving || loading || !canEdit || (!!selectedId && (!supported || !selected))}
             onClick={() => void save(selected || null)}
           >
-            {saving ? "저장 중…" : "프로그램 선택 저장"}
+            {saving ? "저장 중…" : "앱 선택 저장"}
           </Button>
           <Button variant="ghost" size="small" disabled={saving} onClick={onClose}>
             취소

@@ -834,7 +834,7 @@ it("routes the embedded timer lifecycle to its current widget revision", async (
   for (const [label, actionName, status] of [
     ["집중 시작", "start", "running"],
     ["일시정지", "pause", "paused"],
-    ["다시 시작", "resume", "running"],
+    ["계속", "resume", "running"],
     ["그만하기", "cancel", "idle"],
   ]) {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: label })));
@@ -1051,13 +1051,13 @@ it("distinguishes a missing snapshot from an empty widget list and offers retry"
   vi.mocked(useWidgets).mockReturnValue({ snapshot: null, error: null, reload });
   const view = render(<WidgetStack />);
   await screen.findByText("바탕화면 위젯을 불러오고 있어요.");
-  expect(screen.queryByText("바탕화면 위젯 편집에서 위젯을 놓아 주세요.")).toBeNull();
+  expect(screen.queryByText("바탕화면 위젯 편집에서 위젯을 꺼내 주세요.")).toBeNull();
   vi.mocked(useWidgets).mockReturnValue({ snapshot: null, error: "읽기 실패", reload });
   view.rerender(<WidgetStack />);
   expect(screen.getByRole("alert").textContent).toContain("읽기 실패");
   fireEvent.click(screen.getByRole("button", { name: "다시 읽기" }));
   expect(reload).toHaveBeenCalledOnce();
-  expect(screen.queryByText("바탕화면 위젯 편집에서 위젯을 놓아 주세요.")).toBeNull();
+  expect(screen.queryByText("바탕화면 위젯 편집에서 위젯을 꺼내 주세요.")).toBeNull();
 });
 
 it("uses each completed order for rapid repeated moves", async () => {

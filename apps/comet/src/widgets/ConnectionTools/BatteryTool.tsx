@@ -125,7 +125,7 @@ export function BatteryTool({ widget }: { widget: WidgetView }): ReactElement {
   async function enableNotification(): Promise<void> {
     if (permissionPending.current) return;
     if (!isDesktop()) {
-      setPermissionError("OS 알림은 데스크톱 앱에서 사용할 수 있어요.");
+      setPermissionError("시스템 알림은 데스크톱 앱에서 사용할 수 있어요.");
       return;
     }
     permissionPending.current = true;
@@ -194,9 +194,9 @@ export function BatteryTool({ widget }: { widget: WidgetView }): ReactElement {
       >
         <div className={settings.group}>
           <div className={settings.row}>
-            <span className={settings.copy}>캐릭터가 배터리 얘기하기</span>
+            <span className={settings.copy}>친구가 배터리 얘기하기</span>
             <Switch
-              aria-label="캐릭터가 배터리 얘기하기"
+              aria-label="친구가 배터리 얘기하기"
               checked={config.allowTalk}
               onChange={(event) => void save({ ...config, allowTalk: event.target.checked })}
             />
@@ -218,9 +218,9 @@ export function BatteryTool({ widget }: { widget: WidgetView }): ReactElement {
             </Select>
           </div>
           <div className={settings.row}>
-            <span className={settings.copy}>위험 수준은 OS 알림도</span>
+            <span className={settings.copy}>위험 수준은 시스템 알림도</span>
             <Switch
-              aria-label="위험 수준은 OS 알림도"
+              aria-label="위험 수준은 시스템 알림도"
               checked={config.criticalNotification}
               onChange={(event) => {
                 if (event.target.checked) {
@@ -256,7 +256,7 @@ export function BatteryTool({ widget }: { widget: WidgetView }): ReactElement {
           disabled={busy || permissionBusy}
           onClick={() => void enableNotification()}
         >
-          OS 알림 권한 확인
+          시스템 알림 권한 확인
         </Button>
       )}
       {data.configured !== true && (

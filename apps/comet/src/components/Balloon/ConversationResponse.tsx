@@ -122,7 +122,7 @@ export function ConversationResponse({ snapshot, preview = false }: Props): JSX.
     <section
       ref={elementRef}
       className={styles.responseHost}
-      aria-label="캐릭터 대답"
+      aria-label="친구 대답"
       style={
         conversationTailX == null
           ? undefined

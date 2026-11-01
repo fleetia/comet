@@ -640,6 +640,7 @@ it("creates an undated quick task even when character reactions are off", async 
   await openDiary();
   await showTasks("plans");
   fireEvent.click(screen.getByRole("button", { name: "빠른 할 일 추가" }));
+  expect(screen.getByText("수집함에 저장")).toBeTruthy();
   fireEvent.change(screen.getByLabelText(/빠른 할 일 제목/), {
     target: { value: "날짜 없는 할 일" },
   });

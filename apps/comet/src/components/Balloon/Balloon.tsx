@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
 import { Button, ConstellationChoices, IconButton, InputCapsule } from "@comet/ui";
+import { particle } from "../../particle";
 import type { ConversationView, Dispatch, Message, Persona, Snapshot } from "../../types";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
@@ -466,7 +467,7 @@ export function Balloon({
   );
   const labels = {
     menu: "무엇을 할까?",
-    input: target === "all" ? "함께 대화 중" : `${recipientName}와 대화`,
+    input: target === "all" ? "함께 대화 중" : `${recipientName}${particle(recipientName, "with")} 대화`,
     history: "지난 대화",
     "history-input": "지난 대화",
     name: "처음 만났네",

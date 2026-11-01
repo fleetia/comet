@@ -32,7 +32,7 @@ export function DiaryQuickTaskForm({
           onChange={(event) => task.change(event.target.value)}
         />
       </FormField>
-      <p className={s.caption}>{task.date ? `${task.date} 할 일` : "날짜 없이 모아두기"}</p>
+      <p className={s.caption}>{task.date ? `${task.date} 할 일` : "수집함에 저장"}</p>
       <div className={s.toolbar}>
         <Button type="submit" variant="primary" disabled={saving || !task.title.trim()}>
           할 일 저장

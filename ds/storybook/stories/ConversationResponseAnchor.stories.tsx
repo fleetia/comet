@@ -117,7 +117,7 @@ export const SpeakerSwitch: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup({ document: canvasElement.ownerDocument });
-    const response = canvas.getByRole("region", { name: "캐릭터 대답" });
+    const response = canvas.getByRole("region", { name: "친구 대답" });
     const tailLeft = (): number => {
       const tail = response.querySelector('[aria-hidden="true"]');
       if (!tail) {
@@ -150,7 +150,7 @@ export const CornerInsets: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    for (const response of canvas.getAllByRole("region", { name: "캐릭터 대답" })) {
+    for (const response of canvas.getAllByRole("region", { name: "친구 대답" })) {
       const bubble = response.firstElementChild;
       const tail = bubble?.querySelector('[aria-hidden="true"]');
       if (!bubble || !tail) {

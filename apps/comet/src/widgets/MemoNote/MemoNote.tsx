@@ -219,7 +219,7 @@ function NoteEditor({ id, note, revision }: { id: string; note: DataRecord; revi
         <IconButton
           className={paper.putAway}
           icon="close"
-          aria-label="메모 넣기"
+          aria-label="넣어두기"
           size="compact"
           disabled={busy}
           onClick={() => void putAway()}
@@ -254,6 +254,7 @@ function NoteEditor({ id, note, revision }: { id: string; note: DataRecord; revi
         </Button>
         <Button
           aria-label="새 메모 꺼내기"
+          title="새 메모 꺼내기"
           variant="ghost"
           size="small"
           disabled={busy || !isDesktop()}
@@ -324,7 +325,7 @@ export function MemoNote({ id, noteId }: { id: string; noteId: string }): ReactE
     <main className={paper.stage}>
       <IconButton
         icon="close"
-        aria-label="메모 넣기"
+        aria-label="넣어두기"
         size="compact"
         onClick={() =>
           void command("close_memo_note", { id, noteId }).catch((cause: unknown) =>

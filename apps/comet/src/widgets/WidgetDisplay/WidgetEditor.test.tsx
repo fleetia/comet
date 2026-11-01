@@ -165,7 +165,7 @@ it("shows freeform snapping options and lists only unplaced supported widgets to
   const add = within(screen.getByRole("region", { name: "위젯 추가" }));
   expect(add.queryByText("낚시")).toBeNull();
   expect(add.queryByText("시계·기념일")).toBeNull();
-  fireEvent.click(add.getByRole("button", { name: "메모 바탕화면에 놓기" }));
+  fireEvent.click(add.getByRole("button", { name: "메모 바탕화면에 꺼내기" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("add_widget_desktop_item", { id: "memo" }),
   );

@@ -267,7 +267,7 @@ fn begin_resume_on_surface(
         return Err("앱을 종료하고 있어요.".into());
     }
     if lock(&state.runtime)?.hidden {
-        return Err("캐릭터를 다시 표시한 뒤 대화를 이어 주세요.".into());
+        return Err("친구를 다시 표시한 뒤 대화를 이어 주세요.".into());
     }
     let db = lock(&state.db)?;
     if mode == "input" && history_editor_active(state)? {
@@ -631,7 +631,7 @@ mod tests {
         lock(&state.runtime).unwrap().hidden = true;
         let epoch = state.epoch.load(Ordering::SeqCst);
         let error = begin_resume_on_surface(&state, &session.id, "history-input").unwrap_err();
-        assert_eq!(error, "캐릭터를 다시 표시한 뒤 대화를 이어 주세요.");
+        assert_eq!(error, "친구를 다시 표시한 뒤 대화를 이어 주세요.");
         assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
         assert!(lock(&state.panel).unwrap().is_none());
         let db = lock(&state.db).unwrap();
