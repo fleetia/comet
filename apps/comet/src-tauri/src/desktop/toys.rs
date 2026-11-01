@@ -1723,6 +1723,31 @@ mod tests {
     }
 
     #[test]
+    fn ball_and_pet_remain_inside_work_area_edges() {
+        let area = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 200.0,
+            height: 100.0,
+        };
+        let geometry = Geometry {
+            monitors: vec![area],
+            edges: geometry::monitor_edges(&[area]),
+            ..Geometry::default()
+        };
+        for kind in [Kind::Ball, Kind::Pet] {
+            let mut actor = resting_ball();
+            actor.kind = kind;
+            for _ in 0..1200 {
+                let _ = step(&mut actor, &geometry, STEP);
+                assert!(actor.motion.y + actor.motion.radius <= 101.0);
+                assert!(actor.motion.x - actor.motion.radius >= -1.0);
+                assert!(actor.motion.x + actor.motion.radius <= 201.0);
+            }
+        }
+    }
+
+    #[test]
     fn long_tick_gap_keeps_manual_pet_without_replaying_drag_or_pending_outcomes() {
         let mut world = World::default();
         for (id, kind, automatic) in [

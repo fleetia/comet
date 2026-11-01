@@ -142,6 +142,7 @@ export function WidgetStack(): ReactElement {
   const layout = desktop.state ?? DEFAULT_LAYOUT;
   const editing = desktop.state?.editing ?? false;
   const [expanded, setExpanded] = useState<string[]>([]);
+  const savedExpanded = desktop.state?.expanded;
   const [bubble, setBubble] = useState<string | null>(null);
   const [tail, setTail] = useState(28);
   const [now, setNow] = useState(Date.now());
@@ -176,8 +177,10 @@ export function WidgetStack(): ReactElement {
     };
   }, []);
   useEffect(() => {
+    if (savedExpanded) setExpanded(savedExpanded);
+  }, [savedExpanded]);
+  useEffect(() => {
     if (editing) {
-      setExpanded([]);
       setBubble(null);
     }
   }, [editing]);
@@ -291,13 +294,13 @@ export function WidgetStack(): ReactElement {
       desktop.select(id);
       return;
     }
-    setExpanded((previous) =>
-      previous.includes(id)
-        ? previous.filter((item) => item !== id)
-        : layout.oneExpanded
-          ? [id]
-          : [...previous, id],
-    );
+    const next = expanded.includes(id)
+      ? expanded.filter((item) => item !== id)
+      : layout.oneExpanded
+        ? [id]
+        : [...expanded, id];
+    setExpanded(next);
+    void desktop.configure({ expanded: next });
   }
   function pick(id: string): void {
     const widget = ordered.find((item) => item.id === id);

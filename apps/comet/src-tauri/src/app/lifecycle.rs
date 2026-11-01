@@ -336,6 +336,8 @@ pub fn run() {
             widgets::commands::open_playback_link,
             widgets::commands::close_widget,
             crate::widgets::desktop::get_widget_desktop,
+            crate::widgets::desktop::mark_widget_desktop_drag,
+            crate::widgets::desktop::reset_widget_desktop_position,
             crate::widgets::desktop::configure_widget_desktop,
             crate::widgets::desktop::restore_widget_desktop,
             crate::widgets::desktop::add_widget_desktop_item,
@@ -597,6 +599,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     desktop::create_boxes(app.handle(), &state).map_err(std::io::Error::other)?;
     desktop::menu::create(app.handle()).map_err(std::io::Error::other)?;
     crate::widgets::desktop::restore_on_start(app.handle(), state.clone());
+    crate::widgets::desktop::watch_work_areas(app.handle(), state.clone());
     crate::widgets::planning::notifications::install(app.handle())?;
     crate::external_notice::finish_startup(app.handle(), &state).map_err(std::io::Error::other)?;
     if let Err(error) = crate::external_api::start(app.handle(), state.clone()) {

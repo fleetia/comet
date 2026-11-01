@@ -162,9 +162,9 @@ export function WidgetEditor(): ReactElement {
                 key={anchor}
                 type="button"
                 aria-label={label}
-                aria-pressed={layout.anchor === anchor}
+                aria-pressed={!layout.stackPosition && layout.anchor === anchor}
                 disabled={desktop.busy}
-                onClick={() => void desktop.configure({ anchor })}
+                onClick={() => void desktop.run("reset_widget_desktop_position", { anchor })}
               />
             ))}
           </div>

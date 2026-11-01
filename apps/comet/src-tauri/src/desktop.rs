@@ -370,6 +370,89 @@ fn balloon_rect(body: Rect, area: Rect, scale: f64, size: (f64, f64)) -> Rect {
     }
 }
 
+fn widget_areas(app: &AppHandle) -> Vec<Rect> {
+    app.webview_windows()
+        .into_iter()
+        .filter_map(|(label, window)| {
+            if !crate::widgets::desktop::is_widget_window(&label)
+                || !window.is_visible().unwrap_or(false)
+            {
+                return None;
+            }
+            let position = window.outer_position().ok()?;
+            let size = window.outer_size().ok()?;
+            Some(Rect {
+                x: position.x as f64,
+                y: position.y as f64,
+                width: size.width as f64,
+                height: size.height as f64,
+            })
+        })
+        .collect()
+}
+
+fn overlap_area(a: Rect, b: Rect) -> f64 {
+    let width = (a.x + a.width).min(b.x + b.width) - a.x.max(b.x);
+    let height = (a.y + a.height).min(b.y + b.height) - a.y.max(b.y);
+    width.max(0.0) * height.max(0.0)
+}
+
+fn avoid_widgets(preferred: Rect, body: Rect, area: Rect, widgets: &[Rect], orbit: bool) -> Rect {
+    let widgets: Vec<_> = widgets
+        .iter()
+        .copied()
+        .filter(|widget| overlap_area(*widget, area) > 0.0)
+        .collect();
+    if widgets
+        .iter()
+        .all(|widget| overlap_area(preferred, *widget) == 0.0)
+    {
+        return preferred;
+    }
+    let mut xs = vec![preferred.x, area.x, area.x + area.width - preferred.width];
+    let mut ys = vec![preferred.y, area.y, area.y + area.height - preferred.height];
+    for obstacle in std::iter::once(&body).chain(&widgets) {
+        xs.extend([obstacle.x - preferred.width, obstacle.x + obstacle.width]);
+        ys.extend([obstacle.y - preferred.height, obstacle.y + obstacle.height]);
+    }
+    let mut candidates = vec![preferred];
+    for x in xs {
+        for y in &ys {
+            let (x, y) = clamp_position(x, *y, preferred.width, preferred.height, area);
+            candidates.push(Rect { x, y, ..preferred });
+        }
+    }
+    let center = (body.x + body.width / 2.0, body.y + body.height / 2.0);
+    candidates
+        .into_iter()
+        .filter(|rect| {
+            !orbit
+                || (center.0 >= rect.x
+                    && center.0 <= rect.x + rect.width
+                    && center.1 >= rect.y
+                    && center.1 <= rect.y + rect.height)
+        })
+        .min_by(|left, right| {
+            let score = |rect: &Rect| {
+                let body_overlap = if orbit {
+                    0.0
+                } else {
+                    overlap_area(*rect, body)
+                };
+                let widget_overlap: f64 = widgets
+                    .iter()
+                    .map(|widget| overlap_area(*rect, *widget))
+                    .sum();
+                let distance = (rect.x - preferred.x).abs() + (rect.y - preferred.y).abs();
+                (body_overlap, widget_overlap, distance)
+            };
+            score(left)
+                .partial_cmp(&score(right))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .unwrap_or(preferred)
+}
+
 fn story_rect(body: Rect, area: Rect, scale: f64, size: (f64, f64)) -> Option<Rect> {
     let width = (size.0.clamp(48.0, BALLOON_MAX_SIZE.0) * scale).min(area.width);
     let height = (size.1.clamp(32.0, BALLOON_MAX_SIZE.1) * scale).min(area.height);
@@ -1437,6 +1520,22 @@ fn position_balloon(
     } else {
         balloon_placement(body, area, scale, size, orbit_anchor)
     };
+    let rect = avoid_widgets(
+        rect,
+        body,
+        area,
+        &widget_areas(app),
+        placement.orbit_anchor.is_some(),
+    );
+    let placement = BalloonPlacement {
+        orbit_anchor: placement.orbit_anchor.map(|_| OrbitAnchor {
+            x: (body.x + body.width / 2.0 - rect.x.round()) / scale,
+            y: (body.y + body.height / 2.0 - rect.y.round()) / scale,
+        }),
+        conversation_tail_x: placement
+            .conversation_tail_x
+            .map(|_| conversation_tail_x(body, rect, scale)),
+    };
     set_window_rect(window, rect)?;
     Ok(Some(placement))
 }
@@ -1609,9 +1708,14 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         if let Some((target, input_size)) = target.as_ref().zip(layout.input_size).filter(|_| input)
         {
             let (body, area, scale) = balloon_owner_geometry(app, &target.owner)?;
-            let response =
-                size.and_then(|size| conversation_rect(body, area, scale, size, false, None));
+            let widgets = widget_areas(app);
+            let response = size
+                .and_then(|size| conversation_rect(body, area, scale, size, false, None))
+                .map(|rect| avoid_widgets(rect, body, area, &widgets, false));
             if let Some(rect) = conversation_rect(body, area, scale, input_size, true, response) {
+                let mut obstacles = widgets;
+                obstacles.extend(response);
+                let rect = avoid_widgets(rect, body, area, &obstacles, false);
                 set_window_rect(&input_window, rect)?;
                 show_conversation_surface(&input_window, true)?;
                 if std::mem::take(&mut layout.focus_requested) {
@@ -3214,6 +3318,46 @@ mod tests {
             .unwrap(),
             serde_json::json!({"contentKey":"panel:one:input:playback:two", "orbitAnchor":null, "conversationTailX":219.0})
         );
+    }
+
+    #[test]
+    fn balloon_obstacles_include_separate_image_and_note_windows() {
+        assert!(crate::widgets::desktop::is_widget_window("widget-stack"));
+        assert!(crate::widgets::desktop::is_widget_window("widget-display-widget-id"));
+        assert!(crate::widgets::desktop::is_widget_window("widget-widget-id-image-image-id"));
+        assert!(crate::widgets::desktop::is_widget_window("widget-widget-id-note-note-id"));
+        assert!(!crate::widgets::desktop::is_widget_window("widget-editor"));
+        assert!(!crate::widgets::desktop::is_widget_window("character-note-id"));
+    }
+
+    #[test]
+    fn balloon_avoids_visible_widgets_and_chooses_least_overlap_when_crowded() {
+        let area = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 500.0,
+            height: 400.0,
+        };
+        let body = Rect {
+            x: 220.0,
+            y: 250.0,
+            width: 60.0,
+            height: 60.0,
+        };
+        let preferred = balloon_rect(body, area, 1.0, (120.0, 100.0));
+        let widget = preferred;
+        let placed = avoid_widgets(preferred, body, area, &[widget], false);
+        assert_eq!(overlap_area(placed, widget), 0.0);
+        assert_eq!(overlap_area(placed, body), 0.0);
+        let crowded = Rect {
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: area.height,
+        };
+        let best = avoid_widgets(preferred, body, area, &[crowded, widget], false);
+        assert_eq!(overlap_area(best, body), 0.0);
+        assert_eq!(overlap_area(best, widget), 0.0);
     }
 
     #[test]

@@ -139,10 +139,57 @@ pub(crate) fn monitor_edges(monitors: &[Rect]) -> Vec<Edge> {
         .collect()
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn quartz_visible_frame(frame: Rect, primary_top: f64) -> Rect {
+    Rect {
+        y: primary_top - frame.y - frame.height,
+        ..frame
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn preserve_monitor_seams(screens: &[(Rect, Rect)]) -> Vec<Rect> {
+    screens
+        .iter()
+        .enumerate()
+        .map(|(index, &(frame, visible))| {
+            let (mut left, mut top) = (visible.x, visible.y);
+            let (mut right, mut bottom) = (visible.x + visible.width, visible.y + visible.height);
+            for (other_index, &(other, _)) in screens.iter().enumerate() {
+                if index == other_index {
+                    continue;
+                }
+                if frame.x < other.x + other.width && other.x < frame.x + frame.width {
+                    if frame.y == other.y + other.height {
+                        top = frame.y;
+                    }
+                    if frame.y + frame.height == other.y {
+                        bottom = frame.y + frame.height;
+                    }
+                }
+                if frame.y < other.y + other.height && other.y < frame.y + frame.height {
+                    if frame.x == other.x + other.width {
+                        left = frame.x;
+                    }
+                    if frame.x + frame.width == other.x {
+                        right = frame.x + frame.width;
+                    }
+                }
+            }
+            Rect {
+                x: left,
+                y: top,
+                width: right - left,
+                height: bottom - top,
+            }
+        })
+        .collect()
+}
+
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn capture() -> Result<Geometry, String> {
-    let (monitors, windows) = platform::capture()?;
-    let fullscreen = monitors.iter().any(|area| {
+    let (monitors, windows, fullscreen_monitors) = platform::capture()?;
+    let fullscreen = fullscreen_monitors.iter().any(|area| {
         windows
             .iter()
             .find(|w| {
@@ -182,11 +229,21 @@ pub(crate) fn cursor_position() -> Option<(f64, f64)> {
     platform::cursor_position()
 }
 
+#[cfg(target_os = "linux")]
+pub(crate) fn primary_button_pressed() -> Option<bool> {
+    platform::primary_button_pressed()
+}
+
+#[cfg(not(target_os = "linux"))]
+type GeometrySnapshot = (Vec<Rect>, Vec<Rect>, Vec<Rect>);
+
 // macOS coordinates remain Quartz points; Windows/X11 coordinates remain physical pixels.
 // Conversion to a Tauri window position is intentionally kept in the actor adapter.
 #[cfg(target_os = "macos")]
 mod platform {
-    use super::Rect;
+    use super::{GeometrySnapshot, Rect};
+    use objc2::{class, msg_send, runtime::AnyObject};
+    use objc2_foundation::NSRect;
     use std::ffi::{c_char, c_void, CString};
     type Cf = *const c_void;
     #[repr(C)]
@@ -262,7 +319,7 @@ mod platform {
             Some((point.x, point.y))
         }
     }
-    pub(super) fn capture() -> Result<(Vec<Rect>, Vec<Rect>), String> {
+    pub(super) fn capture() -> Result<GeometrySnapshot, String> {
         // Copy APIs retain their result. Every successful copy is released below; no
         // foreign pointer is retained after this synchronous geometry snapshot.
         unsafe {
@@ -271,10 +328,39 @@ mod platform {
             if CGGetActiveDisplayList(32, displays.as_mut_ptr(), &mut count) != 0 {
                 return Err("화면 위치를 읽지 못했어요.".into());
             }
-            let monitors = displays[..count as usize]
+            let fullscreen_monitors: Vec<_> = displays[..count as usize]
                 .iter()
                 .map(|id| rect(CGDisplayBounds(*id)))
                 .collect();
+            let screens: *mut AnyObject = msg_send![class!(NSScreen), screens];
+            let screen_count: usize = msg_send![screens, count];
+            let monitors = if screen_count > 0 {
+                let primary: *mut AnyObject = msg_send![screens, objectAtIndex: 0_usize];
+                let primary_frame: NSRect = msg_send![primary, frame];
+                let primary_top = primary_frame.origin.y + primary_frame.size.height;
+                let frames: Vec<_> = (0..screen_count)
+                    .map(|index| {
+                        let screen: *mut AnyObject = msg_send![screens, objectAtIndex: index];
+                        let frame: NSRect = msg_send![screen, frame];
+                        let visible: NSRect = msg_send![screen, visibleFrame];
+                        let convert = |rect: NSRect| {
+                            super::quartz_visible_frame(
+                                Rect {
+                                    x: rect.origin.x,
+                                    y: rect.origin.y,
+                                    width: rect.size.width,
+                                    height: rect.size.height,
+                                },
+                                primary_top,
+                            )
+                        };
+                        (convert(frame), convert(visible))
+                    })
+                    .collect();
+                super::preserve_monitor_seams(&frames)
+            } else {
+                fullscreen_monitors.clone()
+            };
             let list = CGWindowListCopyWindowInfo(1 | 16, 0);
             if list.is_null() {
                 return Err("다른 앱 창 위치를 읽지 못했어요.".into());
@@ -300,14 +386,14 @@ mod platform {
                 }
             }
             CFRelease(list);
-            Ok((monitors, windows))
+            Ok((monitors, windows, fullscreen_monitors))
         }
     }
 }
 
 #[cfg(target_os = "windows")]
 mod platform {
-    use super::Rect;
+    use super::{GeometrySnapshot, Rect};
     use std::{collections::HashSet, ffi::c_void};
     use windows_sys::{
         core::BOOL,
@@ -364,7 +450,7 @@ mod platform {
         }
         1
     }
-    pub(super) fn capture() -> Result<(Vec<Rect>, Vec<Rect>), String> {
+    pub(super) fn capture() -> Result<GeometrySnapshot, String> {
         unsafe {
             let mut monitors = Vec::<Rect>::new();
             if EnumDisplayMonitors(
@@ -422,7 +508,7 @@ mod platform {
                 }
                 window = GetWindow(window, GW_HWNDNEXT);
             }
-            Ok((monitors, windows))
+            Ok((monitors.clone(), windows, monitors))
         }
     }
 }
@@ -433,8 +519,8 @@ mod platform;
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 mod platform {
-    use super::Rect;
-    pub(super) fn capture() -> Result<(Vec<Rect>, Vec<Rect>), String> {
+    use super::GeometrySnapshot;
+    pub(super) fn capture() -> Result<GeometrySnapshot, String> {
         Err("이 운영체제에서는 바탕화면 창 충돌을 지원하지 않아요.".into())
     }
     pub(super) fn cursor_position() -> Option<(f64, f64)> {
@@ -445,6 +531,161 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn vertical_monitor_seam_stays_open_and_outer_dock_is_excluded() {
+        let monitors = preserve_monitor_seams(&[
+            (
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1000.0,
+                    height: 900.0,
+                },
+                Rect {
+                    x: 0.0,
+                    y: 25.0,
+                    width: 1000.0,
+                    height: 850.0,
+                },
+            ),
+            (
+                Rect {
+                    x: 200.0,
+                    y: 900.0,
+                    width: 600.0,
+                    height: 800.0,
+                },
+                Rect {
+                    x: 200.0,
+                    y: 925.0,
+                    width: 600.0,
+                    height: 725.0,
+                },
+            ),
+        ]);
+        assert_eq!(
+            monitors[0],
+            Rect {
+                x: 0.0,
+                y: 25.0,
+                width: 1000.0,
+                height: 875.0
+            }
+        );
+        assert_eq!(
+            monitors[1],
+            Rect {
+                x: 200.0,
+                y: 900.0,
+                width: 600.0,
+                height: 750.0
+            }
+        );
+        let edges = monitor_edges(&monitors);
+        assert!(!edges
+            .iter()
+            .any(|e| e.horizontal && e.axis == 900.0 && e.from < 800.0 && e.to > 200.0));
+        assert!(edges
+            .iter()
+            .any(|e| e.horizontal && e.axis == 900.0 && e.from == 0.0 && e.to == 200.0));
+        assert!(edges
+            .iter()
+            .any(|e| e.horizontal && e.axis == 900.0 && e.from == 800.0 && e.to == 1000.0));
+        assert!(edges
+            .iter()
+            .any(|e| e.horizontal && e.axis == 1650.0 && e.from == 200.0 && e.to == 800.0));
+    }
+
+    #[test]
+    fn horizontal_monitor_seam_stays_open_and_outer_dock_is_excluded() {
+        let monitors = preserve_monitor_seams(&[
+            (
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 900.0,
+                    height: 1000.0,
+                },
+                Rect {
+                    x: 0.0,
+                    y: 25.0,
+                    width: 875.0,
+                    height: 975.0,
+                },
+            ),
+            (
+                Rect {
+                    x: 900.0,
+                    y: 200.0,
+                    width: 800.0,
+                    height: 600.0,
+                },
+                Rect {
+                    x: 925.0,
+                    y: 200.0,
+                    width: 725.0,
+                    height: 600.0,
+                },
+            ),
+        ]);
+        assert_eq!(
+            monitors[0],
+            Rect {
+                x: 0.0,
+                y: 25.0,
+                width: 900.0,
+                height: 975.0
+            }
+        );
+        assert_eq!(
+            monitors[1],
+            Rect {
+                x: 900.0,
+                y: 200.0,
+                width: 750.0,
+                height: 600.0
+            }
+        );
+        let edges = monitor_edges(&monitors);
+        assert!(!edges
+            .iter()
+            .any(|e| !e.horizontal && e.axis == 900.0 && e.from < 800.0 && e.to > 200.0));
+        assert!(edges
+            .iter()
+            .any(|e| !e.horizontal && e.axis == 900.0 && e.from == 25.0 && e.to == 200.0));
+        assert!(edges
+            .iter()
+            .any(|e| !e.horizontal && e.axis == 900.0 && e.from == 800.0 && e.to == 1000.0));
+        assert!(edges
+            .iter()
+            .any(|e| !e.horizontal && e.axis == 1650.0 && e.from == 200.0 && e.to == 800.0));
+    }
+
+    #[test]
+    fn visible_frame_is_converted_to_quartz_coordinates_on_each_screen() {
+        let visible = quartz_visible_frame(
+            Rect {
+                x: -1200.0,
+                y: -300.0,
+                width: 1200.0,
+                height: 750.0,
+            },
+            900.0,
+        );
+        assert_eq!(
+            visible,
+            Rect {
+                x: -1200.0,
+                y: 450.0,
+                width: 1200.0,
+                height: 750.0
+            }
+        );
+        let edges = monitor_edges(&[visible]);
+        assert!(edges
+            .iter()
+            .any(|edge| edge.horizontal && edge.axis == 1200.0));
+    }
     #[test]
     fn foreground_windows_clip_hidden_edges_but_keep_both_exposed_sides() {
         let result = visible_edges(&[
