@@ -20,10 +20,6 @@
         {
           "id": "49:52862",
           "name": "Envelope/Card"
-        },
-        {
-          "id": "283:34386",
-          "name": "Card/Envelope Preview"
         }
       ]
     },
@@ -37,10 +33,6 @@
         {
           "id": "283:34382",
           "name": "Card/Activity Log"
-        },
-        {
-          "id": "214:8356",
-          "name": "List/Organizer Record Choice"
         }
       ]
     },
@@ -56,10 +48,6 @@
     {
       "export": "AddCard",
       "sources": [
-        {
-          "id": "122:23495",
-          "name": "Card/Add Character"
-        },
         {
           "id": "107:14243",
           "name": "Card/Customize"
@@ -198,28 +186,8 @@
           "name": "List/Launcher Result"
         },
         {
-          "id": "203:8311",
-          "name": "List/Reference Choice"
-        },
-        {
-          "id": "203:8322",
-          "name": "List/Location Choice"
-        },
-        {
-          "id": "214:8358",
-          "name": "List/Story Choice"
-        },
-        {
           "id": "203:8321",
           "name": "List/Memory Choice"
-        },
-        {
-          "id": "214:8357",
-          "name": "List/Conversation Choice"
-        },
-        {
-          "id": "214:8359",
-          "name": "List/Scene Choice"
         }
       ]
     },
@@ -308,6 +276,24 @@
         {
           "id": "85:300",
           "name": "Navigation/Profile Link"
+        }
+      ]
+    },
+    {
+      "export": "DeadlineChip",
+      "sources": [
+        {
+          "id": "1197:2090",
+          "name": "Chip/Deadline"
+        }
+      ]
+    },
+    {
+      "export": "CharacterArtwork",
+      "sources": [
+        {
+          "id": "1197:2112",
+          "name": "Card/Character Artwork"
         }
       ]
     }
