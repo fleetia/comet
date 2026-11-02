@@ -270,6 +270,15 @@
           "name": "Focus/Record Row"
         }
       ]
+    },
+    {
+      "export": "HabitMonthCalendar",
+      "sources": [
+        {
+          "id": "437:31237",
+          "name": "Habit/Month Calendar"
+        }
+      ]
     }
   ]
 }

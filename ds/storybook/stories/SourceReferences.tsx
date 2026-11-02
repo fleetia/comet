@@ -24,6 +24,7 @@ const components = Array.from(
 export function SourceInventory(): JSX.Element {
   const componentNodes = inventory.nodes.filter((node) => node.kind === "component");
   const assets = inventory.nodes.filter((node) => node.kind === "content-asset");
+  const unsynced: { exports: string[] }[] = inventory.unsynced;
   return (
     <>
       <p>
@@ -40,7 +41,7 @@ export function SourceInventory(): JSX.Element {
       </p>
       <p>
         아직 라이브러리 노드와 대조하지 않은 코드 전용 export:{" "}
-        {inventory.unsynced.flatMap((entry) => entry.exports).join(", ")}
+        {unsynced.flatMap((entry) => entry.exports).join(", ") || "없음"}
       </p>
       <details>
         <summary>콘텐츠 자산과 연결 지점 {assets.length}개</summary>

@@ -344,6 +344,60 @@
           "name": "Conversation/Action Receipt"
         }
       ]
+    },
+    {
+      "export": "OrbitBranch",
+      "sources": [
+        {
+          "id": "1198:2206",
+          "name": "Orbit/Branch"
+        }
+      ]
+    },
+    {
+      "export": "WidgetBubble",
+      "sources": [
+        {
+          "id": "715:26003",
+          "name": "Widget/Bubble"
+        }
+      ]
+    },
+    {
+      "export": "WidgetHoverActions",
+      "sources": [
+        {
+          "id": "715:25961",
+          "name": "Widget/Hover Actions"
+        }
+      ]
+    },
+    {
+      "export": "TimerCometTrail",
+      "sources": [
+        {
+          "id": "1198:2195",
+          "name": "Widget/Timer Comet Trail"
+        }
+      ]
+    },
+    {
+      "export": "CompactFreeform",
+      "sources": [
+        {
+          "id": "1198:2176",
+          "name": "Widget/Compact · Freeform"
+        }
+      ]
+    },
+    {
+      "export": "ShapeBackground",
+      "sources": [
+        {
+          "id": "1198:2194",
+          "name": "Widget/Shape Background"
+        }
+      ]
     }
   ]
 }

@@ -18,14 +18,6 @@
           "name": "Button/Primary"
         },
         {
-          "id": "49:47992",
-          "name": "Button/Ghost"
-        },
-        {
-          "id": "49:48527",
-          "name": "Button/Small"
-        },
-        {
           "id": "49:48534",
           "name": "Button/Selected"
         },
@@ -261,8 +253,8 @@
       "export": "SegmentedControl",
       "sources": [
         {
-          "id": "49:55057",
-          "name": "Input/Segment"
+          "id": "49:58478",
+          "name": "Input/Segmented"
         }
       ]
     },
@@ -272,6 +264,15 @@
         {
           "id": "690:1895",
           "name": "Conversation/Action Receipt"
+        }
+      ]
+    },
+    {
+      "export": "WaitingDots",
+      "sources": [
+        {
+          "id": "1197:2091",
+          "name": "Indicator/Waiting Dots"
         }
       ]
     }

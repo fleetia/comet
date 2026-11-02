@@ -10,20 +10,6 @@
       "exports": ["Button"]
     },
     {
-      "id": "49:47992",
-      "name": "Button/Ghost",
-      "variantCount": 5,
-      "kind": "component",
-      "exports": ["Button"]
-    },
-    {
-      "id": "49:48527",
-      "name": "Button/Small",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["Button"]
-    },
-    {
       "id": "49:48534",
       "name": "Button/Selected",
       "variantCount": 0,
@@ -171,25 +157,11 @@
       "exports": ["PromptChip"]
     },
     {
-      "id": "214:8354",
-      "name": "Input/Category Chip/Work",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["CategoryChoice"]
-    },
-    {
       "id": "114:17867",
       "name": "Chip/Count Choice",
       "variantCount": 0,
       "kind": "component",
       "exports": ["CountChip"]
-    },
-    {
-      "id": "214:8355",
-      "name": "Input/Category Chip/Exercise",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["CategoryChoice"]
     },
     {
       "id": "49:52711",
@@ -262,13 +234,6 @@
       "exports": ["OrganizationCard"]
     },
     {
-      "id": "283:34386",
-      "name": "Card/Envelope Preview",
-      "variantCount": 4,
-      "kind": "component",
-      "exports": ["EnvelopeCard"]
-    },
-    {
       "id": "283:34387",
       "name": "Card/Note Preview",
       "variantCount": 4,
@@ -292,25 +257,11 @@
       "prop": "artwork"
     },
     {
-      "id": "214:8356",
-      "name": "List/Organizer Record Choice",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["OrganizationCard"]
-    },
-    {
       "id": "109:1323",
       "name": "Record/Source Link",
       "variantCount": 0,
       "kind": "component",
       "exports": ["RecordSourceLink"]
-    },
-    {
-      "id": "122:23495",
-      "name": "Card/Add Character",
-      "variantCount": 0,
-      "kind": "component",
-      "exports": ["AddCard"]
     },
     {
       "id": "122:26427",
@@ -544,13 +495,6 @@
       "exports": ["Slider"]
     },
     {
-      "id": "49:55057",
-      "name": "Input/Segment",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["SegmentedControl"]
-    },
-    {
       "id": "49:58478",
       "name": "Input/Segmented",
       "variantCount": 0,
@@ -584,13 +528,6 @@
       "variantCount": 4,
       "kind": "component",
       "exports": ["SearchInput"]
-    },
-    {
-      "id": "292:31710",
-      "name": "Checkbox/Label Row",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["CheckboxRow"]
     },
     {
       "id": "292:31949",
@@ -669,13 +606,6 @@
       "exports": ["PropertyItem"]
     },
     {
-      "id": "203:8312",
-      "name": "Input/Checkbox Row/Compact",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["CheckboxRow"]
-    },
-    {
       "id": "203:8318",
       "name": "Input/Radio Row",
       "variantCount": 2,
@@ -688,41 +618,6 @@
       "variantCount": 3,
       "kind": "component",
       "exports": ["CheckboxRow"]
-    },
-    {
-      "id": "214:8353",
-      "name": "Input/Radio Row/App Usage",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["RadioRow"]
-    },
-    {
-      "id": "203:8313",
-      "name": "Input/Checkbox Row/Inline",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["CheckboxRow"]
-    },
-    {
-      "id": "203:8319",
-      "name": "Input/Checkbox Row/Friend",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["CheckboxRow"]
-    },
-    {
-      "id": "214:8351",
-      "name": "Input/Radio Row/Date",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["RadioRow"]
-    },
-    {
-      "id": "214:8352",
-      "name": "Input/Radio Row/Date Light",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["RadioRow"]
     },
     {
       "id": "118:29912",
@@ -935,34 +830,6 @@
       "kind": "content-asset",
       "export": "SelectField",
       "prop": "children / leading"
-    },
-    {
-      "id": "203:8314",
-      "name": "Input/Segment/Compact",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["ChoiceButton"]
-    },
-    {
-      "id": "203:8317",
-      "name": "Input/Weekday",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["ChoiceButton"]
-    },
-    {
-      "id": "203:8316",
-      "name": "Input/Segment/List",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["ChoiceButton"]
-    },
-    {
-      "id": "203:8323",
-      "name": "Input/Weekday/Compact",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["ChoiceButton"]
     },
     {
       "id": "112:19212",
@@ -1412,29 +1279,8 @@
       "exports": ["ChoiceTile"]
     },
     {
-      "id": "214:8349",
-      "name": "Choice/Widget Shape/Circle",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["ChoiceTile"]
-    },
-    {
-      "id": "214:8350",
-      "name": "Choice/Widget Shape/Cloud",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["ChoiceTile"]
-    },
-    {
       "id": "203:8324",
       "name": "Card/Desktop Layout",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["ChoiceTile"]
-    },
-    {
-      "id": "203:8320",
-      "name": "Choice/Expression",
       "variantCount": 2,
       "kind": "component",
       "exports": ["ChoiceTile"]
@@ -1864,27 +1710,6 @@
       "exports": ["ContentRow"]
     },
     {
-      "id": "203:8311",
-      "name": "List/Reference Choice",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["ContentChoice"]
-    },
-    {
-      "id": "203:8322",
-      "name": "List/Location Choice",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["ContentChoice"]
-    },
-    {
-      "id": "214:8358",
-      "name": "List/Story Choice",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["ContentChoice"]
-    },
-    {
       "id": "118:22299",
       "name": "List/Memory Source",
       "variantCount": 0,
@@ -1908,20 +1733,6 @@
     {
       "id": "203:8321",
       "name": "List/Memory Choice",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["ContentChoice"]
-    },
-    {
-      "id": "214:8357",
-      "name": "List/Conversation Choice",
-      "variantCount": 2,
-      "kind": "component",
-      "exports": ["ContentChoice"]
-    },
-    {
-      "id": "214:8359",
-      "name": "List/Scene Choice",
       "variantCount": 2,
       "kind": "component",
       "exports": ["ContentChoice"]
@@ -2212,20 +2023,91 @@
       "variantCount": 4,
       "kind": "component",
       "exports": ["ActionReceipt"]
+    },
+    {
+      "id": "1197:2091",
+      "name": "Indicator/Waiting Dots",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["WaitingDots"]
+    },
+    {
+      "id": "1197:2102",
+      "name": "Form/Field Messages",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["FieldMessages"]
+    },
+    {
+      "id": "1197:2125",
+      "name": "Choice/Skin Scene",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["SkinScene"]
+    },
+    {
+      "id": "1197:2090",
+      "name": "Chip/Deadline",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["DeadlineChip"]
+    },
+    {
+      "id": "1197:2112",
+      "name": "Card/Character Artwork",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["CharacterArtwork"]
+    },
+    {
+      "id": "437:31237",
+      "name": "Habit/Month Calendar",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["HabitMonthCalendar"]
+    },
+    {
+      "id": "1198:2206",
+      "name": "Orbit/Branch",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["OrbitBranch"]
+    },
+    {
+      "id": "715:26003",
+      "name": "Widget/Bubble",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["WidgetBubble"]
+    },
+    {
+      "id": "715:25961",
+      "name": "Widget/Hover Actions",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["WidgetHoverActions"]
+    },
+    {
+      "id": "1198:2195",
+      "name": "Widget/Timer Comet Trail",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["TimerCometTrail"]
+    },
+    {
+      "id": "1198:2176",
+      "name": "Widget/Compact · Freeform",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["CompactFreeform"]
+    },
+    {
+      "id": "1198:2194",
+      "name": "Widget/Shape Background",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["ShapeBackground"]
     }
   ],
-  "unsynced": [
-    {
-      "exports": ["CompactFreeform"],
-      "reason": "Code-only capsule for desktop widgets without their own artwork. No library node yet."
-    },
-    {
-      "exports": ["ShapeBackground"],
-      "reason": "Code-only SVG fill that draws Widget Shape presets, cloud settings and drawn points at any size. No library node yet."
-    },
-    {
-      "exports": ["TimerCometTrail"],
-      "reason": "Comet trail artwork of the focus timer dial; the source node was not verified against the library page."
-    }
-  ]
+  "unsynced": []
 }

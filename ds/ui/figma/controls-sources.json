@@ -95,24 +95,8 @@
       "export": "CheckboxRow",
       "sources": [
         {
-          "id": "292:31710",
-          "name": "Checkbox/Label Row"
-        },
-        {
-          "id": "203:8312",
-          "name": "Input/Checkbox Row/Compact"
-        },
-        {
           "id": "214:8348",
           "name": "Input/Checkbox Row/Export"
-        },
-        {
-          "id": "203:8313",
-          "name": "Input/Checkbox Row/Inline"
-        },
-        {
-          "id": "203:8319",
-          "name": "Input/Checkbox Row/Friend"
         },
         {
           "id": "118:29912",
@@ -123,18 +107,6 @@
     {
       "export": "RadioRow",
       "sources": [
-        {
-          "id": "214:8353",
-          "name": "Input/Radio Row/App Usage"
-        },
-        {
-          "id": "214:8351",
-          "name": "Input/Radio Row/Date"
-        },
-        {
-          "id": "214:8352",
-          "name": "Input/Radio Row/Date Light"
-        },
         {
           "id": "112:17564",
           "name": "Radio/Option Row"
@@ -196,14 +168,6 @@
         {
           "id": "292:31029",
           "name": "Chip/Category"
-        },
-        {
-          "id": "214:8354",
-          "name": "Input/Category Chip/Work"
-        },
-        {
-          "id": "214:8355",
-          "name": "Input/Category Chip/Exercise"
         }
       ]
     },
@@ -284,18 +248,6 @@
         {
           "id": "203:8315",
           "name": "Input/Anchor Choice"
-        },
-        {
-          "id": "214:8349",
-          "name": "Choice/Widget Shape/Circle"
-        },
-        {
-          "id": "214:8350",
-          "name": "Choice/Widget Shape/Cloud"
-        },
-        {
-          "id": "203:8320",
-          "name": "Choice/Expression"
         }
       ]
     },
@@ -318,22 +270,6 @@
         {
           "id": "280:31698",
           "name": "Choice/Segment"
-        },
-        {
-          "id": "203:8314",
-          "name": "Input/Segment/Compact"
-        },
-        {
-          "id": "203:8316",
-          "name": "Input/Segment/List"
-        },
-        {
-          "id": "203:8317",
-          "name": "Input/Weekday"
-        },
-        {
-          "id": "203:8323",
-          "name": "Input/Weekday/Compact"
         },
         {
           "id": "112:19212",
@@ -360,6 +296,24 @@
         {
           "id": "255:24978",
           "name": "Input/Segment/Display Mode"
+        }
+      ]
+    },
+    {
+      "export": "FieldMessages",
+      "sources": [
+        {
+          "id": "1197:2102",
+          "name": "Form/Field Messages"
+        }
+      ]
+    },
+    {
+      "export": "SkinScene",
+      "sources": [
+        {
+          "id": "1197:2125",
+          "name": "Choice/Skin Scene"
         }
       ]
     }
