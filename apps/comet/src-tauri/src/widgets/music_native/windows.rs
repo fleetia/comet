@@ -1,10 +1,9 @@
-use super::{dispatch_if_active, empty_observation, ensure_active, failure, ConnectionError};
+use super::{dispatch_if_active, empty_observation, failure, ConnectionError};
 use ::windows::{
     Media::{
         Control::{
             GlobalSystemMediaTransportControlsSession as Session,
             GlobalSystemMediaTransportControlsSessionManager as SessionManager,
-            GlobalSystemMediaTransportControlsSessionPlaybackControls as Controls,
             GlobalSystemMediaTransportControlsSessionPlaybackStatus as PlaybackStatus,
         },
         MediaPlaybackAutoRepeatMode,
@@ -13,7 +12,7 @@ use ::windows::{
 };
 use base64::Engine;
 use serde_json::{json, Value};
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 fn os_error(error: ::windows::core::Error) -> ConnectionError {
@@ -129,19 +128,6 @@ pub(super) async fn open_spotify(cancel: &AtomicBool) -> Result<(), ConnectionEr
     Ok(())
 }
 
-fn capabilities(controls: &Controls) -> Value {
-    json!({
-        "play":controls.IsPlayEnabled().unwrap_or(false),
-        "pause":controls.IsPauseEnabled().unwrap_or(false),
-        "next":controls.IsNextEnabled().unwrap_or(false),
-        "previous":controls.IsPreviousEnabled().unwrap_or(false),
-        "seek":controls.IsPlaybackPositionEnabled().unwrap_or(false),
-        "shuffle":controls.IsShuffleEnabled().unwrap_or(false),
-        "repeat":controls.IsRepeatEnabled().unwrap_or(false),
-        "volume":false,"playUri":false,"like":false
-    })
-}
-
 async fn artwork(
     properties: &::windows::Media::Control::GlobalSystemMediaTransportControlsSessionMediaProperties,
 ) -> Option<String> {
@@ -206,10 +192,6 @@ pub(super) async fn observe(
         } else {
             &id
         });
-        result["capabilities"] = playback
-            .Controls()
-            .map(|controls| capabilities(&controls))
-            .unwrap_or(json!({}));
         result["shuffle"] = json!(playback
             .IsShuffleActive()
             .ok()
@@ -288,83 +270,6 @@ pub(super) async fn observe(
     tokio::time::timeout(Duration::from_secs(8), operation)
         .await
         .map_err(|_| failure("offline", "Windows 미디어 세션 응답 시간이 초과됐어요."))?
-}
-
-pub(super) async fn control(
-    provider: &str,
-    source_id: Option<&str>,
-    action: &str,
-    value: Value,
-    cancel: Arc<AtomicBool>,
-) -> Result<(), ConnectionError> {
-    let Some(source_id) = source_id else {
-        return Err(failure("stale", "조작할 음악 앱을 먼저 확인해 주세요."));
-    };
-    let operation = async {
-        let session = session(provider, Some(source_id))
-            .await?
-            .ok_or_else(|| failure("offline", "선택한 음악 앱의 미디어 세션이 닫혔어요."))?;
-        ensure_active(&cancel)?;
-        let controls = session
-            .GetPlaybackInfo()
-            .map_err(os_error)?
-            .Controls()
-            .map_err(os_error)?;
-        if capabilities(&controls)[action] != true {
-            return Err(failure(
-                "unsupported",
-                "선택한 음악 앱은 이 조작을 지원하지 않아요.",
-            ));
-        }
-        let seek_target = if action == "seek" {
-            let timeline = session.GetTimelineProperties().map_err(os_error)?;
-            let start = timeline.StartTime().map_err(os_error)?.Duration;
-            let target = start.saturating_add((value.as_f64().unwrap_or(0.0) * 10_000.0) as i64);
-            let minimum = timeline.MinSeekTime().map_err(os_error)?.Duration;
-            let maximum = timeline.MaxSeekTime().map_err(os_error)?.Duration;
-            if target < minimum || target > maximum {
-                return Err(failure(
-                    "unsupported",
-                    "이 곡에서 이동할 수 없는 재생 위치예요.",
-                ));
-            }
-            target
-        } else {
-            0
-        };
-        let operation = dispatch_if_active(&cancel, || {
-            match action {
-                "play" => session.TryPlayAsync(),
-                "pause" => session.TryPauseAsync(),
-                "next" => session.TrySkipNextAsync(),
-                "previous" => session.TrySkipPreviousAsync(),
-                "shuffle" => session.TryChangeShuffleActiveAsync(value.as_bool().unwrap_or(false)),
-                "repeat" => session.TryChangeAutoRepeatModeAsync(match value.as_str() {
-                    Some("all") => MediaPlaybackAutoRepeatMode::List,
-                    Some("one") => MediaPlaybackAutoRepeatMode::Track,
-                    _ => MediaPlaybackAutoRepeatMode::None,
-                }),
-                "seek" => session.TryChangePlaybackPositionAsync(seek_target),
-                _ => {
-                    return Err(failure(
-                        "unsupported",
-                        "Windows 미디어 세션은 이 조작을 지원하지 않아요.",
-                    ))
-                }
-            }
-            .map_err(os_error)
-        })?;
-        if !operation.await.map_err(os_error)? {
-            return Err(failure(
-                "unsupported",
-                "음악 앱이 조작 요청을 받아들이지 않았어요.",
-            ));
-        }
-        Ok(())
-    };
-    tokio::time::timeout(Duration::from_secs(8), operation)
-        .await
-        .map_err(|_| failure("offline", "Windows 음악 조작 응답 시간이 초과됐어요."))?
 }
 
 #[cfg(test)]

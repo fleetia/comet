@@ -12,11 +12,6 @@ mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
-const ACTIONS: [&str; 10] = [
-    "play", "pause", "next", "previous", "seek", "volume", "shuffle", "repeat", "playUri", "like",
-];
-
 fn failure(status: &str, message: &str) -> ConnectionError {
     ConnectionError {
         status: status.into(),
@@ -54,43 +49,6 @@ fn validate_provider(provider: &str, source_id: Option<&str>) -> Result<(), Conn
     Ok(())
 }
 
-fn validate_action(action: &str, value: &Value) -> Result<(), ConnectionError> {
-    let valid = match action {
-        "play" | "pause" | "next" | "previous" => value.is_null(),
-        "seek" => value
-            .as_f64()
-            .is_some_and(|number| number.is_finite() && (0.0..=604_800_000.0).contains(&number)),
-        "volume" => value
-            .as_f64()
-            .is_some_and(|number| number.is_finite() && (0.0..=100.0).contains(&number)),
-        "shuffle" => value.is_boolean(),
-        "repeat" => value
-            .as_str()
-            .is_some_and(|mode| ["off", "all", "one"].contains(&mode)),
-        "playUri" => value.as_str().is_some_and(valid_spotify_uri),
-        _ => false,
-    };
-    if !valid {
-        return Err(failure(
-            "unsupported",
-            "지원하지 않는 음악 조작이거나 값이 올바르지 않아요.",
-        ));
-    }
-    Ok(())
-}
-
-fn valid_spotify_uri(uri: &str) -> bool {
-    let mut parts = uri.split(':');
-    parts.next() == Some("spotify")
-        && parts
-            .next()
-            .is_some_and(|kind| ["track", "episode", "album", "playlist"].contains(&kind))
-        && parts
-            .next()
-            .is_some_and(|id| id.len() == 22 && id.bytes().all(|byte| byte.is_ascii_alphanumeric()))
-        && parts.next().is_none()
-}
-
 #[cfg(any(target_os = "macos", target_os = "windows", test))]
 fn empty_observation(provider: &str, source_id: Option<&str>, now: i64) -> Value {
     let source = match provider {
@@ -98,15 +56,11 @@ fn empty_observation(provider: &str, source_id: Option<&str>, now: i64) -> Value
         "spotify" => "Spotify",
         _ => "Windows 미디어 세션",
     };
-    let mut capabilities = serde_json::Map::new();
-    for action in ACTIONS {
-        capabilities.insert(action.into(), json!(false));
-    }
     json!({
         "running":false,"playing":false,"playbackState":"stopped",
         "title":null,"artist":null,"album":null,"durationMs":null,"positionMs":null,
         "artworkUrl":null,"lyrics":null,"volume":null,"shuffle":null,"repeat":null,
-        "trackId":null,"metadata":{},"capabilities":capabilities,
+        "trackId":null,"metadata":{},"capabilities":{},
         "provider":provider,"source":source,"sourceId":source_id,"observedAt":now
     })
 }
@@ -140,10 +94,6 @@ fn normalize_observation(raw: Value, provider: &str, now: i64) -> Result<Value, 
         result["source"] = json!(source.chars().take(512).collect::<String>());
     }
     if running {
-        for action in ACTIONS {
-            result["capabilities"][action] =
-                json!(raw["capabilities"][action].as_bool().unwrap_or(false));
-        }
         result["volume"] = valid_number(&raw["volume"], 100.0);
         result["shuffle"] = raw["shuffle"]
             .as_bool()
@@ -154,7 +104,6 @@ fn normalize_observation(raw: Value, provider: &str, now: i64) -> Result<Value, 
             .map_or(Value::Null, |mode| json!(mode));
     }
     if state == "stopped" {
-        result["capabilities"]["seek"] = json!(false);
         return Ok(result);
     }
     for field in ["title", "artist", "album", "trackId"] {
@@ -360,33 +309,6 @@ pub async fn open_source(
     ))
 }
 
-pub async fn control_source(
-    provider: &str,
-    source_id: Option<&str>,
-    action: &str,
-    value: Value,
-    cancel: Arc<AtomicBool>,
-) -> Result<(), ConnectionError> {
-    ensure_active(&cancel)?;
-    validate_provider(provider, source_id)?;
-    validate_action(action, &value)?;
-    #[cfg(target_os = "macos")]
-    {
-        macos::control(provider, source_id, action, value, cancel).await
-    }
-    #[cfg(target_os = "windows")]
-    {
-        windows::control(provider, source_id, action, value, cancel).await
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        Err(failure(
-            "unsupported",
-            "이 운영체제의 로컬 음악 조작은 지원하지 않아요.",
-        ))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,13 +360,6 @@ mod tests {
             "unsupported"
         );
         assert_eq!(
-            control_source("spotify", None, "play", Value::Null, cancel.clone())
-                .await
-                .unwrap_err()
-                .status,
-            "unsupported"
-        );
-        assert_eq!(
             launch_spotify(cancel.clone(), false)
                 .await
                 .unwrap_err()
@@ -453,13 +368,6 @@ mod tests {
         );
 
         cancel.store(true, Ordering::Release);
-        assert_eq!(
-            control_source("spotify", None, "play", Value::Null, cancel.clone())
-                .await
-                .unwrap_err()
-                .status,
-            "stale"
-        );
         assert_eq!(
             launch_spotify(cancel, false).await.unwrap_err().status,
             "stale"
@@ -500,13 +408,14 @@ mod tests {
         assert_eq!(paused["lyrics"], "첫 줄\n둘째 줄");
         assert_eq!(paused["metadata"]["rating"], 0);
         assert_eq!(paused["metadata"]["favorited"], false);
+        assert!(paused["capabilities"].get("seek").is_none());
         let mut stopped_raw = raw;
         stopped_raw["playbackState"] = json!("stopped");
         let stopped = normalize_observation(stopped_raw, "music", 124).unwrap();
         for key in ["title", "artist", "album", "lyrics", "positionMs"] {
             assert!(stopped[key].is_null());
         }
-        assert_eq!(stopped["capabilities"]["seek"], false);
+        assert!(stopped["capabilities"].get("seek").is_none());
     }
 
     #[test]
@@ -519,24 +428,6 @@ mod tests {
         assert!(song["artworkUrl"].is_null());
         assert!(song["metadata"].get("purchaserAccount").is_none());
         assert_eq!(song["metadata"]["bitRate"], 256);
-    }
-
-    #[test]
-    fn control_validation_rejects_arbitrary_commands_and_uri_injection() {
-        for (action, value) in [
-            ("seek", json!(-1)),
-            ("volume", json!(101)),
-            ("shuffle", json!("true")),
-            ("repeat", json!("context")),
-            ("play", json!("extra")),
-            ("quit", Value::Null),
-            ("playUri", json!("spotify:track:abc\"; app.quit()")),
-        ] {
-            assert!(validate_action(action, &value).is_err(), "{action}");
-        }
-        assert!(validate_action("playUri", &json!("spotify:track:6rqhFgbbKwnb9MLmUQDhG6")).is_ok());
-        assert!(validate_action("volume", &json!(0)).is_ok());
-        assert!(validate_action("shuffle", &json!(false)).is_ok());
     }
 
     #[test]

@@ -14,8 +14,8 @@ function run(argv) {
     }
     return JSON.stringify({ running: true });
   }
+  if (input.action !== "observe") throw new Error("UNSUPPORTED_ACTION");
   if (!running) {
-    if (input.action !== "observe") throw new Error("APP_CLOSED");
     return JSON.stringify({ running: false });
   }
   const app = Application(input.appId);
@@ -36,47 +36,11 @@ function run(argv) {
     const value = property(track, "duration");
     return typeof value === "number" ? value * (spotify ? 1 : 1000) : null;
   }
-  function capabilities(state, position, length) {
-    return {
-      play: true, pause: true, next: true, previous: true,
-      seek: state !== "stopped" && typeof position === "number" && typeof length === "number" && length > 0,
-      volume: typeof property(app, "soundVolume") === "number",
-      shuffle: !spotify || property(app, "shufflingEnabled") === true,
-      repeat: !spotify || property(app, "repeatingEnabled") === true,
-      playUri: spotify
-    };
-  }
   const playerState = app.playerState();
   const state = playerState === "fast forwarding" || playerState === "rewinding" ? "playing" : playerState;
   const track = state === "stopped" ? null : app.currentTrack();
   const length = track ? duration(track) : null;
   const position = property(app, "playerPosition");
-  if (input.action !== "observe") {
-    const supported = capabilities(state, position, length);
-    if (!supported[input.action]) throw new Error("UNSUPPORTED_CONTROL");
-    switch (input.action) {
-      case "play": app.play(); break;
-      case "pause": app.pause(); break;
-      case "next": app.nextTrack(); break;
-      case "previous": app.previousTrack(); break;
-      case "seek":
-        if (input.value > length) throw new Error("UNSUPPORTED_CONTROL");
-        app.playerPosition = input.value / 1000;
-        break;
-      case "volume": app.soundVolume = Math.round(input.value); break;
-      case "shuffle":
-        if (spotify) app.shuffling = input.value;
-        else app.shuffleEnabled = input.value;
-        break;
-      case "repeat":
-        if (spotify) app.repeating = input.value !== "off";
-        else app.songRepeat = input.value;
-        break;
-      case "playUri": app.playTrack(input.value); break;
-      default: throw new Error("UNSUPPORTED_CONTROL");
-    }
-    return JSON.stringify({ ok: true });
-  }
   const trackId = track ? property(track, spotify ? "id" : "persistentID") : null;
   const metadata = {};
   const fields = spotify
@@ -127,7 +91,7 @@ function run(argv) {
     shuffle: property(app, spotify ? "shuffling" : "shuffleEnabled"),
     repeat: spotify ? (repeated === null ? null : repeated ? "all" : "off") : repeated,
     metadata: metadata,
-    capabilities: capabilities(state, position, length)
+    capabilities: {}
   };
   if (trackId !== null && property(app.currentTrack(), spotify ? "id" : "persistentID") !== trackId) {
     throw new Error("TRACK_CHANGED");

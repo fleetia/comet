@@ -188,7 +188,8 @@ fn store_calendar(
         db,
         &instance.id,
         instance.revision,
-        serde_json::to_value(data).map_err(|_| "캘린더를 저장하지 못했어요. 다시 시도해 주세요.")?,
+        serde_json::to_value(data)
+            .map_err(|_| "캘린더를 저장하지 못했어요. 다시 시도해 주세요.")?,
         vec![],
         timestamp(),
     )
@@ -307,8 +308,7 @@ fn complete_calendar_connect(
     };
     if previous.is_none() && data.connections.len() >= 20 {
         return Err(
-            "캘린더 연결은 20개까지 추가할 수 있어요. 기존 연결을 끊고 다시 시도해 주세요."
-                .into(),
+            "캘린더 연결은 20개까지 추가할 수 있어요. 기존 연결을 끊고 다시 시도해 주세요.".into(),
         );
     }
     if previous.is_none() {
@@ -608,10 +608,9 @@ async fn refresh_calendar_inner(
         }
         connection.status = "syncing".into();
         data.attempts.insert(connection_id.into(), time);
-        Ok(Some(
-            serde_json::to_value(data)
-                .map_err(|_| "캘린더 상태를 저장하지 못했어요. 다시 시도해 주세요.")?,
-        ))
+        Ok(Some(serde_json::to_value(data).map_err(|_| {
+            "캘린더 상태를 저장하지 못했어요. 다시 시도해 주세요."
+        })?))
     })?;
     publish_widgets(app, state);
     let data = decode_calendar(&job.instance.data)?;
@@ -1332,7 +1331,6 @@ fn check_music_request(
     instance: &WidgetInstance,
     revision: i64,
     action: &str,
-    now: i64,
 ) -> Result<(), String> {
     active(instance, Some("music"))?;
     if instance.revision != revision {
@@ -1341,43 +1339,8 @@ fn check_music_request(
     if instance.data["configured"] != true {
         return Err("음악 연결을 먼저 설정해 주세요.".into());
     }
-    if ![
-        "observe",
-        "open",
-        "play",
-        "pause",
-        "next",
-        "previous",
-        "seek",
-        "volume",
-        "shuffle",
-        "repeat",
-        "playUri",
-        "playlists",
-        "playlistTracks",
-        "playRandom",
-        "queue",
-        "enqueue",
-        "like",
-    ]
-    .contains(&action)
-    {
+    if !["observe", "open", "playlists", "playlistTracks", "queue"].contains(&action) {
         return Err("지원하지 않는 음악 명령이에요.".into());
-    }
-    let query = ["observe", "open", "playlists", "playlistTracks", "queue"].contains(&action);
-    if !query {
-        let observation = &instance.data["observation"];
-        if !matches!(instance.data["status"].as_str(), Some("ready" | "syncing"))
-            || !observation["observedAt"]
-                .as_i64()
-                .is_some_and(|at| now >= at && now - at <= 30_000)
-        {
-            return Err("현재 재생 상태를 다시 조회한 뒤 조작해 주세요.".into());
-        }
-        let capability = action;
-        if observation["capabilities"][capability] != true {
-            return Err("선택한 앱에서 지원하지 않는 재생 기능이에요.".into());
-        }
     }
     Ok(())
 }
@@ -1404,7 +1367,7 @@ pub(crate) async fn music_request(
         .try_lock()
         .map_err(|_| "다른 음악 명령을 처리하고 있어요. 잠시 후 다시 눌러 주세요.")?;
     let job = begin(&state, &id, Some("music"), false, |instance| {
-        check_music_request(instance, expected_revision, &action, timestamp())?;
+        check_music_request(instance, expected_revision, &action)?;
         Ok(None)
     })?;
     let query = ["playlists", "playlistTracks", "queue"].contains(&action.as_str());
@@ -1440,30 +1403,7 @@ pub(crate) async fn music_request(
         {
             crate::widgets::music_bridge::request(&id, &action, value).await?
         } else {
-            if query {
-                return Err("플레이리스트와 대기열은 Spotify 확장 연결이 필요해요.".into());
-            }
-            let observation = &job.instance.data["observation"];
-            let provider = if provider == "auto" {
-                observation["provider"].as_str().unwrap_or("")
-            } else {
-                provider
-            };
-            let input = if action == "playUri" {
-                value["uri"].clone()
-            } else {
-                value
-            };
-            crate::widgets::music_native::control_source(
-                provider,
-                observation["sourceId"].as_str(),
-                &action,
-                input,
-                job.cancel.clone(),
-            )
-            .await
-            .map_err(|failure| failure.message)?;
-            Value::Null
+            return Err("플레이리스트와 대기열은 Spotify 확장 연결이 필요해요.".into());
         };
         music_job_current(&state, &job)?;
         let refreshed = if query {
@@ -2725,7 +2665,7 @@ mod tests {
             revision: 7,
             error: None,
             data: json!({"configured":true,"status":"ready","config":{"provider":"spotify"},
-                "observation":{"observedAt":now,"capabilities":{"play":true,"seek":false}}}),
+                "observation":{"observedAt":now,"capabilities":{}}}),
         }
     }
     #[test]
@@ -2758,7 +2698,9 @@ mod tests {
     fn disconnected_reconnect_only_candidates_do_not_require_instance_reads() {
         assert!(!refresh_candidate_is_eligible(true, || false));
         assert!(refresh_candidate_is_eligible(true, || true));
-        assert!(refresh_candidate_is_eligible(false, || panic!("ordinary candidates do not need pairing")));
+        assert!(refresh_candidate_is_eligible(false, || panic!(
+            "ordinary candidates do not need pairing"
+        )));
     }
     #[test]
     fn story_music_guard_rejects_an_interrupted_execution() {
@@ -2944,18 +2886,35 @@ mod tests {
         assert!(pairing_id(&storage::get(&db, &instance.id).unwrap().data).is_none());
     }
     #[test]
-    fn music_commands_require_current_revision_freshness_and_provider_capability() {
+    fn music_commands_allow_only_queries_and_open_with_current_revision() {
         let now = 1_000_000;
         let mut instance = music_instance(now);
-        assert!(check_music_request(&instance, 7, "play", now).is_ok());
-        assert!(check_music_request(&instance, 6, "play", now).is_err());
-        assert!(check_music_request(&instance, 7, "seek", now).is_err());
-        assert!(check_music_request(&instance, 7, "play", now + 30_001).is_err());
-        assert!(check_music_request(&instance, 7, "play", now - 1).is_err());
-        assert!(check_music_request(&instance, 7, "executeScript", now).is_err());
+        for action in ["observe", "open", "playlists", "playlistTracks", "queue"] {
+            assert!(check_music_request(&instance, 7, action).is_ok());
+        }
+        assert!(check_music_request(&instance, 6, "observe").is_err());
+        for action in [
+            "play",
+            "pause",
+            "next",
+            "previous",
+            "seek",
+            "volume",
+            "shuffle",
+            "repeat",
+            "playUri",
+            "playRandom",
+            "enqueue",
+            "like",
+            "executeScript",
+        ] {
+            assert_eq!(
+                check_music_request(&instance, 7, action).unwrap_err(),
+                "지원하지 않는 음악 명령이에요."
+            );
+        }
         instance.data["status"] = json!("offline");
-        assert!(check_music_request(&instance, 7, "play", now).is_err());
-        assert!(check_music_request(&instance, 7, "observe", now).is_ok());
+        assert!(check_music_request(&instance, 7, "observe").is_ok());
     }
     #[test]
     fn music_job_is_invalid_after_provider_change_or_cancellation_and_cannot_commit() {

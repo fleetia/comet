@@ -147,16 +147,7 @@ export function getWidgetPreview(): WidgetSnapshot {
           discNumber: 1,
           composer: "별빛정원",
         },
-        capabilities: {
-          play: true,
-          pause: true,
-          previous: true,
-          next: true,
-          seek: true,
-          volume: true,
-          shuffle: true,
-          repeat: true,
-        },
+        capabilities: {},
       },
     },
     device: {
