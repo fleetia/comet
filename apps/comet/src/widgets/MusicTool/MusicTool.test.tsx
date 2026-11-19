@@ -48,7 +48,7 @@ function widget(
         shuffle: false,
         repeat: "off",
         lyrics: "천천히 걷는 밤의 길\n작은 별 하나 곁에 두어요",
-        capabilities: { pause: true, play: true, seek: true, next: true },
+        capabilities: {},
         ...observation,
       },
     },
@@ -94,24 +94,8 @@ it("starts each detail tab at the top after scrolling another tab", async () => 
   expect(detail.scrollTop).toBe(0);
 });
 
-it("never exposes playback mutations even when the connected app supports them", () => {
-  render(
-    <MusicTool
-      widget={widget({
-        capabilities: {
-          play: true,
-          pause: true,
-          previous: true,
-          next: true,
-          seek: true,
-          volume: true,
-          shuffle: true,
-          repeat: true,
-          like: true,
-        },
-      })}
-    />,
-  );
+it("never exposes playback mutations", () => {
+  render(<MusicTool widget={widget()} />);
   expect(screen.queryByRole("slider")).toBeNull();
   for (const name of ["이전 곡", "다음 곡", "재생", "일시정지", "셔플", /반복/, /좋아요/]) {
     expect(screen.queryByRole("button", { name })).toBeNull();
@@ -234,9 +218,6 @@ it("loads playlists and their tracks without offering playback or queue mutation
           capabilities: {
             playlists: true,
             playlistTracks: true,
-            playRandom: true,
-            playUri: true,
-            enqueue: true,
             queue: true,
           },
         },
@@ -315,7 +296,7 @@ it("requests the playback queue without a playlist pagination argument", async (
 
 it("ignores a playlist response received after the connection settings change", async () => {
   let resolve: (value: unknown) => void = () => {};
-  const capabilities = { playlists: true, playlistTracks: true, playRandom: true };
+  const capabilities = { playlists: true, playlistTracks: true };
   vi.mocked(command).mockImplementation(async (name) =>
     name === "music_request"
       ? new Promise((done) => {

@@ -19,21 +19,11 @@
   function offset(value) { const n = value?.offset ?? 0; if (!Number.isInteger(n) || n < 0 || n > MAX_TRACKS) { fail("invalid"); } return n; }
   function validate(action, value) {
     switch (action) {
-      case "observe": case "play": case "pause": case "next": case "previous": case "queue":
+      case "observe": case "queue":
         if (value !== null) { fail("invalid"); } break;
-      case "seek": case "volume":
-        if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > (action === "volume" ? 100 : 86400000)) { fail("invalid"); } break;
-      case "shuffle": if (typeof value !== "boolean") { fail("invalid"); } break;
-      case "repeat": if (!["off", "all", "one"].includes(value)) { fail("invalid"); } break;
       case "playlists": if (value !== null && !exactObject(value, ["offset"])) { fail("invalid"); } offset(value); break;
       case "playlistTracks":
         if (!exactObject(value, ["uri", "offset"])) { fail("invalid"); } requireUri(value.uri, ["playlist"]); offset(value); break;
-      case "playRandom":
-        if (!exactObject(value, ["uri"])) { fail("invalid"); } requireUri(value.uri, ["playlist"]); break;
-      case "playUri": case "enqueue":
-        if (!exactObject(value, ["uri"])) { fail("invalid"); } requireUri(value.uri, ["track", "episode"]); break;
-      case "like":
-        if (!exactObject(value, ["uri", "liked"]) || typeof value.liked !== "boolean") { fail("invalid"); } requireUri(value.uri, ["track"]); break;
       default: fail("unsupported");
     }
   }
@@ -66,8 +56,6 @@
     const get = name => has(name) ? player[name]() : null;
     const artists = [metadata.artist_name];
     for (let i = 1; i < 30 && metadata[`artist_name:${i}`]; i++) { artists.push(metadata[`artist_name:${i}`]); }
-    const restrictions = data?.restrictions ?? {};
-    const allowed = (method, permission, ...reasons) => has(method) && restrictions[permission] !== false && !reasons.some(name => restrictions[name]?.length);
     return {
       running: true,
       playing: Boolean(item && !data.isPaused),
@@ -82,19 +70,9 @@
       trackNumber: number(metadata.album_track_number ?? metadata.track_number), discNumber: number(metadata.album_disc_number ?? metadata.disc_number),
       description: text(metadata.description, 8000), lyrics: null,
       capabilities: {
-        play: allowed("play", "canResume", "disallowResumingReasons", "disallow_resuming_reasons"),
-        pause: allowed("pause", "canPause", "disallowPausingReasons", "disallow_pausing_reasons"),
-        next: allowed("next", "canSkipNext", "disallowSkippingNextReasons", "disallow_skipping_next_reasons"),
-        previous: allowed("back", "canSkipPrevious", "disallowSkippingPreviousReasons", "disallow_skipping_prev_reasons"),
-        seek: allowed("seek", "canSeek", "disallowSeekingReasons", "disallow_seeking_reasons"), volume: has("setVolume"),
-        shuffle: allowed("setShuffle", "canToggleShuffle", "disallowTogglingShuffleReasons", "disallow_toggling_shuffle_reasons"),
-        repeat: allowed("setRepeat", "canToggleRepeatContext", "disallowTogglingRepeatContextReasons", "disallow_toggling_repeat_context_reasons")
-          && allowed("setRepeat", "canToggleRepeatTrack", "disallowTogglingRepeatTrackReasons", "disallow_toggling_repeat_track_reasons"),
-        like: isUri(item?.uri, ["track"]) && has("setHeart"), playUri: has("playUri"),
         playlists: typeof spicetify.Platform?.RootlistAPI?.getContents === "function",
         playlistTracks: typeof spicetify.Platform?.PlaylistAPI?.getContents === "function",
-        playRandom: typeof spicetify.Platform?.PlaylistAPI?.getContents === "function" && has("playUri"),
-        queue: Array.isArray(spicetify.Queue?.nextTracks), enqueue: typeof spicetify.addToQueue === "function",
+        queue: Array.isArray(spicetify.Queue?.nextTracks),
       },
     };
   }
@@ -112,30 +90,6 @@
     const response = await call(spicetify.Platform?.PlaylistAPI, "getContents", uri, { offset: start, limit: PAGE_SIZE });
     check();
     return pageResult(response, start);
-  }
-  // Rejection sampling avoids modulo bias. Every playable playlist occurrence has equal probability.
-  function randomIndex(length, cryptoApi) {
-    if (!Number.isInteger(length) || length < 1 || length > MAX_TRACKS) { fail("empty"); }
-    const ceiling = Math.floor(0x100000000 / length) * length;
-    const value = new Uint32Array(1);
-    do { cryptoApi.getRandomValues(value); } while (value[0] >= ceiling);
-    return value[0] % length;
-  }
-  async function randomTrack(spicetify, uri, check, cryptoApi) {
-    const tracks = [];
-    const pageStarts = new Set();
-    let start = 0;
-    while (start != null) {
-      if (start >= MAX_TRACKS || pageStarts.has(start)) { fail("limit"); }
-      pageStarts.add(start);
-      const page = await playlistPage(spicetify, uri, start, check);
-      for (const item of page.items) {
-        if (item.isPlayable !== false && isUri(item.uri, ["track", "episode"])) { tracks.push(item.uri); }
-      }
-      start = page.nextOffset;
-    }
-    check();
-    return tracks[randomIndex(tracks.length, cryptoApi)];
   }
   async function playlists(spicetify, start, check) {
     check();
@@ -157,30 +111,9 @@
     }
     return { items: items.slice(start, start + PAGE_SIZE), total: items.length, nextOffset: start + PAGE_SIZE < items.length ? start + PAGE_SIZE : null };
   }
-  async function waitForState(confirmed, check) {
-    for (;;) {
-      check();
-      if (confirmed()) { return; }
-      // Read Spotify's in-process state until its update arrives; check enforces the request deadline.
-      await new Promise(resolve => setTimeout(resolve, 100));
-      check();
-    }
-  }
-  function playbackPositionAt(data, at) {
-    const position = number(data?.positionAsOfTimestamp);
-    const timestamp = number(data?.timestamp);
-    if (position == null || timestamp == null || typeof data?.isPaused !== "boolean") { return null; }
-    return position + (data.isPaused ? 0 : Math.max(0, at - timestamp));
-  }
-  function playbackItemChanged(previous, current) {
-    return Boolean(previous?.item && current?.item && (previous.item.uri !== current.item.uri
-      || (previous.item.uid != null && current.item.uid != null && previous.item.uid !== current.item.uid)));
-  }
-  async function dispatch(spicetify, action, value, check, cryptoApi) {
+  async function dispatch(spicetify, action, value, check) {
     validate(action, value);
     check();
-    const player = spicetify.Player;
-    let confirmed = () => true;
     switch (action) {
       case "observe": return observe(spicetify);
       case "playlists": return playlists(spicetify, offset(value), check);
@@ -193,92 +126,8 @@
         if (!Array.isArray(items)) { fail("unsupported"); }
         return { items: items.slice(0, PAGE_SIZE).map(track).filter(item => isUri(item.uri, ["track", "episode"])), total: items.length, nextOffset: null };
       }
-      case "playRandom": {
-        const uri = await randomTrack(spicetify, value.uri, check, cryptoApi);
-        check();
-        await call(player, "playUri", uri);
-        confirmed = () => player.data?.item?.uri === uri && player.data.isPaused === false;
-        break;
-      }
-      case "like":
-        if (player.data?.item?.uri !== value.uri) { fail("expired"); }
-        await call(player, "setHeart", value.liked);
-        confirmed = () => {
-          if (player.data?.item?.uri !== value.uri) { fail("expired"); }
-          return call(player, "getHeart") === value.liked;
-        };
-        break;
-      case "enqueue": await call(spicetify, "addToQueue", [{ uri: value.uri }]); break;
-      case "playUri":
-        await call(player, "playUri", value.uri);
-        confirmed = () => player.data?.item?.uri === value.uri && player.data.isPaused === false;
-        break;
-      case "play": case "pause":
-        await call(player, action);
-        confirmed = () => Boolean(player.data?.item) && player.data.isPaused === (action === "pause");
-        break;
-      case "next": case "previous": {
-        const previous = player.data;
-        await call(player, action === "next" ? "next" : "back");
-        confirmed = () => {
-          const current = player.data;
-          if (!current?.item || current === previous) { return false; }
-          if (playbackItemChanged(previous, current)) { return true; }
-          const position = number(current.positionAsOfTimestamp);
-          const timestamp = number(current.timestamp);
-          const naturalPosition = timestamp == null ? null : playbackPositionAt(previous, timestamp);
-          return action === "previous" && position != null && timestamp != null && timestamp >= previous?.timestamp
-            && naturalPosition != null && position <= 250 && naturalPosition - position > 250;
-        };
-        break;
-      }
-      case "seek": {
-        const duration = call(player, "getDuration");
-        if (!Number.isFinite(duration) || duration <= 0 || value > duration) { fail("invalid"); }
-        const previous = player.data;
-        const initialPosition = playbackPositionAt(previous, Date.now());
-        if (!previous?.item || initialPosition == null) { fail("unsupported"); }
-        const target = Math.round(value);
-        // Spicetify 2.45 treats integer values as milliseconds, including 0 and 1.
-        await call(player, "seek", target);
-        confirmed = () => {
-          const current = player.data;
-          if (!current?.item) { return false; }
-          if (playbackItemChanged(previous, current)) {
-            if (target >= duration) { return true; }
-            fail("expired");
-          }
-          if (Math.abs(initialPosition - target) < 1) { return true; }
-          const position = number(current.positionAsOfTimestamp);
-          const timestamp = number(current.timestamp);
-          const naturalPosition = timestamp == null ? null : playbackPositionAt(previous, timestamp);
-          // Compare event baselines, not getProgress()'s clock interpolation or natural playback.
-          return current !== previous && position != null && timestamp != null && timestamp >= previous.timestamp
-            && naturalPosition != null && Math.abs(position - target) <= 250
-            && Math.abs(position - naturalPosition) > Math.min(250, Math.abs(initialPosition - target) / 2);
-        };
-        break;
-      }
-      case "volume":
-        await call(player, "setVolume", value / 100);
-        confirmed = () => {
-          const volume = number(call(player, "getVolume"));
-          return volume != null && Math.abs(volume * 100 - value) <= 0.5;
-        };
-        break;
-      case "shuffle":
-        await call(player, "setShuffle", value);
-        confirmed = () => call(player, "getShuffle") === value;
-        break;
-      case "repeat":
-        await call(player, "setRepeat", ["off", "all", "one"].indexOf(value));
-        confirmed = () => ["off", "all", "one"][call(player, "getRepeat")] === value;
-        break;
       default: fail("unsupported");
     }
-    await waitForState(confirmed, check);
-    check();
-    return { ok: true };
   }
 
   const STORAGE_KEY = "comet-music-pairing-v2";
@@ -459,9 +308,9 @@
             }
             if (pending.get(message.id) === operation) { pending.delete(message.id); }
           }
-          dispatch(spicetify, message.action, message.value, check, cryptoApi).then(
+          dispatch(spicetify, message.action, message.value, check).then(
             value => respond({ ok: true, value }),
-            error => respond({ ok: false, error: ["expired", "unsupported", "empty", "limit", "invalid"].includes(error?.message) ? error.message : "failed" }),
+            error => respond({ ok: false, error: ["expired", "unsupported", "limit", "invalid"].includes(error?.message) ? error.message : "failed" }),
           );
         } catch { broken(); }
       };
@@ -498,7 +347,7 @@
   }
 
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { createConnection, dispatch, randomIndex, randomTrack, observe, validate };
+    module.exports = { createConnection, dispatch, observe, validate };
     return;
   }
   function boot() {

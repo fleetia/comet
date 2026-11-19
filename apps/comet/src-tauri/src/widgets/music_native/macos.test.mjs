@@ -87,3 +87,12 @@ test("observe preserves the closed app state without launching Spotify", () => {
   assert.equal(app.lookup.mock.callCount(), 0);
   assert.equal(app.open.mock.callCount(), 0);
 });
+
+test("removed controls are rejected without launching or requesting automation", () => {
+  const app = harness();
+  for (const action of ["play", "pause", "next", "previous", "seek", "volume", "shuffle", "repeat", "playUri", "playRandom", "enqueue", "like"]) {
+    assert.throws(() => app.run(action), /UNSUPPORTED_ACTION/);
+  }
+  assert.equal(app.lookup.mock.callCount(), 0);
+  assert.equal(app.open.mock.callCount(), 0);
+});

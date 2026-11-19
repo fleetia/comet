@@ -1,6 +1,6 @@
 use super::{dispatch_if_active, empty_observation, failure, ConnectionError};
 use serde_json::{json, Value};
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::atomic::AtomicBool;
 use std::{process::Stdio, time::Duration};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
@@ -84,17 +84,10 @@ async fn run(input: Value, cancel: Option<&AtomicBool>) -> Result<Value, Connect
             return Err(
                 if message.contains("-1743") || message.contains("not authorized") {
                     failure("permission-needed", "시스템 설정의 개인정보 보호 및 보안 → 자동화에서 comet의 음악 앱 접근을 허용해 주세요.")
-                } else if message.contains("APP_CLOSED") {
-                    failure("offline", "선택한 음악 앱을 먼저 실행해 주세요.")
                 } else if message.contains("LAUNCH_FAILED") {
                     failure(
                         "offline",
                         "Spotify를 실행하지 못했어요. 앱 설치 상태를 확인해 주세요.",
-                    )
-                } else if message.contains("UNSUPPORTED_CONTROL") {
-                    failure(
-                        "unsupported",
-                        "현재 앱이나 재생 항목이 이 조작을 지원하지 않아요.",
                     )
                 } else if message.contains("TRACK_CHANGED") {
                     failure("stale", "조회 중 곡이 바뀌었어요. 다시 확인해 주세요.")
@@ -152,30 +145,6 @@ pub(super) async fn open(
     )
     .await
     .map(|_| ())
-}
-
-pub(super) async fn control(
-    provider: &str,
-    source_id: Option<&str>,
-    action: &str,
-    value: Value,
-    cancel: Arc<AtomicBool>,
-) -> Result<(), ConnectionError> {
-    let id = app_id(provider, source_id)?;
-    if (action == "playUri" && provider != "spotify")
-        || (action == "repeat" && provider == "spotify" && value == "one")
-    {
-        return Err(failure(
-            "unsupported",
-            "이 앱의 로컬 연결은 해당 조작을 지원하지 않아요.",
-        ));
-    }
-    run(
-        json!({"appId":id,"provider":provider,"action":action,"value":value}),
-        Some(&cancel),
-    )
-    .await?;
-    Ok(())
 }
 
 #[cfg(test)]

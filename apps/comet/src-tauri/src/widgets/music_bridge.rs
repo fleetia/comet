@@ -552,7 +552,7 @@ async fn serve(stream: TcpStream, session: Arc<Session>) {
                         if reply.kind!="response" || reply.id.len()>64 {break;}
                         let pending = session.connection.lock().unwrap().pending.remove(&reply.id);
                         if let Some(pending)=pending {
-                            let result=if reply.ok {sanitize_reply(&pending.action,reply.value)} else {Err(match reply.error.as_deref(){Some("expired")=>"음악 요청이 만료됐어요.",Some("unsupported")=>"이 Spotify 버전에서 지원하지 않는 기능이에요.",Some("empty")=>"재생할 수 있는 곡이 없어요.",_=>"Spotify가 음악 요청을 완료하지 못했어요."}.into())};
+                            let result=if reply.ok {sanitize_reply(&pending.action,reply.value)} else {Err(match reply.error.as_deref(){Some("expired")=>"음악 요청이 만료됐어요.",Some("unsupported")=>"이 Spotify 버전에서 지원하지 않는 기능이에요.",_=>"Spotify가 음악 요청을 완료하지 못했어요."}.into())};
                             let _=pending.reply.send(result);
                         }
                     },
@@ -612,35 +612,17 @@ fn object_keys(value: &Value, allowed: &[&str]) -> bool {
 }
 fn valid_action(action: &str, value: &Value) -> bool {
     match action {
-        "observe" | "play" | "pause" | "next" | "previous" | "queue" => value.is_null(),
+        "observe" | "queue" => value.is_null(),
         "playlists" => {
             value.is_null()
                 || (object_keys(value, &["offset"])
                     && value["offset"].as_u64().is_some_and(|v| v <= 10_000))
         }
-        "seek" => value
-            .as_f64()
-            .is_some_and(|v| v.is_finite() && (0.0..=86_400_000.0).contains(&v)),
-        "volume" => value
-            .as_f64()
-            .is_some_and(|v| v.is_finite() && (0.0..=100.0).contains(&v)),
-        "shuffle" => value.is_boolean(),
-        "repeat" => matches!(value.as_str(), Some("off" | "all" | "one")),
         "playlistTracks" => {
             object_keys(value, &["uri", "offset"])
                 && spotify_uri(&value["uri"], "playlist")
                 && (value["offset"].is_null()
                     || value["offset"].as_u64().is_some_and(|v| v <= 10_000))
-        }
-        "playRandom" => object_keys(value, &["uri"]) && spotify_uri(&value["uri"], "playlist"),
-        "playUri" | "enqueue" => {
-            object_keys(value, &["uri"])
-                && (spotify_uri(&value["uri"], "track") || spotify_uri(&value["uri"], "episode"))
-        }
-        "like" => {
-            object_keys(value, &["uri", "liked"])
-                && spotify_uri(&value["uri"], "track")
-                && value["liked"].is_boolean()
         }
         _ => false,
     }
@@ -784,23 +766,7 @@ fn sanitize_reply(action: &str, value: Value) -> Result<Value, String> {
         } else {
             Value::Null
         };
-        for name in [
-            "play",
-            "pause",
-            "next",
-            "previous",
-            "seek",
-            "volume",
-            "shuffle",
-            "repeat",
-            "playUri",
-            "playlists",
-            "playlistTracks",
-            "playRandom",
-            "queue",
-            "enqueue",
-            "like",
-        ] {
+        for name in ["playlists", "playlistTracks", "queue"] {
             output["capabilities"][name] =
                 json!(value["capabilities"][name].as_bool().unwrap_or(false));
         }
@@ -837,7 +803,7 @@ fn sanitize_reply(action: &str, value: Value) -> Result<Value, String> {
             json!({"items":result,"total":value["total"].as_u64().filter(|n|*n<=100_000),"nextOffset":value["nextOffset"].as_u64().filter(|n|*n<=10_000)}),
         );
     }
-    Ok(json!({"ok":true}))
+    Err("Spotify 응답을 읽지 못했어요.".into())
 }
 
 #[cfg(test)]
@@ -882,14 +848,25 @@ mod tests {
         )
         .is_ok());
         assert!(!valid_action("eval", &json!("alert(1)")));
-        assert!(!valid_action("seek", &json!(-1)));
-        assert!(!valid_action(
+        for action in [
+            "play",
+            "pause",
+            "next",
+            "previous",
+            "seek",
+            "volume",
+            "shuffle",
+            "repeat",
             "playUri",
-            &json!({"uri":"https://example.com"})
-        ));
-        assert!(!valid_action(
+            "playRandom",
+            "enqueue",
             "like",
-            &json!({"uri":"spotify:track:0000000000000000000000","liked":true,"token":"secret"})
+        ] {
+            assert!(!valid_action(action, &Value::Null));
+        }
+        assert!(!valid_action(
+            "playlistTracks",
+            &json!({"uri":"https://example.com"})
         ));
     }
     #[test]
@@ -903,7 +880,7 @@ mod tests {
         assert!(result["capabilities"].get("eval").is_none());
         let capable = sanitize_reply("observe", json!({"playing":false,"capabilities":{"playlistTracks":true,"enqueue":true,"queue":false}})).unwrap();
         assert_eq!(capable["capabilities"]["playlistTracks"], true);
-        assert_eq!(capable["capabilities"]["enqueue"], true);
+        assert!(capable["capabilities"].get("enqueue").is_none());
         assert_eq!(capable["capabilities"]["queue"], false);
         assert_eq!(
             safe_art(&json!("https://i.scdn.co/image/012abc")),
@@ -1153,7 +1130,7 @@ mod tests {
         let observation = work.await.unwrap().unwrap();
         assert_eq!(observation["title"], "Song");
         assert!(observation.get("token").is_none());
-        let work = tokio::spawn(request_with_timeout(owner, "next", Value::Null, 50));
+        let work = tokio::spawn(request_with_timeout(owner, "queue", Value::Null, 50));
         let message = text_frame(&mut connection, "expiring request").await;
         assert!(work.await.unwrap().unwrap_err().contains("만료"));
         assert_eq!(
@@ -1162,7 +1139,7 @@ mod tests {
         );
         let work = tokio::spawn(request(
             owner,
-            "playRandom",
+            "playlistTracks",
             json!({"uri":"spotify:playlist:0000000000000000000000"}),
         ));
         let message = text_frame(&mut connection, "aborted request").await;
@@ -1190,7 +1167,7 @@ mod tests {
             assert!(work.await.unwrap().is_err());
         }
         assert_eq!(pairing_status(owner)["remembered"], true);
-        assert!(request(owner, "play", Value::Null).await.is_err());
+        assert!(request(owner, "queue", Value::Null).await.is_err());
         let (mut connection, ready) =
             client("resume", pairing_id, &secret, "transport reconnection").await;
         assert!(ready.get("credential").is_none());
