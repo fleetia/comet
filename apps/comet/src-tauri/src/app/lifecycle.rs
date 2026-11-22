@@ -554,6 +554,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         widget_epoch: AtomicU64::new(0),
         playback_link_gate: tokio::sync::Mutex::new(()),
         widget_playback: Mutex::new(None),
+        routine_playback: Mutex::new(None),
         talk: Mutex::new(talk),
         talk_playback: Mutex::new(None),
         talk_turn: AtomicBool::new(true),

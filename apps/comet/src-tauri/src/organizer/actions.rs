@@ -13,12 +13,12 @@ mod catalog;
 mod registry;
 pub(crate) use capability::{find as capability, Capability, Effect, Source};
 pub(crate) use catalog::catalog;
-pub(crate) use registry::{
-    authorize_evidence, authorize_registry, context_targets, entities_for,
-    execute_registry_with_presence, has_explicit_request, query_registry,
-};
 #[cfg(test)]
 pub(crate) use registry::execute_registry;
+pub(crate) use registry::{
+    authorize_evidence, authorize_registry, context_targets, entities_for,
+    execute_registry_with_presence, has_explicit_request, matches_dates, query_registry,
+};
 #[cfg(test)]
 mod registry_tests;
 
@@ -326,28 +326,46 @@ fn lookup_sentence(kind: &str, result: &Value, input: &Value) -> Option<String> 
             ),
         },
         rows => {
-            let shown: Vec<String> = rows
-                .iter()
-                .take(3)
-                .map(|row| match detail(row).filter(|_| field != "notes") {
-                    Some(detail) => format!("'{}'({detail})", title(row)),
-                    None => format!("'{}'", title(row)),
-                })
-                .collect();
-            let rest = count.saturating_sub(shown.len() as u64);
-            let rest = if rest > 0 {
-                format!(" 외 {rest}개")
-            } else {
-                String::new()
-            };
-            format!("{noun} {count}개를 찾았어요: {}{rest}.", shown.join(", "))
+            let shown = format_lookup_items(rows, count, |row| {
+                let detail = detail(row).filter(|_| field != "notes");
+                (title(row), detail)
+            });
+            format!("{noun} {count}개를 찾았어요: {shown}.")
         }
     })
 }
 
+pub(crate) fn format_lookup_items(
+    rows: &[Value],
+    count: u64,
+    detail: impl Fn(&Value) -> (String, Option<String>),
+) -> String {
+    let shown: Vec<String> = rows
+        .iter()
+        .take(3)
+        .map(|row| {
+            let (title, detail) = detail(row);
+            match detail {
+                Some(detail) => format!("'{title}'({detail})"),
+                None => format!("'{title}'"),
+            }
+        })
+        .collect();
+    let rest = count.saturating_sub(shown.len() as u64);
+    if rest > 0 {
+        format!("{} 외 {rest}개", shown.join(", "))
+    } else {
+        shown.join(", ")
+    }
+}
+
 fn spoken_date(date: &str) -> Option<String> {
+    spoken_date_in_year(date, chrono::Local::now().year())
+}
+
+fn spoken_date_in_year(date: &str, current_year: i32) -> Option<String> {
     let date = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()?;
-    let year = if date.year() == chrono::Local::now().year() {
+    let year = if date.year() == current_year {
         String::new()
     } else {
         format!("{}년 ", date.year())
@@ -356,8 +374,12 @@ fn spoken_date(date: &str) -> Option<String> {
 }
 
 fn spoken_time(at: i64) -> Option<String> {
+    spoken_time_at(at, chrono::Local::now().year())
+}
+
+pub(crate) fn spoken_time_at(at: i64, current_year: i32) -> Option<String> {
     let at = chrono::DateTime::from_timestamp_millis(at)?.with_timezone(&chrono::Local);
-    let date = spoken_date(&at.format("%Y-%m-%d").to_string())?;
+    let date = spoken_date_in_year(&at.format("%Y-%m-%d").to_string(), current_year)?;
     let (half, hour) = match at.hour() {
         0 => ("오전", 12),
         hour @ 1..=11 => ("오전", hour),

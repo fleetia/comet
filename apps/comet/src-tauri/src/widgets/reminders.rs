@@ -495,6 +495,7 @@ pub fn advance_with_presence(
             if !quiet
                 && enabled
                 && local_date_time(&date, time).is_some_and(|at| crossed(previous, now, at))
+                && (kind != "day-start" || !crate::routines::store::spoken_on(db, local.date_naive())?)
             {
                 let key = format!("{}:{kind}", instance.id);
                 let day = local_date_time(&date, "12:00").unwrap_or(now);
@@ -891,6 +892,47 @@ mod anniversary_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn day_start_is_skipped_only_when_a_routine_was_displayed_that_day() {
+        use crate::routines::store::{self as routines, ReceiptState, Repeat, Report, Routine};
+
+        for displayed in [false, true] {
+            let db = Connection::open_in_memory().unwrap();
+            storage::initialize(&db).unwrap();
+            routines::initialize(&db).unwrap();
+            let temp = tempfile::tempdir().unwrap();
+            storage::verify_packages(&db, temp.path()).unwrap();
+            let calendar = storage::instances(&db).unwrap().into_iter().find(|item| item.kind == "calendar").unwrap();
+            let date = Local::now().date_naive();
+            let at = local_date_time(&date.to_string(), "09:00").unwrap();
+            let mut value = calendar.data.clone();
+            value["reminders"]["moodDayStart"] = json!(true);
+            value["reminders"]["dayStart"] = json!("09:00");
+            storage::commit_data(&db, &calendar.id, calendar.revision, value, vec![], at - 60_000).unwrap();
+            routines::save(&db, &Routine { id: "r".into(), name: "아침".into(), time: "08:00".into(), repeat: Repeat::Daily, sources: vec![], enabled: true, created_at: at - 60_000 }).unwrap();
+            routines::claim(&db, "r", date, at - 50_000).unwrap();
+            routines::transition(&db, "r", date, ReceiptState::Claimed, ReceiptState::Read, at - 49_000, None).unwrap();
+            let report = Report { id: "report".into(), user_id: "user".into(), routine_id: "r".into(), scheduled_date: date, body: "본문".into(), bubble: "본문".into(), delivery: "summarized".into(), reason: Some("바깥 재료는 아직 읽을 수 없어요.".into()), is_read: false, created_at: at - 48_000 };
+            routines::save_report_and_summarize(&db, &report, at - 48_000).unwrap();
+            if displayed {
+                routines::mark_displayed(&db, "r", "user", date, at - 47_000).unwrap();
+            } else {
+                routines::finish_report(&db, "user", "r", date, ReceiptState::Reported, at - 47_000, Some("조용한 시간")).unwrap();
+                let reason = routines::latest_receipt(&db, "r").unwrap().unwrap().reason.unwrap();
+                assert!(reason.contains("아직 읽을 수 없어요"));
+                assert!(reason.contains("조용한 시간"));
+            }
+            let mut clocks = BTreeMap::new();
+            advance(&db, &mut clocks, at - 500, false).unwrap();
+            advance(&db, &mut clocks, at, false).unwrap();
+            let event = storage::take_reaction(&db, at + 1).unwrap();
+            assert_eq!(event.is_none(), displayed);
+            if let Some(event) = event {
+                assert_eq!(event.event.kind, "planner-mood");
+                assert!(event.event.text.contains("하루를 시작"));
+            }
+        }
+    }
     #[test]
     fn overflow_keeps_timer_and_preparation_notices_in_the_banner() {
         let db = Connection::open_in_memory().unwrap();

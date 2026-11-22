@@ -11,6 +11,7 @@ pub(crate) mod launcher;
 pub(crate) mod lifecycle;
 pub(crate) mod presence;
 pub(crate) mod quiet_hours;
+pub(crate) mod routine;
 mod reset;
 pub(crate) mod scene;
 pub(crate) mod scene_events;
@@ -72,6 +73,7 @@ pub(crate) struct AppState {
     pub(crate) widget_epoch: AtomicU64,
     pub(crate) playback_link_gate: tokio::sync::Mutex<()>,
     pub(crate) widget_playback: Mutex<Option<widgets::WidgetEvent>>,
+    pub(crate) routine_playback: Mutex<Option<(crate::routines::store::Routine, String, chrono::NaiveDate, i64)>>,
     pub(crate) talk: Mutex<talk::runtime::ActiveProgram>,
     pub(crate) talk_playback: Mutex<Option<talk::host::PreparedTalk>>,
     pub(crate) talk_turn: AtomicBool,

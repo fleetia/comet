@@ -76,6 +76,7 @@ const FIELDS: &[(&str, &str, &str, &str, &str)] = &[
 
 fn description(prefix: &str, field: &str, nullable: bool) -> String {
     let text = match (prefix, field) {
+        ("routine", "body") => "루틴 브리핑의 말풍선 본문. 루틴 장면 외에는 null",
         ("dialogue", "variant") => "한 대본 재생 동안 고정되는 0~4 변형 번호",
         ("activity", "ready") => "전경 앱 관측이 켜져 있고 유효한 샘플이 있는지 여부",
         ("activity", "appName") => "현재 전경 앱의 표시 이름. 제외 앱과 무입력 상태에는 null",
@@ -290,6 +291,7 @@ pub fn registry() -> Registry {
         None,
     );
     add("dialogue", "variant", ValueType::Number, false, None);
+    add("routine", "body", ValueType::String, true, None);
     add("activity", "ready", ValueType::Boolean, false, None);
     for field in ["appName", "category"] {
         add("activity", field, ValueType::String, true, None);
@@ -392,6 +394,7 @@ pub fn registry() -> Registry {
             "activity.long-session",
             "activity.idle-return",
             "diary.recall",
+            "routine.briefing",
             "todo-completed",
             "todo-undone",
             "timer-finished",
@@ -572,7 +575,7 @@ fn project_recall(
     Ok(())
 }
 
-fn fresh(data: &Value, now: i64, age: i64) -> bool {
+pub(crate) fn fresh(data: &Value, now: i64, age: i64) -> bool {
     matches!(data["status"].as_str(), Some("ready" | "syncing"))
         && data["lastSuccessAt"]
             .as_i64()

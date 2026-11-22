@@ -30,11 +30,15 @@ pub(crate) async fn background_loop(
     mut mood_event_cursor: i64,
 ) {
     let mut interval = tokio::time::interval(Duration::from_millis(500));
+    let mut routines = super::routine::Runtime::new();
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         interval.tick().await;
         if state.stopping.load(Ordering::SeqCst) {
             break;
+        }
+        if let Err(error) = routines.observe(&state) {
+            crate::report_error!("routine_tick", "루틴을 확인하지 못했어요: {error}");
         }
         if state.update_installing.load(Ordering::SeqCst) {
             continue;
@@ -81,6 +85,19 @@ pub(crate) async fn background_loop(
         let _ = flush_positions(&state, false);
         let _ = advance_widgets(&app, &state);
         let _ = crate::widgets::mood::advance(&app, &state, &mut mood_event_cursor);
+        if routines.has_pending() {
+            let idle = lock(&state.runtime).is_ok_and(|status| ["idle", "error"].contains(&status.phase.as_str()));
+            if idle && !behavior::reactions_blocked(&state).unwrap_or(true)
+                && play_widget_reaction(&app, &state).unwrap_or(false)
+            {
+                continue;
+            }
+            let fullscreen = crate::desktop::toys::current_geometry(&app)
+                .await.map_or(true, |geometry| geometry.fullscreen);
+            if routines.deliver(&app, &state, fullscreen).unwrap_or(false) {
+                continue;
+            }
+        }
         if crate::talk::host::play_activity_reaction(&app, &state).unwrap_or(false) {
             continue;
         }
@@ -98,10 +115,15 @@ pub(crate) async fn background_loop(
         let Ok(status) = lock(&state.runtime).map(|runtime| runtime.clone()) else {
             continue;
         };
-        if !["idle", "error"].contains(&status.phase.as_str()) {
+        let idle = ["idle", "error"].contains(&status.phase.as_str());
+        let reactions_blocked = behavior::reactions_blocked(&state).unwrap_or(true);
+        if idle && !reactions_blocked && play_widget_reaction(&app, &state).unwrap_or(false) {
             continue;
         }
-        if behavior::reactions_blocked(&state).unwrap_or(true) {
+        if !idle {
+            continue;
+        }
+        if reactions_blocked {
             // An empty desktop suspends toy behavior, but a due return must still run.
             // Playing toys and other suspended states keep their usual gate.
             if lock(&state.behavior)
@@ -117,9 +139,6 @@ pub(crate) async fn background_loop(
             {
                 let _ = presence::tick(&app, &state);
             }
-            continue;
-        }
-        if play_widget_reaction(&app, &state).unwrap_or(false) {
             continue;
         }
         if expire_idle_recall(&state, chrono::Utc::now().timestamp_millis()).unwrap_or(false) {

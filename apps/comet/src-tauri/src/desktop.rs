@@ -1839,6 +1839,12 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         window.hide().map_err(|error| error.to_string())?;
         return Ok(Some(BalloonPlacement::default()));
     }
+    if playback.as_ref().is_some_and(|line| line.source == "routine")
+        && !crate::app::scene::routine_current(&state, &db)?
+    {
+        window.hide().map_err(|error| error.to_string())?;
+        return Ok(Some(BalloonPlacement::default()));
+    }
     show_conversation_surface(&window, conversation || target.key.contains("playback:"))?;
     if !input && layout.take_focus_request() {
         window.set_focus().map_err(|error| error.to_string())?;
@@ -1862,6 +1868,11 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
             first_display =
                 crate::app::scene::mark_line_displayed(line, chrono::Utc::now().timestamp_millis());
             if first_display && line.source != "update" {
+                if line.source == "routine" && line.line_index == 0 {
+                    if let Some((routine, user_id, day, _)) = crate::app::lock(&state.routine_playback)?.as_ref() {
+                        crate::routines::store::mark_displayed(&db, &routine.id, user_id, *day, line.display_started_at.unwrap_or_default())?;
+                    }
+                }
                 crate::talk::host::mark_displayed_rain_idle(&state, &db, line)?;
                 if crate::widgets::commands::widget_event_current(&state, &db)? {
                     crate::app::scene::mark_displayed_weather_reaction(&state, &db, line)?;

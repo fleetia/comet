@@ -121,6 +121,57 @@ pub(crate) fn prepare_recall(
     prepare_with_triggers(state, db, None, None, None, None, true)
 }
 
+pub(crate) fn prepare_routine(
+    state: &AppState,
+    db: &Connection,
+    body: &str,
+) -> Result<Option<Vec<crate::types::SceneLine>>, String> {
+    let program = lock(&state.talk)?.program.clone();
+    let Some(program) = program else {
+        return Ok(None);
+    };
+    let now = chrono::Utc::now().timestamp_millis();
+    let mut context = talk::context::build(db, None, now, uuid::Uuid::new_v4().as_u128() as u64)?;
+    add_moods(state, db, &mut context)?;
+    activity_context(state, &mut context)?;
+    context.trigger = "routine.briefing".into();
+    context
+        .values
+        .insert("event.kind".into(), serde_json::json!("routine.briefing"));
+    context
+        .values
+        .insert("routine.body".into(), serde_json::json!(body));
+    context.visible = presence::present_ids(state, &context.active)?;
+    let sleeping = lock(&state.life)?.sleeping_ids();
+    context.visible.retain(|id| !sleeping.contains(id));
+    context.values.insert(
+        "character.count".into(),
+        serde_json::json!(context.visible.len()),
+    );
+    let (muted, _) = muted_reactions(db, None, &context)?;
+    let history = talk::runtime::history(db)?;
+    let simulation = talk::simulate_with_policy(&program, &context, &history, |selection| {
+        if muted_selection(selection, &muted) {
+            return Err("reaction_disabled".into());
+        }
+        validate_motions(db, &selection.lines)?;
+        if !presence::lines_visible(state, db, &selection.lines)? {
+            return Err("부재 중인 화자가 있어요.".into());
+        }
+        Ok(())
+    });
+    let Some(selection) = simulation.selected else {
+        return Ok(None);
+    };
+    if crate::characters::resolve_lines(db, &selection.lines)?
+        .iter()
+        .any(|line| sleeping.contains(&line.persona))
+    {
+        return Ok(None);
+    }
+    Ok(Some(selection.lines))
+}
+
 pub(crate) fn prepare_birthday(
     state: &AppState,
     db: &Connection,
@@ -993,6 +1044,93 @@ mod tests {
 
     const FIRST_PACK: &str =
         "format: 1\nscene: first\non: idle\n---\nA: 첫 대사\nB: 다음 대사\n===\n";
+
+    #[test]
+    fn routine_scene_uses_awake_candidates_and_rejects_sleeping_fixed_speakers() {
+        let state = crate::app::tests::state();
+        let ids = {
+            let db = lock(&state.db).unwrap();
+            crate::characters::active_ids(&db).unwrap()
+        };
+        crate::characters::life::set_sleep(&state, &ids[1], true).unwrap();
+        let program = talk::validate_source(
+            Path::new("routine.talk"),
+            "format: 1\nscene: briefing\non: routine.briefing\nspeakers: random\nwhen: character.count == 1\n---\nA: ${routine.body}\n===\n",
+            &talk::context::registry(),
+        )
+        .unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        {
+            let db = lock(&state.db).unwrap();
+            let lines = prepare_routine(&state, &db, "안녕").unwrap().unwrap();
+            let resolved = crate::characters::resolve_lines(&db, &lines).unwrap();
+            assert_eq!(resolved[0].persona, ids[0]);
+        }
+        let program = talk::validate_source(
+            Path::new("routine.talk"),
+            "format: 1\nscene: briefing\non: routine.briefing\n---\nA: 안녕\nB: ${routine.body}\n===\n",
+            &talk::context::registry(),
+        )
+        .unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        let db = lock(&state.db).unwrap();
+        assert!(prepare_routine(&state, &db, "안녕").unwrap().is_none());
+    }
+
+    #[test]
+    fn routine_scene_validates_renders_and_does_not_save_messages() {
+        let state = crate::app::tests::state();
+        let program = talk::validate_source(
+            Path::new("routine.talk"),
+            "format: 1\nscene: briefing\non: routine.briefing\n---\nA: ${routine.body}\n===\n",
+            &talk::context::registry(),
+        )
+        .unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        let token = interrupt(&state, true).unwrap();
+        let (lines, revision) = {
+            let db = lock(&state.db).unwrap();
+            let now = chrono::Utc::now().timestamp_millis();
+            crate::store::set_user_name(&db, "친구", now).unwrap();
+            let user = crate::store::current_user(&db).unwrap().unwrap();
+            let routine = crate::routines::store::Routine {
+                id: "test-routine".into(), name: "아침".into(), time: "09:00".into(),
+                repeat: crate::routines::store::Repeat::Daily, sources: vec![], enabled: true,
+                created_at: now,
+            };
+            crate::routines::store::save(&db, &routine).unwrap();
+            let generation = crate::routines::store::generation(&db, &routine.id).unwrap();
+            *lock(&state.routine_playback).unwrap() = Some((routine, user.id, chrono::Local::now().date_naive(), generation));
+            let lines = prepare_routine(&state, &db, "일정이 있어요.\n할 일이 있어요.")
+                .unwrap()
+                .unwrap();
+            assert_eq!(lines[0].text, "일정이 있어요.\n할 일이 있어요.");
+            assert!(prepare_routine(&state, &db, &"가".repeat(501))
+                .unwrap()
+                .is_none());
+            (lines, crate::store::revision(&db).unwrap())
+        };
+        assert!(crate::app::scene::present_line(
+            &state,
+            &lines[0],
+            "routine",
+            "routine-line",
+            0,
+            1,
+            revision,
+            token.0,
+            &token.1,
+            false,
+        )
+        .unwrap());
+        let db = lock(&state.db).unwrap();
+        assert!(crate::store::messages(&db, 10).unwrap().is_empty());
+        assert!(talk::runtime::history(&db).unwrap().is_empty());
+        assert_eq!(
+            lock(&state.playback).unwrap().as_ref().unwrap().source,
+            "routine"
+        );
+    }
 
     #[test]
     fn moment_event_selects_only_its_current_visible_keeper_and_rechecks_widget_and_memory() {

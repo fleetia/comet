@@ -115,9 +115,19 @@ pub(crate) fn spawn(
     epoch: u64,
     future: impl Future<Output = ()> + Send + 'static,
 ) -> Result<(), String> {
+    spawn_checked(app, state, kind, epoch, future).map(|_| ())
+}
+
+pub(crate) fn spawn_checked(
+    app: tauri::AppHandle,
+    state: Arc<AppState>,
+    kind: Kind,
+    epoch: u64,
+    future: impl Future<Output = ()> + Send + 'static,
+) -> Result<bool, String> {
     let _action = lock(&state.action)?;
     if unavailable(&state) || state.epoch.load(std::sync::atomic::Ordering::SeqCst) != epoch {
-        return Ok(());
+        return Ok(false);
     }
     state.nlp.pause_indexing(true);
     lock(&state.tasks)?.active = Some((kind, epoch));
@@ -138,7 +148,7 @@ pub(crate) fn spawn(
         }
     });
     lock(&state.tasks)?.handles.push((kind, handle));
-    Ok(())
+    Ok(true)
 }
 
 fn complete(state: &AppState, kind: Kind, epoch: u64, panicked: bool) -> Result<bool, String> {

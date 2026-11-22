@@ -23,8 +23,6 @@ mod organizer;
 mod pack_stories;
 mod playback;
 mod resources;
-// 다음 조각에서 연결합니다.
-#[allow(dead_code)]
 mod routines;
 mod sidecar;
 #[doc(hidden)]

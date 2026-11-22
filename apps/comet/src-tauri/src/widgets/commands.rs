@@ -1998,7 +1998,7 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
     Ok(())
 }
 
-fn tomorrow_has_rain(values: &std::collections::BTreeMap<String, Value>) -> bool {
+pub(crate) fn tomorrow_has_rain(values: &std::collections::BTreeMap<String, Value>) -> bool {
     values.get("weather.tomorrowRainProb").and_then(Value::as_f64)
         .is_some_and(|probability| probability >= 60.0)
         && values.get("weather.tomorrowCode").and_then(Value::as_i64)

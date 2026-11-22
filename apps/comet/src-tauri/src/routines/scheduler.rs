@@ -20,11 +20,13 @@ pub struct TickResult {
     pub missed: Vec<Occurrence>,
 }
 
+#[derive(Clone)]
 struct ScheduledRoutine {
     routine: Routine,
     next: Option<Occurrence>,
 }
 
+#[derive(Clone)]
 pub struct Scheduler {
     revision: i64,
     timezone: Tz,
