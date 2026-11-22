@@ -438,7 +438,7 @@ pub(crate) fn present_line_with_record(
 
 pub(crate) fn routine_current(state: &AppState, db: &Connection) -> Result<bool, String> {
     let playback = lock(&state.routine_playback)?;
-    let Some((routine, user_id, _, generation)) = playback.as_ref() else {
+    let Some((routine, user_id, _, generation, _)) = playback.as_ref() else {
         return Ok(false);
     };
     Ok(routine.enabled

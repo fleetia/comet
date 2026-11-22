@@ -912,7 +912,7 @@ mod tests {
             routines::save(&db, &Routine { id: "r".into(), name: "아침".into(), time: "08:00".into(), repeat: Repeat::Daily, sources: vec![], enabled: true, created_at: at - 60_000 }).unwrap();
             routines::claim(&db, "r", date, at - 50_000).unwrap();
             routines::transition(&db, "r", date, ReceiptState::Claimed, ReceiptState::Read, at - 49_000, None).unwrap();
-            let report = Report { id: "report".into(), user_id: "user".into(), routine_id: "r".into(), scheduled_date: date, body: "본문".into(), bubble: "본문".into(), delivery: "summarized".into(), reason: Some("바깥 재료는 아직 읽을 수 없어요.".into()), is_read: false, created_at: at - 48_000 };
+            let report = Report { id: "report".into(), user_id: "user".into(), routine_id: "r".into(), routine_name: "아침".into(), scheduled_date: date, body: "본문".into(), bubble: "본문".into(), delivery: "summarized".into(), reason: Some("바깥 재료는 아직 읽을 수 없어요.".into()), is_read: false, created_at: at - 48_000 };
             routines::save_report_and_summarize(&db, &report, at - 48_000).unwrap();
             if displayed {
                 routines::mark_displayed(&db, "r", "user", date, at - 47_000).unwrap();

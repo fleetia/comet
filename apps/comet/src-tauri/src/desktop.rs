@@ -1869,8 +1869,10 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
                 crate::app::scene::mark_line_displayed(line, chrono::Utc::now().timestamp_millis());
             if first_display && line.source != "update" {
                 if line.source == "routine" && line.line_index == 0 {
-                    if let Some((routine, user_id, day, _)) = crate::app::lock(&state.routine_playback)?.as_ref() {
+                    if let Some((routine, user_id, day, _, _)) = crate::app::lock(&state.routine_playback)?.as_ref() {
+                        let before = crate::app::routine::notification_snapshot(&db).ok();
                         crate::routines::store::mark_displayed(&db, &routine.id, user_id, *day, line.display_started_at.unwrap_or_default())?;
+                        crate::app::routine::notify_changed(app, &db, &before);
                     }
                 }
                 crate::talk::host::mark_displayed_rain_idle(&state, &db, line)?;

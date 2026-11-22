@@ -11,8 +11,126 @@ use crate::{
     widgets,
 };
 use chrono::Utc;
+use rusqlite::Connection;
+use std::collections::BTreeMap;
 use std::sync::{atomic::Ordering, Arc};
+use tauri::Emitter;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+
+#[derive(PartialEq, Eq)]
+pub(crate) struct NotificationSnapshot {
+    reports: BTreeMap<String, String>,
+    unread_count: usize,
+    latest: BTreeMap<String, (chrono::NaiveDate, ReceiptState, Option<String>)>,
+}
+
+pub(crate) fn notification_snapshot(db: &Connection) -> Result<NotificationSnapshot, String> {
+    let user = crate::store::current_user(db)?;
+    let mut reports = BTreeMap::new();
+    let mut unread_count = 0;
+    if let Some(user) = user {
+        let mut query = db
+            .prepare("SELECT id,delivery,is_read FROM routine_reports WHERE user_id=?1")
+            .map_err(|error| error.to_string())?;
+        let rows = query
+            .query_map([user.id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, bool>(2)?,
+                ))
+            })
+            .map_err(|error| error.to_string())?;
+        for row in rows {
+            let (id, delivery, is_read) = row.map_err(|error| error.to_string())?;
+            reports.insert(id, delivery);
+            unread_count += usize::from(!is_read);
+        }
+    }
+    let mut latest = BTreeMap::new();
+    for routine in store::list(db)? {
+        if let Some(receipt) = store::latest_receipt(db, &routine.id)? {
+            latest.insert(
+                routine.id,
+                (receipt.scheduled_date, receipt.state, receipt.reason),
+            );
+        }
+    }
+    Ok(NotificationSnapshot {
+        reports,
+        unread_count,
+        latest,
+    })
+}
+
+impl NotificationSnapshot {
+    fn changed_from(&self, before: &Self) -> bool {
+        self.unread_count != before.unread_count
+            || self
+                .reports
+                .iter()
+                .any(|(id, delivery)| before.reports.get(id) != Some(delivery))
+            || self
+                .latest
+                .iter()
+                .any(|(id, receipt)| before.latest.get(id) != Some(receipt))
+    }
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RoutineChanged {
+    unread_count: usize,
+}
+
+pub(crate) fn notify_changed(
+    app: &tauri::AppHandle,
+    db: &Connection,
+    before: &Option<NotificationSnapshot>,
+) {
+    if let (Some(before), Ok(after)) = (before, notification_snapshot(db)) {
+        if after.changed_from(before) {
+            let _ = app.emit(
+                "routine-changed",
+                RoutineChanged {
+                    unread_count: after.unread_count,
+                },
+            );
+        }
+    }
+}
+
+struct ChangeNotification<'a> {
+    app: &'a tauri::AppHandle,
+    state: &'a AppState,
+    before: Option<NotificationSnapshot>,
+}
+
+impl<'a> ChangeNotification<'a> {
+    fn new(app: &'a tauri::AppHandle, state: &'a AppState) -> Self {
+        Self {
+            app,
+            state,
+            before: None,
+        }
+    }
+
+    fn capture(&mut self, db: &Connection) {
+        if self.before.is_none() {
+            self.before = notification_snapshot(db).ok();
+        }
+    }
+}
+
+impl Drop for ChangeNotification<'_> {
+    fn drop(&mut self) {
+        if self.before.is_some() {
+            if let Ok(db) = lock(&self.state.db) {
+                notify_changed(self.app, &db, &self.before);
+            }
+        }
+    }
+}
 
 struct Pending {
     claimed: Claimed,
@@ -20,6 +138,7 @@ struct Pending {
     bubble: String,
     retry: bool,
     ready_since: Option<i64>,
+    reset_generation: u64,
 }
 
 struct Finished {
@@ -54,6 +173,7 @@ pub(super) struct Runtime {
     tx: UnboundedSender<Finished>,
     rx: UnboundedReceiver<Finished>,
     playing: bool,
+    reset_generation: u64,
 }
 
 impl Runtime {
@@ -66,12 +186,46 @@ impl Runtime {
             tx,
             rx,
             playing: false,
+            reset_generation: 0,
         }
     }
 
+    #[cfg(test)]
     pub(super) fn observe(&mut self, state: &AppState) -> Result<(), String> {
+        self.observe_inner(state, None)
+    }
+
+    pub(super) fn observe_with_notifications(
+        &mut self,
+        app: &tauri::AppHandle,
+        state: &AppState,
+    ) -> Result<(), String> {
+        self.observe_inner(state, Some(app))
+    }
+
+    fn observe_inner(
+        &mut self,
+        state: &AppState,
+        app: Option<&tauri::AppHandle>,
+    ) -> Result<(), String> {
+        let _action = lock(&state.action)?;
+        let mut notification = app.map(|app| ChangeNotification::new(app, state));
+        let reset_generation = state.routine_reset_generation.load(Ordering::SeqCst);
+        if self.reset_generation != reset_generation {
+            self.pending.clear();
+            self.driver = None;
+            self.reset_generation = reset_generation;
+        }
+        if super::unavailable(state) {
+            self.pending.clear();
+            self.driver = None;
+            return Ok(());
+        }
         while let Ok(result) = self.rx.try_recv() {
             self.playing = false;
+            if result.pending.reset_generation != reset_generation {
+                continue;
+            }
             if result.input && result.delivered && !result.pending.retry {
                 self.pending.push(Pending {
                     retry: true,
@@ -80,6 +234,9 @@ impl Runtime {
                 });
             } else if !result.delivered {
                 let db = lock(&state.db)?;
+                if let Some(notification) = notification.as_mut() {
+                    notification.capture(&db);
+                }
                 if result.failed {
                     let _ = store::finish_failed_playback(
                         &db,
@@ -97,15 +254,25 @@ impl Runtime {
         let Some(timezone) = self.timezone.get()? else {
             return Ok(());
         };
-        let _action = lock(&state.action)?;
         let db = lock(&state.db)?;
         if self.driver.is_none() {
+            if let Some(notification) = notification.as_mut() {
+                notification.capture(&db);
+            }
             self.driver = Some(Driver::new(&db, now, timezone)?);
         }
         let Some(driver) = self.driver.as_mut() else {
             return Ok(());
         };
-        for claimed in driver.tick(&db, now, timezone)? {
+        let claimed = driver.tick_with_notification(&db, now, timezone, |db| {
+            if let Some(notification) = notification.as_mut() {
+                notification.capture(db);
+            }
+        })?;
+        state
+            .routine_observed_at
+            .store(now.timestamp_millis(), Ordering::SeqCst);
+        for claimed in claimed {
             let failure_id = claimed.routine.id.clone();
             let failure_day = claimed.occurrence.scheduled_date;
             let result = (|| -> Result<(), String> {
@@ -176,6 +343,7 @@ impl Runtime {
                     id: uuid::Uuid::new_v4().to_string(),
                     user_id: user.id.clone(),
                     routine_id: claimed.routine.id.clone(),
+                    routine_name: claimed.routine.name.clone(),
                     scheduled_date: claimed.occurrence.scheduled_date,
                     body: briefing.body,
                     bubble: briefing.bubble.clone(),
@@ -191,6 +359,7 @@ impl Runtime {
                     bubble: briefing.bubble,
                     retry: false,
                     ready_since: None,
+                    reset_generation,
                 };
                 if pending.bubble.is_empty() {
                     finish(&db, &pending, "전할 내용이 없어요.")?;
@@ -236,6 +405,7 @@ impl Runtime {
         }
         let now = Utc::now().timestamp_millis();
         let _action = lock(&state.action)?;
+        let mut notification = ChangeNotification::new(app, state);
         let db = lock(&state.db)?;
         let status = lock(&state.runtime)?.clone();
         let settings = crate::store::settings(&db)?;
@@ -318,6 +488,7 @@ impl Runtime {
                 Decision::Report(reason) => {
                     let pending = self.pending.remove(index);
                     if !pending.retry {
+                        notification.capture(&db);
                         let _ = finish(&db, &pending, reason);
                     }
                 }
@@ -348,6 +519,7 @@ impl Runtime {
             if i != chosen {
                 let pending = self.pending.remove(i);
                 if !pending.retry {
+                    notification.capture(&db);
                     let _ = finish(&db, &pending, "다른 루틴을 먼저 전했어요.");
                 }
             }
@@ -370,10 +542,12 @@ impl Runtime {
             pending.user_id.clone(),
             pending.claimed.occurrence.scheduled_date,
             pending.claimed.generation,
+            token.0,
         ));
         let input_before = state.last_input.load(Ordering::SeqCst);
         let pending = self.pending.remove(chosen);
         drop(db);
+        drop(notification);
         drop(_action);
         let guard = PlaybackGuard {
             pending: Some(pending),
@@ -537,6 +711,76 @@ mod tests {
     use std::sync::atomic::AtomicBool;
 
     #[test]
+    fn notifications_follow_current_user_reports_and_latest_occurrence_changes() {
+        let db = crate::store::open(std::path::Path::new(":memory:")).unwrap();
+        crate::store::set_user_name(&db, "사용자", 1).unwrap();
+        let user = crate::store::current_user(&db).unwrap().unwrap().id;
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 11, 21).unwrap();
+        let routine = Routine {
+            id: "r".into(),
+            name: "아침".into(),
+            time: "09:00".into(),
+            repeat: Repeat::Daily,
+            sources: vec![],
+            enabled: true,
+            created_at: 1,
+        };
+        store::save(&db, &routine).unwrap();
+        let initial = notification_snapshot(&db).unwrap();
+        assert!(!notification_snapshot(&db).unwrap().changed_from(&initial));
+
+        let report = Report {
+            id: "report".into(),
+            user_id: "other".into(),
+            routine_id: "other".into(),
+            routine_name: "다른 루틴".into(),
+            scheduled_date: day,
+            body: "본문".into(),
+            bubble: "말풍선".into(),
+            delivery: "reported".into(),
+            reason: None,
+            is_read: false,
+            created_at: 2,
+        };
+        store::save_report(&db, &report).unwrap();
+        assert!(!notification_snapshot(&db).unwrap().changed_from(&initial));
+        store::save_report(
+            &db,
+            &Report {
+                id: "mine".into(),
+                user_id: user.clone(),
+                ..report
+            },
+        )
+        .unwrap();
+        let created = notification_snapshot(&db).unwrap();
+        assert!(created.changed_from(&initial));
+        assert_eq!(created.unread_count, 1);
+        db.execute(
+            "UPDATE routine_reports SET delivery='delivered' WHERE id='mine'",
+            [],
+        )
+        .unwrap();
+        let delivered = notification_snapshot(&db).unwrap();
+        assert!(delivered.changed_from(&created));
+        store::mark_report_read(&db, &user, "mine").unwrap();
+        let read = notification_snapshot(&db).unwrap();
+        assert!(read.changed_from(&delivered));
+        assert_eq!(read.unread_count, 0);
+        store::delete_report(&db, &user, "mine").unwrap();
+        let deleted_read = notification_snapshot(&db).unwrap();
+        assert!(!deleted_read.changed_from(&read));
+        store::mark_missed(&db, "r", day, 3, "예정 시각이 지났어요").unwrap();
+        let missed = notification_snapshot(&db).unwrap();
+        assert!(missed.changed_from(&deleted_read));
+        assert!(!notification_snapshot(&db).unwrap().changed_from(&missed));
+        assert_eq!(
+            serde_json::to_value(RoutineChanged { unread_count: 1 }).unwrap(),
+            serde_json::json!({"unreadCount": 1})
+        );
+    }
+
+    #[test]
     fn empty_briefing_closes_receipt_without_saving_a_report() {
         use crate::routines::store::{BuiltinSource, Source};
 
@@ -617,7 +861,33 @@ mod tests {
             bubble: "일정이 있어요.".into(),
             retry: false,
             ready_since: None,
+            reset_generation: 0,
         }
+    }
+
+    #[test]
+    fn reset_discards_pending_and_late_playback_completion() {
+        let state = super::super::tests::state();
+        let mut runtime = Runtime::new();
+        runtime.pending.push(pending());
+        state.update_installing.store(true, Ordering::SeqCst);
+        state
+            .routine_reset_generation
+            .fetch_add(1, Ordering::SeqCst);
+        runtime
+            .tx
+            .send(Finished {
+                pending: pending(),
+                input: true,
+                delivered: true,
+                failed: false,
+            })
+            .unwrap_or_else(|_| panic!("receiver closed"));
+        runtime.observe(&state).unwrap();
+        assert!(!runtime.has_pending());
+        state.update_installing.store(false, Ordering::SeqCst);
+        runtime.observe(&state).unwrap();
+        assert!(!runtime.has_pending());
     }
 
     #[test]
@@ -765,6 +1035,7 @@ mod tests {
             id: "report".into(),
             user_id: "user".into(),
             routine_id: "r".into(),
+            routine_name: "아침".into(),
             scheduled_date: day,
             body: "일정이 있어요.".into(),
             bubble: "일정이 있어요.".into(),

@@ -197,6 +197,18 @@ pub fn run() {
         .setup(setup)
         .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
+            super::routine_commands::list_routines,
+            super::routine_commands::save_routine,
+            super::routine_commands::delete_routine,
+            super::routine_commands::set_routine_enabled,
+            super::routine_commands::get_routine_bubble_enabled,
+            super::routine_commands::set_routine_bubble_enabled,
+            super::routine_commands::list_routine_reports,
+            super::routine_commands::get_routine_report,
+            super::routine_commands::mark_routine_report_read,
+            super::routine_commands::delete_routine_report,
+            super::routine_commands::clear_routine_reports,
+            super::routine_commands::get_unread_routine_report_count,
             crate::guide::open_guide,
             crate::guide::take_guide_open_error,
             crate::analytics::get_analytics_context,
@@ -520,6 +532,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .or_else(|_| story::catalog())
         .map_err(std::io::Error::other)?;
     let db = open_session(&app_data.join(DATABASE_FILE)).map_err(std::io::Error::other)?;
+    crate::routines::store::interrupt_incomplete(&db, chrono::Utc::now().timestamp_millis())
+        .map_err(std::io::Error::other)?;
+    crate::routines::store::prune_all_reports(&db, chrono::Utc::now().timestamp_millis())
+        .map_err(std::io::Error::other)?;
     let mood_event_cursor = widgets::mood::latest_event(&db).map_err(std::io::Error::other)?;
     let state = Arc::new(AppState {
         organizer: crate::organizer::runtime::Runtime::default(),
@@ -555,6 +571,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         playback_link_gate: tokio::sync::Mutex::new(()),
         widget_playback: Mutex::new(None),
         routine_playback: Mutex::new(None),
+        routine_reset_generation: AtomicU64::new(0),
+        routine_observed_at: AtomicI64::new(0),
         talk: Mutex::new(talk),
         talk_playback: Mutex::new(None),
         talk_turn: AtomicBool::new(true),
@@ -1118,6 +1136,16 @@ pub(crate) fn prepare_exit(state: &AppState) -> Result<(), String> {
 
 pub(crate) fn prepare_exit_locked(state: &AppState) -> Result<(), String> {
     flush_positions(state, true)?;
+    let observed_at = state.routine_observed_at.load(Ordering::SeqCst);
+    if observed_at != 0 {
+        let db = lock(&state.db)?;
+        if let Err(error) = crate::routines::store::observe_at(&db, observed_at) {
+            crate::report_error!(
+                "routine_observation",
+                "루틴 관측 시각을 저장하지 못했어요: {error}"
+            );
+        }
+    }
     interrupt(state, false)?;
     if let Some(cancel) = lock(&state.download_cancel)?.as_ref() {
         cancel.store(true, Ordering::SeqCst);

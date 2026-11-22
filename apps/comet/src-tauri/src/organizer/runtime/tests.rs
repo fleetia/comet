@@ -28,6 +28,34 @@ fn source_locators(db: &Connection, user: &str) -> Vec<String> {
 }
 
 #[test]
+fn comet_collection_excludes_routine_reports() {
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let user = store::active_user_id(&db).unwrap();
+    records::save_settings(
+        &db,
+        &user,
+        &records::OrganizerSettings {
+            comet_enabled: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    input(&db, "included", "user", "complete");
+    let secret = crate::routines::save_private_test_report(&db);
+
+    collect_comet(&db, &user).unwrap();
+
+    let sources = records::search(&db, &user, secret, 20).unwrap();
+    assert!(sources.is_empty());
+    assert_eq!(source_locators(&db, &user), ["included"]);
+    let content: String = db.query_row(
+        "SELECT group_concat(content, ' ') FROM organizer_sources WHERE user_id=?1 AND active=1",
+        [&user], |row| row.get(0),
+    ).unwrap();
+    assert!(!content.contains(secret));
+}
+
+#[test]
 fn activity_cancels_background_and_scans_but_preserves_direct_conversation() {
     let state = app::tests::state();
     let conversation = Arc::new(AtomicBool::new(false));

@@ -57,15 +57,30 @@ CREATE TRIGGER IF NOT EXISTS routine_delete_generation AFTER DELETE ON routines 
 CREATE TABLE IF NOT EXISTS routine_receipts(routine_id TEXT NOT NULL REFERENCES routines(id) ON DELETE CASCADE, scheduled_date TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL, reason TEXT, claimed_at INTEGER, updated_at INTEGER NOT NULL, PRIMARY KEY(routine_id,scheduled_date));
 CREATE TABLE IF NOT EXISTS routine_reports(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, routine_id TEXT NOT NULL, scheduled_date TEXT NOT NULL, body TEXT NOT NULL, bubble TEXT NOT NULL, delivery TEXT NOT NULL, reason TEXT, is_read INTEGER NOT NULL, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS routine_reports_user_created ON routine_reports(user_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS routine_observation(slot INTEGER PRIMARY KEY CHECK(slot=1), observed_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS routine_options(slot INTEGER PRIMARY KEY CHECK(slot=1), bubble_enabled INTEGER NOT NULL);
 INSERT OR IGNORE INTO routine_options VALUES(1,1);").map_err(err)?;
     let tx = db.unchecked_transaction().map_err(err)?;
     let has_index: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name='routine_reports_occurrence')", [], |row| row.get(0)).map_err(err)?;
     if !has_index {
         tx.execute_batch("CREATE TABLE IF NOT EXISTS routine_report_duplicates AS SELECT * FROM routine_reports WHERE 0;
-INSERT INTO routine_report_duplicates SELECT * FROM routine_reports WHERE rowid NOT IN (SELECT MIN(rowid) FROM routine_reports GROUP BY user_id,routine_id,scheduled_date);
+INSERT INTO routine_report_duplicates(id,user_id,routine_id,scheduled_date,body,bubble,delivery,reason,is_read,created_at) SELECT id,user_id,routine_id,scheduled_date,body,bubble,delivery,reason,is_read,created_at FROM routine_reports WHERE rowid NOT IN (SELECT MIN(rowid) FROM routine_reports GROUP BY user_id,routine_id,scheduled_date);
 DELETE FROM routine_reports WHERE rowid NOT IN (SELECT MIN(rowid) FROM routine_reports GROUP BY user_id,routine_id,scheduled_date);
 CREATE UNIQUE INDEX routine_reports_occurrence ON routine_reports(user_id,routine_id,scheduled_date);").map_err(err)?;
+    }
+    let has_routine_name: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('routine_reports') WHERE name='routine_name')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(err)?;
+    if !has_routine_name {
+        tx.execute(
+            "ALTER TABLE routine_reports ADD COLUMN routine_name TEXT NOT NULL DEFAULT ''",
+            [],
+        )
+        .map_err(err)?;
     }
     tx.commit().map_err(err)
 }
@@ -163,7 +178,7 @@ pub fn save(db: &Connection, routine: &Routine) -> Result<()> {
     if !exists && count >= 20 {
         return Err("루틴은 20개까지 만들 수 있어요.".into());
     }
-    tx.execute("INSERT INTO routines(id,name,time,repeat,sources,enabled,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(id) DO UPDATE SET name=excluded.name,time=excluded.time,repeat=excluded.repeat,sources=excluded.sources,enabled=excluded.enabled,created_at=excluded.created_at", params![routine.id, routine.name, routine.time, serde_json::to_string(&routine.repeat).map_err(err)?, serde_json::to_string(&routine.sources).map_err(err)?, routine.enabled, routine.created_at]).map_err(err)?;
+    tx.execute("INSERT INTO routines(id,name,time,repeat,sources,enabled,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(id) DO UPDATE SET name=excluded.name,time=excluded.time,repeat=excluded.repeat,sources=excluded.sources,enabled=excluded.enabled", params![routine.id, routine.name, routine.time, serde_json::to_string(&routine.repeat).map_err(err)?, serde_json::to_string(&routine.sources).map_err(err)?, routine.enabled, routine.created_at]).map_err(err)?;
     tx.commit().map_err(err)
 }
 
@@ -200,6 +215,7 @@ pub fn list(db: &Connection) -> Result<Vec<Routine>> {
 #[allow(dead_code)]
 pub fn delete(db: &Connection, id: &str) -> Result<()> {
     let tx = db.unchecked_transaction().map_err(err)?;
+    tx.execute("UPDATE routine_reports SET delivery='reported',reason=CASE WHEN reason IS NULL OR reason='' THEN '루틴이 삭제되어 보고함으로 보냈어요.' ELSE reason || ' ' || '루틴이 삭제되어 보고함으로 보냈어요.' END WHERE routine_id=?1 AND delivery='summarized' AND EXISTS (SELECT 1 FROM routine_receipts WHERE routine_receipts.routine_id=routine_reports.routine_id AND routine_receipts.scheduled_date=routine_reports.scheduled_date AND routine_receipts.state='summarized')", [id]).map_err(err)?;
     tx.execute("DELETE FROM routine_receipts WHERE routine_id=?1", [id])
         .map_err(err)?;
     tx.execute("DELETE FROM routines WHERE id=?1", [id])
@@ -347,6 +363,7 @@ pub struct Report {
     pub id: String,
     pub user_id: String,
     pub routine_id: String,
+    pub routine_name: String,
     pub scheduled_date: NaiveDate,
     pub body: String,
     pub bubble: String,
@@ -366,7 +383,7 @@ pub fn save_report(db: &Connection, report: &Report) -> Result<()> {
     if report.user_id.trim().is_empty() {
         return Err("사용자를 확인해 주세요.".into());
     }
-    db.execute("INSERT INTO routine_reports(id,user_id,routine_id,scheduled_date,body,bubble,delivery,reason,is_read,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)", params![report.id,report.user_id,report.routine_id,report.scheduled_date.to_string(),truncate_body(&report.body),report.bubble,report.delivery,report.reason,report.is_read,report.created_at]).map_err(err)?;
+    db.execute("INSERT INTO routine_reports(id,user_id,routine_id,routine_name,scheduled_date,body,bubble,delivery,reason,is_read,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)", params![report.id,report.user_id,report.routine_id,report.routine_name,report.scheduled_date.to_string(),truncate_body(&report.body),report.bubble,report.delivery,report.reason,report.is_read,report.created_at]).map_err(err)?;
     Ok(())
 }
 
@@ -382,6 +399,7 @@ pub fn save_report_and_summarize(db: &Connection, report: &Report, now: i64) -> 
         now,
         report.reason.as_deref(),
     )?;
+    prune_reports_inner(&tx, &report.user_id, now)?;
     tx.commit().map_err(err)
 }
 
@@ -527,7 +545,7 @@ pub(crate) fn spoken_on(db: &Connection, day: NaiveDate) -> Result<bool> {
 }
 #[allow(dead_code)]
 pub fn reports(db: &Connection, user_id: &str) -> Result<Vec<Report>> {
-    let mut q = db.prepare("SELECT id,user_id,routine_id,scheduled_date,body,bubble,delivery,reason,is_read,created_at FROM routine_reports WHERE user_id=?1 ORDER BY created_at DESC, rowid DESC").map_err(err)?;
+    let mut q = db.prepare("SELECT id,user_id,routine_id,scheduled_date,body,bubble,delivery,reason,is_read,created_at,routine_name FROM routine_reports WHERE user_id=?1 ORDER BY created_at DESC, rowid DESC").map_err(err)?;
     let rows = q
         .query_map([user_id], |r| {
             Ok((
@@ -541,16 +559,29 @@ pub fn reports(db: &Connection, user_id: &str) -> Result<Vec<Report>> {
                 r.get(7)?,
                 r.get(8)?,
                 r.get(9)?,
+                r.get(10)?,
             ))
         })
         .map_err(err)?;
     rows.map(|r| {
-        let (id, user_id, routine_id, day, body, bubble, delivery, reason, is_read, created_at) =
-            r.map_err(err)?;
+        let (
+            id,
+            user_id,
+            routine_id,
+            day,
+            body,
+            bubble,
+            delivery,
+            reason,
+            is_read,
+            created_at,
+            routine_name,
+        ) = r.map_err(err)?;
         Ok(Report {
             id,
             user_id,
             routine_id,
+            routine_name,
             scheduled_date: NaiveDate::parse_from_str(&day, "%Y-%m-%d").map_err(err)?,
             body,
             bubble,
@@ -562,16 +593,53 @@ pub fn reports(db: &Connection, user_id: &str) -> Result<Vec<Report>> {
     })
     .collect()
 }
-#[allow(dead_code)]
-pub fn prune_reports(db: &Connection, user_id: &str, now: i64) -> Result<()> {
-    let tx = db.unchecked_transaction().map_err(err)?;
-    tx.execute(
-        "DELETE FROM routine_reports WHERE user_id=?1 AND created_at <= ?2",
+pub fn last_observation(db: &Connection) -> Result<Option<i64>> {
+    db.query_row(
+        "SELECT observed_at FROM routine_observation WHERE slot=1",
+        [],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(err)
+}
+
+pub fn observe_at(db: &Connection, now: i64) -> Result<()> {
+    db.execute("INSERT INTO routine_observation(slot,observed_at) VALUES(1,?1) ON CONFLICT(slot) DO UPDATE SET observed_at=excluded.observed_at", [now]).map_err(err)?;
+    Ok(())
+}
+
+fn prune_reports_inner(db: &Connection, user_id: &str, now: i64) -> Result<()> {
+    let open = "NOT EXISTS (SELECT 1 FROM routine_receipts WHERE routine_receipts.routine_id=routine_reports.routine_id AND routine_receipts.scheduled_date=routine_reports.scheduled_date AND routine_receipts.state='summarized')";
+    db.execute(
+        &format!("DELETE FROM routine_reports WHERE user_id=?1 AND created_at <= ?2 AND {open}"),
         params![user_id, now.saturating_sub(90_i64 * 24 * 60 * 60 * 1000)],
     )
     .map_err(err)?;
-    tx.execute("DELETE FROM routine_reports WHERE user_id=?1 AND rowid NOT IN (SELECT rowid FROM routine_reports WHERE user_id=?1 ORDER BY created_at DESC,rowid DESC LIMIT 300)", [user_id]).map_err(err)?;
+    db.execute(&format!("DELETE FROM routine_reports WHERE user_id=?1 AND rowid NOT IN (SELECT rowid FROM routine_reports WHERE user_id=?1 ORDER BY created_at DESC,rowid DESC LIMIT 300) AND {open}"), [user_id]).map_err(err)?;
+    Ok(())
+}
+
+pub fn prune_reports(db: &Connection, user_id: &str, now: i64) -> Result<()> {
+    let tx = db.unchecked_transaction().map_err(err)?;
+    prune_reports_inner(&tx, user_id, now)?;
     tx.commit().map_err(err)
+}
+
+pub fn prune_all_reports(db: &Connection, now: i64) -> Result<()> {
+    let users = {
+        let mut query = db
+            .prepare("SELECT DISTINCT user_id FROM routine_reports")
+            .map_err(err)?;
+        let rows = query
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(err)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(err)?
+    };
+    for user in users {
+        prune_reports(db, &user, now)?;
+    }
+    Ok(())
 }
 
 #[allow(dead_code)]
@@ -582,6 +650,29 @@ pub fn mark_report_read(db: &Connection, user_id: &str, id: &str) -> Result<bool
     )
     .map(|n| n == 1)
     .map_err(err)
+}
+
+pub fn delete_report(db: &Connection, user_id: &str, id: &str) -> Result<bool> {
+    let tx = db.unchecked_transaction().map_err(err)?;
+    let is_open: Option<bool> = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM routine_receipts WHERE routine_receipts.routine_id=routine_reports.routine_id AND routine_receipts.scheduled_date=routine_reports.scheduled_date AND routine_receipts.state='summarized') FROM routine_reports WHERE user_id=?1 AND id=?2",
+        params![user_id, id], |row| row.get(0),
+    ).optional().map_err(err)?;
+    if is_open == Some(true) {
+        return Err("아직 진행 중인 루틴의 보고는 삭제할 수 없어요.".into());
+    }
+    let deleted = tx
+        .execute(
+            "DELETE FROM routine_reports WHERE user_id=?1 AND id=?2",
+            params![user_id, id],
+        )
+        .map_err(err)?;
+    tx.commit().map_err(err)?;
+    Ok(deleted == 1)
+}
+
+pub fn clear_reports(db: &Connection, user_id: &str) -> Result<usize> {
+    db.execute("DELETE FROM routine_reports WHERE user_id=?1 AND NOT EXISTS (SELECT 1 FROM routine_receipts WHERE routine_receipts.routine_id=routine_reports.routine_id AND routine_receipts.scheduled_date=routine_reports.scheduled_date AND routine_receipts.state='summarized')", [user_id]).map_err(err)
 }
 
 #[cfg(test)]
@@ -613,6 +704,7 @@ mod tests {
             id: id.into(),
             user_id: user.into(),
             routine_id: id.into(),
+            routine_name: "아침".into(),
             scheduled_date: day(),
             body: "본문".into(),
             bubble: "안녕".into(),
@@ -888,16 +980,66 @@ mod tests {
     }
 
     #[test]
+    fn pruning_preserves_open_report_and_deletion_closes_it() {
+        let db = db();
+        let now = 100 * 24 * 60 * 60 * 1000_i64;
+        let day = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+        let mut routine = routine("one");
+        routine.created_at = 0;
+        save(&db, &routine).unwrap();
+        claim(&db, "one", day, 1).unwrap();
+        transition(
+            &db,
+            "one",
+            day,
+            ReceiptState::Claimed,
+            ReceiptState::Read,
+            2,
+            None,
+        )
+        .unwrap();
+        let mut open = report("open", "a", 0);
+        open.routine_id = "one".into();
+        open.scheduled_date = day;
+        open.delivery = "summarized".into();
+        save_report_and_summarize(&db, &open, 3).unwrap();
+        for index in 0..301 {
+            save_report(&db, &report(&format!("closed-{index}"), "a", now + index)).unwrap();
+        }
+        prune_reports(&db, "a", now).unwrap();
+        assert!(reports(&db, "a")
+            .unwrap()
+            .iter()
+            .any(|item| item.id == "open"));
+        delete(&db, "one").unwrap();
+        let retained = reports(&db, "a").unwrap();
+        let closed = retained.iter().find(|item| item.id == "open").unwrap();
+        assert_eq!(closed.delivery, "reported");
+        assert!(closed
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("루틴이 삭제되어"));
+        assert!(latest_receipt(&db, "one").unwrap().is_none());
+        prune_reports(&db, "a", now).unwrap();
+        assert!(!reports(&db, "a")
+            .unwrap()
+            .iter()
+            .any(|item| item.id == "open"));
+    }
+
+    #[test]
     fn report_occurrences_are_unique_and_existing_duplicates_are_preserved() {
         let db = Connection::open_in_memory().unwrap();
         db.execute_batch("CREATE TABLE routine_reports(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, routine_id TEXT NOT NULL, scheduled_date TEXT NOT NULL, body TEXT NOT NULL, bubble TEXT NOT NULL, delivery TEXT NOT NULL, reason TEXT, is_read INTEGER NOT NULL, created_at INTEGER NOT NULL);").unwrap();
-        save_report(&db, &report("first", "a", 1)).unwrap();
+        db.execute("INSERT INTO routine_reports VALUES('first','a','first','2026-11-21','본문','안녕','reported',NULL,0,1)", []).unwrap();
         let mut duplicate = report("second", "a", 2);
         duplicate.routine_id = "first".into();
-        save_report(&db, &duplicate).unwrap();
+        db.execute("INSERT INTO routine_reports VALUES('second','a','first','2026-11-21','본문','안녕','reported',NULL,0,2)", []).unwrap();
         initialize(&db).unwrap();
         initialize(&db).unwrap();
         assert_eq!(reports(&db, "a").unwrap().len(), 1);
+        assert_eq!(reports(&db, "a").unwrap()[0].routine_name, "");
         let archived: i64 = db
             .query_row("SELECT count(*) FROM routine_report_duplicates", [], |r| {
                 r.get(0)

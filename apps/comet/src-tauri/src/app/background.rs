@@ -37,7 +37,7 @@ pub(crate) async fn background_loop(
         if state.stopping.load(Ordering::SeqCst) {
             break;
         }
-        if let Err(error) = routines.observe(&state) {
+        if let Err(error) = routines.observe_with_notifications(&app, &state) {
             crate::report_error!("routine_tick", "루틴을 확인하지 못했어요: {error}");
         }
         if state.update_installing.load(Ordering::SeqCst) {

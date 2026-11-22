@@ -1093,6 +1093,7 @@ mod tests {
             let now = chrono::Utc::now().timestamp_millis();
             crate::store::set_user_name(&db, "친구", now).unwrap();
             let user = crate::store::current_user(&db).unwrap().unwrap();
+            let secret = crate::routines::save_private_test_report(&db);
             let routine = crate::routines::store::Routine {
                 id: "test-routine".into(), name: "아침".into(), time: "09:00".into(),
                 repeat: crate::routines::store::Repeat::Daily, sources: vec![], enabled: true,
@@ -1100,11 +1101,25 @@ mod tests {
             };
             crate::routines::store::save(&db, &routine).unwrap();
             let generation = crate::routines::store::generation(&db, &routine.id).unwrap();
-            *lock(&state.routine_playback).unwrap() = Some((routine, user.id, chrono::Local::now().date_naive(), generation));
-            let lines = prepare_routine(&state, &db, "일정이 있어요.\n할 일이 있어요.")
+            *lock(&state.routine_playback).unwrap() = Some((
+                routine,
+                user.id,
+                chrono::Local::now().date_naive(),
+                generation,
+                token.0,
+            ));
+            let lines = prepare_routine(&state, &db, secret).unwrap().unwrap();
+            assert_eq!(lines[0].text, secret);
+            let next_lines = prepare_routine(&state, &db, "다른 회차 내용")
                 .unwrap()
                 .unwrap();
-            assert_eq!(lines[0].text, "일정이 있어요.\n할 일이 있어요.");
+            assert_eq!(next_lines[0].text, "다른 회차 내용");
+            let ordinary_context = talk::context::build(&db, None, now, 1).unwrap();
+            assert!(ordinary_context
+                .values
+                .get("routine.body")
+                .is_none_or(serde_json::Value::is_null));
+            assert!(!format!("{:?}", ordinary_context.values).contains(secret));
             assert!(prepare_routine(&state, &db, &"가".repeat(501))
                 .unwrap()
                 .is_none());
@@ -1125,6 +1140,27 @@ mod tests {
         .unwrap());
         let db = lock(&state.db).unwrap();
         assert!(crate::store::messages(&db, 10).unwrap().is_empty());
+        assert!(crate::store::context_messages(&db, 10).unwrap().is_empty());
+        let active = crate::characters::active_ids(&db).unwrap();
+        let memories = crate::store::memories(&db).unwrap();
+        assert!(!serde_json::to_string(&memories)
+            .unwrap()
+            .contains("private_routine_report_body_56319"));
+        assert!(
+            !serde_json::to_string(&crate::store::analysis_memories(&db, &[]).unwrap())
+                .unwrap()
+                .contains("private_routine_report_body_56319")
+        );
+        let hits = crate::store::search_memories_for(
+            &db,
+            "private_routine_report_body_56319",
+            &[],
+            None,
+            &active,
+            chrono::Utc::now().timestamp_millis(),
+        )
+        .unwrap();
+        assert!(!format!("{hits:?}").contains("private_routine_report_body_56319"));
         assert!(talk::runtime::history(&db).unwrap().is_empty());
         assert_eq!(
             lock(&state.playback).unwrap().as_ref().unwrap().source,
