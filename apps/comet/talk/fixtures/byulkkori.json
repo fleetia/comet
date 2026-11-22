@@ -1,6 +1,19 @@
 {
   "cases": [
     {
+      "id": "routine.briefing",
+      "path": "situations/routine.talk",
+      "trigger": "routine.briefing",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "routine.body": "오늘 일정이 있어요."
+      },
+      "expectedScene": "routine.briefing"
+    },
+    {
       "id": "recall.year",
       "path": "situations/recall.talk",
       "trigger": "diary.recall",

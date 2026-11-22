@@ -12,6 +12,8 @@ pub(crate) mod lifecycle;
 pub(crate) mod presence;
 pub(crate) mod quiet_hours;
 mod reset;
+pub(crate) mod routine;
+mod routine_commands;
 pub(crate) mod scene;
 pub(crate) mod scene_events;
 pub(crate) mod scene_resume;
@@ -37,6 +39,8 @@ use std::{
     time::Instant,
 };
 use tauri::Emitter;
+
+type RoutinePlayback = (crate::routines::store::Routine, String, chrono::NaiveDate, i64, u64);
 
 pub(crate) struct AppState {
     pub(crate) organizer: crate::organizer::runtime::Runtime,
@@ -72,6 +76,9 @@ pub(crate) struct AppState {
     pub(crate) widget_epoch: AtomicU64,
     pub(crate) playback_link_gate: tokio::sync::Mutex<()>,
     pub(crate) widget_playback: Mutex<Option<widgets::WidgetEvent>>,
+    pub(crate) routine_playback: Mutex<Option<RoutinePlayback>>,
+    pub(crate) routine_reset_generation: AtomicU64,
+    pub(crate) routine_observed_at: AtomicI64,
     pub(crate) talk: Mutex<talk::runtime::ActiveProgram>,
     pub(crate) talk_playback: Mutex<Option<talk::host::PreparedTalk>>,
     pub(crate) talk_turn: AtomicBool,

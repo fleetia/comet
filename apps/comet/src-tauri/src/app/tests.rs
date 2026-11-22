@@ -106,6 +106,9 @@ pub(crate) fn state() -> AppState {
         widget_epoch: AtomicU64::new(0),
         playback_link_gate: tokio::sync::Mutex::new(()),
         widget_playback: Mutex::new(None),
+        routine_playback: Mutex::new(None),
+        routine_reset_generation: AtomicU64::new(0),
+        routine_observed_at: AtomicI64::new(0),
         talk: Mutex::new(talk::runtime::ActiveProgram::default()),
         talk_playback: Mutex::new(None),
         talk_turn: AtomicBool::new(true),
@@ -3213,6 +3216,25 @@ fn exit_preparation_cancels_owned_work_and_flushes_before_shutdown() {
     prepare_exit(&state).unwrap();
     assert!(lock(&state.action).is_ok());
     assert!(lock(&state.positions).unwrap().is_empty());
+}
+
+#[test]
+fn exit_continues_when_routine_observation_fails() {
+    let state = state();
+    let token = {
+        let _action = lock(&state.action).unwrap();
+        interrupt(&state, false).unwrap()
+    };
+    state.routine_observed_at.store(123, Ordering::SeqCst);
+    lock(&state.db).unwrap().execute_batch(
+        "CREATE TRIGGER fail_observation BEFORE INSERT ON routine_observation BEGIN SELECT RAISE(FAIL, 'observation failed'); END;",
+    ).unwrap();
+
+    prepare_exit(&state).unwrap();
+
+    assert!(state.stopping.load(Ordering::SeqCst));
+    assert!(lock(&state.runtime).unwrap().hidden);
+    assert!(token.1.load(Ordering::SeqCst));
 }
 #[tokio::test]
 async fn shutdown_and_update_save_note_drafts_before_becoming_unavailable() {

@@ -261,7 +261,7 @@ fn query_day(value: &str) -> Result<String> {
         .map_err(|_| "조회할 날짜 범위를 확인해 주세요.".into())
 }
 
-fn matches_dates(item: &Value, from: Option<&str>, through: Option<&str>) -> bool {
+pub(crate) fn matches_dates(item: &Value, from: Option<&str>, through: Option<&str>) -> bool {
     if from.is_none() && through.is_none() {
         return true;
     }

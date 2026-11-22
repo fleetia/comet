@@ -319,6 +319,30 @@ mod tests {
         store::open(std::path::Path::new(":memory:")).unwrap()
     }
 
+    #[test]
+    fn external_catalog_context_and_queries_exclude_routine_reports() {
+        let db = database();
+        let secret = crate::routines::save_private_test_report(&db);
+        let reads: Vec<_> = catalog(&db)
+            .unwrap()
+            .into_iter()
+            .filter(|item| item.is_read())
+            .collect();
+        assert!(!reads.is_empty());
+        for action in reads {
+            spec(&db, &action.id).unwrap();
+            assert!(!action.to_json().to_string().contains(secret));
+            let context = actions::entities_for(&db, &action.id, "").unwrap();
+            let result = actions::query_registry(&db, &action.id, &json!({})).unwrap();
+            assert!(
+                !context.to_string().contains(secret),
+                "{} context",
+                action.id
+            );
+            assert!(!result.to_string().contains(secret), "{} result", action.id);
+        }
+    }
+
     fn execute(
         db: &Connection,
         id: &str,

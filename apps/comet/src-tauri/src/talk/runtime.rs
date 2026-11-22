@@ -165,8 +165,57 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
     if let Err(error) = add_battery_dialogue(&root) {
         crate::report_error!("talk_migration_battery", ".talk battery dialogue: {error}");
     }
+    if let Err(error) = add_routine_dialogue(&root) {
+        crate::report_error!("talk_migration_routine", ".talk routine dialogue: {error}");
+    }
     migrate_encryption(&root);
     Ok(root)
+}
+
+fn add_routine_dialogue(root: &Path) -> Result<(), String> {
+    let marker = app_data_of(root)?.join(".talk-byulkkori-routine-v1");
+    if marker.try_exists().map_err(|error| error.to_string())? || !root.exists() {
+        return Ok(());
+    }
+    let pack = defaults::pack(defaults::BYULKKORI).ok_or("기본 대본을 찾지 못했어요.")?;
+    let target = root.join(PACKS_DIRECTORY).join(pack.id);
+    let entry = target.join("index.talk");
+    let original = match fs::read(&entry) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.to_string()),
+    };
+    let previous = super::encryption::decode(include_bytes!("../../content/previous-byulkkori-index-routine.talk"))?;
+    if let Some(original) = original {
+        if super::encryption::decode(&original)? == previous {
+            let scene = target.join("situations/routine.talk");
+            let bundled = |name: &str| pack.files.iter().find(|(path, _)| *path == name)
+                .map(|(_, source)| *source).ok_or("기본 대본을 찾지 못했어요.");
+            let source = bundled("situations/routine.talk")?;
+            let missing = match fs::symlink_metadata(&scene) {
+                Ok(metadata) if metadata.file_type().is_file() => {
+                    let existing = super::encryption::decode(&fs::read(&scene).map_err(|error| error.to_string())?)?;
+                    if existing != super::encryption::decode(source.as_bytes())? {
+                        return super::files::atomic_write(&marker, b"1\n");
+                    }
+                    false
+                }
+                Ok(_) => return super::files::atomic_write(&marker, b"1\n"),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+                Err(error) => return Err(error.to_string()),
+            };
+            if missing { super::files::atomic_write(&scene, source.as_bytes())?; }
+            if fs::read(&entry).map_err(|error| error.to_string())? != original {
+                if missing { let _ = fs::remove_file(&scene); }
+                return Err("기본 대본을 갱신하는 동안 파일이 바뀌었어요.".into());
+            }
+            if let Err(error) = super::files::atomic_write(&entry, bundled("index.talk")?.as_bytes()) {
+                if missing { let _ = fs::remove_file(&scene); }
+                return Err(error);
+            }
+        }
+    }
+    super::files::atomic_write(&marker, b"1\n")
 }
 
 fn add_activity_dialogue(root: &Path) -> Result<(), String> {
@@ -290,7 +339,7 @@ fn add_birthday_dialogue(root: &Path) -> Result<(), String> {
             .map(|(_, source)| *source)
             .ok_or("기본 대본을 찾지 못했어요.")
     };
-    let new_index = super::encryption::decode(bundled("index.talk")?.as_bytes())?;
+    let new_index = super::encryption::decode(include_bytes!("../../content/previous-byulkkori-index-routine.talk"))?;
     let previous = new_index.replace("import \"./situations/birthday.talk\"\n", "");
     let current = match fs::read(&entry) {
         Ok(bytes) => Some(super::encryption::decode(&bytes)?),
@@ -315,7 +364,7 @@ fn add_birthday_dialogue(root: &Path) -> Result<(), String> {
         if missing {
             super::files::atomic_write(&path, bundled("situations/birthday.talk")?.as_bytes())?;
         }
-        if let Err(error) = super::files::atomic_write(&entry, bundled("index.talk")?.as_bytes()) {
+        if let Err(error) = super::files::atomic_write(&entry, include_bytes!("../../content/previous-byulkkori-index-routine.talk")) {
             if missing { let _ = fs::remove_file(&path); }
             return Err(error);
         }
@@ -465,7 +514,7 @@ fn add_recall_dialogue(root: &Path) -> Result<(), String> {
         if missing {
             super::files::atomic_write(&scene, bundled_scene.as_bytes())?;
         }
-        let full_index = super::encryption::decode(bundled("index.talk")?.as_bytes())?;
+        let full_index = super::encryption::decode(include_bytes!("../../content/previous-byulkkori-index-routine.talk"))?;
         let recall_index = full_index.replace("import \"./situations/birthday.talk\"\n", "");
         if let Err(error) = super::files::atomic_write(&entry, &super::encryption::encode(&recall_index)?) {
             if missing {
@@ -500,9 +549,10 @@ fn add_battery_dialogue(root: &Path) -> Result<(), String> {
         Err(error) => Err(error.to_string()),
     };
     let index = read_optional(&entry)?;
-    let default_index = super::encryption::decode(bundled("index.talk")?.as_bytes())?;
+    let default_index = super::encryption::decode(include_bytes!("../../content/previous-byulkkori-index-routine.talk"))?;
     let before_birthday = default_index.replace("import \"./situations/birthday.talk\"\n", "");
-    if matches!(index.as_deref(), Some(value) if value == default_index.as_str() || value == before_birthday.as_str()) {
+    let current_index = super::encryption::decode(bundled("index.talk")?.as_bytes())?;
+    if matches!(index.as_deref(), Some(value) if value == current_index.as_str() || value == default_index.as_str() || value == before_birthday.as_str()) {
         if let Some(original) = read_optional(&device)? {
             let mut source = original.clone();
             let program = super::load_pack(&entry, &super::context::registry(), pack.id)
@@ -1712,7 +1762,7 @@ mod byulkkori_replacement_tests {
         for id in ["interaction.milestone-1", "device.event-low", "device.event-critical", "device.event-charging-started", "device.event-charged"] {
             assert!(program.scenes.iter().any(|scene| scene.id == id), "missing {id}");
         }
-        assert_eq!(source(&entry), full_index.replace("import \"./situations/birthday.talk\"\n", ""));
+        assert_eq!(source(&entry), full_index.replace("import \"./situations/birthday.talk\"\n", "").replace("import \"./situations/routine.talk\"\n", ""));
 
         // A user-edited index must not be treated as either known factory stage.
         let authored_index = format!("{}\n# 사용자 수정\n", source(&entry));
@@ -1769,6 +1819,7 @@ mod byulkkori_replacement_tests {
         fs::remove_file(pack.join("situations/recall.talk")).unwrap();
         fs::remove_file(directory.path().join(".talk-byulkkori-recall-v1")).unwrap();
         fs::remove_file(directory.path().join(".talk-byulkkori-birthday-v1")).unwrap();
+        fs::remove_file(directory.path().join(".talk-byulkkori-routine-v1")).unwrap();
         initialize_files(directory.path()).unwrap();
         assert_eq!(source(&entry), shipped);
         let program =
@@ -1790,6 +1841,49 @@ mod byulkkori_replacement_tests {
     }
 
     #[test]
+    fn routine_upgrade_adds_only_to_the_previous_factory_index_and_preserves_edits() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = initialize_files(directory.path()).unwrap();
+        let pack = root.join("packs/byulkkori");
+        let entry = pack.join("index.talk");
+        let scene = pack.join("situations/routine.talk");
+        let marker = directory.path().join(".talk-byulkkori-routine-v1");
+        let current = source(&entry);
+        let previous = include_bytes!("../../content/previous-byulkkori-index-routine.talk");
+        let program = super::super::load_pack(&entry, &super::super::context::registry(), "byulkkori").unwrap();
+        assert!(program.scenes.iter().any(|scene| scene.trigger == "routine.briefing"));
+
+        fs::write(&entry, previous).unwrap();
+        fs::remove_file(&scene).unwrap();
+        fs::remove_file(&marker).unwrap();
+        add_routine_dialogue(&root).unwrap();
+        assert_eq!(source(&entry), current);
+        assert!(scene.exists());
+        add_routine_dialogue(&root).unwrap();
+        assert_eq!(source(&entry), current);
+
+        let authored_index = format!("{}# 사용자 수정\n", super::super::encryption::decode(previous).unwrap());
+        fs::write(&entry, super::super::encryption::encode(&authored_index).unwrap()).unwrap();
+        fs::remove_file(&scene).unwrap();
+        fs::remove_file(&marker).unwrap();
+        add_routine_dialogue(&root).unwrap();
+        assert_eq!(source(&entry), authored_index);
+        assert!(!scene.exists());
+
+        fs::write(&entry, previous).unwrap();
+        fs::write(&scene, super::super::encryption::encode("format: 1\n# 사용자 대사\n").unwrap()).unwrap();
+        fs::remove_file(&marker).unwrap();
+        add_routine_dialogue(&root).unwrap();
+        assert_eq!(source(&entry), super::super::encryption::decode(previous).unwrap());
+        assert_eq!(source(&scene), "format: 1\n# 사용자 대사\n");
+
+        fs::remove_dir_all(&pack).unwrap();
+        fs::remove_file(&marker).unwrap();
+        add_routine_dialogue(&root).unwrap();
+        assert!(!pack.exists());
+    }
+
+    #[test]
     fn recall_then_birthday_upgrade_preserves_each_intermediate_and_authored_script() {
         let directory = tempfile::tempdir().unwrap();
         let root = initialize_files(directory.path()).unwrap();
@@ -1799,7 +1893,7 @@ mod byulkkori_replacement_tests {
         let birthday = pack.join("situations/birthday.talk");
         let recall_marker = directory.path().join(".talk-byulkkori-recall-v1");
         let birthday_marker = directory.path().join(".talk-byulkkori-birthday-v1");
-        let final_index = source(&entry);
+        let final_index = source(&entry).replace("import \"./situations/routine.talk\"\n", "");
         let recall_index = final_index.replace("import \"./situations/birthday.talk\"\n", "");
         let v6 = include_str!("../../content/previous-byulkkori-index-v6.talk");
         fs::write(&entry, v6).unwrap();
@@ -1853,10 +1947,11 @@ mod byulkkori_replacement_tests {
         reset(previous.as_bytes());
         assert_eq!(
             source(&entry),
-            shipped.replace("import \"./situations/birthday.talk\"\n", "")
+            shipped.replace("import \"./situations/birthday.talk\"\n", "").replace("import \"./situations/routine.talk\"\n", "")
         );
         // The birthday upgrade has its own marker and must run independently.
         fs::remove_file(directory.path().join(".talk-byulkkori-birthday-v1")).unwrap();
+        fs::remove_file(directory.path().join(".talk-byulkkori-routine-v1")).unwrap();
         initialize_files(directory.path()).unwrap();
         assert_eq!(source(&entry), shipped);
         assert!(REVIVED_WIDGET_FILES

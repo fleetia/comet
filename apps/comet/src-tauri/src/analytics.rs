@@ -1172,6 +1172,22 @@ mod tests {
     }
 
     #[test]
+    fn saved_routine_report_is_not_in_usage_events() {
+        let db = store::open(std::path::Path::new(":memory:")).unwrap();
+        let secret = crate::routines::save_private_test_report(&db);
+        let event: Event = serde_json::from_value(json!({"event":"comet_app_started"})).unwrap();
+        let body = event
+            .body(&test_context("production"), "123.456", 123)
+            .unwrap();
+        assert!(!body.to_string().contains(secret));
+        for key in ["body", "server_address", "tool_name"] {
+            let mut payload = json!({"event":"comet_app_started"});
+            payload[key] = json!(secret);
+            assert!(serde_json::from_value::<Event>(payload).is_err());
+        }
+    }
+
+    #[test]
     fn builds_only_validated_event_fields_and_native_context() {
         for payload in [
             json!({"event": "comet_app_started"}),

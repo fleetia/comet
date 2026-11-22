@@ -73,7 +73,7 @@ pub(crate) async fn reset_app(
                 "저장하지 않은 설정이 있어요. 저장하거나 변경을 취소한 뒤 초기화해 주세요.".into(),
             );
         }
-        lifecycle::prepare_update_install_locked(&state)?;
+        prepare_reset_locked(&state)?;
         let db = lock(&state.db)?;
         (store::settings(&db)?, widgets::storage::instances(&db)?)
     };
@@ -87,6 +87,15 @@ pub(crate) async fn reset_app(
     lock(&state.positions)?.clear();
     // Reaches `ExitRequested` with the restart code, which skips the quit confirmation.
     app.request_restart();
+    Ok(())
+}
+
+fn prepare_reset_locked(state: &AppState) -> Result<(), String> {
+    lifecycle::prepare_update_install_locked(state)?;
+    state
+        .routine_reset_generation
+        .fetch_add(1, Ordering::SeqCst);
+    *lock(&state.routine_playback)? = None;
     Ok(())
 }
 
@@ -119,6 +128,42 @@ async fn wipe_outside_data(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reset_cancels_routine_playback() {
+        use crate::routines::store::{Repeat, Routine};
+        let state = super::super::tests::state();
+        let (epoch, cancel) = {
+            let _action = lock(&state.action).unwrap();
+            super::super::interrupt(&state, true).unwrap()
+        };
+        *lock(&state.routine_playback).unwrap() = Some((
+            Routine {
+                id: "routine".into(),
+                name: "루틴".into(),
+                time: "09:00".into(),
+                repeat: Repeat::Daily,
+                sources: vec![],
+                enabled: true,
+                created_at: 0,
+            },
+            "user".into(),
+            chrono::NaiveDate::from_ymd_opt(2026, 11, 22).unwrap(),
+            1,
+            epoch,
+        ));
+
+        {
+            let _action = lock(&state.action).unwrap();
+            prepare_reset_locked(&state).unwrap();
+        }
+
+        assert!(cancel.load(Ordering::SeqCst));
+        assert!(!super::super::is_current(&state, epoch, &cancel));
+        assert!(lock(&state.routine_playback).unwrap().is_none());
+        assert_eq!(state.routine_reset_generation.load(Ordering::SeqCst), 1);
+        assert!(unavailable(&state));
+    }
 
     fn data_folder() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();

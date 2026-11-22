@@ -23,6 +23,7 @@ mod organizer;
 mod pack_stories;
 mod playback;
 mod resources;
+mod routines;
 mod sidecar;
 #[doc(hidden)]
 pub mod smoke;

@@ -244,6 +244,9 @@ pub(crate) fn present_line_with_record(
 ) -> Result<bool, String> {
     let _action = lock(&state.action)?;
     let db = lock(&state.db)?;
+    if source == "routine" && !routine_current(state, &db)? {
+        return Ok(false);
+    }
     if !is_current(state, epoch, cancel)
         || !chapter_available_locked(state, &db, epoch)?
         || (source == "diary" && !crate::diary::runtime::playback_current(state, &db, id)?)
@@ -375,7 +378,7 @@ pub(crate) fn present_line_with_record(
                 line: recorded_line.clone(),
                 actor: actor.clone(),
             });
-    } else {
+    } else if source != "routine" {
         if ticket.is_some() {
             store::insert_message_with_actor(
                 &db,
@@ -431,6 +434,18 @@ pub(crate) fn present_line_with_record(
     runtime.persona = Some(line.persona.clone());
     runtime.error = None;
     Ok(true)
+}
+
+pub(crate) fn routine_current(state: &AppState, db: &Connection) -> Result<bool, String> {
+    let playback = lock(&state.routine_playback)?;
+    let Some((routine, user_id, _, generation, _)) = playback.as_ref() else {
+        return Ok(false);
+    };
+    Ok(routine.enabled
+        && crate::routines::store::list(db)?.iter().any(|current| current == routine)
+        && crate::routines::store::generation(db, &routine.id)? == *generation
+        && store::current_user(db)?.as_ref().map(|user| &user.id) == Some(user_id)
+        && crate::routines::store::bubble_enabled(db)?)
 }
 
 pub(crate) fn mark_displayed_weather_reaction(

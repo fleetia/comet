@@ -4,6 +4,32 @@ fn database() -> Connection {
     store::open(std::path::Path::new(":memory:")).unwrap()
 }
 
+#[test]
+fn conversation_lookup_excludes_saved_routine_reports() {
+    let db = database();
+    let secret = crate::routines::save_private_test_report(&db);
+    let reads: Vec<_> = catalog(&db)
+        .unwrap()
+        .into_iter()
+        .filter(|item| item.is_read())
+        .collect();
+    assert!(!reads.is_empty());
+    for action in reads {
+        let context = entities_for(&db, &action.id, "").unwrap();
+        let result = query_registry(&db, &action.id, &json!({})).unwrap();
+        assert!(
+            !context.to_string().contains(secret),
+            "{} context",
+            action.id
+        );
+        assert!(!result.to_string().contains(secret), "{} result", action.id);
+    }
+    assert!(!entities(&db, "메모 일정 할 일 조회해줘")
+        .unwrap()
+        .to_string()
+        .contains(secret));
+}
+
 fn run(db: &Connection, kind: &str, target: &str, input: Value) -> Receipt {
     let user = store::active_user_id(db).unwrap();
     let revision = entities_for(db, kind, "").unwrap()["revision"]
